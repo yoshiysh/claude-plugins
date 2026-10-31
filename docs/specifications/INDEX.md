@@ -7,12 +7,12 @@
 | パス | 扱う関心事 | どういう仕様項目が書かれているか |
 |---|---|---|
 | `docs/specifications/authoring.md` | 仕様書: 生成される文書の記述仕様 | 文書の種別と分量／章構成／要求文と仕様項目の書き方／重複と矛盾／ID 体系／トレーサビリティ表／未確定事項の書式／保持規則／ファイル配置と INDEX／状態とイベントの記述／外部規格への言及／根拠が得られない事項の扱い／機械検査が参照する語の集合（SP-AUTHORING-001〜088、欠番は 001・002・004・019・049・083・084／81 件） |
-| `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜041／41 件） |
-| `docs/specifications/bp-conformance.md` | 仕様書: 対象スキルが備える性質の判定基準と、対象スキルに課す確定値 | 判定の当て方／形の判定／資産台帳／形に関わる原則／配布先での確認／fan-out の起動数の上限／性能・容量（対象スキルに課す確定値）／エラー処理と異常系（SP-BPCONFORMANCE-001〜038／38 件） |
+| `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／形式検証／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜046／46 件） |
+| `docs/specifications/bp-conformance.md` | 仕様書: 対象スキルが備える性質の判定基準と、対象スキルに課す確定値 | 判定の当て方／形の判定／資産台帳／run の記録／形に関わる原則／配布先での確認／fan-out の起動数の上限／性能・容量（対象スキルに課す確定値）／エラー処理と異常系（SP-BPCONFORMANCE-001〜040／40 件） |
 | `docs/specifications/bp-entry.md` | 仕様書: 依頼の振り分け・機能の連鎖・Workflow callsite | 振り分け／連鎖／Workflow callsite／エラー処理と異常系／外部インタフェース（SP-BPENTRY-001〜025／25 件） |
 | `docs/specifications/bp-findings.md` | 仕様書: 指摘と資産台帳 | 台帳と資産／結果の結び付き／反証／指摘の状態／カバレッジと skip 一覧／run をまたぐ指摘の扱い／指摘の形／エラー処理と異常系（SP-BPFINDINGS-001〜037／37 件） |
 | `docs/specifications/bp-inspection.md` | 仕様書: review と audit の観点と流れ | 形と段／観点／フローの観点／監査の観点／担当と起動／対象を書き換えない／対象スキル／外部インタフェース／エラー処理と異常系（SP-BPINSPECTION-001〜030／30 件） |
-| `docs/specifications/bp-run.md` | 仕様書: best-practices の実行基盤 | run の境界／状態と作業場所／停止／再開／起動数の上限／判定基準の写し／モデル・effort・権限／エラー処理と異常系／外部インタフェース／性能・容量（SP-BPRUN-001〜040／40 件） |
+| `docs/specifications/bp-run.md` | 仕様書: best-practices の実行基盤 | run の境界／状態と作業場所／run の記録／停止／再開／起動数の上限／判定基準の写し／モデル・effort・権限／エラー処理と異常系／外部インタフェース／性能・容量（SP-BPRUN-001〜048／48 件） |
 | `docs/specifications/elicitation.md` | 仕様書: 事前分析と依頼者への問いかけ | 観点の判定／分割案／判定の委ね方／質問の生成と絞り込み／回答の反映／エラー処理と異常系（SP-ELICITATION-001〜049、欠番は 005・006・007・011・016・019・021・022・023・028 ほか 6 件／33 件） |
 | `docs/specifications/flow.md` | 仕様書: 全体の制御 | 起動時の判定／根拠として扱う入力の範囲／中断点と順序の制約／未確定事項の区分・周回・完成判定／保存／中断（SP-FLOW-001〜047、欠番は 001・006・008・009・023・038／41 件） |
 | `docs/specifications/verification.md` | 仕様書: 生成物の検査と改稿 | 検査の実行と記録／同一性の判定／実行可能性の判定／記述規約の検査／構造の検査／文書間の検査／網羅の検査／根拠の検査／改稿の反復／エラー処理と異常系（SP-VERIFICATION-001〜045、欠番は 008・030・040／42 件） |
@@ -120,6 +120,7 @@
 | SP-BPAUTHORING-015 | 書いたパスの照合 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-016 | 観点と担当 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-017 | 適合の観点 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-046 | Claude Code での役ごとの制限の照らし方 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-018 | 目標の観点 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-037 | 依頼に無い目標・制約の照らし方 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-038 | 判定基準が求めた制約 | `docs/specifications/bp-authoring.md` |
@@ -134,6 +135,10 @@
 | SP-BPAUTHORING-024 | 反復の数え方 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-025 | 合否の後の進み方 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-026 | 完了の条件 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-042 | 形式検証の段 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-043 | 形式検証の記録 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-044 | 形式検証の段を通ったとするとき | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-045 | 形式検証の失敗 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-027 | needs_input で止まるところ | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-028 | 止まったときに書いたファイルと報告 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-035 | 再開した run が始めるところ | `docs/specifications/bp-authoring.md` |
@@ -152,12 +157,15 @@
 | SP-BPCONFORMANCE-007 | Workflow にしない判定 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-008 | 部品による組み立て | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-009 | 資産台帳の要否 | `docs/specifications/bp-conformance.md` |
+| SP-BPCONFORMANCE-039 | run の記録の判定 | `docs/specifications/bp-conformance.md` |
+| SP-BPCONFORMANCE-040 | run の記録の置き場 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-010 | 目標の固定 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-011 | 停止・再開と人間の入力 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-012 | 体数と同時実行 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-013 | モデル・effort・prompt | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-014 | 権限 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-015 | 探索グラフ | `docs/specifications/bp-conformance.md` |
+| SP-BPCONFORMANCE-034 | 実行役の時間の上限 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-016 | 状態の書き込み | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-017 | 資産台帳の原則 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-018 | 判定の範囲と結果の宣言 | `docs/specifications/bp-conformance.md` |
@@ -177,8 +185,7 @@
 | SP-BPCONFORMANCE-031 | 同じ意図の試行の上限 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-032 | 乾きの定義と乾き停止 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-033 | 要約の大きさの上限 | `docs/specifications/bp-conformance.md` |
-| SP-BPCONFORMANCE-034 | 実行役の時間の上限 | `docs/specifications/bp-conformance.md` |
-| SP-BPCONFORMANCE-035 | 役ごとのモデルと effort の初期値 | `docs/specifications/bp-conformance.md` |
+| SP-BPCONFORMANCE-035 | 役ごとのモデルと effort の指定 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-036 | 確定値の置き方 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-038 | 判定の単位を判定できないとき | `docs/specifications/bp-conformance.md` |
 | SP-BPENTRY-001 | 4 機能の入口 | `docs/specifications/bp-entry.md` |
@@ -201,7 +208,7 @@
 | SP-BPENTRY-016 | Codex runner の request | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-024 | Codex runner の経路の前提 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-025 | runner と runtime README の変更 | `docs/specifications/bp-entry.md` |
-| SP-BPENTRY-017 | native Workflow の起動の失敗 | `docs/specifications/bp-entry.md` |
+| SP-BPENTRY-017 | 返り値の無い run | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-018 | どの経路も無い | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-019 | create を列の先頭以外に置く依頼 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-020 | 渡せる形でない前の結果 | `docs/specifications/bp-entry.md` |
@@ -284,6 +291,11 @@
 | SP-BPRUN-008 | 書き込み先の制限 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-009 | 書いたファイルの記録 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-038 | 段の開始と項目の列挙 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-041 | 作業記録 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-042 | 記録台帳 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-043 | 文書の一般規約の写しと版 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-044 | 記録の保持 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-046 | 性能の記録 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-010 | 停止の種類 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-011 | 停止の記録 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-012 | 停止で書いたファイルを戻さない | `docs/specifications/bp-run.md` |
@@ -309,6 +321,9 @@
 | SP-BPRUN-028 | fan-out の項目の工程の欠け | `docs/specifications/bp-run.md` |
 | SP-BPRUN-029 | 全件の欠けと CLI の拒否 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-030 | BLOCKED の理由 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-045 | 文書の一般規約の版を得られないとき | `docs/specifications/bp-run.md` |
+| SP-BPRUN-047 | 結果を返さなかった担当の作業記録 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-048 | 記録の保存の失敗 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-031 | CLI の操作 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-032 | run の返り値 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-033 | next_args の中身 | `docs/specifications/bp-run.md` |

@@ -6,7 +6,7 @@
 
 ## 対象範囲
 
-本文書は、best-practices の入口を定める。扱うのは次のとおり。
+本文書は、best-practices の入口を定める。本文書は `####` 見出し 1 つを 1 仕様項目とする。扱うのは次のとおり。
 
 - 依頼から機能への振り分けと、当たる機能が無い依頼の返し方
 - 複数の機能にまたがる依頼の、順の実行と結果の受け渡し
@@ -28,7 +28,7 @@
 
 ### 本文書が実現する要求
 
-- 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-001・PR-BPOPERATIONS-002・PR-BPOPERATIONS-038・PR-BPOPERATIONS-039
+- 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-001・PR-BPOPERATIONS-002・PR-BPOPERATIONS-038・PR-BPOPERATIONS-039・PR-BPOPERATIONS-048・PR-BPOPERATIONS-049
 - 併せて実現: PR-BPOPERATIONS-036、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-022・PR-BPDESIGNEDSKILL-023（best-practices 自身の入力と callsite に当てたもの。主担当は `docs/specifications/bp-conformance.md`）
 
 ## 用語定義
@@ -93,7 +93,7 @@ review・update・audit の run を起動する前に、入口は、CLI に対�
 入口は、機能の列を前から順に、1 つの機能につき 1 つの run として起動しなければならない。前の機能の run が返り値を返す前に、次の機能の run を起動してはならない。
 
 #### SP-BPENTRY-008 次の機能へ進む条件
-入口が次の機能の run を起動してよいのは、前の機能の run が完了で止まったときだけとする。前の run が完了以外で止まったとき、入口は次の機能の run を起動してはならず、前の run の返り値と未実行の機能を利用者に返さなければならない（SP-BPENTRY-021）。進むかどうかは CLI の `chain-next` の操作（`docs/specifications/bp-run.md` の SP-BPRUN-031）が前の run の状態から答え、入口はその答えに従う。
+入口が次の機能の run を起動してよいのは、前の機能の run が完了で止まったときだけとする。前の run が完了以外で止まったとき、入口は次の機能の run を起動してはならず、前の run の返り値と未実行の機能を利用者に返さなければならない（SP-BPENTRY-021）。進むかどうかは CLI の `chain-next` の操作（`docs/specifications/bp-run.md` の SP-BPRUN-031）が前の run の状態から答え、入口はその答えに従う。前の run が返り値を返さずに終わったとき（native Workflow と Codex runner のどちらの経路でも、起動の失敗・error・timeout・不正な結果を含む）は、入口は `chain-next` を呼ばずに SP-BPENTRY-017 に従う。前の run が返り値を返したが状態を作らずに止まったとき（返り値に状態 ID が無い：SP-BPRUN-032。`chain-next` は前の run の状態 ID を必須の入力にする）は、入口は `chain-next` を呼ばずに完了以外の停止として扱い、次の機能の run を起動せずに、その run を `chain-report` の `runs` に `{"function", "result"}` の形で渡さなければならない。
 
 #### SP-BPENTRY-009 前の機能の結果の渡し方
 入口は、次の機能の run の入力を、前の機能の run の返り値から次の判定表に従って作らなければならない。
@@ -235,8 +235,8 @@ runner の `requirements` の照合と workspace の mode（runtime README の E
 
 本文書の機能に固有の異常系だけを置く。run の中の agent の失敗・続けられない失敗・途中終了は `docs/specifications/bp-run.md` が扱う。
 
-#### SP-BPENTRY-017 native Workflow の起動の失敗
-native Workflow の経路の起動が error・timeout・不正な結果で終わったとき、入口は Codex runner の経路で起動し直してはならない（SP-BPENTRY-014）。入口は、host が返した失敗の内容をそのまま利用者に返し、連鎖の後ろの機能を未実行の機能として返さなければならない。run が状態を書いた後に失敗したことがあるので、入口は、CLI が列挙する未完了の状態（SP-BPRUN-018）から状態 ID と next_args を得て再開できることを併せて返さなければならない（再開の手順は SP-BPRUN-018）。
+#### SP-BPENTRY-017 返り値の無い run
+機能の run が返り値を返さずに終わったとき（機能の列の長さを問わず、native Workflow と Codex runner のどちらの経路でも、起動の失敗・error・timeout・不正な結果を含む）、入口は後続の機能の run を起動してはならない。native Workflow の経路の失敗では、入口は Codex runner の経路で起動し直してはならない（SP-BPENTRY-014）。入口は、止まった機能が返す報告の代わりに host が返した失敗の内容を書き換えずに利用者に返し、後続の機能があればそれを未実行の機能として返さなければならない。run が状態を書いた後に失敗したことがあるので、入口は、CLI が列挙する未完了の状態（SP-BPRUN-018）から状態 ID と next_args を得て再開できることを併せて返さなければならない（再開の手順は SP-BPRUN-018）。
 
 #### SP-BPENTRY-018 どの経路も無い
 native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-runner` も使えないとき、入口は run を起動してはならず、`workflow` plugin の install が要ることを利用者に返さなければならない（Codex は plugin の依存を自動で入れない：AGENTS.md）。
@@ -306,6 +306,9 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（返り値に各 run の返り値が列の順に変えずに載り、止まったときは未実行の機能と next_args が載る） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 静的な照合（SKILL.md の手順が、`chain-report` の出力を書き換えずに利用者へ返す） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-017 | 連鎖の結合テスト（native の起動の失敗で runner に切り替えず、未実行の機能と再開の手段を返す） | 作成中 |
+| PR-BPOPERATIONS-048 | SP-BPENTRY-008, SP-BPENTRY-021 | 連鎖の結合テスト（review が完了以外で止まった review → update の依頼で、update を起動せず、review の返り値を連なりの返しにし、update を未実行の機能として返す） | 未着手 |
+| PR-BPOPERATIONS-048 | SP-BPENTRY-017 | 連鎖の結合テスト（Codex runner の経路で review の run が結果を返さずに終わったとき、update を起動せず、host の失敗の内容と未実行の機能と再開の手段を返す） | 未着手 |
+| PR-BPOPERATIONS-049 | SP-BPENTRY-009, SP-BPENTRY-020 | 連鎖の結合テスト（create → update の依頼で、create の結果を update の修正の根拠の代わりに渡さない。指摘の項目を欠く前の結果で update を起動しない） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-019 | 振り分けの eval（review の後に create を求める依頼で run を起動しない） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-020 | 連鎖の結合テスト（項目の欠けた指摘の一覧で update の run を起動しない） | 完了 |
 | PR-BPOPERATIONS-039 | SP-BPENTRY-003 | 振り分けの eval（marketplace への公開だけを求める依頼が「当たる機能が無い」になる） | 未着手 |
