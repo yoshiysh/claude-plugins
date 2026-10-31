@@ -7,7 +7,7 @@
 - 本書は `####` 見出し 1 つを 1 仕様項目とする。
 - 主担当: PR-BPDESIGNEDSKILL-001〜023 の 23 件と、PR-BPDESIGNEDSKILL-028〜036・038〜040・042（対象スキルの run の記録）、043・044・047（探索グラフ型の実行役の時間の上限）、048（役ごとのモデルと effort の指定）、051（配置の原則）。このうち 016・017・019〜023 は、`docs/specifications/bp-run.md` と `docs/specifications/bp-entry.md` が best-practices 自身に当てたものとして併せて実現する。
 - 併せて実現: PR-BPOPERATIONS-003・007・008・011・024・025 と PR-BPDESIGNEDSKILL-045・046・049・050。この 10 件の主担当は、`docs/specifications/bp-authoring.md`・`bp-inspection.md` が持つ。本書は対象スキルの判定基準と値だけを受け持つ。
-- 本書の判定基準を当てる者は 2 つある。create・update の検証役（PR-BPOPERATIONS-008）と、review のフローの観点（PR-BPOPERATIONS-024）である。review の仕様の観点（PR-BPOPERATIONS-025）は、「性能・容量（対象スキルに課す確定値）」の章に照らす。
+- 本書の判定基準を当てる者は 2 つある。create・update の検証役（PR-BPOPERATIONS-008）と、review のフローの観点（PR-BPOPERATIONS-024）である。ただし SP-BPCONFORMANCE-041 は、この 2 つでなく CLI の `placement` が当てる（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。review の仕様の観点（PR-BPOPERATIONS-025）は、「性能・容量（対象スキルに課す確定値）」の章に照らす。
 - 本書が扱わないもの:
   - 判定の結果を指摘・資産台帳にする方法（`docs/specifications/bp-findings.md`）
   - 停止の種類・状態・next_args・CLI（`docs/specifications/bp-run.md`）

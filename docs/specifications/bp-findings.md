@@ -303,7 +303,7 @@ run をまたいで指摘の状態を追うかの裁定が下るまで、create 
 | 観点 | SP-BPFINDINGS-010 |
 | 指摘の種類 | SP-BPFINDINGS-010 |
 | 資産 | 資産 ID・パス・範囲の位置。照合で資産を足した指摘（SP-BPFINDINGS-020）は全ての資産 |
-| 引用 | 行番号を添えた原文 |
+| 引用 | 行番号を添えた原文（指す行が無いときは SP-BPFINDINGS-007 の引用の行のとおり） |
 | 内容 | 基準にどう反しているか |
 | 直し方 | どこをどう書き換えるか |
 | 状態 | open・dismissed・resolved・regressed のどれか。SP-BPFINDINGS-028 が状態を載せないとする指摘には載せない |

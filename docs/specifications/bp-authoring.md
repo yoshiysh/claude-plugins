@@ -252,7 +252,7 @@ CLI は、次の結果の記録を拒否しなければならない。拒否の�
 - 照らした制限が SP-BPAUTHORING-046 の 4 項目（役の名前・制限の中身・配布先・結果）の並びでない。
 - 照らした制限に結果が「効かない」の制限があるのに、同じ結果の中の PR-BPDESIGNEDSKILL-046 の判定の単位の結果が不適合でない（受けると、効かないと確かめた制限が合否にも残る危険にも現れない）。
 
-CLI は、受理した結果を状態に書くとき、検証役が返した残る危険に、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の網羅の残る危険（同項の表の create・update の行の 2 項目）を 1 件足さなければならない。この 1 件は上の 4 項目の規則に照らさない。残る危険 `residualRisks` の並びには、4 項目の要素とこの 2 項目の要素が並ぶ。足すのは反復ごとの適合の観点の結果に 1 件で、返り値はどれも最後の反復の残る危険を返す（SP-BPAUTHORING-033・SP-BPAUTHORING-034）ので、返り値の中で 1 件になる。
+CLI は、受理した結果を状態に書くとき、検証役が返した残る危険に、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の網羅の残る危険（同項の表の create・update の行の 2 項目）を 1 件足さなければならない。この 1 件は上の 4 項目の規則に照らさない。残る危険 `residualRisks` の並びには、4 項目の要素とこの 2 項目の要素が並ぶ。同じ反復の適合の観点の結果は検証の段と追加の検証の段（SP-BPFINDINGS-025）の項目ごとにあるので、CLI は、同じ反復の結果に既にこの 1 件を足していれば足さない。返り値はどれも最後の反復の残る危険を返す（SP-BPAUTHORING-033・SP-BPAUTHORING-034）ので、返り値の中で 1 件になる。
 
 適用の判定の `runs` の要素の `assets` が、欠けている・並びでない・空の並びである・同じ資産 ID を 2 回以上含む、のどれかに当たるときに CLI がその結果を受理するか拒否するか（1 つ目の要素（run の並び）と 2 つ目以降の要素で扱いを分けるかを含む）の裁定が下るまで、create・update の本項の適用の判定の受理を実装する者は、それらの場合を受理する実装も拒否する実装も確定させてはならない。同じ裁定までの単体テストの期待値と配布の扱いは、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 の保持規則と同じとする。
 
@@ -691,7 +691,7 @@ needs_input で止まった create・update の返り値は、理由 `reason` �
 | PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-023 | script の模擬実行（残る危険だけがある反復が合格になる） | 完了 |
 | PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-012 | fixture の run（create の設計の説明の `designNote` の範囲に判断点の表がある） | 未着手 |
 | PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-021 | CLI の単体テスト（理由の空いたデータ行を持つ `designNote` で `placement` が不適合を記録し、`gate` の `units` の SP-BPCONFORMANCE-041 の単位が不適合で合否が不合格になる。`placement` の記録の無い `gate` が `E_INPUT` になる。検証役が SP-BPCONFORMANCE-041 の単位の結果を返すと拒否される。検証役が結果を返せない BLOCKED から書き手を起動せずに始めた反復で、`placement` が前の反復の書く段の結果の `designNote` を読む） | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-017 | CLI の単体テスト（適合の観点の結果を書いた状態の残る危険に、検証役が返さなくても網羅の残る危険が 1 件だけあり、完了と停止の返り値の `residualRisks` に載る） | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-017 | CLI の単体テスト（同じ反復で検証の段と追加の検証の段の適合の観点の結果を書いた状態の残る危険に、検証役が返さなくても網羅の残る危険が 1 件だけあり、完了と停止の返り値の `residualRisks` に載る） | 未着手 |
 | PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-033 | fixture の run（完了の返り値の残る危険に、4 項目の要素と網羅の残る危険の 2 項目の要素 1 件があり、SP-BPRUN-032 の項目と別に載る） | 作成中 |
 | PR-BPOPERATIONS-008 | SP-BPAUTHORING-020 | script の模擬実行（1 回の反復の段が 1〜7 の順に起動される） | 完了 |
 | PR-BPOPERATIONS-019 | SP-BPAUTHORING-020 | script の模擬実行（契約の観点の候補が反証の段に渡る） | 完了 |
