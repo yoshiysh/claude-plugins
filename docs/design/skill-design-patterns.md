@@ -6,6 +6,7 @@
 - [用語](#用語)
 - [構成要素](#構成要素)
 - [文脈の配達](#文脈の配達)
+- [配置の原則](#配置の原則)
 - [形の判定](#形の判定)
 - [目標の固定](#目標の固定)
 - [停止・再開と人間の入力](#停止再開と人間の入力)
@@ -91,6 +92,17 @@ flowchart LR
 | 役に必要な前提は、環境から自然に届くものとして扱わず、script か CLI が決定的に配る対象として設計する | メタワーク（前提は AI が読める形で残し、頼むたびに説明し直さない）・本書 | 配布先や実行環境が変わると、同じスキルでも届く文脈が変わり、前提を知らない agent がそれらしく間違える |
 | 前提は、AI が引ける形（読める文書・CLI の読み出し）で残し、守れたかを確かめる環境（テスト・検査）と対で用意する | メタワーク（AI が読む知識と、確かめる環境の両方を揃える） | 前提が引ける形で残っていないと、守るべき規則が実行のたびに解釈され、同じ検査でも結果が run ごとに変わる。確かめる環境だけがあると、検査は前提の古い写しを相手にし、文書側で前提を更新しても検査に届かない |
 | 配れなかった前提・読めなかった文脈は、黙って欠けたまま進めず、結果に「見ていない」として宣言する | 本書・メタワーク | 見ていない前提が、前提どおりに進めたものとして結果に読まれる |
+
+## 配置の原則
+
+スキルが持つルール・知識・処理を、どの層に置くか。層は硬い順に、構造とスキーマ（違反が表現できない）、決定的なスクリプトと機械検査（違反が必ず落ちる）、閉集合からの選択（自由記述で決めない）、AI の判断に渡す知識、人間の判定、とする。形によらず当てはまる。
+
+この節は新しい仕組みを足すものではなく、本書の各節が既に置いているものの総論である。「状態の書き込み」は状態の読み書きと決定的な照合を CLI に寄せ、「機械で確かめる」は確かめられる性質を検査器に寄せ、「状態の書き込み」（探索グラフと資産台帳に共通する）では、既知かどうかの判定も CLI の決定的な照合か検証役の閉集合からの選択に寄せている。いずれも、柔らかい層にあった判定を硬い層へ移した適用例である。
+
+| 原則 | 出所 | 守らないと壊れること |
+|---|---|---|
+| ルール・知識・処理は、それを表せる最も硬い層に置く | ハーネス（決定的に表せるものは決定的な層に置く）・本書（層の順と、スキルへの当てはめ） | 柔らかい層に置いたルールは実行のたびに解釈され直し、同じルールでも run ごとに違う実行になる。外れても、落ちる検査が無いので気づく手段が無い |
+| 柔らかい層に置く場合は、なぜ硬い層へ置けないかを記録に残す | 本書 | 理由が残らないと、後から硬い層へ移せるようになったときに移す対象が分からず、柔らかい層への配置が既定として残り続ける |
 
 ## 形の判定
 
@@ -494,7 +506,7 @@ run の記録から、スキルの設計自体をどう直すか。
 
 ## 出所
 
-表の「出所」列の略記（期待の差と自己改善は 2026-10-28、REA は 2026-10-23、FV とメタワークは 2026-10-24、他は 2026-10-20 に取得）：
+表の「出所」列の略記（期待の差と自己改善は 2026-10-28、REA は 2026-10-23、FV とメタワークは 2026-10-24、ハーネスは 2026-10-31、他は 2026-10-20 に取得）：
 
 | 略記 | 指すもの |
 |---|---|
@@ -505,6 +517,7 @@ run の記録から、スキルの設計自体をどう直すか。
 | REA | [morluto/rea の CLI and Evidence](https://github.com/morluto/rea/blob/main/docs/cli.md) と [Cross-layer JavaScript application workflows](https://github.com/morluto/rea/blob/main/docs/javascript-application-workflows.md) |
 | FV | [LLMs are making formal software verification feasible at a much larger scale](https://www.anthropic.com/research/formal-verification)（Anthropic） |
 | メタワーク | [エージェントを使い続けるためのメタワーク](https://speakerdeck.com/rkaga/meta-work-for-keeping-using-the-agent)（SpeakerDeck。五反田AI vol.4 の登壇資料、2026-10-21） |
+| ハーネス | [AIに任せられるFlutterコードベースを作る 〜仕様をコードで表し、ハーネスで守る〜](https://speakerdeck.com/myohei/ai-ni-makaserareru-flutter-kodo-besu-o-tsukuru-shiyou-o-kodo-de-arawashi-hanesu-de-mamoru)（SpeakerDeck。Yohei Maeda、FlutterKaigi 2026 の登壇資料） |
 | 期待の差 | [The AI expectations gap](https://www.anthropic.com/research/ai-expectations-gap)（Anthropic。米国成人と同社職員の調査で、所要時間は回答者の自己申告） |
 | 自己改善 | [When AI builds itself](https://www.anthropic.com/institute/recursive-self-improvement)（Anthropic。同社の限定された事例と過去のインシデントの事後評価） |
 | ARTEX | [Hinln/ARTEX](https://github.com/Hinln/ARTEX) の README の構成の節 |
