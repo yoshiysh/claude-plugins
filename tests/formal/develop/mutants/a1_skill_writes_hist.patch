@@ -1,7 +1,7 @@
 --- DevelopSkill.tla
 +++ DevelopSkill.tla
 @@ -50,7 +50,7 @@
- NeedsCommit == args.pr /\ args.stopAt \in {"none", "push", "reply", "resolve"}
+ NeedsCommit == NeedsCommitOf(args)
  WaitsChecks == args.pr /\ args.stopAt \in {"none", "reply", "resolve"}
  
 -Sys(gd, n) == gd /\ sk' = n /\ inbox' = NoEv

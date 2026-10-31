@@ -12,6 +12,7 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 jar="${TLA2TOOLS:-$HOME/.local/share/tla/tla2tools.jar}"
 tlc=(java -Xmx8g -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers auto)
+if command -v timeout >/dev/null 2>&1; then limit=(timeout 1200); elif command -v gtimeout >/dev/null 2>&1; then limit=(gtimeout 1200); else limit=(); fi
 work="$(mktemp -d)"
 echo "work dir (logs kept): $work"
 mode="${1:-all}"
@@ -86,12 +87,12 @@ run_mutants() {
     esac
     local flags=(-metadir "$d/meta")
     case "$exp" in deadlock) ;; NOTFIRED:*) flags+=(-deadlock -coverage 1) ;; *) flags+=(-deadlock) ;; esac
-    (cd "$d" && timeout 1200 "${tlc[@]}" "${flags[@]}" MC) > "$d.log" 2>&1 || true
+    (cd "$d" && ${limit[@]+"${limit[@]}"} "${tlc[@]}" "${flags[@]}" MC) > "$d.log" 2>&1 || true
     verdict="survived"
     case "$exp" in
       SANY) grep -qE 'Semantic errors|Parse Error|Unknown operator|Substitution missing|Multiple declarations' "$d.log" && verdict=killed ;;
       deadlock) grep -q 'Deadlock reached' "$d.log" && verdict=killed ;;
-      NOTFIRED:*) grep -q 'No error has been found' "$d.log" && \
+      NOTFIRED:*) grep -q 'No error has been found' "$d.log" && grep -qxF "${exp#NOTFIRED:}" <<<"$(table_actions "$d.log")" && \
                     [[ "$(fired_counts "$d.log" | awk -v a="${exp#NOTFIRED:}" '$1==a {print $2}')" =~ ^0?$ ]] && verdict=killed ;;
       W_*) grep -q 'No error has been found' "$d.log" && verdict=killed ;;
       Termination) grep -q 'Temporal properties were violated' "$d.log" && verdict=killed ;;

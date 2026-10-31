@@ -284,13 +284,13 @@ implement は、最終照合で、変更の後の check に変更が起こした
 最終照合が通らずに止まるとき、implement は作業ツリーの変更を捨ててはならない（原因を直した後に再開できるようにする）。
 
 #### PR-DEVELOPIMPLEMENT-033 commit する条件
-implement は、commit を頼まれたときにだけ commit しなければならない。commit を頼まれていても、commit の段で commit する未コミットの変更が作業ツリーに無いとき（この呼び出しで commit した後に PR-DEVELOPIMPLEMENT-071 で計画の run へ戻るか PR-DEVELOPIMPLEMENT-078 で開始時の HEAD より後に作った未 push の commit を引き継ぎ、その後に追加の未コミットの変更が無いときと、実装の run の未コミットの変更を修正の回で全て戻したときを含む）は、implement は空の commit を作らずに完了し、この呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で引き継いだ未 push の commit を含む。PR-DEVELOPIMPLEMENT-034・049 でも同じ）が 1 つも無いとき（未コミットの変更を全て戻し、引き継いだ未 push の commit も無いとき）は作った commit が無いことを結果に書かなければならない（返す SHA は PR-DEVELOPIMPLEMENT-049 のとおり、この呼び出しで作った commit と PR-DEVELOPIMPLEMENT-078 で引き継いだ未 push の commit のもので、1 つ以上あればその SHA を全て返し、1 つも無ければ返さない）。
+implement は、commit を頼まれたときにだけ commit しなければならない。commit の対象とする未コミットの変更から、呼び出しの前からの変更（開始時に固定した変更のあったパス・内容・index）を除外しなければならない。commit を頼まれていても、commit の段で commit する未コミットの変更が作業ツリーに無いとき（この呼び出しで commit した後に PR-DEVELOPIMPLEMENT-071 で計画の run へ戻るか PR-DEVELOPIMPLEMENT-078 で開始時の HEAD より後に作った未 push の commit を記録と一致して引き継ぎ、その後に追加の未コミットの変更が無いときと、実装の run の未コミットの変更を修正の回で全て戻したときを含む）は、implement は空の commit を作らずに完了し、この呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit を含む。PR-DEVELOPIMPLEMENT-034・049 でも同じ）が 1 つも無いとき（未コミットの変更を全て戻し、引き継いだ未 push の commit も無いとき）は作った commit が無いことを結果に書かなければならない（返す SHA は PR-DEVELOPIMPLEMENT-049 のとおり、この呼び出しで作った commit と PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit のもので、1 つ以上あればその SHA を全て返し、1 つも無ければ返さない）。
 
 #### PR-DEVELOPIMPLEMENT-034 commit の後の push
-develop:address-review から PR の修正として commit を頼まれたとき（PR-DEVELOPIMPLEMENT-051）を除き、commit の後に push するかは、implement は利用側の宣言に従い、宣言があればこの呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で引き継いだ未 push の commit を含む）を push し、宣言が無ければ push してはならない。
+develop:address-review から PR の修正として commit を頼まれたとき（PR-DEVELOPIMPLEMENT-051）を除き、commit の後に push するかは、implement は利用側の宣言に従い、宣言があればこの呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit を含む）に限定して push し、宣言が無ければ push してはならない。
 
 #### PR-DEVELOPIMPLEMENT-049 address-review から PR の修正を受けたとき
-develop:address-review から PR の修正として commit を頼まれたとき、implement は最終照合を通った修正を PR-DEVELOPIMPLEMENT-033 のとおり commit して、この呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で引き継いだ未 push の commit を含む）の SHA を全て返さなければならない（PR-DEVELOPIMPLEMENT-071 で計画の run へ戻った前後に作った commit と PR-DEVELOPIMPLEMENT-078 で引き継いだ未 push の commit を含み、PR-DEVELOPIMPLEMENT-033 でそのどちらの commit も 1 つも無いときは SHA を返さない）。
+develop:address-review から PR の修正として commit を頼まれたとき、implement は最終照合を通った修正を PR-DEVELOPIMPLEMENT-033 のとおり commit して、この呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit を含む）の SHA を全て返さなければならない（PR-DEVELOPIMPLEMENT-071 で計画の run へ戻った前後に作った commit と PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit を含み、PR-DEVELOPIMPLEMENT-033 でそのどちらの commit も 1 つも無いときは SHA を返さない）。
 
 #### PR-DEVELOPIMPLEMENT-051 address-review の PR の修正を push しない
 develop:address-review から PR の修正として commit を頼まれたとき、implement はその commit を push してはならない（push は develop:address-review が行う）。
@@ -361,7 +361,7 @@ implement は、止まっている間に足された、再開ではない入力�
 | 打ち切り | 再開せずに終わる | `H_Abort` |
 
 #### PR-DEVELOPIMPLEMENT-078 実装の後の停止から新しく呼ぶとき
-implement は、呼び出しの開始点（開始時の HEAD・開始時に変更のあったパス・PR-DEVELOPIMPLEMENT-016 の開始時の check の結果）を状態に記録し、実装の run が作業ツリーを変えた後に止まるときは、どの停止でも（次の手が新しく呼ぶことである停止に限らず、PR-DEVELOPIMPLEMENT-076 で新しく呼ぶときにも使えるように）、新しく呼ぶときにその開始点を引き継ぐ指定を返さなければならない。その指定を渡されて新しく呼ばれた implement は、作業ツリーと HEAD を戻さず変更も退避せずに、止まった呼び出しの開始点（開始時の HEAD・開始時に変更のあったパス・開始時の check の結果）と開始点より後に作業ツリーを変えたことと開始時の HEAD より後に作った未 push の commit を自分の状態に引き継ぎ、引き継いだ開始時に変更のあったパスを呼び出しの前からの変更として、引き継いだ未 push の commit をこの呼び出しで作った commit に含めて扱い（PR-DEVELOPIMPLEMENT-033・034・049）、開始時の check（PR-DEVELOPIMPLEMENT-016）を流し直さずに、変更の後の check（PR-DEVELOPIMPLEMENT-019）を引き継いだ開始時の check の結果と比べなければならない（作業ツリーや HEAD を戻すと、呼び出しの前からあった変更や作った commit を失うか PR-DEVELOPPLUGIN-074 が禁じる履歴を書き換える push になり、開始点を引き継がずに開始時の check を流し直すと、止まった呼び出しの変更が起こした失敗を開始時から落ちていた失敗と数える）。
+implement は、呼び出しの開始点（開始時の HEAD・開始時に変更のあったパスとその内容・index・PR-DEVELOPIMPLEMENT-016 の開始時の check の結果）を状態に記録し、実装の run が作業ツリーを変えた後に止まるときは、どの停止でも（次の手が新しく呼ぶことである停止に限らず、PR-DEVELOPIMPLEMENT-076 で新しく呼ぶときにも使えるように）、その呼び出しが作成した未 push commit の SHA 一覧を状態に記録し、新しく呼ぶときにその開始点を引き継ぐ指定を返さなければならない。その指定を渡されて新しく呼ばれた implement は、作業ツリーと HEAD を戻さず変更も退避せずに、止まった呼び出しの開始点（開始時の HEAD・開始時に変更のあったパスとその内容・index・開始時の check の結果）と開始点より後に作業ツリーを変えたことと止まった呼び出しが作成した未 push の commit を自分の状態に引き継ぎ、引き継いだ開始時に変更のあったパスとその内容・index を呼び出しの前からの変更として今回の commit から除外し、引き継ぐ未 push commit は記録された SHA 一覧と実際の未 push commit 一覧が一致するときに限定して不一致があれば引き継ぎを拒否して止まり、一致した未 push の commit をこの呼び出しで作った commit に含めて扱い（PR-DEVELOPIMPLEMENT-033・034・049）、開始時の check（PR-DEVELOPIMPLEMENT-016）を流し直さずに、変更の後の check（PR-DEVELOPIMPLEMENT-019）を引き継いだ開始時の check の結果と比べなければならない（作業ツリーや HEAD を戻すと、呼び出しの前からあった変更や作った commit を失うか PR-DEVELOPPLUGIN-074 が禁じる履歴を書き換える push になり、開始点を引き継がずに開始時の check を流し直すと、止まった呼び出しの変更が起こした失敗を開始時から落ちていた失敗と数える）。
 
 ### 完了の条件
 

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -243,7 +245,7 @@ export function reqIdsOf(tla) {
   const ids = new Set();
   for (const line of tla.split('\n')) {
     const m = /^\\\* req:(.*)$/.exec(line.trim());
-    if (m) for (const [id] of m[1].matchAll(/PR-[A-Z]+-\d{3}/g)) ids.add(id);
+    if (m) for (const id of expandIds(m[1])) ids.add(id);
   }
   return ids;
 }
@@ -532,3 +534,362 @@ test('照合の部品は、kind・stage・guard の対・停止の名前・結�
   assert.deepEqual([...reqIdsOf(skill)], ['PR-X-001', 'PR-X-002', 'PR-X-003', 'PR-X-004']);
   assert.throws(() => actionSetsOf('IActs == {"I_A"}'), /RActs/);
 });
+
+const notfiredCases = [
+  {
+    caseId: 'TC-001',
+    name: 'run_sh_notfired: ACTIONS に存在する action で発火数 0 のとき killed と判定される',
+    exp: 'NOTFIRED:I_OutOfPlan',
+    log: [
+      '"ACTIONS"',
+      '{"I_OutOfPlan", "I_Other"}',
+      '}',
+      '<I_Other line 10>: 1: 5',
+      'Model checking completed. No error has been found.',
+    ].join('\n'),
+    expectedVerdict: 'killed',
+  },
+  {
+    caseId: 'TC-004',
+    name: 'run_sh_notfired: ACTIONS に存在しない誤記 action または発火回数 1 以上のとき survived と判定される',
+    subcases: [
+      {
+        desc: '誤記アクション名',
+        exp: 'NOTFIRED:I_TypoAction',
+        log: [
+          '"ACTIONS"',
+          '{"I_OutOfPlan", "I_Other"}',
+          '}',
+          'Model checking completed. No error has been found.',
+        ].join('\n'),
+        expectedVerdict: 'survived',
+      },
+      {
+        desc: '発火数 1 以上',
+        exp: 'NOTFIRED:I_Other',
+        log: [
+          '"ACTIONS"',
+          '{"I_OutOfPlan", "I_Other"}',
+          '}',
+          '<I_Other line 10>: 1: 3',
+          'Model checking completed. No error has been found.',
+        ].join('\n'),
+        expectedVerdict: 'survived',
+      },
+    ],
+  },
+  {
+    caseId: 'TC-005',
+    name: 'run_sh_notfired: ACTIONS に存在する action の前方一致・部分文字列は行完全一致判定により survived と判定される',
+    exp: 'NOTFIRED:I_Out',
+    log: [
+      '"ACTIONS"',
+      '{"I_OutOfPlan", "I_Other"}',
+      '}',
+      'Model checking completed. No error has been found.',
+    ].join('\n'),
+    expectedVerdict: 'survived',
+  },
+];
+
+for (const c of notfiredCases) {
+  test(`${c.name} (${c.caseId})`, () => {
+    const runCase = (exp, logText) => {
+      const script = `
+fired_counts() { grep -E '^<[IRAH]_[A-Za-z]+ line' "$1" | awk -F'>: ' '{split($2,a,":"); split($1,b," "); sub("<","",b[1]); n[b[1]]+=a[2]} END {for (k in n) print k, n[k]}'; }
+table_actions() { awk '/"ACTIONS"/ {f=1} f {print} f && /\\}/ {exit}' "$1" | grep -oE '"[IRAH]_[A-Za-z]+"' | tr -d '"' | sort -u; }
+verdict="survived"
+case "$exp" in
+  NOTFIRED:*) grep -q 'No error has been found' "$log" && grep -qxF "\${exp#NOTFIRED:}" <<<"$(table_actions "$log")" && \\
+                [[ "$(fired_counts "$log" | awk -v a="\${exp#NOTFIRED:}" '$1==a {print $2}')" =~ ^0?$ ]] && verdict=killed ;;
+esac
+echo "$verdict"
+`;
+      const tmp = mkdtempSync(path.join(tmpdir(), 'notfired-'));
+      const logPath = path.join(tmp, 'mc.log');
+      try {
+        writeFileSync(logPath, logText, 'utf8');
+        const out = execFileSync('/bin/bash', ['-c', script], {
+          env: { ...process.env, exp, log: logPath },
+          encoding: 'utf8',
+        }).trim();
+        return out;
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    };
+
+    if (c.subcases) {
+      for (const s of c.subcases) {
+        assert.equal(runCase(s.exp, s.log), s.expectedVerdict, s.desc);
+      }
+    } else {
+      assert.equal(runCase(c.exp, c.log), c.expectedVerdict);
+    }
+  });
+}
+
+const timeoutCases = [
+  {
+    caseId: 'TC-002',
+    name: 'run_sh_timeout_fallback: mock timeout または mock gtimeout による TLC 起動',
+    subcases: [
+      {
+        desc: 'timeout が存在する場合',
+        hasTimeout: true,
+        hasGtimeout: false,
+        expectedMarker: 'timeout: 1200',
+      },
+      {
+        desc: 'timeout が無く gtimeout が存在する場合',
+        hasTimeout: false,
+        hasGtimeout: true,
+        expectedMarker: 'gtimeout: 1200',
+      },
+    ],
+  },
+  {
+    caseId: 'TC-003',
+    name: 'run_sh_timeout_fallback: 標準 macOS (timeout/gtimeout 無し, bash 3.2, set -u) で空 limit 配列が安全に展開され直接 TLC が起動される',
+    hasTimeout: false,
+    hasGtimeout: false,
+    expectedMarker: 'java: -cp foo.jar',
+  },
+];
+
+for (const c of timeoutCases) {
+  test(`${c.name} (${c.caseId})`, () => {
+    const runFallback = ({ hasTimeout, hasGtimeout }) => {
+      const tmp = mkdtempSync(path.join(tmpdir(), 'to-fb-'));
+      const binDir = path.join(tmp, 'bin');
+      const workDir = path.join(tmp, 'work');
+      const outFile = path.join(tmp, 'out.log');
+      mkdirSync(binDir, { recursive: true });
+      mkdirSync(workDir, { recursive: true });
+      try {
+        writeFileSync(path.join(binDir, 'java'), `#!/bin/sh\necho "java: $*" >> "$OUT"\n`, 'utf8');
+        chmodSync(path.join(binDir, 'java'), 0o755);
+        if (hasTimeout) {
+          writeFileSync(path.join(binDir, 'timeout'), `#!/bin/sh\necho "timeout: $*" >> "$OUT"\nshift\n"$@"\n`, 'utf8');
+          chmodSync(path.join(binDir, 'timeout'), 0o755);
+        }
+        if (hasGtimeout) {
+          writeFileSync(path.join(binDir, 'gtimeout'), `#!/bin/sh\necho "gtimeout: $*" >> "$OUT"\nshift\n"$@"\n`, 'utf8');
+          chmodSync(path.join(binDir, 'gtimeout'), 0o755);
+        }
+
+        const script = `
+set -uo pipefail
+export PATH="$BINDIR:/bin"
+tlc=(java -cp foo.jar tlc2.TLC)
+if command -v timeout >/dev/null 2>&1; then limit=(timeout 1200); elif command -v gtimeout >/dev/null 2>&1; then limit=(gtimeout 1200); else limit=(); fi
+flags=(-deadlock)
+(cd "$WORKDIR" && \${limit[@]+"\${limit[@]}"} "\${tlc[@]}" "\${flags[@]}" MC)
+`;
+        execFileSync('/bin/bash', ['-c', script], {
+          env: {
+            PATH: `${binDir}:/bin`,
+            BINDIR: binDir,
+            WORKDIR: workDir,
+            OUT: outFile,
+          },
+          encoding: 'utf8',
+        });
+        const out = readFileSync(outFile, 'utf8');
+        return out;
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
+    };
+
+    if (c.subcases) {
+      for (const s of c.subcases) {
+        const out = runFallback(s);
+        assert.ok(out.includes(s.expectedMarker), `${s.desc}: expected marker ${s.expectedMarker} in ${out}`);
+      }
+    } else {
+      const out = runFallback(c);
+      assert.ok(out.includes(c.expectedMarker), `expected marker ${c.expectedMarker} in ${out}`);
+      assert.ok(!out.includes('unbound variable'), `unbound variable error observed: ${out}`);
+    }
+  });
+}
+
+const reqExpandCases = [
+  {
+    caseId: 'TC-011',
+    name: 'req_ids_of_expand: 単一 ID と「・NNN」略記を展開して順序を保って抽出する',
+    input: '\\* req: PR-DEVELOPIMPLEMENT-001・002（行）・003\n',
+    expected: ['PR-DEVELOPIMPLEMENT-001', 'PR-DEVELOPIMPLEMENT-002', 'PR-DEVELOPIMPLEMENT-003'],
+  },
+  {
+    caseId: 'TC-012',
+    name: 'req_ids_of_expand: 略記された実在しない要求 ID も展開されて実在検査で検出される',
+    input: '\\* req: PR-DEVELOPPLUGIN-001・999\n',
+    expectedMissing: ['PR-DEVELOPPLUGIN-999'],
+  },
+  {
+    caseId: 'TC-013',
+    name: 'req_ids_of_expand: 3 連以上の略記の展開と非 req コメントからの空集合抽出',
+    subcases: [
+      {
+        input: '\\* req: PR-DEVELOPIMPLEMENT-033・034・049\n',
+        expected: ['PR-DEVELOPIMPLEMENT-033', 'PR-DEVELOPIMPLEMENT-034', 'PR-DEVELOPIMPLEMENT-049'],
+      },
+      {
+        input: '(* standard comment without req *)\n\\* principle: something\n',
+        expected: [],
+      },
+    ],
+  },
+];
+
+for (const c of reqExpandCases) {
+  test(`${c.name} (${c.caseId})`, () => {
+    if (c.caseId === 'TC-011') {
+      const ids = [...reqIdsOf(c.input)];
+      assert.deepEqual(ids, c.expected);
+    } else if (c.caseId === 'TC-012') {
+      const defined = new Set(Object.values(docs()).flatMap((t) => [...requirementIdsOf(t)]));
+      const ids = [...reqIdsOf(c.input)];
+      const missing = ids.filter((id) => !defined.has(id));
+      assert.deepEqual(missing, c.expectedMissing);
+    } else if (c.caseId === 'TC-013') {
+      for (const s of c.subcases) {
+        assert.deepEqual([...reqIdsOf(s.input)], s.expected);
+      }
+    }
+  });
+}
+
+test('TC-006 PR-DEVELOPPLUGIN-035 PR-DEVELOPPLUGIN-041 PR-DEVELOPIMPLEMENT-059 PR-DEVELOPADDRESSREVIEW-021 PR-DEVELOPADDRESSREVIEW-025 PR-DEVELOPADDRESSREVIEW-049 PR-DEVELOPADDRESSREVIEW-060 DevelopCommon への 4 演算子集約と DevelopEnv/Props からの参照、および README の要求 ID 参照検証', () => {
+  const common = read(path.join(MODEL_DIR, 'DevelopCommon.tla'));
+  const env = read(path.join(MODEL_DIR, 'DevelopEnv.tla'));
+  const props = read(path.join(MODEL_DIR, 'DevelopProps.tla'));
+  const skill = read(path.join(MODEL_DIR, 'DevelopSkill.tla'));
+  const readme = read(path.join(MODEL_DIR, 'README.md'));
+
+  for (const op of ['UnvOf(r, dec) ==', 'ConfirmedOf(r, dec) ==', 'NeedsCommitOf(a) ==', 'EffFixOf(cls, dec) ==']) {
+    assert.ok(common.includes(op), `DevelopCommon.tla must define ${op}`);
+  }
+
+  for (const call of ['Unv(r) == UnvOf(r, hist.dec)', 'Confirmed(r) == ConfirmedOf(r, hist.dec)', 'NeedsCommit == NeedsCommitOf(args)', 'EffFix == EffFixOf(hist.aClass, hist.aDec)']) {
+    assert.ok(env.includes(call), `DevelopEnv.tla must call ${call}`);
+  }
+
+  for (const call of ['LOCAL Unv(r) == UnvOf(r, hist.dec)', 'LOCAL Confirmed(r) == ConfirmedOf(r, hist.dec)', 'LOCAL NeedsCommit == NeedsCommitOf(args)', 'LOCAL EffFix == EffFixOf(hist.aClass, hist.aDec)']) {
+    assert.ok(props.includes(call), `DevelopProps.tla must call ${call}`);
+  }
+
+  assert.ok(!skill.includes('UnvOf'), 'DevelopSkill.tla must not call UnvOf');
+  assert.ok(!skill.includes('ConfirmedOf'), 'DevelopSkill.tla must not call ConfirmedOf');
+  assert.ok(skill.includes('NeedsCommitOf(args)'), 'DevelopSkill.tla must call NeedsCommitOf(args)');
+  assert.ok(!skill.includes('EffFixOf'), 'DevelopSkill.tla must not call EffFixOf');
+
+  const modelFiles = readdirSync(MODEL_DIR);
+  for (const f of modelFiles) {
+    const full = path.join(MODEL_DIR, f);
+    if (!f.endsWith('.tla') && !f.endsWith('.md')) continue;
+    const content = read(full);
+    assert.ok(!/sp-380c49d/i.test(content), `${f} must not contain sp-380c49d`);
+    assert.ok(!/\bsp:\d+/i.test(content), `${f} must not contain sp:\\d+`);
+  }
+
+  assert.ok(readme.includes('ADDR-021・ADDR-049・ADDR-025・ADDR-060'), 'README L61 requirements');
+  assert.ok(readme.includes('IMPL-059 のとおり実装へ進む'), 'README L86 requirements');
+  assert.ok(readme.includes('PLUGIN-041'), 'README L96 requirements');
+  assert.ok(readme.includes('docs/design/skill-design-patterns.md「どの停止でも、理由と、未着手の意図と打ち切った意図の一覧を状態に書き、次の run の計画役がそれを読んで次の手を決める」原則'), 'README L112');
+  assert.ok(!readme.includes('head_moved の出口'), 'README table must not contain head_moved row');
+});
+
+test('TC-008 PR-DEVELOPPLUGIN-035 PR-DEVELOPPLUGIN-041 PR-DEVELOPIMPLEMENT-069 PR-DEVELOPREVIEW-073 PR-DEVELOPADDRESSREVIEW-031 DevelopSkill の各再開アクションにおける原則参照と状態復帰', () => {
+  const skill = read(path.join(MODEL_DIR, 'DevelopSkill.tla'));
+  assert.ok(skill.includes('I_Resume_g(e) =='), 'DevelopSkill must define I_Resume_g');
+  assert.ok(skill.includes('R_Resume_g(e) =='), 'DevelopSkill must define R_Resume_g');
+  assert.ok(skill.includes('A_Resume_g(e) =='), 'DevelopSkill must define A_Resume_g');
+  assert.ok(skill.includes('docs/design/skill-design-patterns.md 停止・再開と人間の入力「完了以外の停止からは再開できる」「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」'), 'I_Resume principle');
+  assert.ok(skill.includes('docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」'), 'R_Resume principle');
+  assert.ok(skill.includes('docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」「再開をまたいで残す値（run ごとに数える回数を再開した run では 0 から数える）」, PR-DEVELOPPLUGIN-041'), 'A_Resume principle');
+  assert.ok(skill.includes('A_Resume_n(e) == SA("running", sk.stage, "none", [ad EXCEPT !.waitCnt = 0])'), 'A_Resume waitCnt reset');
+});
+
+test('TC-009 DevelopSkill.tla の principle 行と mutant patch 5 件のコンテキスト行の同期', () => {
+  const skill = read(path.join(MODEL_DIR, 'DevelopSkill.tla'));
+  const mutantDir = path.join(MODEL_DIR, 'mutants');
+  const patches = [
+    { file: 'm08_resume_position.patch', pattern: 'docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」' },
+    { file: 'E1_spont_resume.patch', pattern: 'docs/design/skill-design-patterns.md 停止・再開と人間の入力「完了以外の停止からは再開できる」「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」' },
+    { file: 'v06_raise_plan_ignored.patch', pattern: 'docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」' },
+    { file: 'J10_postmismatch_pos_post.patch', pattern: 'docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」' },
+    { file: 'E4_addr_auto_resume.patch', pattern: 'docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」「再開をまたいで残す値（run ごとに数える回数を再開した run では 0 から数える）」, PR-DEVELOPPLUGIN-041' },
+  ];
+
+  for (const p of patches) {
+    const patchContent = read(path.join(mutantDir, p.file));
+    assert.ok(patchContent.includes(p.pattern), `${p.file} must include synced pattern`);
+    assert.ok(skill.includes(p.pattern), `DevelopSkill.tla must include synced pattern for ${p.file}`);
+  }
+});
+
+test('TC-010 mutants/EXPECTED に登録された全 59 件の mutant patch が patch -s -F 0 -p0 で clean 適用できる', () => {
+  const expectedText = read(path.join(MODEL_DIR, 'mutants', 'EXPECTED'));
+  const patchNames = expectedText.split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'))
+    .map((l) => l.split(/\s+/)[0]);
+
+  assert.equal(patchNames.length, 59, '59 mutant patches expected in EXPECTED');
+
+  const tmp = mkdtempSync(path.join(tmpdir(), 'mutant-apply-'));
+  try {
+    for (const f of readdirSync(MODEL_DIR).filter((f) => f.endsWith('.tla'))) {
+      writeFileSync(path.join(tmp, f), read(path.join(MODEL_DIR, f)), 'utf8');
+    }
+    for (const name of patchNames) {
+      const patchPath = path.join(MODEL_DIR, 'mutants', `${name}.patch`);
+      execFileSync('patch', ['-s', '-F', '0', '-p0', '--dry-run', '-i', patchPath], { cwd: tmp });
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('TC-015 PR-DEVELOPADDRESSREVIEW-028 PR-DEVELOPADDRESSREVIEW-032 PR-DEVELOPADDRESSREVIEW-058 address-review の head 不一致・head 移動停止における次の手の明記', () => {
+  const doc = docs()['develop-address-review'];
+  assert.ok(doc.includes('新しく呼んで指摘の収集から始めることを次の手として返さなければならない'), 'PR-DEVELOPADDRESSREVIEW-028 next step');
+  assert.ok(doc.includes('PR-DEVELOPADDRESSREVIEW-032 再開の前に head が動いていたとき'), 'PR-DEVELOPADDRESSREVIEW-032 header');
+  assert.ok(doc.includes('（新しく呼んで指摘の収集から始める）'), 'PR-DEVELOPADDRESSREVIEW-058 table');
+  const t58 = tablesOf(doc).find((t) => t.header.includes(STOP) && t.header.includes(DEFINING));
+  assert.ok(t58, 'PR-DEVELOPADDRESSREVIEW-058 table found');
+  const row28 = t58.rows.find((r) => r[STOP] === 'push した SHA が head でない');
+  assert.ok(row28 && row28[DEFINING].includes('（新しく呼んで指摘の収集から始める）'), 'row28 next step');
+  const row32 = t58.rows.find((r) => r[STOP] === 'head が動いた');
+  assert.ok(row32 && row32[DEFINING].includes('（新しく呼んで指摘の収集から始める）'), 'row32 next step');
+});
+
+test('TC-016 PR-DEVELOPIMPLEMENT-078 PR-DEVELOPPLUGIN-069 PR-DEVELOPPLUGIN-070 implement の commit 引き継ぎ不一致時の拒否と plugin の完了肯定条件', () => {
+  const implDoc = docs()['develop-implement'];
+  const plugDoc = docs()['develop-plugin'];
+  assert.ok(implDoc.includes('引き継ぐ未 push commit は記録された SHA 一覧と実際の未 push commit 一覧が一致するときに限定して不一致があれば引き継ぎを拒否して止まり'), 'IMPL-078 commit mismatch rejection');
+  assert.ok(plugDoc.includes('next_args での再開を含めたその回の最後の run で結果の状態 success か degraded を返し、方針文書の「読むもの」表が解決されて読まれ、読めなかった文書が無いときにだけ、完了としなければならない'), 'PLUGIN-069 positive condition');
+  const t70 = tablesOf(plugDoc).find((t) => t.header.includes('条件: 置いた形') && t.header.includes('結果'));
+  assert.ok(t70, 'PLUGIN-070 table found');
+  const rowView = t70.rows.find((r) => r['条件: 置いた形'] === '必ず当てる観点');
+  assert.ok(rowView && rowView['結果'].includes('next_args での再開を含めたその回の最後の run で結果の状態 success か degraded を返し'), 'rowView positive condition');
+  const rowDoc = t70.rows.find((r) => r['条件: 置いた形'] === '「読むもの」表の行');
+  assert.ok(rowDoc && rowDoc['結果'].includes('next_args での再開を含めたその回の最後の run で結果の状態 success か degraded を返し'), 'rowDoc positive condition');
+});
+
+test('TC-017 PR-DEVELOPIMPLEMENT-033 PR-DEVELOPIMPLEMENT-034 PR-DEVELOPIMPLEMENT-049 PR-DEVELOPIMPLEMENT-078 PR-DEVELOPREVIEW-001 implement の未コミット変更・commit 所有境界と review の diff baseRef/headSha 組', () => {
+  const implDoc = docs()['develop-implement'];
+  const revDoc = docs()['develop-review'];
+  assert.ok(implDoc.includes('呼び出しの前からの変更（開始時に固定した変更のあったパス・内容・index）を除外'), 'IMPL-033 ownership boundary');
+  assert.ok(implDoc.includes('この呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit を含む）に限定して push'), 'IMPL-034 push boundary');
+  assert.ok(implDoc.includes('この呼び出しで作った commit（PR-DEVELOPIMPLEMENT-078 で記録と一致して引き継いだ未 push の commit を含む）の SHA を全て返さなければならない'), 'IMPL-049 return boundary');
+  assert.ok(implDoc.includes('開始時の HEAD・開始時に変更のあったパスとその内容・index'), 'IMPL-078 recorded state');
+  const t01 = tablesOf(revDoc).find((t) => t.header.includes('mode') && t.header.includes('目標として固定する対象の版'));
+  assert.ok(t01, 'REV-001 table found');
+  const diffRow = t01.rows.find((r) => r['mode'] === 'diff');
+  assert.ok(diffRow && diffRow['目標として固定する対象の版'] === '比較元の完全な SHA（baseRef）と比較先の完全な SHA（headSha）の組（方針の版 policyRef とは別に固定する）', 'REV-001 diff pinned version');
+});
+

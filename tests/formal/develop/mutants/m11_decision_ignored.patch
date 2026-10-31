@@ -19,5 +19,5 @@
 -               /\ e.x \cup e.y \subseteq CountUnv(im.last)
 +               /\ e.x \cup e.y \subseteq r_unv(im.last)
  
- NeedsCommit == args.pr /\ args.stopAt \in {"none", "push", "reply", "resolve"}
+ NeedsCommit == NeedsCommitOf(args)
  WaitsChecks == args.pr /\ args.stopAt \in {"none", "reply", "resolve"}

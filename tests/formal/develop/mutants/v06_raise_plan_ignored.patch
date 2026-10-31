@@ -2,7 +2,7 @@
 +++ DevelopSkill.tla
 @@ -279,7 +279,7 @@
  \* req: PR-DEVELOPIMPLEMENT-007, PR-DEVELOPIMPLEMENT-069
- \* principle: sp-380c49d.md:185
+ \* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」
  I_RaisePlan_g(e) == IStop(e, "raise") /\ sk.kind = "limit_plan"
 -I_RaisePlan_n(e) == SI("running", IResumeStage, "none", sk.res, [im EXCEPT !.rebLim = @ + 1])
 +I_RaisePlan_n(e) == SI("running", IResumeStage, "none", sk.res, im)

@@ -53,4 +53,9 @@ ArgsSet ==
   \cup {[skill |-> "address", commitReq |-> FALSE, pushDecl |-> FALSE, planStop |-> FALSE, checkDecl |-> TRUE,
          postReq |-> FALSE, pr |-> p, stopAt |-> s] : p \in BOOLEAN, s \in StopAts}
 
+UnvOf(r, dec) == {c \in r.unv : ~\E d \in dec : d.r = r.id /\ d.c = c}
+ConfirmedOf(r, dec) == r.conf \/ \E d \in dec : d.r = r.id /\ d.v = "confirm"
+NeedsCommitOf(a) == a.pr /\ a.stopAt \in {"none", "push", "reply", "resolve"}
+EffFixOf(cls, dec) == IF cls \in {"needs", "mismatch"} THEN dec = "fix" ELSE cls = "fix"
+
 =============================================================================

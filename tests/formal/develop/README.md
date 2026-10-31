@@ -2,7 +2,7 @@
 
 develop plugin の 3 スキル（implement・review・address-review）の停止と再開を表す状態機械。合格の条件は利用者が固定したもの（模型の段の最後の版）に従う。
 
-略記: IMPL-・REV-・ADDR-・PLUGIN- は `docs/requirements/develop-{implement,review,address-review,plugin}.md` の要求 ID（PR-DEVELOPIMPLEMENT-010 を IMPL-010 と書く）。文書を書き直すと行番号がずれるので、文書は ID で引く。sp は設計方針文書 sp-380c49d.md の行。決定は利用者の決定（決定 1〜11、D19、追加の決定 2・4）。
+略記: IMPL-・REV-・ADDR-・PLUGIN- は `docs/requirements/develop-{implement,review,address-review,plugin}.md` の要求 ID（PR-DEVELOPIMPLEMENT-010 を IMPL-010 と書く）。文書を書き直すと行番号がずれるので、文書は ID で引く。設計方針文書は docs/design/skill-design-patterns.md（「停止・再開と人間の入力」節の原則）。決定は利用者の決定（決定 1〜11、D19、追加の決定 2・4）。
 
 ## module と変数
 
@@ -36,7 +36,7 @@ SANY で守れない境界（信頼する行）:
 | `Determinism` | 決定性 | `DevelopSkill` | スキルの全ての step（入力の無い step を含む）が、待っている入力に対する表のただ 1 つの応答である |
 | `OutputOnInput` | 停止を出るのは記録された入力の後だけ | `DevelopProps` | `[][out' # out => (inbox # NoEv /\ inbox' = NoEv)]_pvars`。入力の無い step を含む全ての step で見る |
 | `Termination` | 終わる | `DevelopProps` | `<>(done \/ aborted)`。下の予算の仮定のもとで |
-| `ResumePosition` | 再開位置は sp:184 | `DevelopProps` | 停止から running へ出るとき（新しい呼び出しを除く）、未読のヒント（implement）か pin の崩れ（review）があれば plan、無ければ停止が記録した位置 |
+| `ResumePosition` | 再開位置は「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」原則 | `DevelopProps` | 停止から running へ出るとき（新しい呼び出しを除く）、未読のヒント（implement）か pin の崩れ（review）があれば plan、無ければ停止が記録した位置 |
 | `ImplGoal`・`ReviewGoal`・`AddressGoal` | ゴールの述語は hist から読む | `DevelopProps` | 下の節 |
 | `W_FixBeyond`・`W_PlanBeyond`・`W_DecideEffect`・`W_WaitBeyond`・`W_EditDone` | （効果の観測） | `DevelopProps` | 正常版で違反されるべき不変条件。修正の回の上限の引き上げ、作り直しの上限の引き上げ、abandon での人の判断、待ちの数え直しが効くこと。`W_EditDone` は、修正の回の上限の停止から、引き上げ無しで作業ツリーの手直しだけで done に届くこと（決定 4、追加の決定 4） |
 
@@ -52,13 +52,13 @@ SANY で守れない境界（信頼する行）:
   - N11: 最後に受け入れた計画の後に、実装の run が返した（`planPending` が偽）。
   - N12（改訂）: 確定とした指摘は全て、その後の実装の run の入力に入ったか、修正の回の上限の停止で人が作業ツリーを直した後の check と review を通った（`unfed` が空。詳しくは「模型の側で決めたこと」）。
   - 実装の変更の後に開始時の check を流していない（IMPL-065・IMPL-059。B2b）。
-  - 計画で止めた後の計画の受け入れは、ヒントか 043 の後だけ（IMPL-012・sp:184。J8）。
+  - 計画で止めた後の計画の受け入れは、ヒントか 043 の後だけ（IMPL-012・PLUGIN-035「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」原則。J8）。
   - 修正の回の上限から未読のヒントで作り直した計画は、受け入れの後、実装の run の前に check と review を通った（IMPL-072。`skip072` が偽）。作り直しの計画の run が途中で止まって再開しても、この条件は残る。
 - `ReviewGoal`（REV-074）: 同じ pin のもとで投稿は 1 回まで（REV-075・REV-076、追加の決定 4。J10）。done のときは、失敗の結果と記録が一致し、そうでなければ全項目を見て、部分なら degraded、投稿を頼まれたら投稿を確かめた（REV-030・REV-034・REV-047・REV-050、決定 3）。
 - `AddressGoal`（ADDR-060・ADDR-063）: 021 の「行わない操作」をしない、実装は人か分類が fix としたときだけ、返信は CI の成功の後、resolve は返信の確認の後、head が動いた後に返信を確かめない（ADDR-021・ADDR-029・ADDR-036・ADDR-041、決定 5・6）。done のときは、加えて次を満たす。
   - PR が無いのに push・返信・resolve を頼まれた呼び出しは done にならない（ADDR-021 の拒否の行）。
   - PR が無いときは、作業ツリーがきれいだった（ADDR-004）。
-  - fix の指摘があり commit を要するなら、commit して push した（ADDR-021・ADDR-055）。
+  - fix の指摘があり commit を要するなら、commit して push した（ADDR-021・ADDR-049・ADDR-025・ADDR-060）。
   - 人の判断が fix で、止める所が classify でなければ、実装した（ADDR-020・ADDR-048。J7）。
   - CI を待つ呼び出しなら CI が成功し返信を確かめた。resolve まで頼んだなら resolve を確かめた。
 
@@ -82,8 +82,8 @@ SANY で守れない境界（信頼する行）:
 |---|---|---|
 | D19 C の後の 029 の「なし／なし」 | 上限からヒントで再開して作り直した計画は、check と review の後、029 がなし／なしでも、最終照合でなく実装へ進む（`planned`） | D19 C と追加の決定 2（衝突 1）。字面どおりの版は mutant `N11_d19c_skips_impl` として落ちる |
 | N12 の文言 | 確定とした指摘は全て、修正の回の入力に入ったか、上限の停止で人が作業ツリーを直した後の check と review を通った。修正の回の上限での `editWt` で `unfed` を空にし、その後の check と review は done の `ImplGoal` が読む（`editWt` で check の記録が消えるので、done には手直しの後の check と review が要る） | 合格の条件の改訂と追加の決定 2（衝突 2）。環境が上限を数え直す例外は消した |
-| 修正の回の上限からの再開位置 | 停止は 029（decide）に記録する。引き上げだけの再開は、記録した返り値と人の判断のまま 029 から続ける。作業ツリーの手直し（`editWt`）は位置を check に移し、再開は check と review から続ける | 追加の決定 2（衝突 3）、PLUGIN-035・sp:184。055（IMPL-055）は「check と review の前に上限で止まらない」という禁止で、引き上げの後に check と review を流し直すことは求めていない |
-| 043 と上限 | 043 は修正の回を 1 回使い、回が残っていなければ作り直さずに limit_fix で止まる。作り直した計画の受け入れの後は 065 のとおり実装へ進む | 決定 2（IMPL-043・IMPL-060） |
+| 修正の回の上限からの再開位置 | 停止は 029（decide）に記録する。引き上げだけの再開は、記録した返り値と人の判断のまま 029 から続ける。作業ツリーの手直し（`editWt`）は位置を check に移し、再開は check と review から続ける | 追加の決定 2（衝突 3）、PLUGIN-035（docs/design/skill-design-patterns.md「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」原則）。055（IMPL-055）は「check と review の前に上限で止まらない」という禁止で、引き上げの後に check と review を流し直すことは求めていない |
+| 043 と上限 | 043 は修正の回を 1 回使い、回が残っていなければ作り直さずに limit_fix で止まる。作り直した計画の受け入れの後は IMPL-059 のとおり実装へ進む | 決定 2（IMPL-043・IMPL-060） |
 | abandon・needs_input とヒント | 止まっている間にヒントを足して resume すると、計画から作り直す | IMPL-040・PLUGIN-035（例外）。決定 11。052 の回答（IMPL-052）も計画から始めるので、どちらでも計画へ進む |
 | check の失敗 | 029 の判定に「変更が起こした check の失敗」を足した。指摘が無くても check が落ちていれば修正の回へ進み、上限なら 021 で止まる（`NeedFix`） | 追加の決定 4（IMPL-029・IMPL-019・IMPL-021・IMPL-074） |
 | 完了の前の未読のヒント | 最終照合の前だけでなく、直す変更が無い完了・commit の後の完了・push の後の完了の前にも、未読のヒントがあれば計画の run へ戻す（`I_FinalGate` の guard を広げた）。広げる前の模型では、計画の受け入れの後にヒントを足し、実装の run が直す変更が無いと返すと、未読のまま done になった（`ImplGoal` が落ちることを TLC で確かめてから直した） | 追加の決定 5（IMPL-071） |
@@ -93,11 +93,10 @@ SANY で守れない境界（信頼する行）:
 | 上限から作り直す計画の run の途中の停止 | 上限から未読のヒントで作り直す計画の run が途中で止まり（トークン量の上限・BLOCKED・人の判断待ち）、再開しても、受け入れの後は 072 の check と review へ進む（`fromLimit` を再開で消さない） | IMPL-072・IMPL-069 |
 | push | implement の引数に push の宣言を足し、宣言があるときだけ push する | IMPL-034 |
 | ヒントの拒否 | 計画で止めた後に作業ツリーが変わった状態（新しく呼ぶしか続かない）へのヒントも拒否する | 決定 9（IMPL-042 と同じ扱い）。第 3 版の検証 F9 |
-| 待ちの回数 | どの停止から再開しても 0 から数える | sp:185（0 から数える上限）。第 3 版の検証 F15 |
-| head_moved の出口 | 新しく呼ぶ | ADDR-032 は止まることだけを決めている |
+| 待ちの回数 | どの停止から再開しても 0 から数える | PLUGIN-041・docs/design/skill-design-patterns.md「再開をまたいで残す値（固定した目標・未着手の意図・試行の回数など）は run の外の状態に持ち、再開した run はそこから読む」原則（run ごとに数える回数を再開した run では 0 から数える）。第 3 版の検証 F15 |
 | reject_args・push_denied の後の新しい呼び出し | 止める所を none・verify にする | ADDR-021、決定 8 の b |
 | 計画で止める依頼 | 1 回の呼び出しで 1 度だけ止める（`planStopUsed`） | IMPL-066 は作り直しの後に止まらないことだけを決めている |
-| needs_input・mismatch の位置 | route | sp:184 から導いた |
+| needs_input・mismatch の位置 | route | docs/design/skill-design-patterns.md「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」原則から導いた |
 | reinvoke を出す停止 | 次の手が新しい呼び出しの停止だけ（no_check・wt_changed・作業ツリーが変わった plan_stop・reject_args・refused・stale・head_moved・push_denied、head が動いた待ちの上限） | 状態が増えすぎるのを避けた。スキルはどの停止でも reinvoke を受け付ける |
 
 ## 範囲
@@ -109,8 +108,8 @@ SANY で守れない境界（信頼する行）:
 - push した SHA が head でないときの停止（addr 028）。
 - 遅れた書き込みと relaunch（plug 039・036）。
 - resolve の候補の条件の細部（addr 041・042）。
-- 「打ち切ってよい範囲」の入力（sp:185）。
-- BLOCKED の原因を直す人の入力（IMPL-032・IMPL-075、sp:183）。BLOCKED からは resume しかない。
+- 「打ち切ってよい範囲」の入力（docs/design/skill-design-patterns.md「どの停止でも、理由と、未着手の意図と打ち切った意図の一覧を状態に書き、次の run の計画役がそれを読んで次の手を決める」原則）。
+- BLOCKED の原因を直す人の入力（IMPL-032・IMPL-075、docs/design/skill-design-patterns.md「完了以外の停止からは再開できる。乾き・反復の上限・needs_input は必要なら人間が入力を足してから、BLOCKED は原因を直してから再開する」原則）。BLOCKED からは resume しかない。
 - 作業ツリーが変わっていないことを確かめられない枝（IMPL-014・IMPL-015）。
 - 完了した状態へのヒント（IMPL-042）。環境は done と aborted に入力を出さない。
 - 029 の「待った回数が数えられない」と、ADDR-020 の受け入れ直しの拒否。
@@ -174,7 +173,7 @@ x5（resume で epoch が増える）は epoch を外したので、「resume �
 | J10（検証 3。投稿の確認の食い違いを post に置き、再開で投稿し直す） | `ReviewGoal`: 同じ pin のもとで投稿は 1 回まで。pin が崩れた後に計画からやり直して投稿し直すのは許す（`rPosts` を `breakPin` で 0 に戻す） | REV-048（理由: 二重の投稿）・PLUGIN-035・REV-043 |
 | B2b のスキルの半分（検証 3。開始時の check の結果を記録しない） | `ImplGoal`: done ならば、実装の変更の後に開始時の check を流していない（`baseAfterChange`） | IMPL-065・IMPL-059 の理由: 変更が起こした失敗が開始時の結果に入り、IMPL-057 の照合が見落とす |
 | J7（検証 3。push_denied の停止を entry に置き、再開で分類し直す） | `AddressGoal`: done で、人の判断が fix で、止める所が classify でなければ、実装した | ADDR-020・ADDR-048・決定 6 |
-| J8（検証 3。トークン量の上限の停止を plan に置く） | `ImplGoal`: done ならば、計画で止めた後の計画の受け入れは、ヒントか 043 の後だけ（`freePlan`） | IMPL-012・sp:184 の理由（計画で止めて承認を待つ使い方） |
+| J8（検証 3。トークン量の上限の停止を plan に置く） | `ImplGoal`: done ならば、計画で止めた後の計画の受け入れは、ヒントか 043 の後だけ（`freePlan`） | IMPL-012・PLUGIN-035「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」原則の理由（計画で止めて承認を待つ使い方） |
 | x6（第 3 版。修正の回が 0 で commit を頼まれていなければ、最終照合を飛ばして done） | `ImplGoal`: done では未読のヒントが無い（追加の決定 5 で全ての完了に広げた）。追加の決定 4 で check の失敗が修正の回へ進むようになり、前の版で x6 を落とした経路（check の失敗のまま done）が無くなったので足した | IMPL-071 |
 | `A036_stale_check_dropped`（返信の直前の 036 の照らしを外す） | `AddressGoal`: head が動いた後に返信を確かめていない（`aStaleReply`） | ADDR-036・ADDR-050 |
 | `A032_reply_after_other_push`（他者の push の後も待ちを続け、動いた head のまま返信する） | 同上 | ADDR-032・ADDR-036 |
@@ -190,7 +189,7 @@ J10 と J7 と、この版で足した 2 件は、`Develop.cfg` の MaxFaults �
 | J2（検証 3） | 最終照合の失敗を limit_run と返す | 停止の名前だけが違う。どちらも入力なしの resume で同じ位置へ戻り、最終照合でまた止まる。done の条件と行う操作は変わらない | IMPL-031・PLUGIN-040 |
 | v09（第 3 版） | head が古い返信の停止を blocked と返す | 停止の名前だけが違う。head は動いたままなので、blocked からの resume は返信の直前の照らし直しでまた止まる。続けるには、stale と同じく新しい呼び出しが要る | ADDR-035・ADDR-036・ADDR-050 |
 | v10（第 3 版） | 待ちの間に head が動いても、待ちを続ける | 032 を外しても、返信の直前の 036 が、動いた head を捕まえて止める。待つのは push した SHA の CI なので、CI の成功もゴールに反しない | ADDR-032・ADDR-035・ADDR-036 |
-| v16（第 3 版） | needs_input への resume を拒むと、停止を blocked に変える | 次の resume で、回答なしに計画から続く。計画役がまた判断を求めるか自分で決める。ゴールの事実は変わらない | sp:183・IMPL-052 |
+| v16（第 3 版） | needs_input への resume を拒むと、停止を blocked に変える | 次の resume で、回答なしに計画から続く。計画役がまた判断を求めるか自分で決める。ゴールの事実は変わらない | docs/design/skill-design-patterns.md「完了以外の停止からは再開できる」原則・IMPL-052 |
 
 ### 振り分けの外
 

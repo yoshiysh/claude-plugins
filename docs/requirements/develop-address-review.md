@@ -196,7 +196,7 @@ PR が無いとき、address-review は、返信・push・required checks の待
 address-review は、push したときは push した SHA の、push しなかったとき（分類の結果に直す変更が無く develop:implement を呼ばなかったとき（PR-DEVELOPADDRESSREVIEW-023）と、develop:implement が commit せずに完了したとき（PR-DEVELOPADDRESSREVIEW-054））は今の PR の head の required checks を、返信の前に待たなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-028 push した SHA と PR の head
-required checks を読む前に、address-review は push した SHA が PR の head であることを確かめ、違えば止まらなければならない。
+required checks を読む前に、address-review は push した SHA が PR の head であることを確かめ、違えば止まり、新しく呼んで指摘の収集から始めることを次の手として返さなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-029 required checks の状態による進み方
 address-review は、required checks の状態に応じて、次の表のとおりに進まなければならない（結果が出る前に返信すると、CI が落ちたときに誤った返信が残る）。
@@ -229,7 +229,7 @@ required checks が失敗したとき、address-review はその失敗を直し�
 待つ回数の上限で止まった address-review を next_args で続けるとき、address-review は、分類の受け入れと返信の組み立てを繰り返してはならない（待った回数の数え方は PR-DEVELOPPLUGIN-041）。
 
 #### PR-DEVELOPADDRESSREVIEW-032 再開の前に head が動いていたとき
-待ちの上限からの再開の前に、PR の head が待っていた SHA（push したときは push した SHA、push しなかったときは待ち始めた時の PR の head）から動いていたならば、address-review は止まらなければならない（続け方は PR-DEVELOPADDRESSREVIEW-059）。
+待ちの上限からの再開の前に、PR の head が待っていた SHA（push したときは push した SHA、push しなかったときは待ち始めた時の PR の head）から動いていたならば、address-review は止まり、新しく呼んで指摘の収集から始めることを次の手として返さなければならない（PR-DEVELOPADDRESSREVIEW-058・059）。
 
 #### PR-DEVELOPADDRESSREVIEW-033 待ちの再開の回数
 address-review は、待ちの上限からの再開の回数を制限してはならない。
@@ -318,8 +318,8 @@ address-review は、止まるとき、次の表の停止の名前を止まっ�
 | トークン量か待つ回数の上限 | PR-DEVELOPPLUGIN-045、PR-DEVELOPADDRESSREVIEW-029（実行中が残る行） | 止まった段の、結果を記録していない項目 | `limit_run` | `A_ClassifyToken`・`A_CiWaitLimit` |
 | push できない | PR-DEVELOPADDRESSREVIEW-011 | 止める所への振り分け | `push_denied` | `A_RoutePushDenied` |
 | develop:implement が止まった | PR-DEVELOPADDRESSREVIEW-024 | develop:implement の呼び出し | `impl_stopped` | `A_ImplStopped` |
-| push した SHA が head でない | PR-DEVELOPADDRESSREVIEW-028 | なし | なし（模型の範囲の外） | 模型の範囲の外 |
-| head が動いた | PR-DEVELOPADDRESSREVIEW-032 | なし | `head_moved` | `A_ResumeHeadMoved` |
+| push した SHA が head でない | PR-DEVELOPADDRESSREVIEW-028（新しく呼んで指摘の収集から始める） | なし | なし（模型の範囲の外） | 模型の範囲の外 |
+| head が動いた | PR-DEVELOPADDRESSREVIEW-032（新しく呼んで指摘の収集から始める） | なし | `head_moved` | `A_ResumeHeadMoved` |
 | 返信の直前に head か議論が動いた | PR-DEVELOPADDRESSREVIEW-036・050（新しく呼んで指摘の収集から始める） | なし | `stale` | `A_ReplyStale` |
 | BLOCKED | PR-DEVELOPADDRESSREVIEW-015・029（失敗・読めない・数えられない行）・040・044・052、PR-DEVELOPPLUGIN-033・040 | 止まった段の、結果を記録していない項目 | `blocked` | `A_ClassifyBlocked`・`A_PushRejected`・`A_CiStop`・`A_CheckMismatch` |
 

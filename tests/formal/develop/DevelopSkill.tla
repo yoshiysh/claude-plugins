@@ -47,7 +47,7 @@ ValidDec(e) == /\ e.x \cap e.y = {}
                /\ e.x \cup e.y # {}
                /\ e.x \cup e.y \subseteq CountUnv(im.last)
 
-NeedsCommit == args.pr /\ args.stopAt \in {"none", "push", "reply", "resolve"}
+NeedsCommit == NeedsCommitOf(args)
 WaitsChecks == args.pr /\ args.stopAt \in {"none", "reply", "resolve"}
 
 Sys(gd, n) == gd /\ sk' = n /\ inbox' = NoEv
@@ -59,7 +59,7 @@ SA(s, g, k, a) == [sk EXCEPT !.st = s, !.stage = g, !.kind = k, !.ad = a]
 IRun(g, e, n) == I /\ Running /\ sk.stage = g /\ e.n = n
 IStop(e, n) == I /\ Stopped /\ e.n = n
 
-\* principle: sp-380c49d.md:184
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」
 IResumeStage == IF im.unread > 0 THEN "plan" ELSE sk.stage
 
 (* --- develop:implement --- *)
@@ -85,13 +85,13 @@ I_PlanOkGo_n(e) == SI("running",
 I_PlanOkGo(e) == Sys(I_PlanOkGo_g(e), I_PlanOkGo_n(e))
 
 \* req: PR-DEVELOPIMPLEMENT-006
-\* principle: sp-380c49d.md:179
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「ヒントの既読は、計画役が出力を返し、CLI がその書き込みを受け付けた時点で、その周に配達したヒントへ CLI が付ける」
 I_PlanReject_g(e) == IRun("plan", e, "planReject") /\ im.rebuilds < im.rebLim
 I_PlanReject_n(e) == SI("running", "plan", "none", sk.res, [im EXCEPT !.rebuilds = @ + 1, !.unread = 0])
 I_PlanReject(e) == Sys(I_PlanReject_g(e), I_PlanReject_n(e))
 
 \* req: PR-DEVELOPIMPLEMENT-007, PR-DEVELOPIMPLEMENT-068
-\* principle: sp-380c49d.md:185
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」
 I_PlanRejectLimit_g(e) == IRun("plan", e, "planReject") /\ im.rebuilds >= im.rebLim
 I_PlanRejectLimit_n(e) == SI("stopped", "plan", "limit_plan", sk.res, [im EXCEPT !.unread = 0])
 I_PlanRejectLimit(e) == Sys(I_PlanRejectLimit_g(e), I_PlanRejectLimit_n(e))
@@ -235,7 +235,7 @@ I_PushOk_n(e) == SI("done", sk.stage, "none", "committed", im)
 I_PushOk(e) == Sys(I_PushOk_g(e), I_PushOk_n(e))
 
 \* req: PR-DEVELOPIMPLEMENT-069, PR-DEVELOPIMPLEMENT-072
-\* principle: sp-380c49d.md:183, sp-380c49d.md:184
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「完了以外の停止からは再開できる」「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」
 \* decided: 4, 11, D19 C
 I_Resume_g(e) == IStop(e, "resume") /\
   (\/ sk.kind \in {"blocked", "limit_run"}
@@ -254,7 +254,7 @@ I_ResumeWtChanged_n(e) == SI("stopped", sk.stage, "wt_changed", sk.res, im)
 I_ResumeWtChanged(e) == Sys(I_ResumeWtChanged_g(e), I_ResumeWtChanged_n(e))
 
 \* req: PR-DEVELOPIMPLEMENT-069
-\* principle: sp-380c49d.md:185
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」
 \* decided: 4
 I_RefuseResume_g(e) == IStop(e, "resume") /\
   (\/ sk.kind \in {"limit_plan", "no_check", "wt_changed"}
@@ -277,7 +277,7 @@ I_RaiseFix_n(e) == SI("running", IResumeStage, "none", sk.res,
 I_RaiseFix(e) == Sys(I_RaiseFix_g(e), I_RaiseFix_n(e))
 
 \* req: PR-DEVELOPIMPLEMENT-007, PR-DEVELOPIMPLEMENT-069
-\* principle: sp-380c49d.md:185
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」
 I_RaisePlan_g(e) == IStop(e, "raise") /\ sk.kind = "limit_plan"
 I_RaisePlan_n(e) == SI("running", IResumeStage, "none", sk.res, [im EXCEPT !.rebLim = @ + 1])
 I_RaisePlan(e) == Sys(I_RaisePlan_g(e), I_RaisePlan_n(e))
@@ -376,13 +376,13 @@ R_PostConfirmed_n(e) == SR("done", sk.stage, "none", sk.res, rv)
 R_PostConfirmed(e) == Sys(R_PostConfirmed_g(e), R_PostConfirmed_n(e))
 
 \* req: PR-DEVELOPREVIEW-051, PR-DEVELOPREVIEW-072
-\* principle: sp-380c49d.md:184
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」
 R_PostMismatch_g(e) == RRun("postCheck") /\ e.n = "postMismatch"
 R_PostMismatch_n(e) == SR("stopped", "postCheck", "blocked", sk.res, rv)
 R_PostMismatch(e) == Sys(R_PostMismatch_g(e), R_PostMismatch_n(e))
 
 \* req: PR-DEVELOPREVIEW-073, PR-DEVELOPREVIEW-076
-\* principle: sp-380c49d.md:184, sp-380c49d.md:185
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」
 R_Resume_g(e) == R /\ Stopped /\ e.n = "resume" /\ sk.kind # "read_list"
 R_Resume_n(e) == SR("running", IF rv.pinBroken THEN "plan" ELSE sk.stage, "none", sk.res, rv)
 R_Resume(e) == Sys(R_Resume_g(e), R_Resume_n(e))
@@ -540,7 +540,7 @@ A_CiRunning_n(e) == SA("running", "wait", "none", [ad EXCEPT !.waitCnt = @ + 1])
 A_CiRunning(e) == Sys(A_CiRunning_g(e), A_CiRunning_n(e))
 
 \* req: PR-DEVELOPADDRESSREVIEW-029, PR-DEVELOPADDRESSREVIEW-058
-\* principle: sp-380c49d.md:185
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらないようにする」
 A_CiWaitLimit_g(e) == ARun("wait", e, "ciRunning") /\ ad.waitCnt >= WaitLimit
 A_CiWaitLimit_n(e) == SA("stopped", "wait", "limit_run", ad)
 A_CiWaitLimit(e) == Sys(A_CiWaitLimit_g(e), A_CiWaitLimit_n(e))
@@ -581,7 +581,7 @@ A_ResolveConfirmed_n(e) == SA("done", sk.stage, "none", ad)
 A_ResolveConfirmed(e) == Sys(A_ResolveConfirmed_g(e), A_ResolveConfirmed_n(e))
 
 \* req: PR-DEVELOPADDRESSREVIEW-031, PR-DEVELOPADDRESSREVIEW-033, PR-DEVELOPADDRESSREVIEW-059
-\* principle: sp-380c49d.md:184, sp-380c49d.md:185 (the wait count starts from 0 in every resumed run)
+\* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」「再開をまたいで残す値（run ごとに数える回数を再開した run では 0 から数える）」, PR-DEVELOPPLUGIN-041
 \* decided: 8
 A_Resume_g(e) == AStop(e, "resume") /\
   (\/ sk.kind \in {"blocked", "impl_stopped", "push_denied"}

@@ -47,15 +47,14 @@ HInitSet == {HInit(a) : a \in {aa \in ArgsSet : aa.skill \in Skills}}
 -----------------------------------------------------------------------------
 (* Facts the environment and the human know from their own record. *)
 
-Unv(r) == {c \in r.unv : ~\E d \in hist.dec : d.r = r.id /\ d.c = c}
-HumanConfirmed(r) == \E d \in hist.dec : d.r = r.id /\ d.v = "confirm"
-Confirmed(r) == r.conf \/ HumanConfirmed(r)
+Unv(r) == UnvOf(r, hist.dec)
+Confirmed(r) == ConfirmedOf(r, hist.dec)
 ValidDec(e) == /\ e.x \cap e.y = {}
                /\ e.x \cup e.y # {}
                /\ e.x \cup e.y \subseteq Unv(hist.ret)
 
-NeedsCommit == args.pr /\ args.stopAt \in {"none", "push", "reply", "resolve"}
-EffFix == IF hist.aClass \in {"needs", "mismatch"} THEN hist.aDec = "fix" ELSE hist.aClass = "fix"
+NeedsCommit == NeedsCommitOf(args)
+EffFix == EffFixOf(hist.aClass, hist.aDec)
 
 -----------------------------------------------------------------------------
 (* Alphabet: what the agents, the CLI, git, GitHub and the human can return
@@ -248,7 +247,7 @@ Rec(e) ==
      !.rPosts = CASE IsR /\ e.n = "postDone" -> @ + 1 [] IsR /\ e.n = "breakPin" -> 0 [] OTHER -> @,
      \* B2b: a start check run on a worktree that holds the change (065, 059)
      !.baseAfterChange = @ \/ (IsI /\ Running /\ g = "baseline" /\ e.n = "checkOk" /\ hist.change),
-     \* J8: a plan accepted again after the plan stop, without a hint or 043 (012, sp:184)
+     \* J8: a plan accepted again after the plan stop, without a hint or 043 (PR-DEVELOPIMPLEMENT-012, PR-DEVELOPPLUGIN-035: docs/design/skill-design-patterns.md「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」)
      !.psSeen = @ \/ (IsI /\ Stopped /\ k = "plan_stop"),
      !.excused = @ \/ (IsI /\ e.n \in {"hint", "outOfPlan"} /\ (hist.psSeen \/ (Stopped /\ k = "plan_stop"))),
      !.freePlan = @ \/ (IsI /\ Running /\ g = "plan" /\ e.n = "planOk" /\ hist.psSeen /\ ~hist.excused),

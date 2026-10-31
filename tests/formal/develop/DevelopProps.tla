@@ -27,9 +27,10 @@ LOCAL Processing == inbox # NoEv /\ inbox' = NoEv
 \* the steps without an input included; leaving a stop is one such change.
 OutputOnInput == [][out' # out => Processing]_pvars
 
-\* sp-380c49d.md:184: a resumed run starts at the planner when a hint is
-\* unread (implement) or the pin broke (PR-DEVELOPREVIEW-043), otherwise at
-\* the position the stop recorded. A new invocation is not a resume.
+\* docs/design/skill-design-patterns.md「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」原則:
+\* a resumed run starts at the planner when a hint is unread (implement) or
+\* the pin broke (PR-DEVELOPREVIEW-043), otherwise at the position the stop
+\* recorded. A new invocation is not a resume.
 LOCAL ResumeStage ==
   CASE IsI /\ hist.unread > 0 -> "plan"
     [] IsR /\ hist.rPin -> "plan"
@@ -44,8 +45,8 @@ Termination == <>(out.st \in {"done", "aborted"})
 -----------------------------------------------------------------------------
 (* Goals, read from hist. *)
 
-LOCAL Unv(r) == {c \in r.unv : ~\E d \in hist.dec : d.r = r.id /\ d.c = c}
-LOCAL Confirmed(r) == r.conf \/ \E d \in hist.dec : d.r = r.id /\ d.v = "confirm"
+LOCAL Unv(r) == UnvOf(r, hist.dec)
+LOCAL Confirmed(r) == ConfirmedOf(r, hist.dec)
 
 \* The goals are conjunctions of named conditions; the completion conditions
 \* of the requirement documents cite each name once.
@@ -95,8 +96,8 @@ ReviewGoal ==
     /\ out.st = "done" => (ReviewFailedIff /\ ReviewAllItems /\ ReviewPostConfirmed)
 
 LOCAL WaitsChecks == args.pr /\ args.stopAt \in {"none", "reply", "resolve"}
-LOCAL NeedsCommit == args.pr /\ args.stopAt \in {"none", "push", "reply", "resolve"}
-LOCAL EffFix == IF hist.aClass \in {"needs", "mismatch"} THEN hist.aDec = "fix" ELSE hist.aClass = "fix"
+LOCAL NeedsCommit == NeedsCommitOf(args)
+LOCAL EffFix == EffFixOf(hist.aClass, hist.aDec)
 
 LOCAL Performed ==
   (IF hist.aImpl # "none" THEN {"implemented"} ELSE {})

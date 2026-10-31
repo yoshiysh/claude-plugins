@@ -50,7 +50,7 @@ review は、入口で計画の mode（diff・working_tree・audit・external �
 
 | mode | 対象 | 目標として固定する対象の版 |
 |---|---|---|
-| diff | PR か差分 | 対象の commit |
+| diff | PR か差分 | 比較元の完全な SHA（baseRef）と比較先の完全な SHA（headSha）の組（方針の版 policyRef とは別に固定する） |
 | working_tree | 未コミットの作業ツリー | 未コミットの作業ツリー |
 | audit | path の範囲 | path の範囲の今の内容 |
 | external | git の外の対象 | PR-DEVELOPREVIEW-055 の各ファイルの内容の SHA-256 |
