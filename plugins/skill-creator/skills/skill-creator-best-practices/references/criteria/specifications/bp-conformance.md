@@ -18,7 +18,8 @@
 
 | 用語 | 意味 |
 |---|---|
-| 問い A・Q1・Q2・Q3 | 設計方針文書「形の判定」の図の問いの名前。A は人間の入力が要るところを run の境界にできるか、Q1 は段と段の間に結果による戻りが無いか、Q2 は試すものの集合が事前に決まり結果で増減しないか、Q3 は探索グラフの適用条件を満たすか、を問う |
+| 問い A・W・Q1・Q2・Q3 | 設計方針文書「形の判定」の図の問いの名前。A は人間の入力が要るところを run の境界にできるか、W は書き込む役と、書き込ませない役が、同じ区間に要るか、Q1 は段と段の間に結果による戻りが無いか、Q2 は試すものの集合が事前に決まり結果で増減しないか、Q3 は探索グラフの適用条件を満たすか、を問う |
+| run の並び | 問い W に「はい」と答える対象スキルで、分けた各 run（対象スキルが run を分けていなくても、SP-BPCONFORMANCE-003 のとおり分けたもの）を並べた全体。分けた各 run と同じく、問い Q1 以降を当てて形を得る（SP-BPCONFORMANCE-004） |
 | 判定の単位 | 判定基準を 1 回当てる単位。設計方針文書の節の原則の表の 1 行か、本書の 1 つの仕様項目を指す |
 | 判定の結果 | 判定の単位ごとに付ける、適合・不適合・対象外・未検査のどれか 1 つ。対象外は、適用の判定表（SP-BPCONFORMANCE-003）でその単位が当たらないことを指す。未検査は、判定できなかったか、本書が判定を保留させたことを指す |
 | 重い形 | 固定集合の反復型と探索グラフ型。どちらも形の判定の図で、問い Q1（段と段の間に結果による戻りが無い）に「いいえ」と答えて初めて到達する形である。問い A・問い Q3 のどちらで着いたターンごとの指揮も含まない |
@@ -37,6 +38,8 @@ create・update の検証役と review のフローの観点は、対象スキ�
 
 #### SP-BPCONFORMANCE-003 適用の判定表
 判定する者は、下の判定表で、対象スキルに当たる要求を決めなければならない。表の結果の列の番号は、PR-BPDESIGNEDSKILL- を略した要求番号である（例: 003 は PR-BPDESIGNEDSKILL-003）。条件の「形」は、対象スキルのフローに SP-BPCONFORMANCE-004 の順で問いを当てて得る形である（対象スキルが選んだと称する形ではない）。「資産台帳」と「fan-out」は、対象スキルが実際に持つかどうかである。PR-BPDESIGNEDSKILL-001・002・006・014・015・046 と、run の記録の 028〜036・038〜040・042（SP-BPCONFORMANCE-039）はどの行でも当たる。形が固定パイプライン型・固定集合の反復型・探索グラフ型の行では、048（SP-BPCONFORMANCE-035）も当たる。それ以外で結果の列に無い要求は対象外とし、その判定の単位には「対象外」を付ける。
+
+問い W の答えが「はい」でない対象スキルは、対象スキル全体で下の表の 1 行を引く。問い W の答えが「はい」の対象スキルでは、対象スキルが run を分けていなくても、判定する者は、対象スキルのフローを、図のとおり書き込む役だけを置く run とそれ以外の run に分けたものとして run の並びと各 run に名前を付け、run の並びと分けた各 run のそれぞれに SP-BPCONFORMANCE-004 の順で問いを当てて形を得て、それぞれの形と、それぞれが実際に持つ資産台帳・fan-out で、下の表の行を 1 行ずつ引かなければならない。対象スキルに当たる要求は、引いた行の結果の和とする。各要求の判定の単位は、その要求を当てた行の run（run の並びを含む）ごとに判定し、行の結果の「不適合とする」も、その行の run について付ける。資産の属する run は、適用の判定の記録の `runs` の要素ごとの `assets`（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006）で決める。分けた各 run が実際に持つ資産台帳・fan-out は、その run に属する資産だけが持つかで決める。run の並びが実際に持つ資産台帳・fan-out は、どの要素の `assets` にも無い資産だけが持つかで決め、分けた各 run に属する資産の持つものを含めない。1 つの資産が 2 つ以上の run に属するときも、1 つの判定の単位を 2 つ以上の run で判定したときとして扱う。1 つの判定の単位を 2 つ以上の run で判定したときは、どれかが不適合なら不適合、不適合が無くどれかが未検査なら未検査、全てが適合のときだけ適合とし、判定の単位ごとの結果は 1 つにして、不適合か未検査の理由にその run を書く。
 
 > 条件の値: 形 = 固定パイプライン型 / 固定集合の反復型 / 探索グラフ型 / ターンごとの指揮
 > 条件の値: 資産台帳 = 有 / 無
@@ -63,15 +66,27 @@ create・update の検証役と review のフローの観点は、対象スキ�
 ### 形の判定
 
 #### SP-BPCONFORMANCE-004 形の判定の順序
-create・update は、設計方針文書「形の判定」の図の問いを、A・Q1・Q2・Q3 の順に 1 つずつ答え、最初に到達した形を対象スキルの形にしなければならない。答えた問いを飛ばしてはならない。
+create・update は、設計方針文書「形の判定」の図の問いを、次の順に 1 つずつ答え、最初に到達した形を形にしなければならない。答えた問いを飛ばしてはならない。
 
-review のフローの観点の判定する者は、対象スキルのフローから同じ順に問いへ答える。そのうえで、最初に到達する形と対象スキルの形が食い違えば、PR-BPDESIGNEDSKILL-001 を不適合としなければならない。たとえば、Q1 に「はい」と答えられるフローで固定集合の反復型を選んでいれば不適合である。
+> 条件の値: 問い A の答え = はい / いいえ
+> 条件の値: 問い W の答え = はい / いいえ / 問いに到達しない
+
+| 条件: 問い A の答え | 条件: 問い W の答え | 結果 |
+|---|---|---|
+| いいえ | 問いに到達しない | A・W の順に答え、形はターンごとの指揮とする（Q1・Q2・Q3 は問いに到達しない） |
+| はい | いいえ | A・W・Q1・Q2・Q3 の順に答え、最初に到達した形を対象スキルの形とする |
+| はい | はい | A・W の後に、run の並びと分けた各 run（対象スキルが run を分けていなくても、SP-BPCONFORMANCE-003 のとおり分けたもの）のそれぞれに Q1・Q2・Q3 の順に答え、それぞれの最初に到達した形をその run（run の並びを含む）の形とする |
+| いいえ | はい | 図の道に無い答えの並びとし、この並びで答えてはならない |
+| いいえ | いいえ | 図の道に無い答えの並びとし、この並びで答えてはならない |
+| はい | 問いに到達しない | 図の道に無い答えの並びとし、この並びで答えてはならない |
+
+review のフローの観点の判定する者は、対象スキルのフローから同じ順に問いへ答える。そのうえで、最初に到達する形と対象スキルの形（問い W の答えが「はい」の対象スキルでは、run の並びと分けた各 run のそれぞれの形）が食い違えば、PR-BPDESIGNEDSKILL-001 を不適合としなければならない。たとえば、Q1 に「はい」と答えられるフローで固定集合の反復型を選んでいれば不適合である。問い W の答えが「はい」なのに対象スキルが run を分けていないことも、この食い違いに当たる。
 
 #### SP-BPCONFORMANCE-005 探索グラフの適用条件
 問い Q3 では、設計方針文書「探索グラフ」の節の適用条件 4 つが全て満たされるときだけ「はい」と答えなければならない。1 体の agent が 1 回の実行で解ける課題は、4 つの条件を問う前に「いいえ」としなければならない（1 回で解けるなら、スキルの形にする理由が無い）。
 
 #### SP-BPCONFORMANCE-006 重い形を強いた条件の記録
-PR-BPDESIGNEDSKILL-002 の判定の単位は対象スキルに 1 つとし、判定する者は、対象スキルの run ごとの形から下の表で結果を決めなければならない。問い W で run を分けない対象スキルは run が 1 つで、その形を当てる。問い W で分けた対象スキルは、分けた各 run の形を当てる。重い形の run は、形が重い形（用語定義）の run とする。重い形の run について、対象スキルの設計の説明は、問い Q1 以降の各問いへの答えを到達した形まで全て載せ、各答えにその答えを強いたフローの事実（どの段の結果がどの段への戻りを要するか、試すものの集合が何で変わるか）を 1 文以上添える。ターンごとの指揮の run を含むことは、他の重い形の run の記録の義務を消さない。
+PR-BPDESIGNEDSKILL-002 の判定の単位は対象スキルに 1 つとし、判定する者は、対象スキルの run ごとの形から下の表で結果を決めなければならない。問い W の答えが「はい」でない対象スキルは run が 1 つで、その形を当てる。問い W の答えが「はい」の対象スキルは、run の並びと分けた各 run の形を当てる（形の得方は SP-BPCONFORMANCE-003・SP-BPCONFORMANCE-004）。重い形の run は、形が重い形（用語定義）の run とし、run の並びの形が重い形なら run の並びも重い形の run とする。重い形の run（run の並びを含む）について、対象スキルの設計の説明は、問い Q1 以降の各問いへの答えを到達した形まで全て載せ、各答えにその答えを強いたフローの事実（どの段の結果がどの段への戻りを要するか、試すものの集合が何で変わるか）を 1 文以上添える。下の表の「全ての run」と、理由に書く「その run」も run の並びを含む。判定する者は、問い W の答えと run ごとの形を、適用の判定の記録（create・update は `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017、review は `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006）から読む。ターンごとの指揮の run を含むことは、他の重い形の run の記録の義務を消さない。
 
 > 条件の値: 重い形の run = 無い / 有る
 > 条件の値: 重い形の run の記録 = 全ての run で答えと事実が揃う / 答えが欠けるか事実の無い答えがある run が有る
@@ -83,7 +98,7 @@ PR-BPDESIGNEDSKILL-002 の判定の単位は対象スキルに 1 つとし、判
 | 有る | 答えが欠けるか事実の無い答えがある run が有る | 不適合（理由にその run を書く） |
 
 #### SP-BPCONFORMANCE-007 Workflow にしない判定
-形がターンごとの指揮のとき、対象スキルは、自分の plugin の workflow script も、スキルのディレクトリの中の Workflow script も持ってはならない。SKILL.md に `Workflow(` の callsite を持ってもならない。どちらかがあれば、PR-BPDESIGNEDSKILL-003 を不適合とする。
+形がターンごとの指揮のとき、対象スキルは、自分の plugin の workflow script も、スキルのディレクトリの中の Workflow script も持ってはならない。SKILL.md に `Workflow(` の callsite を持ってもならない。どちらかがあれば、PR-BPDESIGNEDSKILL-003 を不適合とする。問い W の答えが「はい」の対象スキルでは、判定する者は、本項をターンごとの指揮の行を引いた run（SP-BPCONFORMANCE-003）について、その run を実行する workflow script とその run の `Workflow(` の callsite が無いかで判定しなければならない。
 
 #### SP-BPCONFORMANCE-008 部品による組み立て
 Workflow script を持つ対象スキルの各段は、設計方針文書「形の判定」の節の部品の例のどれか、または「部品」の定義（1 つ以上の段からなり、段と段の間に戻りの無い定型の並び）に合う並びでなければならない。対象スキルの設計の説明は、段ごとに使った部品の名前を載せなければならない。部品の例に無い並びを使うときは、それが部品の定義に合う理由を 1 文添える。
@@ -279,7 +294,7 @@ SP-BPCONFORMANCE-023 で止まった run から再開した run は、`docs/spec
 本章の値は、設計方針文書が「（暫定）」とした値と規則を確定したものである。review の仕様の観点（PR-BPOPERATIONS-025）はこの章に照らす。best-practices 自身の実行も同じ値に従う（役ごとのモデルと effort は SP-BPCONFORMANCE-035 の best-practices の表に従う）。`docs/specifications/bp-run.md` は本章の SP ID を参照し、値を書き写さない。
 
 #### SP-BPCONFORMANCE-027 同時実行の上限
-対象スキルの Workflow script で同時に走る agent は、3 体以下でなければならない（設計方針文書「体数と同時実行」の表の初期値）。残りは枠が空くまで待たせ、切り捨ててはならない。守らせ方（runtime の設定か script か）は対象スキルの実装が決める。判定する者は同時に走る数と待たせることを判定し、守らせ方が runtime の設定か script かで適合・不適合を分けてはならない。best-practices 自身は、host の設定に頼らず script の名前付きの定数で守る。
+対象スキルの Workflow script で同時に走る agent は、3 体以下でなければならない（設計方針文書「体数と同時実行」の表の初期値）。残りは枠が空くまで待たせ、切り捨ててはならない。守らせ方（runtime の設定か script か）は対象スキルの実装が決める。判定する者は同時に走る数と待たせることを判定し、守らせ方が runtime の設定か script かで適合・不適合を分けてはならない。best-practices 自身は、host の設定に頼らず script の名前付きの定数 `CONCURRENCY`（`bp_author.js`・`bp_inspect.js`）で守る。best-practices 自身の `CONCURRENCY` の値は 3 とする。
 
 #### SP-BPCONFORMANCE-028 until-pass の繰り返しの上限
 項目ごとの until-pass の部品で、1 項目の工程を繰り返す回数は、最初の 1 回を含めて 3 回以下でなければならない（設計方針文書「停止」の表が引く、同じ課題の自動の続行は 2〜3 回まで、の上端）。最初の 1 回を含めて数えるのは本書の決定である。出所は最初の 1 回を含むかを定めておらず、含めて数えれば、続行を最初の後の回数と読んでも全体の回数と読んでも 3 を超えない。本書の「最初の 1 回を含めて 3 回以下」は全てこの数え方による。3 回目で通らなければ、その項目の結果として、通らなかったことと理由を返す。
@@ -380,14 +395,14 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | create の試走（目標の固定に「目標の固定」の行を当てた判定の結果） |
 | PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | create の試走（依頼文を 1 回で解ける課題にする） |
 | PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review の試走（仕込んだ違反が指摘として、仕込まない単位が指摘の無いまま返る） |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | review の試走（仕様の観点で、確定値の定数ごとに違反を仕込む）。SP-BPCONFORMANCE-028・SP-BPCONFORMANCE-029 は探索グラフ型の題材に当てる部品が無く測れないので、測る題材の試走を足すまで「作成中」 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | review の試走（仕様の観点で、確定値の定数ごとに違反を仕込む）。SP-BPCONFORMANCE-028・SP-BPCONFORMANCE-029 は探索グラフ型の題材に当てる部品が無く測れないので、測る題材の試走を足すまで「作成中」 |
 
 ## トレーサビリティ表
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | fixture（形ごとの正例・負例）で判定の結果を照合 | 作成中 |
-| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | fixture（答えだけで事実の無い設計の説明）で不適合、ターンごとの指揮で適合を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | fixture（形ごとの正例・負例）で判定の結果を照合。問い W の答えが「はい」の題材として、run の並びが固定集合の反復型で分けた 1 つの run がターンごとの指揮のもの、2 つの run に属する資産を持つもの、run を分けていないものを含め、run ごとに引いた行の判定の単位の結果と、run を分けていない題材で PR-BPDESIGNEDSKILL-001 が不適合になることを照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | fixture（答えだけで事実の無い設計の説明）で不適合、ターンごとの指揮で適合を照合。問い W の答えが「はい」で、重い形の run とターンごとの指揮の run が混ざる題材で、重い形の run の 1 つだけ事実を欠く設計の説明が不適合になり理由にその run が書かれることを照合 | 作成中 |
 | PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | fixture（ターンごとの指揮で script を持つもの）で不適合を照合 | 作成中 |
 | PR-BPDESIGNEDSKILL-004 | SP-BPCONFORMANCE-008 | fixture（部品名の無い段）で不適合を照合 | 作成中 |
 | PR-BPDESIGNEDSKILL-005 | SP-BPCONFORMANCE-009 | fixture（適用条件を満たすが台帳の無いもの）で不適合を照合 | 作成中 |
@@ -435,4 +450,4 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | create の検証役が当たる判定の単位の全てに結果を付けることを照合 | 完了 |
 | PR-BPOPERATIONS-011 | SP-BPCONFORMANCE-029 | 書き直しが 3 回で止まることを照合 | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review のフローの観点が本書の判定の単位の全てに結果を付け、不適合が指摘、未検査が未検査の観点として返り値に載ることを照合 | 作成中 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | 対象スキルの定数と本章の値の決定的照合 | 作成中 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | 対象スキルの定数と本章の値の決定的照合 | 作成中 |
