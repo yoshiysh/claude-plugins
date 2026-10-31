@@ -14,8 +14,12 @@ async function skillCopy(t) {
   const skill = path.join(plugin, 'skills', 's');
   await fs.mkdir(path.dirname(skill), { recursive: true });
   await fs.cp(SKILL_DIR, skill, { recursive: true, filter: (src) => !src.includes(`${path.sep}eval-viewer`) });
-  return { plugin, skill, conformance: path.join(skill, CRITERIA_DIR, 'specifications', 'bp-conformance.md') };
+  const conformance = path.join(skill, CRITERIA_DIR, 'specifications', 'bp-conformance.md');
+  return { plugin, skill, conformance, conformanceTbd: conformance.replace(/\.md$/, '.tbd.json') };
 }
+
+// 正本の bp-conformance は TBD を持たないので、隣の .tbd.json は写しに置いて試す。
+const TBD_STUB = '{\n "tbd": [\n  {\n   "blocking": false,\n   "id": "TBD-SBPCONFORMANCE-005",\n   "text": "x"\n  }\n ]\n}\n';
 
 async function edit(file, from, to) {
   const text = await fs.readFile(file, 'utf8');
@@ -43,7 +47,7 @@ test('検証方法: 判定基準の写しの全てのファイルの、トレー
   const changes = [
     (c) => edit(c.conformance, '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 |', '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-007 |'),
     (c) => edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:'),
-    (c) => edit(c.conformance.replace(/\.md$/, '.tbd.json'), '"TBD-SBPCONFORMANCE-005"', '"TBD-SBPCONFORMANCE-006"'),
+    (c) => fs.writeFile(c.conformanceTbd, TBD_STUB),
     (c) => edit(c.conformance, '3 体以下でなければならない', '4 体以下でなければならない'),
     (c) => edit(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-run.md'), '#### SP-BPRUN-037', '#### SP-BPRUN-037 x'),
     (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-findings.md'), '\n判定する者は全て適合としてよい\n'),
@@ -60,6 +64,11 @@ test('検証方法: 判定基準の写しの全てのファイルの、トレー
     await change(c);
     assert.ok(!sameFingerprint(fingerprint(c.skill), before), change.toString());
   }
+  const c = await skillCopy(t);
+  await fs.writeFile(c.conformanceTbd, TBD_STUB);
+  const before = fingerprint(c.skill);
+  await edit(c.conformanceTbd, '"TBD-SBPCONFORMANCE-005"', '"TBD-SBPCONFORMANCE-006"');
+  assert.ok(!sameFingerprint(fingerprint(c.skill), before), '隣の .tbd.json の TBD ID を変えても指紋が変わらない');
   assert.equal(criteriaBody('# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | 完了 |\n## 次\n| a | b | c | d |\n'),
     '# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | |\n## 次\n| a | b | c | d |\n');
 });
