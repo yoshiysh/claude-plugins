@@ -6,12 +6,14 @@
 
 ## 対象範囲
 
-本文書は、create と update の run の中の流れを定める。扱うのは次のとおり。
+本文書は、create と update の run の中の流れを定める。本文書は `####` 見出し 1 つを 1 仕様項目とする。扱うのは次のとおり。
 
 - create の対象スキルの置き場と、create・update の run が状態に残す入力
 - 目標の固定（create は依頼文から、update は対象スキルの全体と修正の根拠から）
 - 書く・検証する・書き直す反復と、その中での形の判定の当て方
 - 検証の観点、担当の作り方、合否の判定、反復の上限の当て方
+- Claude Code での役ごとの制限の確かめ方
+- 合否が合格になった後の形式検証の段
 - update の既存の振る舞い（契約）の判定
 - create・update に固有の異常系
 - 完了時の出力と、完了の前に止まったときの報告
@@ -27,8 +29,8 @@
 
 ### 本文書が実現する要求
 
-- 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-003・004・005・007・008・009・010・011・012・014・015・016・017・018・019・020・023・037・040・041（20 件）
-- 併せて実現: PR-BPOPERATIONS-006・013・045・046、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-001・014・015・019（019 は best-practices 自身に当てたもの）
+- 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-003・004・005・007・008・009・010・011・012・014・015・016・017・018・019・020・023・037・040・041・052（21 件）、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-024・025・026・027・037・041（形式検証）・045・046・049・050（Claude Code での役ごとの制限の確かめ方）
+- 併せて実現: PR-BPOPERATIONS-006・013・045・046、PR-BPDESIGNEDSKILL-001・014・015・019（019 は best-practices 自身に当てたもの）
 
 ## 用語定義
 
@@ -43,7 +45,7 @@
 | 反復 | 書く段から合否の段までの段の並び 1 回（SP-BPAUTHORING-005） |
 | 反復の番号 | 状態の中で反復を区別する番号。反復を始めるたびに 1 増える。反復の上限に当てる反復の回数（SP-BPAUTHORING-024）とは別に数える |
 | 契約 | update の対象スキルの、外から見える振る舞い。description が定める発火する条件と発火しない条件、入力、出力、停止の種類の 5 つの要素からなる（依頼者の裁定） |
-| 強いられた未検査 | `docs/specifications/bp-conformance.md` が判定する者に「未検査」を付けさせる判定の単位。SP-BPCONFORMANCE-006 のターンごとの指揮の PR-BPDESIGNEDSKILL-002、SP-BPCONFORMANCE-019 の Claude Code の PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の設計方針文書「権限」の表の最後の行、SP-BPCONFORMANCE-034 の実行役の時間の上限の行 |
+| 強いられた未検査 | `docs/specifications/bp-conformance.md` が判定する者に「未検査」を付けさせる判定の単位。無視される設定の一覧を読めないとき（SP-BPCONFORMANCE-019）の、Claude Code の PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の設計方針文書「権限」の表の最後の行だけを指す |
 | 合否 | 1 回の反復の終わりに、script が運搬役を通じて CLI に決めさせる、合格・不合格・検証が成り立たないの 3 値（SP-BPAUTHORING-023） |
 | 残る危険 | 対象スキルの役ごとの制限のうち、配布先で効くかを確かめられなかったもの（SP-BPCONFORMANCE-019・020）。best-practices 自身の役の制限（SP-BPRUN-025）とは別に数える |
 
@@ -54,10 +56,15 @@
 #### SP-BPAUTHORING-001 create の対象スキルのパス
 create の対象スキルのパスの一覧は、`.agents/skills/<name>/` のディレクトリ 1 つでなければならない（未公開のスキルの実体の置き場：AGENTS.md）。`<name>` は、依頼文がスキル名として名指しする文字列とする。callsite は、この一覧を run の起動前に作り、入力に渡さなければならない（SP-BPENTRY-013）。依頼文がスキル名を名指ししないとき、callsite は create の run を起動してはならず、スキル名を利用者に尋ねなければならない（名前を推測で決めると、依頼文に無い制約を足すことになる：PR-BPOPERATIONS-004）。
 
+`<name>` は、空でなく、`/` を含まず、`.` でも `..` でもない 1 つのパスの要素でなければならない。callsite は、名指しされた文字列が次のどれかに当たるとき、名指ししないときと同じく create の run を起動してはならず、スキル名を利用者に尋ねなければならない（`/` や `..` を含む文字列は `.agents/skills/` の外を指す：PR-BPOPERATIONS-037）。
+
+- 名指しされた文字列が `<name>` の条件に当たらない。callsite は文字列を書き換えて名前を作ってはならない。
+- 依頼文がスキル名として 2 つ以上の文字列を名指しする。callsite は、1 つ目を取ることを含め、推測で 1 つを選んではならない。
+
 create が作る Workflow script は、このディレクトリの中に置かなければならない。`plugins/` の下へ置いてはならない（`plugins/` への移動は marketplace への登録の仕事であり、create の範囲の外にある：AGENTS.md）。
 
 #### SP-BPAUTHORING-002 書き換えてよい範囲
-create・update の書き手は、対象スキルのパスの一覧の中（「一覧の中」の意味は `docs/specifications/bp-run.md` の用語定義）のファイルだけを作り・書き換え・消してよい。一覧の外にある既存のファイルを書き換えてはならず、一覧の外に新しいファイルを作ってはならない（PR-BPOPERATIONS-037・020）。作業ファイルの置き場は SP-BPRUN-007・008 に従う。
+create・update の書き手は、対象スキルのパスの一覧の中（「一覧の中」の意味は `docs/specifications/bp-run.md` の用語定義）のファイルだけを作り・書き換え・消してよい。一覧の外にある既存のファイルを書き換えてはならず、一覧の外に新しいファイルを作ってはならない（PR-BPOPERATIONS-037・020）。run の作業記録・証拠・記録台帳はこの制限の外とし、作業ファイルの置き場は SP-BPRUN-007・008 に従う。
 
 - update の書き手は、スキルのディレクトリの中に新しいファイルを足してよく、一覧の中のファイルを消してもよい（全体の作り直しの許容：PR-BPOPERATIONS-018）。
 - update で新しく Workflow script が要るとき、書き手はそれをスキルのディレクトリの中に置かなければならない（SP-BPAUTHORING-001 と同じ理由）。
@@ -71,7 +78,7 @@ update の最初の run は、作り直す前の写しの段（SP-BPAUTHORING-00
 ### 段の並び
 
 #### SP-BPAUTHORING-005 段の並びと反復
-create・update の run は、次の段を上から順に進めなければならない。段は「段」の列の名前で呼び、この名前を状態の「段の進み」（SP-BPRUN-005）に書く。「開始」から「目標の固定」までは反復に含めない。「書く」から「合否」までを 1 回の反復とし、合否が不合格のときだけ SP-BPAUTHORING-025 に従って「書く」へ戻る（create・update の形は固定集合の反復型：改稿が全ての観点の検証の結果を要するので、検証と書き直しの間が段の境界になる）。段の agent が結果を返さなかったときの扱いは、段が fan-out の項目（`docs/specifications/bp-run.md` の用語定義）を持つかで決まる（SP-BPRUN-027・SP-BPRUN-028）。
+create・update の run は、次の段を上から順に進めなければならない。段は「段」の列の名前で呼び、この名前を状態の「段の進み」（SP-BPRUN-005）に書く。「開始」から「目標の固定」までと「形式検証」は反復に含めない。「書く」から「合否」までを 1 回の反復とし、合否が不合格のときだけ SP-BPAUTHORING-025 に従って「書く」へ戻る。「形式検証」は合否が合格のときだけ行い、失敗しても「書く」へ戻らない（SP-BPAUTHORING-045）（create・update の形は固定集合の反復型：改稿が全ての観点の検証の結果を要するので、検証と書き直しの間が段の境界になる）。段の agent が結果を返さなかったときの扱いは、段が fan-out の項目（`docs/specifications/bp-run.md` の用語定義）を持つかで決まる（SP-BPRUN-027・SP-BPRUN-028）。
 
 | 段 | 項目 | 起動する役 | 定める仕様項目 |
 |---|---|---|---|
@@ -86,13 +93,14 @@ create・update の run は、次の段を上から順に進めなければな�
 | 消えた資産の照合 | 消えた資産に結び付いた指摘ごと | 検証役 | SP-BPFINDINGS-020・SP-BPFINDINGS-037 |
 | 見直し | なし | 運搬役 | SP-BPFINDINGS-018・019 |
 | 合否 | 1 件 | 運搬役 | SP-BPAUTHORING-021〜025 |
+| 形式検証 | 1 件 | 検証役 | SP-BPAUTHORING-042〜045 |
 
-ただし、検証役・反証役が結果を返せないことによる BLOCKED（段の項目の全件の打ち切り、未反証の候補、skip 一覧の残り、判定できない指摘による「検証が成り立たない」）で止まった run を再開するときは、書き手を起動せず、新しい反復を台帳の段から始める（その原因は対象スキルの中身ではなく、書き直す入力が無い：依頼者の裁定）。CLI の拒否や運搬役の失敗による BLOCKED は、この例外に当たらず、書く段から始める。どちらの BLOCKED かは、停止の記録に残す原因の区分 `cause`（検証役・反証役が結果を返せないときだけ `verifiers`）で見分ける。この反復も 1 回に数える（SP-BPAUTHORING-024）。始め方の全体は SP-BPAUTHORING-035 の表に従う。
+ただし、台帳の段から合否の段までの段で、検証役・反証役が結果を返せないことによる BLOCKED（段の項目の全件の打ち切り、未反証の候補、skip 一覧の残り、判定できない指摘による「検証が成り立たない」）で止まった run を再開するときは、書き手を起動せず、新しい反復を台帳の段から始める（その原因は対象スキルの中身ではなく、書き直す入力が無い：依頼者の裁定）。台帳の段から合否の段までの段での CLI の拒否や運搬役の失敗による BLOCKED は、この例外に当たらず、書く段から始める。形式検証の段で止まった BLOCKED と、開始の段から書く段までの段で止まった BLOCKED は、この例外にもその次の文にも当たらず、SP-BPAUTHORING-035 の表のその段の行に従う。どの BLOCKED かは、止まった段と、停止の記録に残す原因の区分 `cause`（値と付け方は SP-BPAUTHORING-045 と `docs/specifications/bp-run.md` の SP-BPRUN-011）で見分ける。この反復も 1 回に数える（SP-BPAUTHORING-024）。始め方の全体は SP-BPAUTHORING-035 の表に従う。
 
 段を始めるときは SP-BPRUN-038 で項目を列挙し、項目の結果と段の進みは運搬役が状態に書く（SP-BPRUN-005・006）。前の回の項目との分け方は SP-BPAUTHORING-036 に従う。役ごとのモデルと effort は SP-BPRUN-023 に従い、目標の固定と書く段の書き手には書き手の値を当てる。同時に走る agent の数は SP-BPCONFORMANCE-027 に従う。
 
 #### SP-BPAUTHORING-036 項目の ID に含める番号
-新しい反復の、書く段から合否の段までの項目と、始め直した目標の固定の段の項目は、前の回の項目と別の項目にしなければならない（SP-BPAUTHORING-035 で始め直した反復や目標の固定が、前の回の項目を「結果のある項目」や「打ち切った項目」として引き継がないようにするため）。script は、反復の番号と目標の固定を始め直した回を SP-BPRUN-038 の回として CLI に渡す。回の表し方は `docs/specifications/bp-run.md` の SP-BPRUN-038 に従う。ただし、消えた資産の照合の段は、反復の番号ではなく取り直しの番号を回にする（SP-BPRUN-038）。他の段の項目は回を持たない。
+新しい反復の、書く段から合否の段までの項目と、始め直した目標の固定の段の項目は、前の回の項目と別の項目にしなければならない（SP-BPAUTHORING-035 で始め直した反復や目標の固定が、前の回の項目を「結果のある項目」や「打ち切った項目」として引き継がないようにするため）。script は、反復の番号と目標の固定を始め直した回を SP-BPRUN-038 の回として CLI に渡す。回の表し方は `docs/specifications/bp-run.md` の SP-BPRUN-038 に従う。ただし、消えた資産の照合の段は、反復の番号ではなく取り直しの番号を回にする（SP-BPRUN-038）。形式検証の段の項目の回は、形式検証の段を新しく始めるたびに 1 増える番号（最初は 1）とし、script が SP-BPRUN-038 の回として CLI に渡す（反復の番号を回にすると、同じ反復のまま形式検証の段から始める再開で、前の回の項目と同じ ID になる）。新しく始めるのは、合否が合格になって形式検証の段へ進むときと、SP-BPAUTHORING-035 の表の形式検証の段の `formalUnrunnable`・`verifiers`・`cause` なしの行で形式検証の段から始めるときとする。同じ表の反復の上限（起動数の上限）の行と停止の記録が無い行では、同じ回で列挙し直す。前の回は、状態にある形式検証の段の、段の開始と項目の列挙の記録（段・回）の最後のものの回とし、script は開始の操作の出力 `progress` の `formalRound`（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `start`）から読む。他の段の項目は回を持たない。
 
 ### 目標の固定
 
@@ -107,7 +115,7 @@ create・update の run は、次の段を上から順に進めなければな�
 書き手は、次のどちらかを返さなければならない。
 
 - 固定した目標: 下の表の欄を全て持つ。値が無い欄は「なし」と書く。
-- 足りない入力: 利用者への問いの一覧と、問いごとの理由（SP-BPAUTHORING-008）。
+- 足りない入力: 利用者への問いの一覧 `missing`（`{question, reason}` の 1 つ以上の並び。どちらも空でない文字列：SP-BPAUTHORING-008）。書き手は、任意の欄 `impact` に、問いの答えで変わる目標の要素の種類（下の表の 5 種の欄の名前 `deliverables`・`scope`・`prohibitions`・`numeric`・`deixis` の重複の無い並び）を添えてもよい。CLI は `impact` を導かない。
 
 | 目標の要素 | 中身 | 対応する設計方針文書「目標の固定」の行 |
 |---|---|---|
@@ -117,7 +125,7 @@ create・update の run は、次の段を上から順に進めなければな�
 | 数値条件 | 依頼文にある、数値で判定できる条件 | 「目標に数値で判定できる条件」の行 |
 | 指示語の置き換え | 依頼文の指示語と、それを置き換えた固有名の組 | 「依頼文から範囲と禁止事項を先に抜き出し」の行 |
 
-目標の要素ごとに、書き手は 1 つ以上の出所を付けなければならない。出所は次のどれかとする。
+目標の要素ごとに、書き手は 1 つ以上の出所を付けなければならない。ただし、値が「なし」の欄の要素には出所を付けない（成果物の欄は「なし」にできない：SP-BPAUTHORING-008）。出所は次のどれかとする。
 
 | 機能 | 出所に使えるもの |
 |---|---|
@@ -131,9 +139,9 @@ update では、SP-BPFINDINGS-031 が修正の根拠として扱うとした根�
 
 - 逐語の引用は、指したもの（依頼文・回答・写しのファイル）の中に、1 字も違わずに含まれる。
 - 修正の根拠の記録 ID は、前提にある修正の根拠の記録 ID のうち、SP-BPFINDINGS-031 が修正の根拠として扱うとした根拠のものである。
-- 全ての目標の要素に、照合を通った出所が 1 つ以上ある。update では、SP-BPAUTHORING-006 の最後の段落の条件も満たす。
+- 値が「なし」の欄の要素を除く全ての目標の要素に、照合を通った出所が 1 つ以上ある。値が「なし」の欄の要素は照合の対象にしない（引ける出所が無い）。ただし、成果物の欄が「なし」なら照合を通さない（成果物を特定できないときは足りない入力を返す：SP-BPAUTHORING-008）。update では、SP-BPAUTHORING-006 の最後の段落の条件も満たす。
 
-照合を通らなかったとき、script は、通らなかった要素と理由を添えて目標の固定の段の書き手を起動し直さなければならない（依頼文に無い目標・制約を作らないため：PR-BPOPERATIONS-004）。起動し直す回数は、最初の 1 回を含めて SP-BPCONFORMANCE-028 の until-pass の繰り返しの上限までとし、回数は状態の段ごとの繰り返しの回数（SP-BPRUN-005）に持つ（再開や目標の固定の始め直しで項目の ID が変わっても数え直さないため：SP-BPRUN-015）。上限の回でも通らなかったとき、run は needs_input で止まり、理由に、出所の無い要素と、それを決めるのに要る回答を書かなければならない（依頼文から目標を固定できないのは、目標を固定する入力が足りないからである：PR-BPOPERATIONS-005）。
+CLI は、照合の結果を、繰り返しの回数の + 1 と目標の sha256 と同じ記録に、照合を通らなかった要素ごとの `{要素の種類, 書き手の値, 理由}` の並び `failures` として書かなければならない（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `goal-check`）。成果物の欄が「なし」のときは、要素の種類を `deliverables`、書き手の値を「なし」とする要素を `failures` に入れる。update で SP-BPAUTHORING-006 の最後の段落の条件を満たさないときは、出所として指されていない修正の根拠ごとに、要素の種類を `grounds`、書き手の値を `null`、理由をその修正の根拠の記録 ID が出所として指されていないこととする要素を `failures` に入れる。照合を通らなかったとき、script は、通らなかった要素と理由を添えて目標の固定の段の書き手を起動し直さなければならない（依頼文に無い目標・制約を作らないため：PR-BPOPERATIONS-004）。起動し直す回数は、最初の 1 回を含めて SP-BPCONFORMANCE-028 の until-pass の繰り返しの上限まで（現在の run の開始時の累計からの増分で当てる：SP-BPRUN-005）とし、回数は状態の段ごとの繰り返しの回数（SP-BPRUN-005）に持つ（再開や目標の固定の始め直しで項目の ID が変わっても数え直さないため：SP-BPRUN-015）。上限の回でも通らなかったとき、run は needs_input で止まり、理由に、状態の最後の `goal-check` の記録の `failures` の要素ごとの要素の種類・書き手の値・理由を書かなければならない（決めるのに要る回答は、その要素の出所として引ける利用者の回答（SP-BPAUTHORING-006 の出所の表）であり、何が足りないかは理由が示す。依頼文から目標を固定できないのは、目標を固定する入力が足りないからである：PR-BPOPERATIONS-005）。この停止は目標の固定で止まったときに当たり、返り値の判断材料は SP-BPAUTHORING-034 に従う。
 
 #### SP-BPAUTHORING-008 待たれる入力の不足
 書き手は、次のどれかに当たるとき、固定した目標の代わりに足りない入力を返さなければならない。
@@ -143,7 +151,7 @@ update では、SP-BPFINDINGS-031 が修正の根拠として扱うとした根�
 - 依頼文と回答に、成果物か範囲が違ってくる複数の読みがあり、どれかに決める記述が無い。
 - 依頼文の中の 2 つ以上の記述が、同時には満たせない。
 
-書き手が足りない入力を返したとき、run は needs_input で止まり、理由に問いの一覧と問いごとの理由を書かなければならない（run の中では入力を待って続けられない：SP-BPRUN-002）。利用者が回答を足して再開した run は、回答を前提として書いてから（SP-BPRUN-004）、目標の固定の段から始める。
+足りない入力を返す書き手は、問いの一覧と問いごとの理由に、任意の欄 `impact`（SP-BPAUTHORING-006）を添えてもよい。書き手が足りない入力を返したとき、運搬役は CLI の `goal-check` に `goal` の代わりに `missing` と `impact` を渡し、CLI は段ごとの繰り返しの回数を増やさずに、目標の固定の段の項目の結果として `missing` と `impact` を段の終わりと同じ 1 行で書かなければならない（`docs/specifications/bp-run.md` の SP-BPRUN-031。返り値は状態だけから作る：SP-BPAUTHORING-034）。返り値の `impact` の値は SP-BPAUTHORING-034 に従わなければならない。書き手が足りない入力を返したとき、run は needs_input で止まり、理由に問いの一覧と問いごとの理由を書かなければならない（run の中では入力を待って続けられない：SP-BPRUN-002）。利用者が回答を足して再開した run は、回答を前提として書いてから（SP-BPRUN-004）、目標の固定の段から始める。
 
 #### SP-BPAUTHORING-009 固定した目標を前提に書く
 出所の照合を通った固定した目標を、script は運搬役に前提として状態へ書かせなければならない（SP-BPRUN-004）。script は、固定した目標を書く前に検証役の合格を求めてはならない（固定した目標は生成した主張ではなく入力として扱う：設計方針文書「目標の固定」）。以後の段は、固定した目標を状態から読んで使わなければならない。
@@ -162,7 +170,7 @@ update では、SP-BPFINDINGS-031 が修正の根拠として扱うとした根�
 - 2 回目以降の反復では、SP-BPAUTHORING-014 の書き直しの入力
 - 判定基準として、SP-BPRUN-036 の写しのうち `docs/specifications/bp-conformance.md` と `docs/requirements/bp-designed-skill.md` の写しの場所
 
-書き手は、対象スキルを書き、書いたファイルと消したファイルのパスを返さなければならない（SP-BPRUN-009）。update の書き手は、修正の根拠が触れない部分を含めて対象スキルの全体を作り直してよい（PR-BPOPERATIONS-018）。
+書き手は、対象スキルを書き、書いたファイルと消したファイルのパスと、設計の説明の置き場 `designNote` を返さなければならない（SP-BPRUN-009）。`designNote` は `{path, startLine, endLine}` とし、`path` は対象スキルの根からの相対パス、`startLine`・`endLine` は設計の説明が占める行の 1 始まりの閉区間とする（綴りは CLI の定数 `RESULT_KEYS` に置く）。update の書き手は、修正の根拠が触れない部分を含めて対象スキルの全体を作り直してよい（PR-BPOPERATIONS-018）。
 
 #### SP-BPAUTHORING-012 形の判定の当て方
 書く段の書き手は、対象スキルの形を SP-BPCONFORMANCE-004 の順で問いに答えて決め、Q3 では SP-BPCONFORMANCE-005 に従わなければならない（1 体の agent の 1 回の実行で解ける課題は探索グラフ型にしない：PR-BPOPERATIONS-007）。そのうえで、資産台帳の要否を SP-BPCONFORMANCE-009 で決め、部品を SP-BPCONFORMANCE-008 で選んで組まなければならない。書き手は、答えた問いと答え、重い形を強いた事実（SP-BPCONFORMANCE-006）、段ごとの部品の名前（SP-BPCONFORMANCE-008）を、対象スキルの設計の説明に書かなければならない。2 回目以降の反復で形が変わらないときも、設計の説明を今の対象スキルと食い違わないように保たなければならない。
@@ -171,18 +179,22 @@ update では、SP-BPFINDINGS-031 が修正の根拠として扱うとした根�
 書く段の書き手は、次のものを対象スキルに入れてはならない。
 
 - 固定した目標に無い目標・制約（PR-BPOPERATIONS-004）
-- 実行役の時間の上限の値（SP-BPCONFORMANCE-034）
 - 対象スキルのパスの一覧の外のファイルへの書き込み（SP-BPAUTHORING-002）
 
-設計の説明は、対象スキルのディレクトリの中の 1 つのファイルに置かなければならない。置いたファイルと範囲は、完了時の出力（SP-BPAUTHORING-033）で返す。CLI は、書く段の項目の結果を書くとき、設計の説明のパスが対象スキルの根からの相対パスで、根の配下の既存のファイルを指すことを確かめ、当たらなければ拒否の記録を足して `E_RESULT` で拒否しなければならない（外を指すと、完了時の出力が対象スキルの外のファイルを逐語で写す）。この拒否で run は SP-BPAUTHORING-031 と同じく BLOCKED で止まる（書き手を起動し直すと対象スキルを書き直すので、試し直さない）。script は書いたファイルの記録をこの結果より先に書かせ、返されたパスは拒否のときも書いたファイルの一覧（一覧の外のパスは停止の記録の `outside`）に残す。
+設計の説明は、対象スキルのディレクトリの中の 1 つのファイルに置かなければならない。置いたファイルと範囲は、完了時の出力（SP-BPAUTHORING-033）で返す。CLI は、書く段の項目の結果を書くとき、`designNote` の `path` が対象スキルの根からの相対パスで、根の配下の既存のファイルを指すことと、`startLine`・`endLine` が整数で 1 ≦ `startLine` ≦ `endLine` ≦ そのファイルの行数であることを確かめ、当たらなければ拒否の記録を足して `E_RESULT` で拒否しなければならない（外を指すと、完了時の出力が対象スキルの外のファイルを逐語で写す）。この拒否で run は SP-BPAUTHORING-031 と同じく BLOCKED で止まる（書き手を起動し直すと対象スキルを書き直すので、試し直さない）。script は書いたファイルの記録をこの結果より先に書かせ、返されたパスは拒否のときも書いたファイルの一覧（一覧の外のパスは停止の記録の `outside`）に残す。
 
 #### SP-BPAUTHORING-014 書き直しの入力
-2 回目以降の反復の書く段で、script は、直前の反復の合否の段が書き直しの入力とした次のものを、書き手に渡さなければならない。
+2 回目以降の反復の書く段で、script は、次の書き直しの入力を書き手に渡さなければならない。
 
-- SP-BPAUTHORING-022 で「不合格」とした指摘。形は SP-BPFINDINGS-029 のまま渡す。
-- SP-BPAUTHORING-021 で、結果が「不適合」の判定の単位と、強いられた未検査でない「未検査」の判定の単位。単位ごとの理由を添える。
+- 直前の反復の合否の段が書き直しの入力とした、SP-BPAUTHORING-022 で「不合格」とした指摘。形は SP-BPFINDINGS-029 のまま渡す。
+- 直前の反復の合否の段が書き直しの入力とした、SP-BPAUTHORING-021 で結果が「不適合」の判定の単位と、強いられた未検査でない「未検査」の判定の単位。単位ごとの理由を添える。
+- 状態にある合否の段の記録のうち、その反復の番号より 1 小さい番号の記録の `decision` が `pass` である反復では、状態にある形式検証の段の回のうちその時点の最後の回（SP-BPAUTHORING-036）の項目の結果（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `item-result`）の `properties` のうち、`outcome` が `fails`（成り立たなかった性質）の要素の `target` と `reason`（SP-BPAUTHORING-045）。script は開始の操作の出力 `progress` の `formalFails` から読む。
 
-script は、検証役と反証役が返したもののうち、上の 2 つ以外を書き手に渡してはならない（書き手が直す先を、検証で確かめたものに限るため）。
+script は、1 つ目と 2 つ目の入力を、直前の反復の合否の段を同じ run で行ったときはその `gate` の出力の `rewrite` から、そうでないときは開始の操作の出力 `progress` の `lastRewrite`（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `start`）から読まなければならない。
+
+script は、3 つ目の入力を渡す反復を、開始の操作の出力 `progress`（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `start`）の `decisions` の要素の `decision` と `iteration` で見分けなければならず、前の run の停止の種類と `cause` で見分けてはならない（同じ反復の書く段を起動数の上限の行や停止の記録が無い行で処理し直す run にも、その反復を始めた run と同じ入力を渡すため）。合否が `pass` の反復の次の反復は、SP-BPAUTHORING-035 の表の `formalFailed` の行でだけ始まる。
+
+script は、検証役と反証役が返したもののうち、上の 3 つ以外を書き手に渡してはならない（書き手が直す先を、検証で確かめたものに限るため）。
 
 #### SP-BPAUTHORING-015 書いたパスの照合
 書く段の書き手が結果を返したとき、script は運搬役を通じて CLI に、返されたパスごとに、対象スキルのパスの一覧の中にあるかを決定的に確かめさせなければならない（CLI の `files` が一覧の外のパスを返す）。「一覧の中」は、書く段を始めたときの今の一覧で決める。script は、一覧の中のパスを、一覧の外のパスの有無によらず、運搬役に書いたファイルの一覧として状態へ書かせなければならない（SP-BPRUN-009。外のパスがある反復で中のパスを書かないと、書き換えたファイルが検証を通っていないことの報告から漏れる：PR-BPOPERATIONS-041）。一覧の外のパスがあれば、続けて SP-BPAUTHORING-031 に従う。
@@ -223,18 +235,36 @@ script は、検証役と反証役が返したもののうち、上の 2 つ以�
 #### SP-BPAUTHORING-017 適合の観点
 適合の観点の検証役には、今の対象スキルのパスと、SP-BPRUN-036 の写しの場所を渡さなければならない。検証役は、SP-BPFINDINGS-007 の形に加えて、次を返さなければならない。
 
-- 判定の単位ごとの結果: SP-BPCONFORMANCE-003 の判定表で当たる要求の、全ての判定の単位について、判定の結果（適合・不適合・対象外・未検査）と理由を返す（SP-BPCONFORMANCE-018）。結果が不適合の単位には、その単位について出した指摘の候補の鍵（資産 ID・観点・指摘の種類）を 1 つ以上添える。結果が未検査の単位には、未検査の区分として「強いられた未検査」か「強いられていない未検査」（判定できなかった単位：SP-BPCONFORMANCE-038）のどちらかを添える。
+- 適用の判定 `applicability`: review の適用の判定（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006）と同じ形とする。問い `A`・`W` の `{answer, quotes}` と、問い W の答えで置き場の決まる問い `Q1`・`Q2`・`Q3` と資産台帳 `ledger`・fan-out `fanout`（W がはいのときは、要素ごとに資産 ID の並び `assets` を持つ `runs`）を、SP-BPINSPECTION-006 のとおりに持つ（`quotes` は `{asset, line, text}` の 1 つ以上の並び。答えの選択肢は SP-BPINSPECTION-006 の閉集合）。検証役は判定表の行を選ばない。CLI が答えの並びから SP-BPINSPECTION-006 の受理の表で形を決め、形と資産台帳と fan-out から SP-BPCONFORMANCE-003 の判定表の行を導いて状態に書き（W がはいのときは `runs` の要素ごとに `{run, shape, row, assets}`。資産の属する run は SP-BPINSPECTION-006 の `assets` の規則に従う）、判定の単位の照合はこの行（W がはいのときは全ての要素の行の判定の単位の和）に対して行う。
+- 判定の単位ごとの結果: CLI が導いた行で当たる要求の、全ての判定の単位について、判定の結果（適合・不適合・対象外・未検査）と理由を返す（SP-BPCONFORMANCE-018）。結果が不適合の単位には、その単位について出した指摘の候補の鍵（資産 ID・観点・指摘の種類）を 1 つ以上添える。結果が未検査の単位には、未検査の区分として「強いられた未検査」か「強いられていない未検査」（判定できなかった単位：SP-BPCONFORMANCE-038）のどちらかを添える。
 - 残る危険: SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、SP-BPCONFORMANCE-020 の 4 項目（役の名前・制限の中身・配布先・確かめられなかった理由）。
+- 照らした制限 `checkedRoleLimits`: SP-BPAUTHORING-046 の照らした結果。
 
-CLI は、次の結果の記録を拒否しなければならない。拒否された結果の扱いは SP-BPFINDINGS-034 と同じとする（SP-BPFINDINGS-007 が許す足した欄の値は、その欄を定める本項が照らす）。
+CLI は、次の結果の記録を拒否しなければならない。拒否の条件は、この並びと、下の保持規則が裁定を待つ場合の扱いだけとする。拒否された結果の扱いは SP-BPFINDINGS-034 と同じとする（SP-BPFINDINGS-007 が許す足した欄の値は、その欄を定める本項が照らす）。下の「その行」は、検証役が選ぶ行ではなく、CLI が適用の判定から導いて状態に書いた SP-BPCONFORMANCE-003 の判定表の行（W がはいのときは `runs` の全ての要素の行）を指す。
 
-- 適用の判定 `applicability`・判定の単位ごとの結果 `units`・残る危険 `residualRisks` のどれかが無い（欠けた結果を受けると、判定の結果を付けていない単位が残る：SP-BPCONFORMANCE-018）。
-- 選んだ行が SP-BPCONFORMANCE-003 の判定表の行ではない。
-- その行の判定の単位でない単位、同じ単位の 2 つ目の結果、選択肢に無い結果、文字列でない理由がある。
-- その行の判定の単位のうち、結果を付けていないものがある。
+- 適用の判定 `applicability`・判定の単位ごとの結果 `units`・残る危険 `residualRisks`・照らした制限 `checkedRoleLimits` のどれかが無い（欠けた結果を受けると、判定の結果を付けていない単位が残る：SP-BPCONFORMANCE-018）。
+- 適用の判定が、SP-BPINSPECTION-006 で CLI が拒否するとした結果に当たる。
+- その行で当たる判定の単位でない単位、同じ単位の 2 つ目の結果、選択肢に無い結果、文字列でない理由がある。
+- その行で当たる判定の単位のうち、結果を付けていないものがある。
 - 不適合の単位に、候補の鍵が無いか、同じ結果の中に無い指摘の候補の鍵を添えた。
 - 未検査の単位に、空でない理由と未検査の区分のどちらかが無いか、強いられた未検査を、強いられた未検査でない単位に付けた（理由の無い未検査は、判定できなかったわけを読み手に渡さない：SP-BPCONFORMANCE-038）。
 - 残る危険が 4 項目（役の名前・制限の中身・配布先・確かめられなかった理由）の並びでない。
+- 照らした制限が SP-BPAUTHORING-046 の 4 項目（役の名前・制限の中身・配布先・結果）の並びでない。
+- 照らした制限に結果が「効かない」の制限があるのに、同じ結果の中の PR-BPDESIGNEDSKILL-046 の判定の単位の結果が不適合でない（受けると、効かないと確かめた制限が合否にも残る危険にも現れない）。
+
+適用の判定の `runs` の要素の `assets` が、欠けている・並びでない・空の並びである・同じ資産 ID を 2 回以上含む、のどれかに当たるときに CLI がその結果を受理するか拒否するか（1 つ目の要素（run の並び）と 2 つ目以降の要素で扱いを分けるかを含む）の裁定が下るまで、create・update の本項の適用の判定の受理を実装する者は、それらの場合を受理する実装も拒否する実装も確定させてはならない。同じ裁定までの単体テストの期待値と配布の扱いは、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 の保持規則と同じとする。
+
+#### SP-BPAUTHORING-046 Claude Code での役ごとの制限の照らし方
+各反復の検証の段で、適合の観点の検証役は、Claude Code での役ごとの制限の確かめ（PR-BPDESIGNEDSKILL-045・049・050）を SP-BPCONFORMANCE-019 の Claude Code の行と判定表のとおりに行わなければならない。この確かめは形式検証の段に置かない。検証役は、照らした結果を `checkedRoleLimits` に、照らした制限ごとに役の名前・制限の中身・配布先（Claude Code）・結果（効く・効かない）の 4 項目で返し、運搬役が CLI で状態に書く（綴りは CLI の定数 `VERIFICATION_KEYS` に置く）。
+
+> 条件の値: 一覧 = 読めた / 読めない
+
+| 条件: 一覧 | 結果 |
+|---|---|
+| 読めた | `checkedRoleLimits` に照らした全ての制限を載せる。効かない制限は PR-BPDESIGNEDSKILL-046 の不適合として指摘の候補にし（合否が不合格になり、書き直しで効く形に直す：PR-BPOPERATIONS-011）、一覧に照らした制限を Claude Code の残る危険 `residualRisks` に載せない |
+| 読めない | `checkedRoleLimits` を空の並びにし、対象スキルの全ての役ごとの制限を、配布先を Claude Code、理由を無視される設定の一覧を読めないこととして、SP-BPCONFORMANCE-020 の 4 項目で `residualRisks` に載せる |
+
+Codex runner で確かめられなかった制限は、一覧を読めたかによらず、SP-BPCONFORMANCE-019 の Codex runner の行のとおり `residualRisks` に載せる。
 
 #### SP-BPAUTHORING-018 目標の観点
 目標の観点の検証役には、今の対象スキルのパスと、状態にある固定した目標と出所を渡さなければならない。create では状態にある依頼文と回答を、update では作り直す前の写しのパスと、SP-BPFINDINGS-031 が修正の根拠として扱うとした根拠と、回答を合わせて渡さなければならない。検証役は、次を指摘の候補にしなければならない。
@@ -357,7 +387,7 @@ create・update の fan-out の項目の順位（SP-BPRUN-038 の列挙の順。
 
 強いられた未検査の単位と、残る危険は、合否を妨げない。これらは完了時の出力で宣言する（SP-BPAUTHORING-033）。
 
-CLI は、合否と、1 と 2 で当たった指摘 ID と判定の単位を、判定と同じ 1 回の書き込みで合否の段の項目の結果として状態へ書かなければならない（置き場は SP-BPRUN-005 の項目。CLI の `gate`）。
+CLI は、合否と、1 と 2 で当たった指摘 ID と判定の単位を、判定と同じ 1 回の書き込みで合否の段の項目の結果として状態へ書かなければならない（置き場は SP-BPRUN-005 の項目。CLI の `gate`）。CLI は、同じ書き込みで、書き直しの入力 `rewrite` も合否の段の項目の結果に書かなければならない。`rewrite` は `{findings, units}` とし、`findings` は 2 で「不合格」とした指摘を判定の時点の台帳から SP-BPFINDINGS-029 の形で写した並び、`units` は 2 で当たった判定の単位ごとの `gate` の出力の `units` の要素（SP-BPAUTHORING-021 の結果と理由）を値を変えずに写した並びとする（判定の時点の値を写して持つので、後の台帳の取り直しで指摘の状態が変わっても、再開した run が受け取る書き直しの入力は判定した run と同じになる）。合否が「合格」か「検証が成り立たない」のときは、書く段へ戻らない（SP-BPAUTHORING-025）ので書き直しの入力にするものが無く、`rewrite` は `{findings: [], units: []}` とする。
 
 #### SP-BPAUTHORING-024 反復の数え方
 CLI は、合否の段の項目の結果を状態に書く同じ書き込みで、反復の回数を 1 増やさなければならない（分けると、その間で止まった run の再開で、結果のある項目として飛ばされて数えが抜ける。項目の ID は反復の番号を含む（SP-BPAUTHORING-036）ので、同じ書き込みを繰り返しても SP-BPRUN-006 により 2 回は数えない）。合否が「検証が成り立たない」の反復も 1 回に数える（数えないと、返り値の反復の回数（SP-BPAUTHORING-032）が走らせた反復の数と食い違う。上限は run ごとの増分に当てる（SP-BPRUN-013）ので、数えても再開した run の上限は減らない）。目標の固定の段は反復に数えない。反復の上限の値は SP-BPCONFORMANCE-029 に従い、数え方（現在の run の開始時の累計からの増分に当てること）は SP-BPRUN-013 に従う。
@@ -370,13 +400,63 @@ CLI は、合否の段の項目の結果を状態に書く同じ書き込みで�
 
 | 条件: 合否 | 条件: 増分 | 結果 |
 |---|---|---|
-| 合格 | * | 完了で止まる（SP-BPAUTHORING-026） |
+| 合格 | * | 形式検証の段へ進む（SP-BPAUTHORING-042） |
 | 不合格 | 反復の上限より小さい | 次の反復の書く段へ戻る（書き直しの許容：PR-BPOPERATIONS-011） |
 | 不合格 | 反復の上限に達した | 反復の上限で止まる（SP-BPRUN-010・013）。理由に、不合格とした指摘 ID と判定の単位を書く（PR-BPOPERATIONS-012） |
 | 検証が成り立たない | * | SP-BPAUTHORING-030 に従い BLOCKED で止まる |
 
 #### SP-BPAUTHORING-026 完了の条件
-create・update の run は、直前の反復の合否が合格のときだけ、完了で止まってよい。合格の前に、対象スキルを完了として報告してはならない（PR-BPOPERATIONS-010）。完了で止まるとき、script は運搬役に完了の停止を書かせ、CLI は同じ 1 回の書き込みで、書いたファイルの一覧の全てのファイルについて検証を通ったことを追記しなければならない（SP-BPRUN-009。最後の合否が合格でない完了の停止は CLI が拒否する）。それ以外の停止では、どのファイルにも検証を通ったことを追記させてはならない。
+create・update の run は、直前の反復の合否が合格で、その後の形式検証の段を通った（SP-BPAUTHORING-044）ときだけ、完了で止まってよい。合格の前に、対象スキルを完了として報告してはならない（PR-BPOPERATIONS-010）。完了で止まるとき、script は運搬役に完了の停止を書かせ、CLI は同じ 1 回の書き込みで、書いたファイルの一覧の全てのファイルについて検証を通ったことを追記しなければならない（SP-BPRUN-009。最後の合否が合格でないか、形式検証の段を通っていない完了の停止は CLI が拒否する）。それ以外の停止では、どのファイルにも検証を通ったことを追記させてはならない。
+
+### 形式検証
+
+#### SP-BPAUTHORING-042 形式検証の段
+合否が合格になった後、script は形式検証の段の項目 1 件を SP-BPAUTHORING-036 の形式検証の段の回で列挙させ、その項目として、書き手と別の context の検証役を 1 体起動しなければならない（SP-BPRUN-024）。SP-BPAUTHORING-035 の表で形式検証の段から始める再開も、同じ規則で項目を列挙させる。検証役には、今の対象スキルのパスと、SP-BPRUN-036 の写しの場所を渡す。検証役は、次を順に行わなければならない。
+
+1. 対象スキルの要求・状態・遷移・入出力・制約から、検証すべき性質を全て洗い出す（PR-BPDESIGNEDSKILL-024）。
+2. 洗い出した性質を、形式化できるものとできないものに分ける。形式化できない性質には理由を付ける（PR-BPDESIGNEDSKILL-037）。
+3. 形式化できる性質を、それぞれに要る形式検証の手法と道具で検証する（PR-BPDESIGNEDSKILL-025。道具の文書は本書に写さず、その所在で参照する）。
+4. 形式化できない性質を別の方法で確かめる。確かめられない性質は未確認とし、理由を付ける（PR-BPDESIGNEDSKILL-041）。
+5. 結果を作業記録（SP-BPAUTHORING-043）に書き、作業記録のパスと性質ごとの結果を、`docs/specifications/bp-run.md` の SP-BPRUN-031 の `item-result` の行が定める形式検証の段の `result` の形で返す。段を通ったかと失敗の区分は返さない（CLI が性質ごとの結果から導く：SP-BPAUTHORING-044）。
+
+運搬役は、検証役の結果を CLI の `item-result` で状態の形式検証の段の項目の結果に書かなければならない。受理と拒否の条件は SP-BPRUN-031 の `item-result` の行に従う。形式検証の段は反復に含めず、反復の回数を増やさない（SP-BPAUTHORING-024）。
+
+#### SP-BPAUTHORING-043 形式検証の記録
+形式検証の段の検証役は、結果を自分の作業記録（`docs/specifications/bp-run.md` の作業記録）に書き、記録台帳がその作業記録を指さなければならない。作業記録は、洗い出した性質ごとに 1 行を持ち、行ごとに形式化できたかを示す。行の欄は次の表とする。洗い出した性質が 0 件のときは、0 件であることを書く。作業記録は、洗い出した性質が検証すべき性質の全てであることを検証役の判断が保証しないこと（洗い出しの網羅の限界）の宣言を持たなければならない。宣言の中身は、CLI の受理の条件（SP-BPRUN-031 の `item-result`）に入れない。
+
+| 性質の区分 | 行が持つ欄 |
+|---|---|
+| 形式化できた | 対象・手法・道具（名前と版）・前提・検証した範囲・結果・未検証の範囲（PR-BPDESIGNEDSKILL-026） |
+| 形式化できない | 形式化できない理由（PR-BPDESIGNEDSKILL-037）と、別の確認の方法と結果、又は未確認であることと理由（PR-BPDESIGNEDSKILL-041） |
+
+create・update の返り値の検証の結果（SP-BPAUTHORING-032・034）は、この作業記録のパスを指す。
+
+#### SP-BPAUTHORING-044 形式検証の段を通ったとするとき
+CLI は、状態にある形式検証の段の項目の結果（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `item-result` の `workRecord`・`readable`・`properties`）から、次の判定表で、段を通ったかと、通らないときの停止の原因の区分 `cause` を導き、`item-result` の出力で返さなければならない（検証役と script は同じ判定をしない）。「成り立たない性質」は `properties` のうち `outcome` が `fails` の要素、「実行できない性質」は `outcome` が `unrunnable` の要素とする。
+
+> 条件の値: 読めたか = `readable.ok` が true / `readable.ok` が false
+> 条件の値: 成り立たない性質 = 有 / 無
+> 条件の値: 実行できない性質 = 有 / 無
+
+| 条件: 読めたか | 条件: 成り立たない性質 | 条件: 実行できない性質 | 結果 |
+|---|---|---|---|
+| `readable.ok` が false | * | * | 通らない。`cause` は `formalUnrunnable`（対象スキルを読めないか性質を洗い出せない） |
+| `readable.ok` が true | 無 | 無 | 通る（洗い出した性質が 0 件のときと、形式化できない性質に `unconfirmed` の要素が残るときを含む） |
+| `readable.ok` が true | 無 | 有 | 通らない。`cause` は `formalUnrunnable` |
+| `readable.ok` が true | 有 | 無 | 通らない。`cause` は `formalFailed` |
+| `readable.ok` が true | 有 | 有 | 通らない。`cause` は `formalFailed` |
+
+段を通るとき、run を止めてはならず、0 件であることと未確認の性質と理由は作業記録（SP-BPAUTHORING-043）に残す。空の `properties` は、`readable.ok` が true のときだけ洗い出した性質が 0 件の結果として扱う。
+
+#### SP-BPAUTHORING-045 形式検証の失敗
+SP-BPAUTHORING-044 の判定表で CLI が段を通らないと導いたとき、run は BLOCKED で止まらなければならない（PR-BPDESIGNEDSKILL-027。形式検証の失敗に書き直しを許さないので、書く段へ戻らない：PR-BPOPERATIONS-011）。script は、停止の記録の原因の区分 `cause` に、CLI がその表で導いた値を書かせる。理由（SP-BPRUN-030）には、止まった段（形式検証）と、失敗した性質ごとの対象と理由（実行できなかったか、成り立たなかったか）を書き、`readable.ok` が false のときは `readable.reason` を書く。
+
+形式検証の段のほかの BLOCKED の `cause` は次のとおりとする。`formalUnrunnable`・`formalFailed` は、SP-BPAUTHORING-044 の表で CLI が導いた停止だけに使う。
+
+- 形式検証の段の検証役が結果を返さない BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）: `verifiers`
+- 形式検証の段の結果の書き込みを CLI が拒否したか、運搬役が失敗した BLOCKED: `cause` を省く
+
+`formalUnrunnable`・`formalFailed` の綴りは、検証役・反証役が結果を返せないときの値 `verifiers` と同じ CLI の定数に置く。CLI の `stop` の操作は、`cause` としてこの 3 つの値だけを受けなければならない（`docs/specifications/bp-run.md` の SP-BPRUN-031）。再開した run の始め方は SP-BPAUTHORING-035 の表に従う。
 
 ### 停止
 
@@ -392,13 +472,17 @@ create・update の再開した run は、SP-BPRUN-015 の 1・2 を行った後
 | 前の run の停止 | 止まった段 | 始め方 | 前の回の未着手の項目 |
 |---|---|---|---|
 | needs_input | 目標の固定 | 回答を前提に書き（開始の操作の `answer`）、目標の固定の回を 1 増やして始め直し、新しい反復の書く段へ進む | 破棄する |
-| 反復の上限（反復の回数） | 合否 | 新しい反復の書く段から。書き直しの入力は最後の合否の書き直しの入力 | 破棄する |
-| 反復の上限（起動数の上限） | 全て | 同じ反復・同じ回の続き。止まった段を同じ鍵で列挙し直し、結果の無い項目だけを処理する。止まった段が書く段より前（開始・作り直す前の写し・目標の固定）なら、目標の固定は同じ回の続き（前提に目標が無いとき）から、最初の反復の書く段へ進む。追加の検証の段は、未着手の項目を破棄して、再開の時点の skip 一覧から次の部分を作り直す | 処理する（追加の検証の段は破棄する） |
+| 反復の上限（反復の回数） | 合否 | 新しい反復の書く段から。書き直しの入力は最後の合否の書き直しの入力（`progress` の `lastRewrite`：SP-BPAUTHORING-014） | 破棄する |
+| 反復の上限（起動数の上限） | 全て | 同じ反復・同じ回の続き（形式検証の段も同じ回：SP-BPAUTHORING-036）。止まった段を同じ鍵で列挙し直し、結果の無い項目だけを処理する。止まった段が書く段より前（開始・作り直す前の写し・目標の固定）なら、目標の固定は同じ回の続き（前提に目標が無いとき）から、最初の反復の書く段へ進む。追加の検証の段は、未着手の項目を破棄して、再開の時点の skip 一覧から次の部分を作り直す | 処理する（追加の検証の段は破棄する） |
 | BLOCKED | 開始・作り直す前の写し | 写しの段から（記録があれば照らすだけ：SP-BPAUTHORING-004）。前提に目標が無ければ目標の固定の回を 1 増やして始め直し、新しい反復の書く段へ進む | 破棄する |
 | BLOCKED | 目標の固定 | 前提に目標があれば飛ばし（SP-BPAUTHORING-010）、無ければ目標の固定の回を 1 増やして始め直す。繰り返しの回数は引き継ぐ。新しい反復の書く段へ進む | 破棄する |
-| BLOCKED | 書く | 新しい反復の書く段から。書き直しの入力は、前の反復の合否があればその書き直しの入力、無ければ無し | 破棄する |
-| BLOCKED（検証役・反証役が結果を返せないことによる） | 台帳・検証・追加の検証・反証・消えた資産の照合・見直し・合否 | 書き手を起動せず、新しい反復の台帳の段から検証し直す（SP-BPAUTHORING-005 のただし書き） | 破棄する |
-| BLOCKED（それ以外：CLI の拒否・運搬役の失敗） | 台帳・検証・追加の検証・反証・消えた資産の照合・見直し・合否 | 新しい反復の書く段から。書き直しの入力は、前の反復の合否があればその書き直しの入力、無ければ無し | 破棄する |
+| BLOCKED | 書く | 新しい反復の書く段から。書き直しの入力は、前の反復の合否があればその書き直しの入力（`progress` の `lastRewrite`。その合否が「検証が成り立たない」なら空：SP-BPAUTHORING-023）、無ければ無し | 破棄する |
+| BLOCKED（検証役・反証役が結果を返せないことによる：`verifiers`） | 台帳・検証・追加の検証・反証・消えた資産の照合・見直し・合否 | 書き手を起動せず、新しい反復の台帳の段から検証し直す（SP-BPAUTHORING-005 のただし書き） | 破棄する |
+| BLOCKED（それ以外：CLI の拒否・運搬役の失敗） | 台帳・検証・追加の検証・反証・消えた資産の照合・見直し・合否 | 新しい反復の書く段から。書き直しの入力は、前の反復の合否があればその書き直しの入力（`progress` の `lastRewrite`。その合否が「検証が成り立たない」なら空：SP-BPAUTHORING-023）、無ければ無し | 破棄する |
+| BLOCKED（形式検証を実行できない：`formalUnrunnable`） | 形式検証 | 書き手を起動せず、形式検証の段の回を 1 増やして形式検証の段から始める | 破棄する |
+| BLOCKED（性質が成り立たない：`formalFailed`） | 形式検証 | 新しい反復の書く段から。書き直しの入力は、成り立たなかった性質と理由（SP-BPAUTHORING-014） | 破棄する |
+| BLOCKED（検証役が結果を返さない：`verifiers`） | 形式検証 | 書き手を起動せず、書き直しの入力なしで、形式検証の段の回を 1 増やして形式検証の段から始める | 破棄する |
+| BLOCKED（`cause` なし：形式検証の段の結果の書き込みでの CLI の拒否・運搬役の失敗） | 形式検証 | 書き手を起動せず、書き直しの入力なしで、形式検証の段の回を 1 増やして形式検証の段から始める | 破棄する |
 | 停止の記録が無い | SP-BPRUN-018 で決めた段 | 反復の上限（起動数の上限）の行と同じ | 処理する |
 | 完了 | — | 開始の操作が `E_INPUT` で拒否する | — |
 
@@ -420,8 +504,8 @@ create・update の run は、状態を作る前に、入力を次の判定表�
 |---|---|---|
 | create | 依頼文が空 | agent の起動の前に、needs_input と理由（依頼文が要ること）を返す |
 | create | 修正の根拠として扱う根拠が 0 件 | 起こりえない（create は修正の根拠を受け取らない） |
-| create | 対象スキルのディレクトリが既にある | 開始の操作で、BLOCKED と理由（既にあるパスと、既存のスキルを直すなら update を使うこと）を返す。既にあるディレクトリに書いてはならない（PR-BPOPERATIONS-037）。`.agents/skills/<name>` が symlink のとき（公開済みのスキル：AGENTS.md）も既にあるとする |
-| create | 対象スキルのディレクトリが無い | 起こりえない（create はディレクトリを新しく作る） |
+| create | 対象スキルのディレクトリが既にある | 開始の操作で、BLOCKED と理由（既にあるパスと、既存のスキルを直すなら update を使うこと）を返す。既にあるものに書いてはならず、消してもならない（PR-BPOPERATIONS-037）。`.agents/skills/<name>` に何かが在るとき（ディレクトリ・symlink（公開済みのスキル：AGENTS.md）・通常のファイルを含め、種類を問わない）を既にあるとし、理由に在るものの種類も書く |
+| create | 対象スキルのディレクトリが無い | 起こりえない（create はディレクトリを新しく作る。「無い」は `.agents/skills/<name>` に何も無いときを指す） |
 | update | 依頼文が空 | 起こりえない（update は依頼文を受け取らない：SP-BPENTRY-013） |
 | update | 修正の根拠として扱う根拠が 0 件 | agent の起動の前に、needs_input と理由（受け取った修正の根拠の件数と、SP-BPFINDINGS-031 で扱わなかった件数と、1 件以上の修正の根拠が要ること）を返す（PR-BPOPERATIONS-015） |
 | update | 対象スキルのディレクトリが既にある | 起こりえない（update はディレクトリがあることを前提にする） |
@@ -437,7 +521,7 @@ create・update の run は、状態を作る前に、入力を次の判定表�
 
 ## 外部インタフェース
 
-create・update の入力の項目と綴りは SP-BPENTRY-013 の表と綴りの表に従う。どの停止でも返す共通の項目は SP-BPRUN-032 に、指摘と台帳の項目は SP-BPFINDINGS-029・030・032 に従う。本章は、create・update に固有の返り値の項目だけを定める。項目の綴りは各表の「綴り」の列とし、CLI の定数 `RESULT_KEYS`・`VERIFICATION_KEYS` に置く。返り値は CLI の `outcome` が状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。
+create・update の入力の項目と綴りは SP-BPENTRY-013 の表と綴りの表に従う。どの停止でも返す共通の項目は SP-BPRUN-032 に、指摘と台帳の項目は SP-BPFINDINGS-029・030・032 に従う。本章は、create・update に固有の返り値の項目だけを定める。項目の綴りは各表の「綴り」の列とし、CLI の定数 `RESULT_KEYS`・`VERIFICATION_KEYS` に置く。状態を作った後の停止の返り値は CLI の `outcome` が状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。状態を作る前の入力の確かめ（SP-BPAUTHORING-029）で止まるときの返り値は、SP-BPAUTHORING-034 の判断材料の表のその行のとおり script が作る。
 
 #### SP-BPAUTHORING-032 検証の結果
 create・update の返り値の「検証の結果」は、最後に合否を書いた反復について、次の項目を持たなければならない。
@@ -452,22 +536,23 @@ create・update の返り値の「検証の結果」は、最後に合否を書�
 | 強いられた未検査 | `forcedUnchecked` | 強いられた未検査の判定の単位の一覧と、保留の根拠の仕様項目 ID |
 | 基準が求めた制約 | `basisConstraints` | SP-BPAUTHORING-038 で目標の観点の検証役が返した、資産 ID と仕様項目 ID の組の一覧 |
 | 契約の判定の結果 | `contract` | update だけ。変わったところごとに、契約の要素・変わった契約の中身・選んだもの（修正の根拠の記録 ID、強いた判定基準の仕様項目 ID、「該当なし」のどれか）・指摘 ID（「該当なし」のとき）。判定基準が強いた変化は 1 件も省かない（SP-BPAUTHORING-039・SP-BPAUTHORING-040） |
-| 指摘と台帳 | `ledger` | SP-BPFINDINGS-030 の項目。指摘の状態の載せ方は SP-BPFINDINGS-028 |
+| 台帳 | `ledger` | SP-BPFINDINGS-030 の項目から指摘の一覧を除いた欄（カバレッジ・skip 一覧・資産の結末・未反証の候補・拒否された結果）。review・audit の `ledger` と同じ形とする。指摘の一覧は返り値の最上位の `findings`（SP-BPAUTHORING-033・034）だけに置く |
+| 形式検証の記録 | `formalVerification` | 状態で最後の合否の段の項目の結果の記録より後に始めた形式検証の段の回のうち、最後の回の項目の結果（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `item-result` で受理したもの）の `workRecord`（作業記録のパス：SP-BPAUTHORING-043）。その結果が無いとき（最後の合否が合格でないか、合格の後の形式検証の段に結果が無いとき）は `null`。記録の前後は `log.jsonl` の行の順（SP-BPRUN-005）で決める。綴りは CLI の定数 `RESULT_KEYS` に置く |
 
 #### SP-BPAUTHORING-033 完了時の出力
 create・update が完了で止まったとき、返り値は SP-BPRUN-032 の項目に加えて、次の項目を持たなければならない。
 
 > 条件の値: 機能 = create / update
-> 条件の値: 項目 = スキル / 設計の説明 / 検証の結果 / 指摘の状態と skip 一覧 / 残る危険 / 受け取った修正の根拠 / 対象スキルから外した callsite
+> 条件の値: 項目 = スキル / 設計の説明 / 検証の結果 / 指摘の状態 / 残る危険 / 受け取った修正の根拠 / 対象スキルから外した callsite
 
 | 条件: 機能 | 条件: 項目 | 綴り | 結果 |
 |---|---|---|---|
 | create | スキル | `skill` | 作ったスキルのディレクトリのパス（連鎖で次の機能の対象スキルにする：SP-BPENTRY-009）と、作ったスキルのパスの一覧と各ファイルの内容の指紋（PR-BPOPERATIONS-014） |
 | update | スキル | `skill` | 直したスキルのパスの一覧と、各ファイルの内容の指紋。消したファイルのパスも載せる（PR-BPOPERATIONS-023） |
-| create | 設計の説明 | `designNote` | 設計の説明を置いたファイルのパスと範囲と、CLI がそのファイルから逐語で写した本文（PR-BPOPERATIONS-014） |
+| create | 設計の説明 | `designNote` | 最後の反復の書く段の結果の `path`・`startLine`・`endLine`（SP-BPAUTHORING-011）と、CLI がそのファイルのその行の区間から逐語で写した本文 `text`（PR-BPOPERATIONS-014） |
 | update | 設計の説明 | `designNote` | create と同じ |
-| * | 検証の結果 | `verification` | SP-BPAUTHORING-032 |
-| * | 指摘の状態と skip 一覧 | `findings`・`skip` | SP-BPFINDINGS-032 |
+| * | 検証の結果 | `verification` | SP-BPAUTHORING-032。skip 一覧は `verification.ledger` の中だけに置く（SP-BPFINDINGS-032） |
+| * | 指摘の状態 | `findings` | SP-BPFINDINGS-032 の指摘の一覧（SP-BPFINDINGS-030 の指摘の一覧の形） |
 | * | 残る危険 | `residualRisks` | SP-BPAUTHORING-017 で適合の観点の検証役が返した残る危険の全て。SP-BPRUN-032 の「確かめられなかった役ごとの制限」とは別の項目にする（PR-BPDESIGNEDSKILL-015） |
 | create | 受け取った修正の根拠 | `receivedGrounds` | 載せない（create は修正の根拠を受け取らない） |
 | update | 受け取った修正の根拠 | `receivedGrounds` | 受け取った修正の根拠ごとに、修正の根拠の記録 ID（SP-BPRUN-004）と、根拠が指摘ならその指摘 ID。状態は付けない（SP-BPFINDINGS-028） |
@@ -478,15 +563,26 @@ create・update が完了で止まったとき、返り値は SP-BPRUN-032 の�
 #### SP-BPAUTHORING-034 完了の前に止まったときの報告
 create・update が完了以外で止まったとき、返り値は SP-BPRUN-032 の項目に加えて、次の項目を持たなければならない。
 
-| 項目 | 綴り | 中身 |
-|---|---|---|
-| 検証を通っていないこと | `unverified` | 書いたファイルの一覧のファイルと、SP-BPAUTHORING-031 の一覧の外のパスが、どれも検証を通っていないこと（SP-BPAUTHORING-026。PR-BPOPERATIONS-041） |
-| 止まった段 | `stoppedStage` | SP-BPAUTHORING-005 の段の名前 |
-| 検証の結果 | `verification` | 合否を書いた反復が 1 回以上あるとき、SP-BPAUTHORING-032（検証を通らなかった理由：PR-BPOPERATIONS-012） |
-| 残る危険 | `residualRisks` | 合否を書いた反復が 1 回以上あるとき、最後の反復の SP-BPAUTHORING-017 の残る危険 |
-| 対象スキルから外した callsite | `excludedCallsites` | 最後の取り直しで解決できなかった callsite（SP-BPAUTHORING-015）があったとき |
+| 項目 | 綴り | 中身 | 中身が無いとき |
+|---|---|---|---|
+| 検証を通っていないこと | `unverified` | 書いたファイルの一覧のファイルと、SP-BPAUTHORING-031 の一覧の外のパスが、どれも検証を通っていないこと（SP-BPAUTHORING-026。PR-BPOPERATIONS-041） | 起こりえない（常に持つ） |
+| 止まった段 | `stoppedStage` | 停止の記録の段（SP-BPAUTHORING-005 の段の名前）。現在の run が停止の記録を書かずに止まったとき（`docs/specifications/bp-run.md` の SP-BPRUN-046 の停止の記録を書かずに止まる run）は、状態を書かずに止まったとき（SP-BPAUTHORING-029 の全ての行と、同文書の SP-BPRUN-037 で止まるとき）は「開始」、それ以外（同文書の SP-BPRUN-027 で停止の記録を書けずに止まったとき）は同文書の `stop-draft` の `stage`（`stage` が `null` なら「開始」：同文書の SP-BPRUN-018 の 4） | SP-BPRUN-027 で `stop-draft` を読めなかったとき、`null`（段を読めなかったことは同文書の SP-BPRUN-027 のとおり理由に書く） |
+| 検証の結果 | `verification` | 合否を書いた反復が 1 回以上あるとき、SP-BPAUTHORING-032（検証を通らなかった理由：PR-BPOPERATIONS-012） | 合否を書いた反復が 0 回のとき、`null` |
+| 指摘の状態 | `findings` | 合否を書いた反復が 1 回以上あるとき、SP-BPAUTHORING-033 の `findings` と同じもの | 合否を書いた反復が 0 回のとき、欄を持たない |
+| 残る危険 | `residualRisks` | 合否を書いた反復が 1 回以上あるとき、最後の反復の SP-BPAUTHORING-017 の残る危険 | 合否を書いた反復が 0 回のとき、欄を持たない |
+| 対象スキルから外した callsite | `excludedCallsites` | 最後の取り直しで解決できなかった callsite（SP-BPAUTHORING-015）があったとき、その callsite | 無かったとき、欄を持たない |
 
-止まった理由は SP-BPRUN-032 の「理由」に書く。理由には、本文書の各項目が理由に書くとした内容を含めなければならない。
+止まった理由は SP-BPRUN-032 の「理由」`reason` に書く。理由には、本文書の各項目が理由に書くとした内容を含めなければならない。
+
+needs_input で止まった create・update の返り値は、理由 `reason` に加えて、判断材料の 4 つの欄（決めること `toDecide`・ここまでの検証結果 `verification`・影響の範囲 `impact`・残った作業 `remainingWork`）を常に持たなければならない（PR-BPOPERATIONS-052）。まだ無い材料の欄の値は `null` にする。判断材料の欄は SP-BPRUN-032 の共通の項目に足さない。`verification` の中身は SP-BPAUTHORING-032 とし、needs_input 以外の停止での `verification` の返し方は上の表のまま変えない。綴りは CLI の定数 `RESULT_KEYS` に置く。欄の値は、止まったところで次の表のとおりとする。状態を作った後の停止（表の目標の固定の 2 行）では、欄の値を停止の入力ではなく状態に保存した記録から作る（`stop` は `reason` のほかに判断材料を受けない）。状態を作る前の入力の確かめ（表の 1 行目）では、状態も停止の記録も作らず `outcome` を呼べないので、script が SP-BPAUTHORING-029 の判定表の当たった行の理由（開始の操作の拒否の応答を含む）から欄の値を作る。
+
+> 条件の値: 止まったところ = 状態を作る前の入力の確かめ / 目標の固定（書き手が足りない入力を返した） / 目標の固定（出所の照合が上限の回まで通らない）
+
+| 条件: 止まったところ | 結果 |
+|---|---|
+| 状態を作る前の入力の確かめ | `toDecide` は SP-BPAUTHORING-029 の判定表がその行の理由に挙げる要る入力。`verification`・`impact`・`remainingWork` は `null` |
+| 目標の固定（書き手が足りない入力を返した） | `toDecide` は状態の最後の目標の固定の段の項目の結果の `missing` の問いの一覧（SP-BPAUTHORING-008）。`impact` は同じ項目の結果の `impact`（SP-BPAUTHORING-006）とし、その欄が無いときは `null`。`remainingWork` は CLI の `outcome` が停止の記録の未着手の項目の一覧（SP-BPRUN-011）から作った残った作業。`verification` は合否を書いた反復があれば最後の反復の検証の結果、無ければ `null` |
+| 目標の固定（出所の照合が上限の回まで通らない） | `toDecide` は、状態の最後の `goal-check` の記録の `failures`（SP-BPAUTHORING-007）の要素ごとに 1 つの要素を持つ並びとし、各要素は `failures` の要素の `{要素の種類, 書き手の値, 理由}` を値を変えずに持つ。決めるのに要る回答を別の欄に持たない（SP-BPAUTHORING-007）。`outcome` は問いの文を作らず、理由を書き換えず、欄を省かない。`impact` は `null`。`remainingWork` と `verification` は上の行と同じ |
 
 ## 検証方法
 
@@ -506,11 +602,11 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-003 | SP-BPAUTHORING-009 | script の模擬実行（固定した目標が書く段より前に前提として書かれ、検証役の起動を待たない） | 完了 |
 | PR-BPOPERATIONS-003 | SP-BPAUTHORING-010 | script の模擬実行（前提に目標がある再開の run が目標の固定の段を飛ばす） | 完了 |
 | PR-BPOPERATIONS-004 | SP-BPAUTHORING-001 | 静的な照合（スキル名を名指ししない依頼文で callsite が run を起動しない） | 未着手 |
-| PR-BPOPERATIONS-004 | SP-BPAUTHORING-007 | CLI の単体テスト（依頼文に無い引用を持つ要素を照合が通さない）と script の模擬実行（上限の回で needs_input を返す） | 完了 |
+| PR-BPOPERATIONS-004 | SP-BPAUTHORING-007 | CLI の単体テスト（依頼文に無い引用を持つ要素を照合が通さない）と script の模擬実行（上限の回で needs_input を返す） | 作成中 |
 | PR-BPOPERATIONS-004 | SP-BPAUTHORING-013 | 静的な照合（書き手の prompt が固定した目標に無い目標・制約を禁じる） | 完了 |
 | PR-BPOPERATIONS-004 | SP-BPAUTHORING-018 | fixture の run（依頼文に無い制約を仕込んだ対象スキルで「依頼に無い目標・制約」の指摘が open になる） | 作成中 |
 | PR-BPOPERATIONS-004 | SP-BPAUTHORING-037 | fixture の run（目標の固定で紛れ込んだ制約を固定した目標に含め、対象スキルにも入れたとき、原文に照らして「依頼に無い目標・制約」の指摘が出る） | 作成中 |
-| PR-BPOPERATIONS-005 | SP-BPAUTHORING-007 | script の模擬実行（出所の照合が上限の回まで通らないと、needs_input と出所の無い要素を返す） | 完了 |
+| PR-BPOPERATIONS-005 | SP-BPAUTHORING-007 | script の模擬実行（出所の照合が上限の回まで通らないと、needs_input と出所の無い要素を返す） | 作成中 |
 | PR-BPOPERATIONS-005 | SP-BPAUTHORING-008 | script の模擬実行（書き手が足りない入力を返すと、needs_input と問いの一覧を返し、回答を足した再開で目標の固定から始める） | 完了 |
 | PR-BPOPERATIONS-005 | SP-BPAUTHORING-029 | script の模擬実行（空の依頼文で agent を起動せず needs_input を返す） | 完了 |
 | PR-BPOPERATIONS-006 | SP-BPAUTHORING-027 | 静的な照合（書く段から合否の段の間に needs_input で止まる分岐が無い） | 完了 |
@@ -526,9 +622,10 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-009 | SP-BPAUTHORING-016 | script の模擬実行（検証役と反証役の入力に書き手の返り値のパス以外が含まれない） | 完了 |
 | PR-BPOPERATIONS-010 | SP-BPAUTHORING-023 | script の模擬実行（不合格・検証が成り立たないの各条件を 1 つずつ作り、合格にならない） | 完了 |
 | PR-BPOPERATIONS-010 | SP-BPAUTHORING-026 | script の模擬実行（合格の前に完了で止まらず、完了以外の停止でファイルに検証を通ったことが追記されない） | 完了 |
-| PR-BPOPERATIONS-011 | SP-BPAUTHORING-014 | script の模擬実行（2 回目の書く段に不合格の指摘と単位だけが渡る） | 完了 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-014 | script の模擬実行（2 回目の書く段に、合否が `pass` でない前の反復の不合格の指摘と単位だけが渡る） | 完了 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-014 | script の模擬実行（形式検証の段が `unconfirmed`・`unrunnable`・`fails` を 1 件ずつ含む結果で `formalFailed` になった run から再開した新しい反復の書く段に、`fails` の 1 件の `target` と `reason` だけが渡り、その書く段を起動数の上限で止めて再開した run の書く段にも同じ入力が渡る） | 未着手 |
 | PR-BPOPERATIONS-011 | SP-BPAUTHORING-024 | script の模擬実行（合否を書くたびに反復の回数が 1 増え、「検証が成り立たない」の反復でも増え、目標の固定では増えない） | 完了 |
-| PR-BPOPERATIONS-011 | SP-BPAUTHORING-025 | script の模擬実行（判定表の 4 行の入力で進み方を照らす） | 完了 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-025 | script の模擬実行（判定表の 4 行の入力で進み方を照らす） | 作成中 |
 | PR-BPOPERATIONS-012 | SP-BPAUTHORING-025 | script の模擬実行（反復の上限で止まった返り値の理由に、不合格の指摘 ID と判定の単位がある） | 完了 |
 | PR-BPOPERATIONS-012 | SP-BPAUTHORING-034 | script の模擬実行（反復の上限で止まった返り値に検証の結果がある） | 完了 |
 | PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | script の模擬実行（未反証の候補・skip 一覧の残り・判定できない指摘のそれぞれで BLOCKED と、当たった項目の理由を返す） | 完了 |
@@ -539,7 +636,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | script の模擬実行（dismissed の指摘だけの修正の根拠で、agent を起動せず needs_input と件数を返す） | 完了 |
 | PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | script の模擬実行（前の review の参照だけの修正の根拠で、展開した指摘が 0 件か全て dismissed なら、開始の操作の後に agent を起動せず状態を作らずに needs_input と件数を返し、完了していない状態を指す参照では BLOCKED を返す） | 完了 |
 | PR-BPOPERATIONS-016 | SP-BPAUTHORING-006 | CLI の単体テスト（修正の根拠のどれかを出所として指さない目標を照合が通さない） | 完了 |
-| PR-BPOPERATIONS-016 | SP-BPAUTHORING-007 | CLI の単体テスト（前提に無い記録 ID や dismissed の指摘の記録 ID を出所にした要素を照合が通さない） | 完了 |
+| PR-BPOPERATIONS-016 | SP-BPAUTHORING-007 | CLI の単体テスト（前提に無い記録 ID や dismissed の指摘の記録 ID を出所にした要素を照合が通さない） | 作成中 |
 | PR-BPOPERATIONS-017 | SP-BPAUTHORING-005 | script の模擬実行（update が create と同じ段の順で進み、作り直す前の写しの段と契約の観点だけが足される） | 完了 |
 | PR-BPOPERATIONS-013 | SP-BPAUTHORING-005 | script の模擬実行（書く段の書き手が結果を返さないと BLOCKED になり、検証の項目の欠けでは試行を繰り返す） | 完了 |
 | PR-BPOPERATIONS-013 | SP-BPAUTHORING-036 | CLI の単体テスト（反復の番号だけが違う同じ段の項目が別の項目になり、新しい反復で前の回の結果を引き継がない） | 完了 |
@@ -560,12 +657,33 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-040 | SP-BPAUTHORING-031 | script の模擬実行（一覧の外に書いたファイルを戻さない） | 完了 |
 | PR-BPOPERATIONS-041 | SP-BPAUTHORING-026 | CLI の単体テスト（完了以外の停止の後、書いたファイルの一覧に検証を通った記録が無い） | 完了 |
 | PR-BPOPERATIONS-041 | SP-BPAUTHORING-034 | script の模擬実行（完了以外の停止の返り値に、検証を通っていないことと止まった段がある） | 完了 |
+| PR-BPOPERATIONS-041 | SP-BPAUTHORING-034 | script の模擬実行（空の依頼文の create の返り値の `stoppedStage` が「開始」で、合否を書いた反復の無い停止の返り値の `verification` が `null` で、`findings` と `residualRisks` の欄を持たない） | 未着手 |
+| PR-BPOPERATIONS-041 | SP-BPAUTHORING-034 | script の模擬実行（停止の記録を書けずに BLOCKED で止まった run の返り値の `stoppedStage` が `stop-draft` の `stage` と同じになり、`stage` が `null` なら「開始」、`stop-draft` を読めなければ `null` で理由に段を読めなかったことがある） | 未着手 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-034 | script の模擬実行（合否を書いた反復が 1 回以上ある完了以外の停止の返り値の `residualRisks` が、最後の反復の適合の観点の検証役が返した残る危険と同じになる） | 未着手 |
+| PR-BPOPERATIONS-041 | SP-BPAUTHORING-034 | script の模擬実行（最後の取り直しで解決できなかった callsite がある完了以外の停止の返り値が、その callsite を `excludedCallsites` に持ち、無いときは欄を持たない） | 未着手 |
 | PR-BPOPERATIONS-045 | SP-BPAUTHORING-022 | script の模擬実行（前の run が記録した指摘が resolved / regressed として報告されず、見直しの判定で合否が決まる） | 完了 |
 | PR-BPOPERATIONS-045 | SP-BPAUTHORING-033 | fixture の run（完了の返り値に指摘ごとの状態が載る） | 作成中 |
 | PR-BPOPERATIONS-046 | SP-BPAUTHORING-023 | script の模擬実行（追加の検証の後に skip 一覧が残ると合格にならない） | 完了 |
-| PR-BPOPERATIONS-046 | SP-BPAUTHORING-033 | fixture の run（完了の返り値に観点ごとの skip 一覧が載る） | 作成中 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPAUTHORING-012 | fixture の run（設計の説明に A・Q1・Q2・Q3 の答えが順に、到達した形まで載る） | 作成中 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-017 | fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、その制限が残る危険に載る） | 作成中 |
+| PR-BPOPERATIONS-046 | SP-BPAUTHORING-033 | fixture の run（完了の返り値の `verification.ledger` に観点ごとの skip 一覧が載り、`verification.ledger` に指摘の一覧が無く、最上位に `skip` が無い） | 作成中 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPAUTHORING-012 | fixture の run（設計の説明に A・W・Q1・Q2・Q3 の答えが順に、到達した形まで載る。問い W で run を分けた題材では、run の並びと分けた各 run のそれぞれに Q1・Q2・Q3 の答えが載る） | 作成中 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-017 | fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、一覧を持つ写しでは不適合の指摘になり、一覧の記述を消した写しではその制限が残る危険に載る） | 作成中 |
+| PR-BPDESIGNEDSKILL-045 | SP-BPAUTHORING-046 | fixture の run（一覧を持つ写しで、`checkedRoleLimits` に照らした全ての制限が 4 項目で載る） | 未着手 |
+| PR-BPDESIGNEDSKILL-046 | SP-BPAUTHORING-046 | fixture の run（一覧の設定に頼る制限を持つ対象スキルで合否が不合格になり、その制限が残る危険に載らない） | 未着手 |
+| PR-BPDESIGNEDSKILL-049 | SP-BPAUTHORING-046 | fixture の run（一覧の記述を消した写しで、`checkedRoleLimits` が空になり、全ての制限が Claude Code の残る危険に載る） | 未着手 |
+| PR-BPDESIGNEDSKILL-050 | SP-BPAUTHORING-023, SP-BPAUTHORING-046 | script の模擬実行（一覧を読めない検証役の結果だけがある反復が合格になる） | 未着手 |
+| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-042 | fixture の run（形式検証の段の作業記録に、対象スキルの要求・状態・遷移・入出力・制約から洗い出した性質が行ごとに載る） | 未着手 |
+| PR-BPDESIGNEDSKILL-037 | SP-BPAUTHORING-042, SP-BPAUTHORING-043 | fixture の run（形式化できない性質を持つ対象スキルで、作業記録のその性質の行に理由が載る） | 未着手 |
+| PR-BPDESIGNEDSKILL-041 | SP-BPAUTHORING-043, SP-BPAUTHORING-044 | script の模擬実行（未確認の性質だけが残る形式検証の結果で run が止まらず完了する） | 未着手 |
+| PR-BPDESIGNEDSKILL-025 | SP-BPAUTHORING-005, SP-BPAUTHORING-042 | script の模擬実行（合否が合格の後に形式検証の段が 1 回起動され、反復の回数が増えない） | 未着手 |
+| PR-BPDESIGNEDSKILL-026 | SP-BPAUTHORING-032, SP-BPAUTHORING-043 | script の模擬実行（完了の返り値の `formalVerification` が作業記録のパスを指し、作業記録の形式化できた行が 7 欄を持つ） | 未着手 |
+| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-026, SP-BPAUTHORING-035, SP-BPAUTHORING-045 | script の模擬実行（実行できない・成り立たないの各失敗で BLOCKED と区分つきの理由を返し、書く段へ戻らず、再開で表の始め方に従う。形式検証の段を通らない完了の停止を CLI が拒否する） | 未着手 |
+| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-036, SP-BPAUTHORING-042 | script の模擬実行（`formalUnrunnable`・`verifiers`・`cause` なしの BLOCKED から再開した形式検証の段の項目が前の回の項目と別の ID になって検証役が起動され、起動数の上限で止まった形式検証の段からの再開では同じ回で列挙し直される。`formalFailed` で止まった run から再開した新しい反復が合格して形式検証の段に進むと、前の回より 1 大きい回の別の ID で項目が列挙され、検証役が起動される） | 未着手 |
+| PR-BPDESIGNEDSKILL-026 | SP-BPAUTHORING-032 | script の模擬実行（`formalFailed` の後の新しい反復の合否が不合格で止まった返り値の `formalVerification` が `null` になる） | 未着手 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-045 | script の模擬実行（形式検証の失敗で書く段へ戻らない） | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-034 | script の模擬実行（判断材料の表の 3 行の止まり方で、4 つの欄が常にあり、無い材料が `null` になる） | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-034 | script の模擬実行（空の依頼文の create の返り値の `toDecide` が依頼文が要ることを示し、目標の固定の 2 行の止まり方で `remainingWork` が停止の記録の未着手の項目の一覧から作った残った作業と同じになる） | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-008 | script の模擬実行（書き手が問いと `impact` を返して needs_input で止まると、返り値の `impact` が書き手の返した `impact` と同じ並びになり、書き手が `impact` を返さないと `null` になる） | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-007 | script の模擬実行（出所の照合が上限の回まで通らない needs_input で、`toDecide` が最後の `goal-check` の `failures` と同じ数の要素を持ち、各要素が `failures` の要素の種類・書き手の値・理由を値を変えずに持つ） | 未着手 |
 | PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-023 | script の模擬実行（残る危険だけがある反復が合格になる） | 完了 |
 | PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-033 | fixture の run（完了の返り値の残る危険に 4 項目があり、SP-BPRUN-032 の項目と別に載る） | 作成中 |
 | PR-BPOPERATIONS-008 | SP-BPAUTHORING-020 | script の模擬実行（1 回の反復の段が 1〜7 の順に起動される） | 完了 |

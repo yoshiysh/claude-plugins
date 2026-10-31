@@ -18,7 +18,7 @@
 
 ## 対象範囲
 
-本仕様書は、best-practices の 4 機能（create・review・update・audit）が共有する、資産台帳と指摘の扱いを定める。資産の単位と ID、指摘の ID と同一性、反証、指摘の状態とその遷移、カバレッジと skip 一覧、run をまたぐ指摘の扱い（保持規則）、update と機能の連鎖へ渡す指摘の形を扱う。実現する要求と仕様項目の対応はトレーサビリティ表が持つ。
+本仕様書は、best-practices の 4 機能（create・review・update・audit）が共有する、資産台帳と指摘の扱いを定める。資産の単位と ID、指摘の ID と同一性、反証、指摘の状態とその遷移、カバレッジと skip 一覧、run をまたぐ指摘の扱い（保持規則）、update と機能の連鎖へ渡す指摘の形を扱う。実現する要求と仕様項目の対応はトレーサビリティ表が持つ。本仕様書は `####` 見出し 1 つを 1 仕様項目とする。
 
 ### 他の仕様書との境界
 
@@ -47,14 +47,14 @@
 
 | 語 | 定義 |
 |---|---|
-| 台帳 | 資産と、資産と各 agent の結果との結び付きの一覧（設計方針文書「資産台帳」）。`docs/specifications/bp-run.md` の状態 1 つに 1 つだけ置き、next_args で再開した run も同じ台帳を使う。CLI だけが書く |
+| 台帳 | 資産と、資産と各 agent の結果との結び付きの一覧（設計方針文書「資産台帳」）。`docs/specifications/bp-run.md` の状態 1 つに 1 つだけ置き、next_args で再開した run も同じ台帳を使う。CLI だけが書く。best-practices の仕様書で単独の「台帳」は資産台帳を指し、作業記録と証拠への参照をまとめる記録台帳（`docs/specifications/bp-run.md` の用語定義）を指さない |
 | 台帳 ID | 台帳を識別する値。台帳を置いた状態の状態 ID（`docs/specifications/bp-run.md`）をそのまま使う |
 | 記録した run | 台帳の各記録を書いた run の run ID（`docs/specifications/bp-run.md`） |
 | run の種別 | 台帳が属する run が対象スキルを書き換えるか（create・update。以下「書き換える run」）、書き換えないか（review・audit。以下「書き換えない run」） |
 | 資産 | 対象スキルのうち、CLI が決定的に安定した ID を付けられる単位（SP-BPFINDINGS-002） |
 | 位置キー | 資産がファイルのどこにあるかを表す値。ファイルのパスと、ファイルの中の範囲の位置（SP-BPFINDINGS-002）からなる。内容を含まない |
 | 内容の指紋 | 資産の内容から CLI が決定的に作る値。内容が 1 字でも変われば変わる |
-| 担当 | 1 体の検証役に 1 回の起動で割り当てる資産の組（作り方は `docs/specifications/bp-inspection.md` と `docs/specifications/bp-authoring.md`） |
+| 担当 | 1 体の検証役に 1 回の起動で割り当てる資産の組（作り方は `docs/specifications/bp-inspection.md` と `docs/specifications/bp-authoring.md`）。作業記録を書く単位の「作業記録の担当」（役の名前と項目の ID の組：`docs/specifications/bp-run.md` の用語定義）とは別のもので、資産の組を持たない役（書き手・反証役・抽出役・運搬役）にも作業記録の担当はある |
 | 担当の指紋の組 | 担当に含まれる全ての資産の、その起動の時点の内容の指紋の組 |
 | 判定 | 検証役が担当の資産ごとに返す値。「候補あり」「確認済みで問題なし」「判断できない」の 3 つ（SP-BPFINDINGS-007） |
 | 指摘の候補 | 検証役が返した、反証の前の指摘 |
@@ -343,9 +343,9 @@ create と update が完了したとき、create と update は、SP-BPFINDINGS-
 台帳の作成（SP-BPFINDINGS-001）で列挙した資産が 0 件ならば、CLI は台帳を作らずに理由を返し、script は BLOCKED で止まらなければならない（見る資産が無いまま「問題なし」と返さないため）。
 
 #### SP-BPFINDINGS-034 台帳に無い値を含む結果
-検証役・反証役の結果の、SP-BPFINDINGS-007・013・020 が定める欄の値が、台帳に無い資産 ID か、その観点の閉集合に無い指摘の種類か、同項の選択肢に無い値を含むならば、CLI はその結果の記録を拒否しなければならない（設計方針文書「状態の書き込み」）。機能の文書が CLI に照らさせる agent の結果（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 の適用の判定・SP-BPINSPECTION-015 の担当の組・SP-BPINSPECTION-017 の足した欄、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017・SP-BPAUTHORING-039 の結果など）は、その結果を定める仕様項目が照らし、拒否した結果は本項に従って扱う。
+検証役・反証役の結果の、SP-BPFINDINGS-007・013・020 が定める欄の値が、台帳に無い資産 ID か、その観点の閉集合に無い指摘の種類か、同項の選択肢に無い値を含むならば、CLI はその結果の記録を拒否しなければならない（設計方針文書「状態の書き込み」）。機能の文書が CLI に照らさせる agent の結果（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 の適用の判定・SP-BPINSPECTION-015 の担当の組・SP-BPINSPECTION-017 の足した欄、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017・SP-BPAUTHORING-039 の結果を含む）は、その結果を定める仕様項目が照らし、拒否した結果は本項に従って扱う。
 
-拒否した結果は、その項目の結果が書かれなかったものとして扱い、黙って捨ててはならない。fan-out の項目は `docs/specifications/bp-run.md` の SP-BPRUN-028 で未着手に戻す（試行の上限で打ち切る）。fan-out でない段の agent の結果（適用の判定・担当の組など）は、script が同じ段の中でその agent を起動し直し、最初の 1 回を含めて試行の上限（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-031）の回まで拒否されたら、BLOCKED と拒否の理由を返して止まる（依頼者の裁定）。この回数は状態の段ごとの繰り返しの回数に持ち、上限の当て方は `docs/specifications/bp-run.md` の SP-BPRUN-005 の同じ行に従う。拒否された結果は「見た」にも数えず、その担当の資産は skip 一覧に残す。CLI は、拒否した結果の件数と担当を状態に記録しなければならない（置き場は `docs/specifications/bp-run.md` の SP-BPRUN-005）。結果の拒否は、SP-BPRUN-029 の BLOCKED の理由（状態の構造を指す ID の誤りと、記録との食い違い）に当てない。
+拒否した結果は、その項目の結果が書かれなかったものとして扱い、黙って捨ててはならない。fan-out の項目は `docs/specifications/bp-run.md` の SP-BPRUN-028 で未着手に戻す（試行の上限で打ち切る）。fan-out でない段の agent の結果（適用の判定・担当の組を含む）は、script が同じ段の中でその agent を起動し直し、最初の 1 回を含めて試行の上限（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-031）の回まで拒否されたら、BLOCKED と拒否の理由を返して止まる（依頼者の裁定）。ただし、create・update の形式検証の段の `result` の拒否では、起動し直さずに BLOCKED で止まる（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `E_RESULT` の行）。この回数は状態の段ごとの繰り返しの回数に持ち、上限の当て方は `docs/specifications/bp-run.md` の SP-BPRUN-005 の同じ行に従う。拒否された結果は「見た」にも数えず、その担当の資産は skip 一覧に残す。CLI は、拒否した結果の件数と担当を状態に記録しなければならない（置き場は `docs/specifications/bp-run.md` の SP-BPRUN-005）。結果の拒否は、SP-BPRUN-029 の BLOCKED の理由（状態の構造を指す ID の誤りと、記録との食い違い）に当てない。
 
 #### SP-BPFINDINGS-035 台帳と食い違う書き込み
 既にある記録と食い違う書き込み（同じ候補への 2 つの反証の結果、書き換えない run での resolved / regressed の記録など）が来たならば、CLI はその書き込みを拒否し、script は BLOCKED で止まらなければならない（設計方針文書「状態の書き込み」）。
@@ -374,7 +374,7 @@ stateDiagram-v2
 
 > 対象の状態: open / dismissed / resolved / regressed
 
-> 対象のイベント: E1 候補が反証で維持される / E2 候補が反証で却下される / E3 見直しで「存在する」と判定される / E4 見直しで「存在しない」と判定される / E5 見直しで「判定できない」となる（SP-BPFINDINGS-018 の表の 1・4・8 行と、SP-BPFINDINGS-037 の結果なし） / E6 重複する候補が返る / E7 書き換えない run で resolved / regressed の記録が求められる / E8 前の run が最後の状態を記録した指摘に、今の run で見直しの判定が出る
+> 対象のイベント: E1 候補が反証で維持される / E2 候補が反証で却下される / E3 見直しで「存在する」と判定される / E4 見直しで「存在しない」と判定される / E5 見直しで「判定できない」となる（SP-BPFINDINGS-018 の表の 1・4・8 行と、SP-BPFINDINGS-037 の結果なし） / E6 重複する候補が返る / E7 書き換えない run で resolved か regressed の記録が求められる / E8 前の run が最後の状態を記録した指摘に、今の run で見直しの判定が出る
 
 E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳にある鍵の候補は E3〜E6・E8 になる。E3〜E5 は、指摘の最後の状態の記録を記録した run が今の run であるときの見直しの判定を指す。イベントの集合は閉じていない。台帳に無い値を含む結果（SP-BPFINDINGS-034）は台帳に入らないので、指摘の状態のイベントにならない。
 

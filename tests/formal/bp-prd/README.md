@@ -84,8 +84,8 @@ TLC_DOT=/path/to/state-graph.dot TLA2TOOLS=/path/to/tools/tla2tools.jar tests/fo
 |---|---|---|
 | `CompletionAfterChecksOfAcceptedPlan`・`CompleteRequiresVerifiedAndPersisted`・`CompleteHasCurrentRunRecord` | 最後に受理された計画の後で形式検証と現在の run の記録保存がともに成功するまで完了しない。再計画の前の成功は数えない | PR-BPDESIGNEDSKILL-025・027・035。記録は run 単位に丸め、028・029・039 の担当ごとの作業記録・記録台帳・保存先は区別しない |
 | `RecordedPassHappened` | 記録された検証・保存の成功は、受理された計画の後に実際に成功したものに限る。失敗を成功として記録しない | PR-BPDESIGNEDSKILL-027・035 |
-| `StopMatchesCause`・`VerificationFailureStops`・`SaveFailureStops`・`StopHasReason` | 計画役・形式検証・記録保存の失敗は BLOCKED、待たれる入力の不足は needs_input、乾き・反復上限はそれぞれの停止で止まり、起きた事象を停止理由として残す | PR-BPOPERATIONS-005・013、PR-BPDESIGNEDSKILL-027・035、設計方針「用語」「停止・再開と人間の入力」 |
-| `StopReportHasRecordedOrMissing`・`ReportAccurate`・`SaveFailureReasonConsistent` | 停止報告は、停止した run の記録を保存できたか未保存範囲に入れたかが決まってから出す。報告の元の停止理由・保存失敗理由・未保存範囲は状態と一致し、未保存範囲があるときだけ保存失敗理由を持つ | PR-BPDESIGNEDSKILL-035・038 |
+| `StopMatchesCause`・`VerificationFailureStops`・`SaveFailureStops`・`StopHasReason` | 計画役・形式検証・記録保存の失敗は BLOCKED、待たれる入力の不足は needs_input、乾き・反復上限はそれぞれの停止で止まり、起きた事象を停止理由として残す | PR-BPOPERATIONS-005・013、PR-BPOPERATIONS-052 の理由の欄（needs_input の理由が状態の理由になること）、PR-BPDESIGNEDSKILL-027・035、設計方針「用語」「停止・再開と人間の入力」 |
+| `StopReportHasRecordedOrMissing`・`ReportAccurate`・`SaveFailureReasonConsistent` | 停止報告は、停止した run の記録を保存できたか未保存範囲に入れたかが決まってから出す。報告の元の停止理由・保存失敗理由・未保存範囲は状態と一致し、未保存範囲があるときだけ保存失敗理由を持つ | PR-BPDESIGNEDSKILL-035・038、PR-BPOPERATIONS-052 の理由の欄（needs_input の停止の報告に載る停止理由） |
 | `SavedOrMissingExclusive`・`StopReportReflectsCurrentSave` | 同じ run を保存済みと未保存範囲の両方に入れない。停止報告が保存済みとする記録は、最後に受理した計画以後の保存に基づく。再計画の前の保存を根拠に「未保存なし」と報告しない | PR-BPDESIGNEDSKILL-035・038 |
 | `RetentionWithoutDeleteRequest` | 削除指示の前は、部分保存を含め保存できた記録を保持する | PR-BPDESIGNEDSKILL-034・035・038 |
 | `NoDirectWrite` | 担当が共有台帳へ直接書き込む経路の検出器。正常モデルには担当が台帳へ書く遷移が無いので構成上真であり、`direct_ledger_write` 変異で経路を足したときに反例を返すことだけを確かめる。担当の実装が書き込まないことは検査しない | PR-BPDESIGNEDSKILL-030 |
@@ -128,7 +128,7 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 - 正常モデルの遷移規則には要求を織り込んでいる。結果はモデル内の性質についての確認であり、PRD からモデルへの翻訳の完全性、要求が利用者の意図を満たすこと、実装がモデルに従うことの証明ではない。
 - 実際の通信、永続化、破損、並行実行、遅延した書き込み、失敗理由の具体的な内容や run ごとの詳細の対応、指示の認証、削除対象の粒度、形式化対象の洗い出しの網羅は検査していない。モデルに書かれていない出来事の欠落も自動では検出できない。ガードに合わない操作は遷移として無効であり、実装が明示的な拒否応答を返すことは検査していない。
 - 再開時と、実行中のヒントで計画へ戻ったときは、検証・保存を常にやり直す安全側のモデルであり、依存条件が一致する結果の再利用はモデル化していない。各 run の保存は run 番号を単位として抽象化しており、担当や証拠ごとの保存は区別しない（PR-BPDESIGNEDSKILL-028 の担当ごとの記録は run 単位に丸める）。`fullySaved` は、最後に受理した計画以後に現在の run の記録を完全に保存したことを表し、再計画で現在の run を外す。再計画の後に止まったときは、停止時に保存し直すか未保存範囲に加える。
-- このモデルの `verification` は形式検証を表す。形式検証が失敗した run は停止し、原因解消後に新しい run から再開する。PR-BPDESIGNEDSKILL-027 が許容する、別の run を開始してから原因を修正・復旧して再検証する経路はモデル化していない。PR-BPOPERATIONS-009〜012 の、生成と別の context での検証、それを通るまでの完了の扱い、書き直しと再検証、通らずに止まるときの返しもモデル化していない。
+- このモデルの `verification` は形式検証を表す。形式検証が失敗した run は停止し、原因解消後に新しい run から再開する。PR-BPDESIGNEDSKILL-027 が許容する、別の run を開始してから原因を修正・復旧して再検証する経路はモデル化していない。PR-BPOPERATIONS-009〜012 の、生成と別の context での検証、それを通るまでの完了の扱い、書き直しと再検証、通らずに止まるときの返しもモデル化していない。011 の書き直しは形式検証以外の検証に限られ、形式検証を実行できないか失敗したときは PR-BPDESIGNEDSKILL-027 に従うので、形式検証の失敗で書き直さずに止まるこのモデルの `VerifyFail` と食い違わない。
 - 乾きの周は計画段階の自己遷移に抽象化し、周の中身（事実の受理・全件失敗・工程の欠け・検証不能）は持たない。新しいものの受理による連続の中断は計画の受理で代表させる。K は設計の下限の 2 に固定する。
 - 次の要求は、記録・報告の内容や構造を扱い、run の停止・完了・保存の有無だけを持つこの状態遷移では表せないので対象外とする。
   - PR-BPDESIGNEDSKILL-024・037・041：検証すべき性質の洗い出し、形式化できない性質と理由の記録、別の方法での確認。洗い出しの網羅と記録の内容は状態に無い。
@@ -136,11 +136,12 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
   - PR-BPDESIGNEDSKILL-031・032・033・040・042：作業記録の分割、正本の一意性、書き方、文書の一般規約の参照と版。記録の内部構造と書式を持たない。
   - PR-BPDESIGNEDSKILL-036：性能の見直しに使う所要時間・人の介入・再試行・費用の記録。これらの量を持たない。
   - PR-BPOPERATIONS-041：止まったときに報告する、書いたファイルの検証済み・未検証の範囲と止まった段。報告は停止理由・保存失敗理由・未保存範囲だけを持つ。
+  - PR-BPOPERATIONS-052 のうち理由の欄を除く部分：needs_input の返り値の判断材料の欄（決めること・ここまでの検証結果・影響の範囲・残った作業）、まだ無い材料を無いと示すこと、目標の固定に入る前に止まったときは検証結果と残った作業が無いと示し、目標の固定で止まったときは残った作業とそれまでの検証結果があればそれを載せるという場合分け。報告は判断材料を持たず、目標の固定と入力の確認の段も区別しない。
 - 検証・保存・計画・報告自体の実行が永遠に拒まれる環境は進行性の前提外。TLC の到達状態の探索にはハッシュ衝突のごく小さな可能性がある。`CHECK_DEADLOCK FALSE` は停止・完了を有効な終端とするためで、停止後に外部入力なしで再開する保証を意味しない。
 
 ### 固定した節の行ごとの対応
 
-`PRD.sections` が固定した要求の節の各要求は、ID を名指しして「性質と要求」の表か上の対象外の項に載せている（「形式検証」「run の記録」の節の 024〜042、PR-BPDESIGNEDSKILL-007、PR-BPOPERATIONS-005・009〜013・041・051）。設計方針と用語の節は、導入の文を除き、行ごとに次のとおり対応させる。行は冒頭の語句で示す。
+`PRD.sections` が固定した要求の節の各要求は、ID を名指しして「性質と要求」の表か上の対象外の項に載せている（「形式検証」「run の記録」の節の 024〜042、PR-BPDESIGNEDSKILL-007、PR-BPOPERATIONS-005・009〜013・041・051・052）。設計方針と用語の節は、導入の文を除き、行ごとに次のとおり対応させる。行は冒頭の語句で示す。
 
 | 節 | 行 | 対応 |
 |---|---|---|
@@ -153,7 +154,7 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 | 同 | 待たれない入力 | 実行中のヒントは `ReplanForHint` で計画に戻って受け付ける。`HintReadOnlyAfterAccept`・`WitnessCompleteAfterHint` |
 | 同 | 「どの停止でも、理由と、未着手の意図と打ち切った意図の一覧を」 | 理由は `StopHasReason`・`StopMatchesCause`・`ReportAccurate`。意図の一覧と完了時の照合の証拠は対象外（意図・証拠を持たない） |
 | 同 | 「待たれる入力が要るときは、needs_input と理由を返して止め」 | `StopMatchesCause`、回答の後の再開の到達（`WitnessNeedsInputResume`） |
-| 同 | 「needs_input で止めるときは、理由だけでなく、人間が判断に要る材料」 | 対象外（判断の材料を持たない） |
+| 同 | 「needs_input で止めるときは、理由だけでなく、人間が判断に要る材料」 | 理由は `StopMatchesCause`・`ReportAccurate`。判断の材料は対象外（判断の材料を持たない。要求側の PR-BPOPERATIONS-052 と同じ理由） |
 | 同 | 「ヒントは人間が CLI で状態に追記する」 | `AddHint` は完了以外のどの phase でも有効（`EventContract`）。停止中に足したヒントを次の run で受け付ける到達（`WitnessHintResume` ほか 3 本）と、停止中の追加を無効にした変異での到達不能 |
 | 同 | 「スキルは run を起動したときに、ヒントの足し方を人間に示す」 | 対象外（利用者への表示を持たない） |
 | 同 | 「計画役が読んだヒントと、停止の判定が「読まれていないヒント」とするヒントを一致させる」 | `HintReadOnlyAfterAccept`・`DryStopWithoutUnreadHint`・`WitnessDryAfterReadHint`・`NoUnreadHintOnCompletion`。読まれていないヒントを残したまま却下で止まる向きは対象外（完了の主張と却下を持たない） |
