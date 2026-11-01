@@ -14,7 +14,7 @@
 | `docs/requirements/develop-implement.md` | 要求文書: develop:implement | 入口と目標／計画／実装と check／develop:review の呼び出し／最終照合と永続化／停止と再開／完了の条件（PR-DEVELOPIMPLEMENT-001〜078／78 件） |
 | `docs/requirements/develop-plugin.md` | 要求文書: develop plugin 全体と利用側リポジトリとの契約 | 構成と呼び出し／利用側リポジトリとの契約／権限と残る危険／文脈の配達／停止と再開／取得した内容の記録／つまずきの記録と改善／費用と記録／形の判定／永続化と投稿の順序／移行と旧スキルの廃止（PR-DEVELOPPLUGIN-001〜085、欠番は 016／84 件） |
 | `docs/requirements/develop-review.md` | 要求文書: develop:review | 対象と目標／観点／focus／検証と資産台帳／返り値の契約／起動数の上限と再開／PR への投稿／git の外の対象（PR-DEVELOPREVIEW-001〜077／77 件） |
-| `docs/requirements/formal-methods.md` | 要求文書: formal-methods | 位置づけと正本／対象の選定／費用の判断／段 1: 検証すべき性質の洗い出し／段 2: 形式化できる／できないの仕分け／段 3: 抽象化の決定／段 4: モデル・仕様の作成／段 5: 忠実さの検証／段 6: 検査の実施／段 7: 検出力の確認／段 8: 範囲と限界の記録／段 9: 失敗時の扱い／合成の規律／停止と完了／このスキル自身への形式化の適用（PR-FORMALMETHODS-001〜040／40 件） |
+| `docs/requirements/formal-methods.md` | 要求文書: formal-methods | 位置づけと正本／対象の選定／費用の判断／step 1: 検証すべき性質の洗い出し／step 2: 形式化できる／できないの仕分け／step 3: 抽象化の決定／step 4: モデル・仕様の作成／step 5: 忠実さの検証／step 6: 検査の実施／step 7: 検出力の確認／step 8: 範囲と限界の記録／step 9: 失敗時の扱い／合成の規律／停止と完了／このスキル自身への形式化の適用（PR-FORMALMETHODS-001〜040／40 件） |
 | `docs/requirements/requester.md` | 要求文書: 依頼者から見た振る舞い | 判定に迷う場合の共通の扱い／起動と対象の見極め／問いかけと回答／提示と承認／保存と持ち帰り／根拠として読み取る範囲／実行環境と中断（PR-REQUESTER-001〜041、欠番は 002・004・006・016・019・027・028・030／33 件） |
 
 ## 要求一覧
@@ -549,7 +549,7 @@
 | PR-FORMALMETHODS-015 | 手法を選んで記録する | `docs/requirements/formal-methods.md` |
 | PR-FORMALMETHODS-016 | 既存のケースを性質として固定する | `docs/requirements/formal-methods.md` |
 | PR-FORMALMETHODS-017 | 対応表を作り全行を割り当てる | `docs/requirements/formal-methods.md` |
-| PR-FORMALMETHODS-018 | 節を固定し、変わったら段をやり直す | `docs/requirements/formal-methods.md` |
+| PR-FORMALMETHODS-018 | 節を固定し、変わったら step をやり直す | `docs/requirements/formal-methods.md` |
 | PR-FORMALMETHODS-019 | 状態の投影を機械的に導出して照合する | `docs/requirements/formal-methods.md` |
 | PR-FORMALMETHODS-020 | 列挙の欠落は人の照合に残す | `docs/requirements/formal-methods.md` |
 | PR-FORMALMETHODS-021 | 閉じた有限の対象は全数で確かめる | `docs/requirements/formal-methods.md` |
