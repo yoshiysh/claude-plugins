@@ -18,7 +18,7 @@ test('SP-BPCONFORMANCE-003・SP-BPAUTHORING-017: 実際の docs/ から、適用
     assert.ok(r.units.length > 0, `行 ${r.row}`);
     for (const always of ['001', '002', '006', '014', '015']) assert.ok(r.requirements.includes(`PR-BPDESIGNEDSKILL-${always}`), `行 ${r.row}: ${always}`);
   }
-  assert.deepEqual(rows[3].requirements.map((x) => x.slice(-3)), ['001', '002', '004', '005', '006', '007', '008', '009', '010', '014', '015', '018']);
+  assert.deepEqual(rows[3].requirements.map((x) => x.slice(-3)), ['001', '002', '004', '005', '006', '007', '008', '009', '010', '014', '015', '018', '046', '051']);
 });
 
 test('SP-BPAUTHORING-017・SP-BPCONFORMANCE-006・SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-019・SP-BPCONFORMANCE-034: 強いられた未検査の 4 つの出所（ターンごとの指揮・Claude Code・「権限」の表の最後の行・実行役の時間の上限）が、実際の docs/ の判定の単位に全て解決する', () => {

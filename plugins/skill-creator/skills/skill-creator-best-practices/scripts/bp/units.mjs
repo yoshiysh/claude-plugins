@@ -5,7 +5,7 @@ import { conformanceUnits, hasChapter, kindsFor, parseDoc, read, specUnits } fro
 
 const PR = 'PR-BPDESIGNEDSKILL-';
 const SP = /^SP-BPCONFORMANCE-\d{3}$/;
-const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*) はどの行でも当たる/;
+const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*)[^。]*はどの行でも当たる/;
 const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
 const EXECUTOR_TIME_ROW = '実行役の時間に上限を置く';
 // 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
