@@ -120,7 +120,7 @@ review の適用の判定の段で、script は検証役を 1 体起動し、対
 | いいえ | `answers` は Q1・Q2・Q3 の `{answer, quotes}` を持ち、`result` は `ledger`・`fanout` の `{answer, quotes}` を持ち、`runs` を持たない |
 | 問いに到達しない | 「いいえ」の行と同じ |
 
-`runs` は `{run, answers, ledger, fanout, assets}` の並びとし、`answers` は Q1・Q2・Q3 の `{answer, quotes}`、`ledger`・`fanout` は `{answer, quotes}` とする。1 つ目の要素は run の並び（`docs/specifications/bp-conformance.md` の用語定義）で、`run` を `sequence` とする。2 つ目以降の要素は問い W で分けた各 run（対象スキルが run を分けていないときは、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-003 のとおり分けたもの）で、`run` はその run の名前（空でない文字列で、`runs` の中で一意で、`sequence` でない）とする。`assets` は、その run を実装する対象スキルの資産の資産 ID（状態の資産台帳にあるもの。run の Workflow script と、その run の `Workflow(` の callsite を持つ資産を含む）の重複の無い並びとする。どの要素の `assets` にも無い資産は run の並び（1 つ目の要素）に属するとし、2 つ以上の要素の `assets` にある資産は、その全ての run の行で判定して SP-BPCONFORMANCE-003 の規則で結果を 1 つにする。要素ごとの `ledger`・`fanout` は、SP-BPCONFORMANCE-003 が「実際に持つ」の範囲とした資産について答える。
+`runs` は `{run, answers, ledger, fanout, assets}` の並びとし、`answers` は Q1・Q2・Q3 の `{answer, quotes}`、`ledger`・`fanout` は `{answer, quotes}` とする。1 つ目の要素は run の並び（`docs/specifications/bp-conformance.md` の用語定義）で、`run` を `sequence` とする。2 つ目以降の要素は問い W で分けた各 run（対象スキルが run を分けていないときは、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-003 のとおり分けたもの）で、`run` はその run の名前（空でない文字列で、`runs` の中で一意で、`sequence` でない）とする。`assets` は、その run を実装する対象スキルの資産の資産 ID（状態の資産台帳にあるもの。run の Workflow script と、その run の `Workflow(` の callsite を持つ資産を含む）の重複の無い並びとする。資産の属する run と、2 つ以上の run に属する資産の判定の仕方は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-003 の規則で決める。要素ごとの `ledger`・`fanout` は、SP-BPCONFORMANCE-003 が「実際に持つ」の範囲とした資産について答える。
 
 受理する答えの並びと到達した形は次の表とする（設計方針文書「形の判定」の図の道）。「Q1・Q2・Q3 の並び」は、W がはいでないときは `answers` の Q1・Q2・Q3 を、W がはいのときは `runs` の要素ごとの Q1・Q2・Q3 を指す。
 
@@ -153,12 +153,7 @@ CLI は、次のどれかを含む結果の記録を拒否しなければなら�
 - W がはいなのに、要素が 3 つ未満の `runs`
 - 1 つ目の要素の `run` が `sequence` でない `runs`
 - 2 つ目以降の要素に、`run` が空か、重複するか、`sequence` である要素がある `runs`
-
-`runs` の要素の `assets` が、欠けている・並びでない・空の並びである・同じ資産 ID を 2 回以上含む、のどれかに当たるときに CLI がその結果を受理するか拒否するか（1 つ目の要素（run の並び）と 2 つ目以降の要素で扱いを分けるかを含む）の裁定が下るまで、本項と `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017 の適用の判定の受理を実装する者は、次を守らなければならない。
-
-- それらの場合を受理する実装も拒否する実装も確定させてはならない。
-- それらの場合の CLI の単体テストの期待値を書いてはならない。
-- それらの場合の扱いを決めないまま適用の判定の受理を配布してはならない。
+- `assets` が、欠けているか、並びでないか、空の並びであるか、同じ資産 ID を 2 回以上含む要素がある `runs`（1 つ目の要素と 2 つ目以降の要素を同じに扱う。重複は 1 つの要素の `assets` の中で数え、同じ資産 ID が 2 つ以上の要素にあることは拒否しない）
 
 CLI は、受理した答えを状態に書き、W がはいでないときは到達した形 `shape` と SP-BPCONFORMANCE-003 の判定表の行 `row` を、W がはいのときは `runs`（要素ごとの `{run, shape, row, assets}`）を状態に書かなければならない。判定の単位 `units` は全ての要素の行の判定の単位の和とし、判定の単位ごとの結果は 1 つとする（同じ単位を 2 つ以上の run で判定したときの結果のまとめ方は SP-BPCONFORMANCE-003）。
 
@@ -172,7 +167,7 @@ CLI は、受理した答えを状態に書き、W がはいでないときは�
 
 検証役は、判定のために担当の外の資産を読んでよい。判定を返すのは担当の資産だけにしなければならない。
 
-フローの観点の検証役は、PR-BPDESIGNEDSKILL-014 の Claude Code の判定の単位と PR-BPDESIGNEDSKILL-046 の判定の単位を、create・update の適合の観点の検証役と同じく、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 の Claude Code の行と判定表で判定しなければならない。一覧の設定に頼る制限は、制限ごとに PR-BPDESIGNEDSKILL-046 の単位の指摘の候補にする。一覧を読めないときに強いられた未検査とした単位は、理由に一覧を読めないことを書いて未検査の観点の候補として返す（SP-BPINSPECTION-025）。review は照らした制限 `checkedRoleLimits` と残る危険 `residualRisks` を返さない（PR-BPDESIGNEDSKILL-015 の報告は create・update の検証の結果に宛てたもの）。Codex runner の扱いは SP-BPCONFORMANCE-019 の Codex runner の行のとおりとする。
+フローの観点の検証役は、PR-BPDESIGNEDSKILL-014 の Claude Code の判定の単位と PR-BPDESIGNEDSKILL-046 の判定の単位を、create・update の適合の観点の検証役と同じく、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 の Claude Code の行と判定表で判定しなければならない。一覧の設定に頼る制限は、制限ごとに PR-BPDESIGNEDSKILL-046 の単位の指摘の候補にする（制限ごとの指摘の種類は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。一覧を読めないときに強いられた未検査とした単位（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）は、理由に保留の根拠と一覧を読めないことを書いて未検査の観点の候補として返す（SP-BPINSPECTION-025）。review は照らした制限 `checkedRoleLimits` と残る危険 `residualRisks` を返さない（PR-BPDESIGNEDSKILL-015 の報告は create・update の検証の結果に宛てたもの）。Codex runner の扱いは SP-BPCONFORMANCE-019 の Codex runner の行のとおりとする。
 
 フローの観点の検証役は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の単位を判定してはならない（閉集合と単位からの除き方と拒否は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。この単位は、照合と停止の段で送る `placement`（`docs/specifications/bp-run.md` の SP-BPRUN-031。送る順は SP-BPINSPECTION-019）の記録で決まる。結果が適合なら何も載せず、未検査なら CLI が未検査の観点にする（SP-BPINSPECTION-025）。結果が不適合なら、CLI は、`placement` の `lines` が指す行を含む資産（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）ごとに、次の指摘の候補を 1 件作らなければならない（依頼者の裁定）。`lines` が空のとき（見出し行が 0）は、対象スキルの根の `SKILL.md` の資産（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）のうち、frontmatter の資産（位置 `{"k":"fm"}`）、最初の見出しより前の本文の資産（`{"k":"pre"}`）、文書の先頭から数えて最初の節の資産、の順で最初に台帳の今の資産にあるものに 1 件作る（同項の規則では、空白でない内容を持つ `SKILL.md` はこのどれかを必ず持つ）。`SKILL.md` の資産が台帳の今の資産に 1 つも無いとき（`SKILL.md` が空白だけのとき）は、台帳の今の資産のうち資産 ID の昇順で最初の資産に 1 件作る。
 
@@ -319,7 +314,7 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 | 場合 | 観点 | 範囲 | 理由 |
 |---|---|---|---|
 | 仕様の観点の照らす先を読めない（SP-BPINSPECTION-005） | 仕様の観点 | 観点の全体 | 読めなかった照らす先のパス |
-| 検証役が判定の単位を未検査とした（SP-BPINSPECTION-007・SP-BPINSPECTION-008） | フローの観点か仕様の観点 | 判定の単位 | 検証役の理由。`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 で無視される設定の一覧を読めないときに強いられた未検査とした単位は、その仕様項目 ID と、一覧を読めないこと |
+| 検証役が判定の単位を未検査とした（SP-BPINSPECTION-007・SP-BPINSPECTION-008） | フローの観点か仕様の観点 | 判定の単位 | 検証役の理由。`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 で無視される設定の一覧を読めないときに強いられた未検査とした単位は、その保留の根拠（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）と、一覧を読めないこと |
 | bp-designed-skill の要求を優先して外した（SP-BPINSPECTION-012） | 監査の観点 | 監査の観点の識別子 | 優先した要求 ID と理由 |
 | モデルに固有の鮮度を評価できない（SP-BPINSPECTION-013） | 監査の観点 | PA-4 | 名指しが無いか、証拠が無いか |
 | 観点の全ての検証の項目が打ち切りになった（`docs/specifications/bp-run.md` の SP-BPRUN-028） | その観点 | 観点の全体 | 打ち切りの理由 |
@@ -396,6 +391,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-004 | CLI の単体テスト（「性能・容量」の章の見出しが無い写しを与え、仕様の観点が読めないと記録されることを確認） | 完了 |
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-005 | script の模擬実行（仕様の観点を読めない review で、仕様の観点の検証役が起動されず、未検査の観点に全体が載り、仕様の観点の skip 一覧と追加の起動が無いことを確認） | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | script の模擬実行（CLI に拒否された適用の判定の結果で検証役が拒否の理由とともに起動し直され、フローの観点の全ての検証役に同じ形が渡ることを確認）と静的な照合（検証役の schema の答えの enum が閉集合と一致することを確認。閉集合の外の答えは host の schema が CLI に届く前に通さないので、CLI の拒否は CLI の単体テストで確かめる）と CLI の単体テスト（W がはいで要素が 3 つ以上の `runs` が受理されて要素ごとの `{run, shape, row, assets}` が状態に書かれ、要素が 2 つの `runs`、1 つ目の `run` が `sequence` でない `runs`、`run` が重複する `runs`、台帳に無い資産 ID を `assets` に持つ `runs`、W の答えと合わない置き場の Q1・Q2・Q3 を持つ結果がそれぞれ拒否されることを確認）と script の模擬実行（W がはいの結果で、フローの観点の全ての検証役に `runs` の要素ごとの形・資産台帳・fan-out・行と `assets` が渡ることを確認） | 作成中 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | CLI の単体テスト（本項の拒否の一覧の `assets` の箇条が拒否するとした場合を、1 つ目の要素と 2 つ目以降の要素のそれぞれで 1 つずつ作り、どれも拒否の記録を足した `E_RESULT` になることと、同じ箇条が拒否しないとした場合が受理されることを確認） | 未着手 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認） | 作成中 |
 | PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認） | 作成中 |
 | PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | CLI の単体テスト（PA-1〜PA-6 以外の指摘の種類を含む候補が拒否されることを確認） | 完了 |
@@ -418,7 +414,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果に prompt-audit のパスと指紋が載ることを確認） | 完了 |
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-025 | CLI の単体テスト（表の 7 つの場合を 1 つずつ作り、未検査の観点の観点・範囲・理由を確認。同じ未検査を 2 体が返したとき 1 件になることを確認） | 作成中 |
 | PR-BPDESIGNEDSKILL-051 | SP-BPINSPECTION-007 | script の模擬実行（照合と停止の段で `placement` が結果の項目より先に送られ、フローの観点の閉集合に SP-BPCONFORMANCE-041 が無いことを確認。理由の空いたデータ行を持つ対象スキルで、その行を含む資産に種類 `SP-BPCONFORMANCE-041` の open の指摘が反証の段を経ずに出ることを確認。判断点の表の無い対象スキルで、`SKILL.md` の frontmatter の資産に指摘が出ること、frontmatter の無い `SKILL.md` では最初の見出しより前の本文か最初の節の資産に出ること、空白だけの `SKILL.md` では資産 ID の昇順の最初の資産に出ることを確認。照合と停止の段で `placement` が `stop` より先に、停止と同じ運搬役で送られることを確認。検証役が種類 `SP-BPCONFORMANCE-041` の候補を返すと拒否されることを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が SP-BPCONFORMANCE-019 と一覧を読めないことを理由に未検査の観点に載ることを確認） | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が、保留の根拠（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）と一覧を読めないことを理由に未検査の観点に載り、PR-BPDESIGNEDSKILL-046 の単位が未検査の観点に載らないことを確認） | 未着手 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（一覧の設定に頼る制限を持つ対象スキルの review で、PR-BPDESIGNEDSKILL-046 の単位の指摘が制限ごとに出て、結果に `checkedRoleLimits` と `residualRisks` が無いことを確認） | 未着手 |
 | PR-BPOPERATIONS-050 | SP-BPINSPECTION-027 | script の模擬実行（prompt-audit の写しが無い audit で、検証役を起動せず、BLOCKED と、引き継ぐ監査の観点が無いことを含む理由と、止まった段を返し、指摘の一覧を返さないことを確認） | 未着手 |
 | PR-BPOPERATIONS-050 | SP-BPINSPECTION-024 | script の模擬実行（prompt-audit の写しが無い audit の返り値の `stoppedStage` が照らす先の決定であることを確認） | 未着手 |

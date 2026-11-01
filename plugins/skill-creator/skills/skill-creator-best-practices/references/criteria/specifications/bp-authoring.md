@@ -45,7 +45,7 @@
 | 反復 | 書く段から合否の段までの段の並び 1 回（SP-BPAUTHORING-005） |
 | 反復の番号 | 状態の中で反復を区別する番号。反復を始めるたびに 1 増える。反復の上限に当てる反復の回数（SP-BPAUTHORING-024）とは別に数える |
 | 契約 | update の対象スキルの、外から見える振る舞い。description が定める発火する条件と発火しない条件、入力、出力、停止の種類の 5 つの要素からなる（依頼者の裁定） |
-| 強いられた未検査 | `docs/specifications/bp-conformance.md` が判定する者に「未検査」を付けさせる判定の単位。無視される設定の一覧を読めないとき（SP-BPCONFORMANCE-019）の、Claude Code の PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の設計方針文書「権限」の表の最後の行だけを指す |
+| 強いられた未検査 | `docs/specifications/bp-conformance.md` が判定する者に「未検査」を付けさせる判定の単位。無視される設定の一覧を読めないとき（SP-BPCONFORMANCE-019）の、Claude Code の PR-BPDESIGNEDSKILL-014 の判定の単位（SP-BPCONFORMANCE-019 の単位）と、PR-BPDESIGNEDSKILL-010 の設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014 の単位）だけを指す。PR-BPDESIGNEDSKILL-046 の判定の単位は含まない。どちらの単位も、保留の根拠は仕様項目 ID の `SP-BPCONFORMANCE-019` とする |
 | 合否 | 1 回の反復の終わりに、script が運搬役を通じて CLI に決めさせる、合格・不合格・検証が成り立たないの 3 値（SP-BPAUTHORING-023） |
 | 残る危険 | 対象スキルの役ごとの制限のうち、配布先で効くかを確かめられなかったもの（SP-BPCONFORMANCE-019・020）と、判断点の列挙の網羅を確かめていないこと（SP-BPCONFORMANCE-041）。best-practices 自身の役の制限（SP-BPRUN-025）とは別に数える |
 
@@ -240,7 +240,7 @@ script は、検証役と反証役が返したもののうち、上の 3 つ以�
 - 残る危険: SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、SP-BPCONFORMANCE-020 の 4 項目（役の名前・制限の中身・配布先・確かめられなかった理由）。
 - 照らした制限 `checkedRoleLimits`: SP-BPAUTHORING-046 の照らした結果。
 
-CLI は、次の結果の記録を拒否しなければならない。拒否の条件は、この並びと、下の保持規則が裁定を待つ場合の扱いだけとする。拒否された結果の扱いは SP-BPFINDINGS-034 と同じとする（SP-BPFINDINGS-007 が許す足した欄の値は、その欄を定める本項が照らす）。下の「その行」は、検証役が選ぶ行ではなく、CLI が適用の判定から導いて状態に書いた SP-BPCONFORMANCE-003 の判定表の行（W がはいのときは `runs` の全ての要素の行）を指す。
+CLI は、次の結果の記録を拒否しなければならない。拒否の条件は、この並びだけとする。拒否された結果の扱いは SP-BPFINDINGS-034 と同じとする（SP-BPFINDINGS-007 が許す足した欄の値は、その欄を定める本項が照らす）。下の「その行」は、検証役が選ぶ行ではなく、CLI が適用の判定から導いて状態に書いた SP-BPCONFORMANCE-003 の判定表の行（W がはいのときは `runs` の全ての要素の行）を指す。
 
 - 適用の判定 `applicability`・判定の単位ごとの結果 `units`・残る危険 `residualRisks`・照らした制限 `checkedRoleLimits` のどれかが無い（欠けた結果を受けると、判定の結果を付けていない単位が残る：SP-BPCONFORMANCE-018）。
 - 適用の判定が、SP-BPINSPECTION-006 で CLI が拒否するとした結果に当たる。
@@ -254,8 +254,6 @@ CLI は、次の結果の記録を拒否しなければならない。拒否の�
 
 CLI は、受理した結果を状態に書くとき、検証役が返した残る危険に、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の網羅の残る危険（同項の表の create・update の行の 2 項目）を 1 件足さなければならない。この 1 件は上の 4 項目の規則に照らさない。残る危険 `residualRisks` の並びには、4 項目の要素とこの 2 項目の要素が並ぶ。同じ反復の適合の観点の結果は検証の段と追加の検証の段（SP-BPFINDINGS-025）の項目ごとにあるので、CLI は、同じ反復の結果に既にこの 1 件を足していれば足さない。返り値はどれも最後の反復の残る危険を返す（SP-BPAUTHORING-033・SP-BPAUTHORING-034）ので、返り値の中で 1 件になる。
 
-適用の判定の `runs` の要素の `assets` が、欠けている・並びでない・空の並びである・同じ資産 ID を 2 回以上含む、のどれかに当たるときに CLI がその結果を受理するか拒否するか（1 つ目の要素（run の並び）と 2 つ目以降の要素で扱いを分けるかを含む）の裁定が下るまで、create・update の本項の適用の判定の受理を実装する者は、それらの場合を受理する実装も拒否する実装も確定させてはならない。同じ裁定までの単体テストの期待値と配布の扱いは、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 の保持規則と同じとする。
-
 #### SP-BPAUTHORING-046 Claude Code での役ごとの制限の照らし方
 各反復の検証の段で、適合の観点の検証役は、Claude Code での役ごとの制限の確かめ（PR-BPDESIGNEDSKILL-045・049・050）を SP-BPCONFORMANCE-019 の Claude Code の行と判定表のとおりに行わなければならない。この確かめは形式検証の段に置かない。検証役は、照らした結果を `checkedRoleLimits` に、照らした制限ごとに役の名前・制限の中身・配布先（Claude Code）・結果（効く・効かない）の 4 項目で返し、運搬役が CLI で状態に書く（綴りは CLI の定数 `VERIFICATION_KEYS` に置く）。
 
@@ -263,7 +261,7 @@ CLI は、受理した結果を状態に書くとき、検証役が返した残�
 
 | 条件: 一覧 | 結果 |
 |---|---|
-| 読めた | `checkedRoleLimits` に照らした全ての制限を載せる。効かない制限は PR-BPDESIGNEDSKILL-046 の不適合として指摘の候補にし（合否が不合格になり、書き直しで効く形に直す：PR-BPOPERATIONS-011）、一覧に照らした制限を Claude Code の残る危険 `residualRisks` に載せない |
+| 読めた | `checkedRoleLimits` に照らした全ての制限を載せる。効かない制限は、制限ごとに PR-BPDESIGNEDSKILL-046 の不適合の指摘の候補にし（指摘の種類は SP-BPFINDINGS-010。合否が不合格になり、書き直しで効く形に直す：PR-BPOPERATIONS-011）、一覧に照らした制限を Claude Code の残る危険 `residualRisks` に載せない |
 | 読めない | `checkedRoleLimits` を空の並びにし、対象スキルの全ての役ごとの制限を、配布先を Claude Code、理由を無視される設定の一覧を読めないこととして、SP-BPCONFORMANCE-020 の 4 項目で `residualRisks` に載せる |
 
 Codex runner で確かめられなかった制限は、一覧を読めたかによらず、SP-BPCONFORMANCE-019 の Codex runner の行のとおり `residualRisks` に載せる。
@@ -537,7 +535,7 @@ create・update の返り値の「検証の結果」は、最後に合否を書�
 | 合否 | `decision` | SP-BPAUTHORING-023 の値と、当たった指摘 ID と判定の単位 |
 | 反復の回数 | `iterations` | 状態の累計と、この run での増分 |
 | 判定の単位ごとの結果 | `units` | 適合の観点の判定の単位ごとに、SP-BPAUTHORING-021 の結果と理由。適合の観点の検証役の項目が打ち切りになった反復では空で、打ち切った項目 ID は合否の中に載る |
-| 強いられた未検査 | `forcedUnchecked` | 強いられた未検査の判定の単位の一覧と、保留の根拠の仕様項目 ID |
+| 強いられた未検査 | `forcedUnchecked` | 強いられた未検査の判定の単位の一覧と、その保留の根拠（用語「強いられた未検査」） |
 | 基準が求めた制約 | `basisConstraints` | SP-BPAUTHORING-038 で目標の観点の検証役が返した、資産 ID と仕様項目 ID の組の一覧 |
 | 契約の判定の結果 | `contract` | update だけ。変わったところごとに、契約の要素・変わった契約の中身・選んだもの（修正の根拠の記録 ID、強いた判定基準の仕様項目 ID、「該当なし」のどれか）・指摘 ID（「該当なし」のとき）。判定基準が強いた変化は 1 件も省かない（SP-BPAUTHORING-039・SP-BPAUTHORING-040） |
 | 台帳 | `ledger` | SP-BPFINDINGS-030 の項目から指摘の一覧を除いた欄（カバレッジ・skip 一覧・資産の結末・未反証の候補・拒否された結果）。review・audit の `ledger` と同じ形とする。指摘の一覧は返り値の最上位の `findings`（SP-BPAUTHORING-033・034）だけに置く |
@@ -617,6 +615,7 @@ needs_input で止まった create・update の返り値は、理由 `reason` �
 | PR-BPOPERATIONS-007 | SP-BPAUTHORING-012 | fixture の run（1 回で解ける課題の依頼文で、設計の説明の Q3 の答えが「いいえ」になり、適合の観点で SP-BPCONFORMANCE-005 の指摘が出ない） | 作成中 |
 | PR-BPOPERATIONS-008 | SP-BPAUTHORING-012 | fixture の run（設計の説明に問いの答え・重い形を強いた事実・段ごとの部品の名前がある） | 作成中 |
 | PR-BPOPERATIONS-008 | SP-BPAUTHORING-017 | fixture の run（当たる判定の単位の全てに結果が付き、不適合の単位に候補の鍵が添う。結果の中に無い鍵を添えた結果が拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る） | 作成中 |
+| PR-BPOPERATIONS-008 | SP-BPAUTHORING-017 | CLI の単体テスト（適合の観点の結果の適用の判定で、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 が `runs` の `assets` について拒否するとした場合を、1 つ目の要素と 2 つ目以降の要素のそれぞれで 1 つずつ作り、どれも結果の記録が拒否されることを確認） | 未着手 |
 | PR-BPOPERATIONS-008 | SP-BPAUTHORING-021 | script の模擬実行（判定表の 6 行の入力と、適合の観点の検証役の項目が打ち切りになった入力で単位の結果を照らす） | 完了 |
 | PR-BPOPERATIONS-037 | SP-BPAUTHORING-001 | script の模擬実行（create の対象スキルのパスの一覧が `.agents/skills/<name>/` だけで、Workflow script がその中に置かれる） | 完了 |
 | PR-BPOPERATIONS-037 | SP-BPAUTHORING-002 | 静的な照合（書き手の prompt が書いてよい先を対象スキルのパスの一覧に限る） | 完了 |
@@ -670,7 +669,7 @@ needs_input で止まった create・update の返り値は、理由 `reason` �
 | PR-BPOPERATIONS-046 | SP-BPAUTHORING-023 | script の模擬実行（追加の検証の後に skip 一覧が残ると合格にならない） | 完了 |
 | PR-BPOPERATIONS-046 | SP-BPAUTHORING-033 | fixture の run（完了の返り値の `verification.ledger` に観点ごとの skip 一覧が載り、`verification.ledger` に指摘の一覧が無く、最上位に `skip` が無い） | 作成中 |
 | PR-BPDESIGNEDSKILL-001 | SP-BPAUTHORING-012 | fixture の run（設計の説明に A・W・Q1・Q2・Q3 の答えが順に、到達した形まで載る。問い W で run を分けた題材では、run の並びと分けた各 run のそれぞれに Q1・Q2・Q3 の答えが載る） | 作成中 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-017 | fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、一覧を持つ写しでは不適合の指摘になり、一覧の記述を消した写しではその制限が残る危険に載る） | 作成中 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-017 | fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、一覧を持つ写しでは PR-BPDESIGNEDSKILL-014 の判定の単位が適合のまま PR-BPDESIGNEDSKILL-046 の判定の単位の不適合の指摘になり、一覧の記述を消した写しではその制限が残る危険に載る） | 作成中 |
 | PR-BPDESIGNEDSKILL-045 | SP-BPAUTHORING-046 | fixture の run（一覧を持つ写しで、`checkedRoleLimits` に照らした全ての制限が 4 項目で載る） | 未着手 |
 | PR-BPDESIGNEDSKILL-046 | SP-BPAUTHORING-046 | fixture の run（一覧の設定に頼る制限を持つ対象スキルで合否が不合格になり、その制限が残る危険に載らない） | 未着手 |
 | PR-BPDESIGNEDSKILL-049 | SP-BPAUTHORING-046 | fixture の run（一覧の記述を消した写しで、`checkedRoleLimits` が空になり、全ての制限が Claude Code の残る危険に載る） | 未着手 |
