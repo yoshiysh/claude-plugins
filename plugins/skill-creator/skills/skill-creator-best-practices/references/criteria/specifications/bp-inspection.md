@@ -319,7 +319,7 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 | 場合 | 観点 | 範囲 | 理由 |
 |---|---|---|---|
 | 仕様の観点の照らす先を読めない（SP-BPINSPECTION-005） | 仕様の観点 | 観点の全体 | 読めなかった照らす先のパス |
-| 検証役が判定の単位を未検査とした（SP-BPINSPECTION-007・SP-BPINSPECTION-008） | フローの観点か仕様の観点 | 判定の単位 | 検証役の理由。`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 で無視される設定の一覧を読めないときに強いられた未検査とした単位は、その仕様項目 ID と、一覧を読めないこと。同じ単位が SP-BPCONFORMANCE-006 とほかの項目の両方に当たるときは、形から強いられたことを理由にして SP-BPCONFORMANCE-006 |
+| 検証役が判定の単位を未検査とした（SP-BPINSPECTION-007・SP-BPINSPECTION-008） | フローの観点か仕様の観点 | 判定の単位 | 検証役の理由。`docs/specifications/bp-conformance.md` が未検査に固定した単位（SP-BPCONFORMANCE-006・SP-BPCONFORMANCE-019・SP-BPCONFORMANCE-034）は、その仕様項目 ID。同じ単位が SP-BPCONFORMANCE-006 とほかの項目の両方に当たるときは、形から強いられたことを理由にして SP-BPCONFORMANCE-006 |
 | bp-designed-skill の要求を優先して外した（SP-BPINSPECTION-012） | 監査の観点 | 監査の観点の識別子 | 優先した要求 ID と理由 |
 | モデルに固有の鮮度を評価できない（SP-BPINSPECTION-013） | 監査の観点 | PA-4 | 名指しが無いか、証拠が無いか |
 | 観点の全ての検証の項目が打ち切りになった（`docs/specifications/bp-run.md` の SP-BPRUN-028） | その観点 | 観点の全体 | 打ち切りの理由 |

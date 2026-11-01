@@ -410,13 +410,13 @@ export async function outcome(ctx, req) {
   if (gateItem) {
     out[RESULT_KEYS.verification] = verification(view, gateItem);
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
+    out[RESULT_KEYS.findings] = ledgerReport(view, runViewpoints(view)).findings;
   }
   if (complete) {
     const report = ledgerReport(view, runViewpoints(view));
     out[RESULT_KEYS.skill] = skillOf(view);
     out[RESULT_KEYS.designNote] = stop.designNote ?? null;
     out[RESULT_KEYS.findings] = report.findings;
-    out[RESULT_KEYS.skip] = report.skip;
     if (view.state.function === FUNCTION.update) {
       out[RESULT_KEYS.receivedGrounds] = view.grounds.map((g) => ({ ground: g.id, ...(typeof g.ground?.id === 'string' ? { finding: g.ground.id } : {}) }));
     }

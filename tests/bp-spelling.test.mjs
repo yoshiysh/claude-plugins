@@ -203,7 +203,7 @@ test('SP-BPRUN-038: script の段の名前と meta.phases の title が CLI の�
   const phases = literalOf('meta').phases.map((p) => p.title);
   assert.deepEqual(phases, Object.values(titles));
   const table = tableAfter(AUTHORING, '| 段 | 項目 | 起動する役 | 定める仕様項目 |').map(([name]) => name);
-  const order = ['開始', '作り直す前の写し', '目標の固定', '書く', '台帳', '検証', '追加の検証', '反証', '消えた資産の照合', '見直し', '合否'];
+  const order = ['開始', '作り直す前の写し', '目標の固定', '書く', '台帳', '検証', '追加の検証', '反証', '消えた資産の照合', '見直し', '合否', '形式検証'];
   assert.deepEqual(order.filter((n) => table.includes(n)), table);
   assert.deepEqual(phases, order);
 });

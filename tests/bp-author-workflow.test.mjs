@@ -220,7 +220,7 @@ test('SP-BPAUTHORING-033・SP-BPAUTHORING-032・SP-BPFINDINGS-032: create の完
   const total = [...view.assets.values()].filter((a) => !a.gone).length;
   assert.ok(total > 0);
   assert.deepEqual(result.verification.ledger.coverage, ['conformance', 'goal'].map((viewpoint) => ({ viewpoint, seen: total, total, ratio: `${total}/${total}` })));
-  assert.deepEqual(result.skip.map((x) => x.viewpoint), ['conformance', 'goal']);
+  assert.deepEqual(result.verification.ledger.skip.map((x) => x.viewpoint), ['conformance', 'goal']);
   assert.deepEqual(Object.keys(result.residualRisks[0]).sort(), ['host', 'reason', 'restriction', 'role']);
   assert.ok(result.verification.forcedUnchecked.length > 0);
   assert.equal(result.receivedGrounds, undefined);
@@ -953,6 +953,8 @@ function expectation(rule, ctx) {
     if (body.startsWith('最後の取り直しで')) return 'maybe';
     return true;
   }
+  if (w.startsWith('停止の記録を書かずに止まったとき')) return 'absentOrOther';
+  if (w.startsWith('作業記録・証拠・記録台帳のどれかを保存できずに止まったとき')) return 'absentOrOther';
   throw new Error(`返すときの列を読めない: ${w}`);
 }
 
