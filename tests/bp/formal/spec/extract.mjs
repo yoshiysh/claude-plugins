@@ -210,6 +210,10 @@ export function gateNextTable() {
   const t = only('bp-authoring.md', 'SP-BPAUTHORING-025', (x) => x.header.includes('条件: 合否'));
   const DECISION = { 合格: 'pass', 不合格: 'fail', 検証が成り立たない: 'unverifiable' };
   const LIMIT = { 反復の上限より小さい: 'below', 反復の上限に達した: 'reached', '*': '*' };
+  const REASON = { 範囲の外の不適合だけ: 'outOfScope', それ以外: 'other', '*': '*' };
+  const col = (name) => t.header.indexOf(name);
+  const [cd, cl, cr, cres] = [col('条件: 合否'), col('条件: 増分'), col('条件: 不合格の理由'), col('結果')];
+  if (cd < 0 || cl < 0 || cres < 0) throw new Error(`${where('bp-authoring.md', t.line)}: 合否の後の進み方の表の列が読めない`);
   const next = (text, line) => {
     if (text.startsWith('形式検証の段へ進む')) return 'formal';
     if (text.startsWith('次の反復の書く段へ戻る')) return 'rewrite';
@@ -217,7 +221,13 @@ export function gateNextTable() {
     if (/BLOCKED で止まる/.test(text)) return 'blocked';
     throw new Error(`${where('bp-authoring.md', line)}: 進み方が読めない: ${text}`);
   };
-  return { table: t, rows: t.rows.map((r) => ({ decision: idOf(DECISION, r.cells[0], r.line), limit: idOf(LIMIT, r.cells[1], r.line), next: next(r.cells[2], r.line), line: r.line })) };
+  return {
+    table: t,
+    rows: t.rows.map((r) => ({
+      decision: idOf(DECISION, r.cells[cd], r.line), limit: idOf(LIMIT, r.cells[cl], r.line),
+      reason: cr < 0 ? '*' : idOf(REASON, r.cells[cr], r.line), next: next(r.cells[cres], r.line), line: r.line,
+    })),
+  };
 }
 
 export function formalTable() {
@@ -235,91 +245,6 @@ export function formalTable() {
   };
 }
 
-// stop の操作が受ける cause の値（SP-BPRUN-031 の stop の行）。
-export function stopCauses() {
-  const t = only('bp-run.md', 'SP-BPRUN-031', (x) => x.header[0] === '操作');
-  const row = t.rows.find((r) => r.cells[0] === '`stop`');
-  const m = /BLOCKED だけ `cause`（(.*?)`cause` はこの (\d+) つの値だけを受ける/.exec(row.cells[2]);
-  if (!m) throw new Error(`${where('bp-run.md', row.line)}: stop の cause の値が読めない`);
-  const values = [...new Set([...m[1].matchAll(/`(\w+)`/g)].map((x) => x[1]))];
-  if (values.length !== Number(m[2])) throw new Error(`${where('bp-run.md', row.line)}: cause の値の数が ${values.length} で、本文の ${m[2]} と合わない`);
-  return { values, line: row.line };
-}
-
-export function authResumeTable() {
-  const t = only('bp-authoring.md', 'SP-BPAUTHORING-035', (x) => x.header[1] === '止まった段' && x.header[2] === '始め方');
-  const stages = authStages();
-  const allStages = [...new Set(stages.map((s) => s.id))];
-  const causes = ['none', ...stopCauses().values];
-  const parsed = t.rows.map((r) => {
-    const [stop, stageCell, how, pending] = r.cells;
-    const at = where('bp-authoring.md', r.line);
-    let kind;
-    let limit = null;
-    let cause = null;
-    if (stop.startsWith('needs_input')) kind = 'needs_input';
-    else if (stop === '反復の上限（反復の回数）') { kind = 'limit'; limit = 'iteration'; }
-    else if (stop === '反復の上限（起動数の上限）') { kind = 'limit'; limit = 'launch'; }
-    else if (stop.startsWith('停止の記録が無い')) kind = 'nostop';
-    else if (stop === '完了') kind = 'done';
-    else if (stop.startsWith('BLOCKED')) {
-      kind = 'blocked';
-      if (stop === 'BLOCKED') cause = 'any';
-      else if (/`cause` なし/.test(stop)) cause = ['none'];
-      else if (/それ以外/.test(stop)) cause = 'other';
-      else {
-        const named = [...stop.matchAll(/`(\w+)`/g)].map((x) => x[1]);
-        if (named.length !== 1) throw new Error(`${at}: 停止の区分が読めない: ${stop}`);
-        cause = named;
-      }
-    } else throw new Error(`${at}: 停止の種類が読めない: ${stop}`);
-    // 段の名前の後の「（create）」「（update）」は、その段をその機能にだけ当てる印と読む。
-    const fnStages = { create: [], update: [] };
-    if (stageCell === '全て' || stageCell === 'SP-BPRUN-018 で決めた段') { fnStages.create = allStages; fnStages.update = allStages; }
-    else if (stageCell !== '—') {
-      for (const part of stageCell.split('・').map((x) => x.trim())) {
-        const m = /^(.+?)（(create|update)）$/.exec(part);
-        const id = idOf(AUTH_STAGE_IDS, m ? m[1] : part, at);
-        for (const fn of m ? [m[2]] : ['create', 'update']) if (!fnStages[fn].includes(id)) fnStages[fn].push(id);
-      }
-    }
-    const stageIds = [...new Set([...fnStages.create, ...fnStages.update])];
-    let mode;
-    let rewrite = 'none';
-    if (/E_INPUT/.test(how)) mode = 'reject';
-    else if (/形式検証の段の回を 1 増やして形式検証の段から/.test(how)) mode = 'formalNewRound';
-    else if (/新しい反復の台帳の段から/.test(how)) mode = 'newIterLedger';
-    else if (/同じ反復・同じ回の続き/.test(how) || /反復の上限（起動数の上限）の行と同じ/.test(how)) mode = 'continue';
-    else if (/^回答を前提に書き/.test(how) && /目標の固定の回を 1 増やして始め直し/.test(how)) mode = 'goalRestart';
-    else if (/^写しの段から/.test(how)) mode = 'fromSnapshot';
-    else if (/^前提に目標があれば飛ばし/.test(how) || /^目標の固定の段から/.test(how)) mode = 'goalSkipOrRestart';
-    else if (/^新しい反復の書く段から/.test(how)) {
-      mode = 'newIterWrite';
-      if (/成り立たなかった性質と理由/.test(how)) rewrite = 'formalFails';
-      else if (/lastRewrite/.test(how)) rewrite = 'lastRewrite';
-    } else throw new Error(`${at}: 始め方が読めない: ${how}`);
-    const PENDING = { 破棄する: 'discard', 処理する: 'process', '処理する（追加の検証の段は破棄する）': 'process', '—': 'none' };
-    return { kind, limit, cause, stages: stageIds, fnStages, mode, rewrite, pending: idOf(PENDING, pending, at), line: r.line, text: r.cells };
-  });
-  // 台帳〜見直しはモデルで 1 つの段 check に畳むので、行がそれらを全て持つか 1 つも持たないときだけ畳める。
-  const grouped = Object.keys(AUTH_STAGE_IDS).filter((n) => AUTH_STAGE_IDS[n] === 'check');
-  for (const row of parsed) {
-    const named = row.text[1].split('・').map((x) => x.trim().replace(/（(create|update)）$/, ''));
-    const hit = grouped.filter((n) => named.includes(n));
-    if (hit.length > 0 && hit.length !== grouped.length) throw new Error(`${where('bp-authoring.md', row.line)}: 台帳〜見直しの段の一部だけを持つ行は、モデルの段 check に畳めない`);
-  }
-  // 「それ以外」は、同じ段を持つ BLOCKED の他の行が名指した区分を除いた残りとする。
-  for (const row of parsed) {
-    if (row.kind !== 'blocked') continue;
-    if (row.cause === 'any') row.cause = causes;
-    else if (row.cause === 'other') {
-      const named = parsed.filter((o) => o !== row && o.kind === 'blocked' && Array.isArray(o.cause) && o.stages.some((s) => row.stages.includes(s))).flatMap((o) => o.cause);
-      row.cause = causes.filter((c) => !named.includes(c));
-    }
-  }
-  return { table: t, rows: parsed, causes, allStages };
-}
-
 export function stopUse() {
   const t = only('bp-run.md', 'SP-BPRUN-010', (x) => x.header.includes('条件: 停止'));
   return { table: t, dt: decisionTable(t) };
@@ -334,29 +259,6 @@ export function inspStages() {
   });
 }
 
-export function inspResumeTable() {
-  const t = only('bp-inspection.md', 'SP-BPINSPECTION-030', (x) => x.header[0] === '止まった段');
-  const rows = t.rows.map((r) => {
-    const at = where('bp-inspection.md', r.line);
-    // 段の名前の後の括弧（「（review だけ）」「（段の表の 8 の、最初の流れの段）」）は段の説明で、名前に含めない。
-    const stageIds = r.cells[0].replace(/（[^）]*）/g, '').split('・').map((s) => idOf(INSP_STAGE_IDS, s.trim(), at));
-    let mode;
-    if (/^担当の作成から/.test(r.cells[1])) mode = 'fromAssign';
-    else if (/^この段を最初から（/.test(r.cells[1])) mode = 'redoClose';
-    else if (/照合と停止から$/.test(r.cells[1])) mode = 'toClose';
-    else if (/結果の無い項目だけ|結果が状態にあれば|担当の組が状態にあれば|止まった部分の結果の無い項目|結果の無い鍵だけ/.test(r.cells[1])) mode = 'sameStage';
-    else throw new Error(`${at}: 始め方が読めない: ${r.cells[1]}`);
-    // 照合と停止の段の始め直しで review が placement を送るか（表の文が名指すか）。
-    const placement = mode === 'redoClose' && /review は `placement`/.test(r.cells[1]);
-    return { stages: stageIds, mode, placement, line: r.line, text: r.cells[1] };
-  });
-  const prose = specText('bp-inspection.md').split('\n');
-  const k = prose.findIndex((l) => l.startsWith('その後は、') && l.includes('段の並びは、'));
-  const m = /段の並びは、(.*?)とする（消えた資産の照合は並びに入れない）/.exec(prose[k] ?? '');
-  if (!m) throw new Error('bp-inspection.md: SP-BPINSPECTION-030 の段の並びの文が読めない');
-  const sequence = m[1].split('・').map((s) => idOf(INSP_STAGE_IDS, s.trim(), where('bp-inspection.md', k + 1)));
-  return { table: t, rows, sequence, sequenceLine: k + 1 };
-}
 
 export function stopUseRows() {
   const { table, dt } = stopUse();
@@ -431,6 +333,7 @@ export function workflowInputs() {
   return t.rows.map((r) => ({ name: /^`(\w+)`/.exec(r.cells[1])?.[1], line: r.line })).filter((x) => x.name);
 }
 
+
 // SP-BPRUN-003 の開始の操作の確かめの順（番号つきの箇条）。番号・符号・新規だけか再開だけかを返す。
 export function startChecks() {
   const lines = specText('bp-run.md').split('\n');
@@ -449,4 +352,69 @@ export function startChecks() {
   }
   if (out.length === 0 || out.some((c, k) => c.n !== k + 1)) throw new Error('bp-run.md: SP-BPRUN-003 の確かめの順が 1 から続く番号で読めない');
   return out;
+}
+
+// SP-BPAUTHORING-035 の入口の段の表（上の行から順に当てる）。状態の文と入口の文を、閉じた語の集合で分類する。
+const ENTRY_CONDITIONS = [
+  [/^前提に固定した目標が無い$/, 'noGoal'],
+  [/^反復が無い$/, 'noIter'],
+  [/^最後の反復に合否が無く、.*始めたが終えていない段の項目が 1 件以上あり、その全てが打ち切りである/, 'allAborted'],
+  [/^最後の反復に合否が無い$/, 'noGate'],
+  [/^最後の反復の合否が不合格で、合否の段の項目の結果の進み方 `next` が `blocked`/, 'gateFailBlocked'],
+  [/^最後の反復の合否が不合格$/, 'gateFail'],
+  [/^最後の反復の合否が検証が成り立たない$/, 'gateUnverifiable'],
+  [/^最後の反復の合否が合格で、(次のどれかに当たる: )?照合で状態を変えた指摘がある/, 'passChanged'],
+  [/^最後の反復の合否が合格で、形式検証の最後の回に未着手の項目がある$/, 'formalPending'],
+  [/^最後の反復の合否が合格で、.*段を通ったと導ける$/, 'formalPassed'],
+  [/^最後の反復の合否が合格で、.*`formalFailed` が導ける$/, 'formalFailed'],
+  [/^最後の反復の合否が合格で、上記以外/, 'passOther'],
+];
+const ENTRY_TARGETS = [
+  [/^目標の固定の段。最後の回に未着手の項目があればその回、無ければ/, 'goal'],
+  [/^反復の番号 1 の書く段/, 'write1'],
+  [/^新しい反復の台帳の段/, 'newIterLedger'],
+  [/^最後の反復の最初の段/, 'continueIter'],
+  [/^新しい反復の書く段/, 'newIterWrite'],
+  [/^形式検証の段の同じ回/, 'formalSame'],
+  [/^段を行わずに完了で止まる/, 'complete'],
+  [/^形式検証の段の新しい回/, 'formalNew'],
+];
+
+export function authEntryTable() {
+  const t = only('bp-authoring.md', 'SP-BPAUTHORING-035', (x) => x.header.join('|') === '順|状態|入口の段');
+  const pick = (table, text, at, what) => {
+    const hit = table.filter(([re]) => re.test(text));
+    if (hit.length !== 1) throw new Error(`${at}: ${what}が読めない（当たる語が ${hit.length} 個）: ${text}`);
+    return hit[0][1];
+  };
+  const rows = t.rows.map((r) => {
+    const at = where('bp-authoring.md', r.line);
+    return { order: Number(r.cells[0]), cond: pick(ENTRY_CONDITIONS, r.cells[1], at, '状態'), entry: pick(ENTRY_TARGETS, r.cells[2], at, '入口の段'), line: r.line };
+  });
+  if (rows.some((r, k) => r.order !== k + 1)) throw new Error('bp-authoring.md: SP-BPAUTHORING-035 の順が 1 から続かない');
+  // 入口の段より前に消えた資産の照合の段を行う行（「表の N〜M の行に当たり、照合を終えていない取り直しの回があるとき」）。
+  const lines = specText('bp-authoring.md').split('\n');
+  const pre = lines.map((l) => /^- 表の (\d+)〜(\d+) の行に当たり、照合を終えていない取り直しの回があるとき/.exec(l)).find(Boolean);
+  if (!pre) throw new Error('bp-authoring.md: SP-BPAUTHORING-035 の、入口の段より前に照合する行の範囲が読めない');
+  const preVanish = rows.filter((r) => r.order >= Number(pre[1]) && r.order <= Number(pre[2])).map((r) => r.order);
+  // 8 の行（passChanged）の「次のどれか」の条件を、閉じた語の集合で読む。
+  const changedRow = t.rows.find((r) => /照合で状態を変えた指摘がある/.test(r.cells[1]));
+  const SUBS = [[/^照合で状態を変えた指摘がある$/, 'changed'], [/判定が「判定できない」のもの/, 'unsure'], [/^対象スキルの指紋.*合否の後に内容が変わった/, 'contentChanged']];
+  const subText = changedRow.cells[1].replace(/^最後の反復の合否が合格で、(次のどれかに当たる: )?/, '');
+  const changedSubs = subText.split(' / ').map((x) => pick(SUBS, x.trim(), where('bp-authoring.md', changedRow.line), '8 の行の条件'));
+  return { table: t, rows, preVanish, changedSubs };
+}
+
+// SP-BPRUN-005 の記録の表の、記録の種類ごとの同一性の鍵（括弧の中は条件つきの鍵として別に返す）。
+const KEY_TERMS = { 段: 'stage', 回: 'round', run: 'run', 'run ID': 'run', '項目の ID': 'item', 番号: 'number', 連番: 'seq', 部分の番号: 'part' };
+export function recordKeys() {
+  const t = only('bp-run.md', 'SP-BPRUN-005', (x) => x.header.join('|') === '記録|同一性の鍵|足し方');
+  return t.rows.map((r) => {
+    const at = where('bp-run.md', r.line);
+    const cell = r.cells[1];
+    const optional = [...cell.matchAll(/（([^）]*)）/g)].flatMap((m) => (/部分の番号/.test(m[1]) ? ['part'] : []));
+    const base = cell.replace(/（[^）]*）/g, '').split('・').map((x) => x.trim()).filter(Boolean);
+    const fields = base.map((x) => KEY_TERMS[x] ?? null);
+    return { record: r.cells[0], cell, fields, optional, mapped: fields.every((f) => f !== null), line: r.line, add: r.cells[2], at };
+  });
 }

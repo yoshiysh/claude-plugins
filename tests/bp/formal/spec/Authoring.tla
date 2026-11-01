@@ -1,256 +1,285 @@
 ------------------------------ MODULE Authoring ------------------------------
-\* create/update stages (SP-BPAUTHORING-005), gate and its next step (021-026), the formal
-\* verification stage (042-045), and resume (035 with SP-BPRUN-015/018/045). Stages ledger..review
-\* are folded into "check" (gen_tables.mjs refuses a resume row that splits them).
-\* AuthStageSeq, GateNext, FormalRows, AuthResume and StopUse come from SpecTables, generated
-\* from the markdown on every check.
+\* create/update: the stages (SP-BPAUTHORING-005), gate (021-026), the formal stage (042-045), and the
+\* resume of SP-BPRUN-015 with the entry table of SP-BPAUTHORING-035. Stages ledger..review are folded
+\* into "check" (two items, so "all aborted" and "some aborted" both occur). AuthStageSeq, AuthEntry,
+\* GateNext, FormalRows, RecordKeys and StopUse come from SpecTables, generated from the markdown.
 EXTENDS Naturals, Sequences, FiniteSets, SpecTables
 CONSTANTS Fn, MaxRuns, Limit, MaxIter, MaxRound, Mutation
-VARIABLES log, run, alive, stage, it, fr, ghost, cont
-vars == <<log, run, alive, stage, it, fr, ghost, cont>>
+\* touched: the last stage this run began (started, read again, or passed as finished).
+\* vr: the retake round the vanished-asset stage before the entry works on.
+VARIABLES log, run, alive, stage, phase, pend, it, fr, gr, after, ghost, touched, vr
+vars == <<log, run, alive, stage, phase, pend, it, fr, gr, after, ghost, touched, vr>>
 
-Stages == {AuthStageSeq[i] : i \in 1..Len(AuthStageSeq)}
-Idx(S, x) == CHOOSE i \in 1..Len(S) : S[i] = x
-RecsIn(L, t) == {i \in 1..Len(L) : L[i].t = t}
-Recs(t) == RecsIn(log, t)
+IterStages == {"write", "check", "gate"}
+Items(s) == CASE s = "check" -> {1, 2} [] s \in {"goal", "write", "formal", "vanish"} -> {1} [] OTHER -> {}
+Rnd(s) == CASE s \in IterStages -> it [] s = "formal" -> fr [] s = "goal" -> gr [] s = "vanish" -> vr [] OTHER -> 0
+Recs(t) == {i \in 1..Len(log) : log[i].t = t}
 MaxOf(S) == IF S = {} THEN 0 ELSE CHOOSE i \in S : \A j \in S : j <= i
-MinOf(S) == IF S = {} THEN 0 ELSE CHOOSE i \in S : \A j \in S : i <= j
-LastIdx(t) == MaxOf(Recs(t))
-NumGates == Cardinality(Recs("gate"))
-LastGate == LastIdx("gate")
-Has(t, f, v) == \E i \in Recs(t) : log[i][f] = v
-At(t, f, v) == CHOOSE i \in Recs(t) : log[i][f] = v
+Rec(t, s, r) == {i \in Recs(t) : log[i].s = s /\ log[i].rnd = r}
+ItemRec(t, s, r, k) == {i \in Recs(t) : log[i].item = <<s, r, k>>}
+Started(s, r) == Rec("enter", s, r) # {}
+Finished(s, r) == Rec("fin", s, r) # {}
+Done(s, r, k) == ItemRec("res", s, r, k) # {} \/ ItemRec("abort", s, r, k) # {}
 GoalFixed == Recs("goal") # {}
-GatesOfRun(r) == {i \in Recs("gate") : log[i].run = r}
-FormalEnter(f) == {i \in Recs("enter") : log[i].s = "formal" /\ log[i].fr = f}
-NextStage(s) == LET n == AuthStageSeq[Idx(AuthStageSeq, s) + 1] IN IF n = "snapshot" /\ Fn = "create" THEN "goal" ELSE n
+Rounds == {log[i].g : i \in Recs("retake")}
+NextStage(s) == LET m == AuthStageSeq[(CHOOSE i \in 1..Len(AuthStageSeq) : AuthStageSeq[i] = s) + 1] IN
+                IF m = "snapshot" /\ Fn = "create" THEN "goal" ELSE m
 
-\* ---- SP-BPRUN-018: the stopped stage and the source stop, as functions of a log ----
-\* Head stages (stage-start with head: true) are left out of rules 1-3.
-WorkIn(L) == {i \in RecsIn(L, "enter") : ~L[i].head}
-LastWorkStage(L) == IF WorkIn(L) = {} THEN "start" ELSE L[MaxOf(WorkIn(L))].s
-\* The source stop: the last stop of the earlier runs.
-SrcIn(L) == MaxOf(RecsIn(L, "stop"))
-Rule1(L) == SrcIn(L) > 0 /\ ~(\E k \in WorkIn(L) : k > SrcIn(L))
-StoppedStageIn(L) == IF Rule1(L) THEN L[SrcIn(L)].stage ELSE LastWorkStage(L)
-\* lastStop is the source stop only when rule 1 applies, otherwise null ("no stop record").
-\* Mutation laststop_always returns the source stop also when rule 1 does not apply.
-UseSrc(L) == SrcIn(L) > 0 /\ (Rule1(L) \/ Mutation = "laststop_always")
-KindIn(L) == IF UseSrc(L) THEN L[SrcIn(L)].kind ELSE "nostop"
-CauseIn(L) == IF UseSrc(L) THEN L[SrcIn(L)].cause ELSE "none"
-LimitIn(L) == IF UseSrc(L) THEN L[SrcIn(L)].limit ELSE "na"
-MatchesIn(L) == {x \in AuthResume :
-                   /\ x.kind = KindIn(L)
-                   /\ (x.kind = "limit" => x.limit = LimitIn(L))
-                   /\ (x.kind = "blocked" => CauseIn(L) \in x.causes)
-                   /\ (x.kind # "done" => StoppedStageIn(L) \in x.stages[Fn])}
-RowIn(L) == CHOOSE x \in MatchesIn(L) : TRUE
-\* An empty run started no work stage and wrote no stop.
-Empty(r) == /\ ~(\E i \in RecsIn(log, "enter") : log[i].run = r /\ ~log[i].th)
-            /\ ~(\E i \in RecsIn(log, "stop") : log[i].run = r)
-\* The log without the empty runs, and with head stages marked as head (what the decision must equal).
-WithoutEmpty(L, r) == LET kept == SelectSeq(L, LAMBDA x : ~("run" \in DOMAIN x /\ x.run # r /\ Empty(x.run))) IN
-                      [i \in 1..Len(kept) |-> IF kept[i].t = "enter" THEN [kept[i] EXCEPT !.head = kept[i].th] ELSE kept[i]]
+\* ---- the state, as SP-BPAUTHORING-035 reads it ----
+IterRounds == {log[i].rnd : i \in {j \in Recs("enter") : log[j].s \in IterStages}}
+LastIter == IF IterRounds = {} THEN 0 ELSE CHOOSE n \in IterRounds : \A m \in IterRounds : m <= n
+GateRes(n) == ItemRec("res", "gate", n, 1)
+GateOf(n) == log[MaxOf(GateRes(n))].v
+\* A stage of iteration n started and not finished whose items are all aborted (at least one item).
+AllAbortedIn(n) == \E s \in {"write", "check"} :
+  /\ Started(s, n) /\ ~Finished(s, n)
+  /\ \A k \in Items(s) : ItemRec("abort", s, n, k) # {}
+SomeAbortedIn(n) == \E s \in {"write", "check"} : Started(s, n) /\ ~Finished(s, n) /\ \E k \in Items(s) : ItemRec("abort", s, n, k) # {}
+FormalRounds == {i \in Recs("enter") : log[i].s = "formal" /\ i > MaxOf(GateRes(LastIter))}
+LastFormal == IF FormalRounds = {} THEN 0 ELSE log[MaxOf(FormalRounds)].rnd
+FormalResult == ItemRec("res", "formal", LastFormal, 1)
+Cond(c) ==
+  CASE c = "noGoal" -> ~GoalFixed
+    [] c = "noIter" -> LastIter = 0
+    [] c = "allAborted" -> GateRes(LastIter) = {} /\ (IF Mutation = "discard_any" THEN SomeAbortedIn(LastIter) ELSE AllAbortedIn(LastIter))
+    [] c = "noGate" -> GateRes(LastIter) = {}
+    [] c = "gateFailBlocked" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "fail" /\ log[MaxOf(GateRes(LastIter))].why = "outOfScope"
+    [] c = "gateFail" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "fail"
+    \* Row 8: after the pass, a matching changed a finding's state or is "unknown", or the content changed.
+    [] c = "passChanged" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "pass"
+                            /\ \/ \E i \in Recs("res") : i > MaxOf(GateRes(LastIter)) /\ log[i].item[1] = "vanish" /\ log[i].v \in {"changed", "unsure"}
+                               \/ \E i \in Recs("fp") : i > MaxOf(GateRes(LastIter))
+    [] c = "gateUnverifiable" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "unverifiable"
+    [] c = "formalPending" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "pass" /\ LastFormal > 0 /\ FormalResult = {} /\ ItemRec("abort", "formal", LastFormal, 1) = {}
+    [] c = "formalPassed" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "pass" /\ FormalResult # {} /\ log[MaxOf(FormalResult)].v = "pass"
+    [] c = "formalFailed" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "pass" /\ FormalResult # {} /\ log[MaxOf(FormalResult)].v = "formalFailed"
+    [] c = "passOther" -> GateRes(LastIter) # {} /\ GateOf(LastIter) = "pass"
+Table == IF Mutation = "drop_last_row" THEN SubSeq(AuthEntry, 1, Len(AuthEntry) - 1) ELSE AuthEntry
+EntryRows == {i \in 1..Len(Table) : Cond(Table[i].cond)}
+EntryRow == CHOOSE i \in EntryRows : \A j \in EntryRows : i <= j
+Entry == Table[EntryRow].entry
+OpenRounds == {g \in Rounds : Rec("fin", "vanish", g) = {}}
 
-\* The stop record's stage is decided by rules 2-3 when it is written (SP-BPRUN-018).
-StopRecord(kind, cause, limit) == [t |-> "stop", run |-> run, kind |-> kind, cause |-> cause, limit |-> limit, stage |-> LastWorkStage(log)]
-\* th marks a head stage whatever the record says (only the property reads it: mutation head_counts).
-EnterRec(s, i, f, h) == [t |-> "enter", s |-> s, it |-> i, fr |-> f, run |-> run, head |-> h, th |-> h]
-\* A stage-start record is keyed by stage and round (SP-BPRUN-005): enumerating it again adds nothing.
-AddEnter(s, i, f) == IF \E k \in Recs("enter") : log[k].s = s /\ log[k].it = i /\ log[k].fr = f /\ ~log[k].head
-                     THEN <<>> ELSE <<EnterRec(s, i, f, FALSE)>>
-EnterFormal(f) == IF FormalEnter(f) # {} THEN <<>> ELSE <<EnterRec("formal", it, f, FALSE)>>
-StopAfter(rs, kind, cause, limit) ==
-  /\ log' = log \o rs \o <<StopRecord(kind, cause, limit)>> /\ alive' = FALSE /\ stage' = "idle"
+\* ---- SP-BPRUN-018: the stopped stage, from the last stage record (start, reread or finish) ----
+StageRecs == Recs("enter") \cup Recs("reread") \cup Recs("fin")
+ReportedStage == IF StageRecs = {} THEN "none" ELSE log[MaxOf(StageRecs)].s
 
-Init == /\ log = <<[t |-> "start", run |-> 1]>> /\ run = 1 /\ alive = TRUE /\ stage = "start"
-        /\ it = 0 /\ fr = 0 /\ ghost = [stale |-> FALSE, rejectedComplete |-> FALSE, lost |-> FALSE] /\ cont = FALSE
+\* actual: the last stage the run began (also when it passed a finished stage without a record);
+\* cur: the stage the run is inside after writing its stage-start or reread record ("pre" otherwise).
+\* The run is inside a stage it started or read again ("pass" is a finished stage passed without a record).
+InRecorded == phase \in {"items", "end"}
+StopRec(kind) == [t |-> "stop", run |-> run, kind |-> kind, stage |-> ReportedStage,
+                  actual |-> IF phase = "begin" THEN touched ELSE stage, cur |-> IF InRecorded THEN stage ELSE "pre"]
+End(rs, kind) == /\ log' = log \o rs \o <<StopRec(kind)>> /\ alive' = FALSE /\ stage' = "idle" /\ phase' = "none" /\ pend' = {}
 
-TypeOK == /\ run \in 1..MaxRuns /\ alive \in BOOLEAN /\ stage \in Stages \cup {"idle", "head", "vanishH", "vanishOpen"}
+Init == /\ log = <<[t |-> "start", run |-> 1]>> /\ run = 1 /\ alive = TRUE /\ stage = NextStage("start") /\ phase = "begin"
+        /\ pend = {} /\ it = 0 /\ fr = 0 /\ gr = 1 /\ after = "none"
+        /\ ghost = [rejectedComplete |-> FALSE, relaunch |-> FALSE] /\ touched = "none" /\ vr = 0
+
+TypeOK == /\ run \in 1..MaxRuns /\ alive \in BOOLEAN /\ phase \in {"begin", "items", "end", "pass", "none"}
           /\ it \in 0..MaxIter + 1 /\ fr \in 0..MaxRound + 1
 
-\* Environment failures at a stage (SP-BPRUN-018/020/027/028, SP-BPAUTHORING-008).
+\* Environment failures (SP-BPRUN-018/020/027/029, SP-BPAUTHORING-008): launch limit, carrier, crash.
 Fail(how) ==
-  /\ alive /\ run < MaxRuns
-  /\ CASE how = "launch" -> StopAfter(<<>>, "limit", "none", "launch")
-       [] how = "carrier" -> StopAfter(<<>>, "blocked", "none", "na")
-       [] how = "verifiers" -> stage \in {"check", "formal"} /\ StopAfter(<<>>, "blocked", "verifiers", "na")
-       [] how = "needs_input" -> ((stage = "goal" /\ ~GoalFixed) \/ Mutation = "needs_input_anywhere") /\ StopAfter(<<>>, "needs_input", "none", "na")
-       [] how = "dry" -> Mutation = "stop_dry" /\ StopAfter(<<>>, "dry", "none", "na")
-       [] how = "crash" -> alive' = FALSE /\ stage' = "idle" /\ log' = log
-  /\ UNCHANGED <<run, it, fr, ghost, cont>>
+  /\ alive /\ stage \in {"snapshot", "goal", "write", "check", "gate", "formal", "vanish"}
+  /\ (phase \in {"begin", "items"} \/ (how = "crash" /\ phase = "end"))
+  \* The launch limit and carrier failures are taken at a stage's beginning (a stop with items in flight
+  \* is covered by the crash, which leaves the same records).
+  /\ CASE how = "launch" -> phase = "begin" /\ End(<<>>, "limit")
+       [] how = "carrier" -> phase = "begin" /\ End(<<>>, "blocked")
+       [] how = "dry" -> Mutation = "stop_dry" /\ End(<<>>, "dry")
+       [] how = "needs_input" -> Mutation = "needs_input_anywhere" /\ End(<<>>, "needs_input")
+       [] how = "crash" -> alive' = FALSE /\ stage' = "idle" /\ phase' = "none" /\ pend' = {} /\ log' = log
+  /\ UNCHANGED <<run, it, fr, gr, after, ghost, touched, vr>>
 
-\* SP-BPRUN-031 stop (complete), SP-BPAUTHORING-026/032: the last gate passed and the last formal round
-\* started after it has a passing result. Otherwise the CLI refuses (E_CONFLICT -> BLOCKED: SP-BPRUN-029).
+\* SP-BPRUN-015 3: a finished stage is passed without its agents; a started one is read again
+\* (stage-start without keys: the reread record, first time in this run) and only its pending items run;
+\* a stage not started is started with its items.
+RereadRec(s, r) == [t |-> "reread", run |-> run, s |-> s, rnd |-> r]
+Begin ==
+  /\ alive /\ phase = "begin" /\ stage # "entry"
+  /\ LET s == stage r == Rnd(stage) IN
+     \* The snapshot stage is redone on every resume by the entry rule, so it is read again, not passed.
+     CASE Finished(s, r) /\ s # "snapshot" /\ Mutation # "rerun_finished" ->
+            phase' = "pass" /\ pend' = {} /\ log' = log
+       [] Started(s, r) ->
+            \* Mutation enter_again writes a second stage-start record for a recorded stage and round instead.
+            /\ log' = log \o (IF Mutation = "enter_again" THEN <<[t |-> "enter", s |-> s, rnd |-> r, run |-> run]>>
+                              ELSE IF Mutation = "no_reread" \/ (\E i \in Recs("reread") : log[i].run = run /\ log[i].s = s /\ log[i].rnd = r)
+                              THEN <<>> ELSE <<RereadRec(s, r)>>)
+            /\ pend' = IF Mutation = "redo_all_items" \/ (Finished(s, r) /\ Mutation = "rerun_finished") THEN Items(s) ELSE {k \in Items(s) : ~Done(s, r, k)}
+            /\ phase' = "items"
+       [] OTHER ->
+            /\ log' = log \o <<[t |-> "enter", s |-> s, rnd |-> r, run |-> run]>>
+            /\ pend' = Items(s) /\ phase' = "items"
+  /\ touched' = stage /\ UNCHANGED <<run, alive, stage, it, fr, gr, after, ghost, vr>>
+
+\* An item's agent is launched (ghost record) and returns a result, or the item is aborted (SP-BPRUN-028).
+ItemStep ==
+  /\ alive /\ phase = "items" /\ pend # {}
+  /\ \E k \in pend :
+       LET s == stage r == Rnd(stage) x == <<s, r, k>>
+           v == CASE s = "goal" -> {"fixed", "missing"} [] s = "formal" -> {"pass", "formalFailed", "formalUnrunnable"}
+                  [] s = "vanish" -> {"changed", "same", "unsure"} [] OTHER -> {"ok"} IN
+       \* The launch is a ghost: relaunch marks an agent launched again for an item with a result or an
+       \* abort, or in a finished stage (SP-BPRUN-015 3, PR-BPDESIGNEDSKILL-020).
+       /\ ghost' = [ghost EXCEPT !.relaunch = ghost.relaunch \/ Done(s, r, k) \/ Finished(s, r)]
+       /\ \/ \E val \in v : log' = log \o <<[t |-> "res", item |-> x, v |-> val]>>
+          \/ s \in {"write", "check", "formal"} /\ log' = log \o <<[t |-> "abort", item |-> x]>>
+     /\ pend' = pend \ {k} /\ phase' = IF pend \ {k} = {} THEN "end" ELSE "items"
+  /\ UNCHANGED <<run, alive, stage, it, fr, gr, after, touched, vr>>
+ItemsDone == /\ alive /\ phase = "items" /\ pend = {} /\ phase' = "end" /\ UNCHANGED <<log, run, alive, stage, pend, it, fr, gr, after, ghost, touched, vr>>
+
+FinRec(s, r) == IF Finished(s, r) THEN <<>> ELSE <<[t |-> "fin", s |-> s, rnd |-> r, run |-> run]>>
+Go(s) == stage' = s /\ phase' = "begin" /\ pend' = {}
 FreshPass(L) ==
-  LET gs == {i \in 1..Len(L) : L[i].t = "gate"}
+  LET gs == {i \in 1..Len(L) : L[i].t = "res" /\ L[i].item[1] = "gate"}
       lg == MaxOf(gs)
       rounds == {i \in 1..Len(L) : L[i].t = "enter" /\ L[i].s = "formal" /\ i > lg}
-      last == MaxOf(rounds) IN
-  /\ lg > 0 /\ L[lg].d = "pass" /\ rounds # {}
-  /\ \E k \in 1..Len(L) : L[k].t = "fres" /\ L[k].fr = L[last].fr /\ L[k].ok
-Complete(rs) ==
-  IF FreshPass(log \o rs)
-  THEN StopAfter(rs, "done", "none", "na") /\ UNCHANGED ghost
-  ELSE StopAfter(rs, "blocked", "none", "na") /\ ghost' = [ghost EXCEPT !.rejectedComplete = TRUE]
+      last == L[MaxOf(rounds)].rnd IN
+  /\ lg > 0 /\ L[lg].v = "pass" /\ rounds # {}
+  /\ \E k \in 1..Len(L) : L[k].t = "res" /\ L[k].item = <<"formal", last, 1>> /\ L[k].v = "pass"
+Complete(rs) == IF FreshPass(log \o rs) THEN End(rs, "done") /\ UNCHANGED ghost
+                ELSE End(rs, "blocked") /\ ghost' = [ghost EXCEPT !.rejectedComplete = TRUE]
+GatesOfRun(r) == {i \in Recs("res") : log[i].item[1] = "gate" /\ log[i].run = r}
+\* why: whether a fail is only out-of-scope nonconformity (the writer cannot fix it: SP-BPAUTHORING-025).
+GateNextOf(d, why, lim) == (CHOOSE g \in GateNext : g.d = d /\ g.why \in {why, "*"} /\ g.lim \in {lim, "*"}).next
+FormalRounds2 == {log[i].rnd : i \in {j \in Recs("enter") : log[j].s = "formal"}}
+NewFormalRound == IF FormalRounds2 = {} THEN 1 ELSE (CHOOSE n \in FormalRounds2 : \A m \in FormalRounds2 : m <= n) + 1
 
-StepStart == /\ alive /\ stage = "start" /\ stage' = NextStage("start") /\ log' = log \o AddEnter(NextStage("start"), it, fr)
-             /\ UNCHANGED <<run, alive, it, fr, ghost, cont>>
-StepSnapshot == /\ alive /\ stage = "snapshot" /\ stage' = "goal"
-                /\ log' = log \o (IF Recs("snap") = {} THEN <<[t |-> "snap"]>> ELSE <<>>) \o AddEnter("goal", it, fr)
-                /\ UNCHANGED <<run, alive, it, fr, ghost, cont>>
-\* SP-BPAUTHORING-010: a fixed goal is not fixed again; the next iteration starts at the write stage.
-StepGoal == /\ alive /\ stage = "goal" /\ NumGates < MaxIter
-            /\ it' = NumGates + 1 /\ stage' = "write"
-            /\ log' = log \o (IF GoalFixed THEN <<>> ELSE <<[t |-> "goal"]>>) \o AddEnter("write", NumGates + 1, fr)
-            /\ UNCHANGED <<run, alive, fr, ghost, cont>>
-StepWrite == /\ alive /\ stage = "write"
-             /\ log' = log \o (IF Has("write", "it", it) THEN <<>> ELSE <<[t |-> "write", it |-> it]>>) \o AddEnter("check", it, fr)
-             /\ stage' = "check" /\ UNCHANGED <<run, alive, it, fr, ghost, cont>>
-StepCheck == /\ alive /\ stage = "check"
-             /\ log' = log \o (IF Has("check", "it", it) THEN <<>> ELSE <<[t |-> "check", it |-> it]>>) \o AddEnter("gate", it, fr)
-             /\ stage' = "gate" /\ UNCHANGED <<run, alive, it, fr, ghost, cont>>
+\* The end of a stage: its own rule, then the next stage along the flow (or `after`, the entry stage).
+EndStage ==
+  /\ alive /\ phase \in {"end", "pass"}
+  /\ LET s == stage r == Rnd(stage)
+         aborted == \A k \in Items(s) : ItemRec("abort", s, r, k) # {}
+         next == IF after # "none" THEN after ELSE NextStage(s) IN
+     CASE s = "snapshot" ->
+            /\ log' = log \o (IF Recs("snap") = {} THEN <<[t |-> "snap"]>> ELSE <<>>) \o FinRec(s, r)
+            /\ Go(IF after # "none" THEN after ELSE "goal") /\ after' = "none" /\ UNCHANGED <<run, alive, it, fr, gr, ghost>>
+       [] s = "vanish" ->
+            log' = log \o FinRec(s, r) /\ Go("entry") /\ UNCHANGED <<run, alive, it, fr, gr, after, ghost>>
+       [] s = "goal" ->
+            LET res == ItemRec("res", "goal", r, 1) IN
+            IF res # {} /\ log[MaxOf(res)].v = "missing"
+            THEN End(FinRec(s, r), "needs_input") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>
+            ELSE /\ log' = log \o (IF GoalFixed THEN <<>> ELSE <<[t |-> "goal"]>>) \o FinRec(s, r)
+                 /\ it' = LastIter + 1 /\ LastIter + 1 <= MaxIter /\ Go("write") /\ UNCHANGED <<run, alive, fr, gr, after, ghost>>
+       [] s \in {"write", "check"} /\ aborted ->
+            End(<<>>, "blocked") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>
+       [] s \in {"write", "check"} ->
+            \* The folded check stage holds the vanished-asset stage: it matches every open retake round in order
+            \* (SP-BPFINDINGS-020); its items are not modelled.
+            LET open == IF s = "check" THEN {g \in Rounds : Rec("fin", "vanish", g) = {}} ELSE {}
+                todo == IF Mutation = "vanish_latest_only" /\ open # {} THEN {CHOOSE g \in open : \A h \in open : h <= g} ELSE open
+                vf == [n \in 1..Cardinality(todo) |-> [t |-> "fin", s |-> "vanish", rnd |-> CHOOSE g \in todo : Cardinality({h \in todo : h <= g}) = n, run |-> run]] IN
+            log' = log \o FinRec(s, r) \o vf /\ Go(NextStage(s)) /\ UNCHANGED <<run, alive, it, fr, gr, after, ghost>>
+       [] s = "gate" ->
+            \* SP-BPAUTHORING-021: placement before gate in the same carrier; the result is written once.
+            LET known == GateRes(r) # {} IN
+            \E d \in (IF known THEN {GateOf(r)} ELSE {"pass", "fail", "unverifiable"}) :
+            \E why \in (IF known THEN {log[MaxOf(GateRes(r))].why} ELSE IF d = "fail" THEN {"outOfScope", "other"} ELSE {"other"}) :
+              LET rs == (IF known THEN <<>> ELSE (IF Mutation = "skip_placement" THEN <<>> ELSE <<[t |-> "place", rnd |-> r]>>)
+                                                   \o <<[t |-> "res", item |-> <<"gate", r, 1>>, v |-> d, why |-> why, run |-> run]>>) \o FinRec(s, r)
+                  n == GateNextOf(d, why, IF Cardinality(GatesOfRun(run)) + (IF known THEN 0 ELSE 1) >= Limit /\ Mutation # "limit_unchecked" THEN "reached" ELSE "below") IN
+              (CASE n = "formal" /\ Mutation = "skip_formal" -> End(rs, "done") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>
+                [] n = "formal" -> log' = log \o rs /\ fr' = NewFormalRound /\ fr' <= MaxRound /\ Go("formal") /\ UNCHANGED <<run, alive, it, gr, after, ghost>>
+                [] n = "rewrite" -> log' = log \o rs /\ it' = r + 1 /\ r + 1 <= MaxIter /\ Go("write") /\ UNCHANGED <<run, alive, fr, gr, after, ghost>>
+                [] n = "iterationLimit" -> End(rs, "limit") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>
+                [] n = "blocked" -> End(rs, "blocked") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>)
+       [] s = "formal" ->
+            LET res == ItemRec("res", "formal", r, 1) IN
+            IF res = {} THEN End(FinRec(s, r), "blocked") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>
+            ELSE IF log[MaxOf(res)].v = "pass" THEN Complete(FinRec(s, r)) /\ UNCHANGED <<run, it, fr, gr, after>>
+            ELSE End(FinRec(s, r), "blocked") /\ UNCHANGED <<run, it, fr, gr, after, ghost>>
+  /\ UNCHANGED <<touched, vr>>
 
-GateNextOf(d, lim) == (CHOOSE g \in GateNext : g.d = d /\ g.lim \in {lim, "*"}).next
-\* Where a gate result leads (SP-BPAUTHORING-025); round is the formal round to enter on pass.
-FollowGate(rs, d, reached, round) ==
-  LET n == GateNextOf(d, IF reached THEN "reached" ELSE "below") IN
-  CASE n = "formal" /\ Mutation = "skip_formal" -> StopAfter(rs, "done", "none", "na") /\ UNCHANGED <<it, fr, ghost>>
-    [] n = "formal" -> log' = log \o rs \o EnterFormal(round) /\ fr' = round /\ stage' = "formal" /\ UNCHANGED <<it, alive, ghost>>
-    [] n = "rewrite" -> it < MaxIter /\ log' = log \o rs \o <<EnterRec("write", it + 1, fr, FALSE)>> /\ it' = it + 1 /\ stage' = "write" /\ UNCHANGED <<fr, alive, ghost>>
-    [] n = "iterationLimit" -> StopAfter(rs, "limit", "none", "iteration") /\ UNCHANGED <<it, fr, ghost>>
-    [] n = "blocked" -> StopAfter(rs, "blocked", "verifiers", "na") /\ UNCHANGED <<it, fr, ghost>>
+\* ---- Resume (SP-BPRUN-015, SP-BPAUTHORING-035) ----
+EntryDefined == (~alive /\ run < MaxRuns) => EntryRows # {}
+DoneStop == \E i \in Recs("stop") : log[i].kind = "done"
+GoalRound == LET rs == {log[i].rnd : i \in {j \in Recs("enter") : log[j].s = "goal"}}
+                 last == IF rs = {} THEN 0 ELSE CHOOSE n \in rs : \A m \in rs : m <= n IN
+             IF last = 0 THEN 1 ELSE IF ~Done("goal", last, 1) THEN last ELSE last + 1
+\* The entry stage and round; update takes the snapshot stage first (SP-BPAUTHORING-004/035).
+Resume ==
+  /\ ~alive /\ run < MaxRuns /\ EntryRows # {} /\ (~DoneStop \/ Mutation = "resume_done")
+  /\ run' = run + 1 /\ alive' = TRUE /\ pend' = {} /\ touched' = "none" /\ phase' = "begin"
+  \* SP-BPRUN-015 1: the start retakes the ledger; a retake round when it finds gone assets with findings.
+  \* The content may have changed while stopped (a new fingerprint record), with or without gone assets.
+  /\ \E c \in {"none", "edit", "gone"} :
+       log' = log \o <<[t |-> "start", run |-> run + 1]>> \o (IF c # "none" THEN <<[t |-> "fp", run |-> run + 1]>> ELSE <<>>)
+              \o (IF c = "gone" /\ \E i \in Recs("fin") : log[i].s = "check" THEN <<[t |-> "retake", g |-> run + 1]>> ELSE <<>>)
+  \* SP-BPAUTHORING-004/035: update takes the snapshot stage before the entry.
+  /\ IF Fn = "update" /\ Mutation # "skip_snapshot_on_resume" THEN stage' = "snapshot" /\ after' = "entry" ELSE stage' = "entry" /\ after' = "none"
+  /\ UNCHANGED <<it, fr, gr, ghost, vr>>
 
-\* SP-BPAUTHORING-021: placement precedes gate in the same carrier; gate refuses an iteration without it,
-\* and placement refuses when no iteration up to this one has a write result (E_INPUT -> BLOCKED).
-\* The gate result is written first; following it is a separate step (a stop can fall in between).
-StepGate ==
-  /\ alive /\ stage = "gate" /\ ~Has("gate", "it", it)
-  /\ IF ~(\E k \in Recs("write") : log[k].it <= it)
-     THEN StopAfter(<<>>, "blocked", "none", "na") /\ UNCHANGED <<it, fr, ghost>>
-     ELSE \E d \in {"pass", "fail", "unverifiable"} :
-            LET place == IF Mutation = "skip_placement" THEN <<>> ELSE <<[t |-> "place", it |-> it]>> IN
-            log' = log \o place \o <<[t |-> "gate", it |-> it, d |-> d, run |-> run]>> /\ UNCHANGED <<stage, alive, it, fr, ghost>>
-  /\ UNCHANGED <<run, cont>>
+\* SP-BPAUTHORING-035: the entry from the table; for the rows of AuthPreVanish with open retake rounds, the
+\* vanished-asset stage first (round by round), then the table again (its row 8 sees changed findings).
+EntryStep ==
+  /\ alive /\ stage = "entry" /\ phase = "begin" /\ EntryRows # {}
+  /\ LET e == Entry
+         first == IF Started("write", LastIter) THEN "write" ELSE "check" IN
+     IF EntryRow \in AuthPreVanish /\ OpenRounds # {} /\ Mutation # "skip_pre_vanish"
+     THEN vr' = (CHOOSE g \in OpenRounds : \A h \in OpenRounds : g <= h) /\ Go("vanish") /\ UNCHANGED <<log, alive, it, fr, gr, after>>
+     ELSE CASE e = "complete" ->
+                 log' = log \o <<[t |-> "stop", run |-> run, kind |-> IF FreshPass(log) THEN "done" ELSE "blocked", stage |-> ReportedStage, actual |-> "none", cur |-> "pre"]>>
+                 /\ alive' = FALSE /\ stage' = "idle" /\ phase' = "none" /\ pend' = {} /\ UNCHANGED <<it, fr, gr, after, vr>>
+            [] OTHER ->
+                 LET target == CASE e = "goal" -> "goal" [] e = "write1" -> "write" [] e = "newIterLedger" -> "check"
+                                  [] e = "continueIter" -> first [] e = "newIterWrite" -> "write"
+                                  [] e \in {"formalSame", "formalNew"} -> "formal" IN
+                 /\ it' = CASE e = "write1" -> 1 [] e \in {"newIterLedger", "newIterWrite"} -> LastIter + 1 [] OTHER -> LastIter
+                 /\ it' <= MaxIter
+                 /\ fr' = CASE e = "formalSame" -> LastFormal [] e = "formalNew" -> NewFormalRound [] OTHER -> fr
+                 /\ fr' <= MaxRound
+                 /\ gr' = IF e = "goal" THEN GoalRound ELSE gr
+                 /\ Go(target) /\ UNCHANGED <<log, alive, after, vr>>
+  /\ UNCHANGED <<run, ghost, touched>>
 
-\* Following a gate result in the state (SP-BPAUTHORING-025), also when a resumed run continues the
-\* gate stage. SP-BPAUTHORING-036: the formal round is the same only when the stopped stage is the
-\* formal stage, so going on from the gate stage always starts a new round.
-ContinueGate ==
-  /\ alive /\ stage = "gate" /\ Has("gate", "it", it)
-  /\ LET g == log[At("gate", "it", it)]
-         round == IF Mutation = "same_round_after_gate" /\ cont /\ fr > 0 THEN fr ELSE fr + 1 IN
-     FollowGate(<<>>, g.d, Cardinality(GatesOfRun(run)) >= Limit /\ Mutation # "limit_unchecked", round)
-  /\ cont' = FALSE /\ UNCHANGED run
-
-\* SP-BPAUTHORING-042/044/045. With a result already in the state for this round the script uses it.
-StepFormal ==
-  /\ alive /\ stage = "formal"
-  /\ IF Has("fres", "fr", fr)
-     THEN LET k == At("fres", "fr", fr)
-              stale == MinOf(FormalEnter(fr)) < LastGate IN
-          IF log[k].ok THEN Complete(<<>>)
-          ELSE StopAfter(<<>>, "blocked", log[k].cause, "na") /\ ghost' = [ghost EXCEPT !.stale = ghost.stale \/ stale]
-     ELSE \E row \in FormalRows :
-            LET rs == <<[t |-> "fres", fr |-> fr, ok |-> row.passes, cause |-> row.cause]>> IN
-            IF row.passes THEN Complete(rs) ELSE StopAfter(rs, "blocked", row.cause, "na") /\ UNCHANGED ghost
-  /\ UNCHANGED <<run, it, fr, cont>>
-
-\* ---- Resume (SP-BPRUN-003/014/015/018, SP-BPAUTHORING-004/035) ----
-\* The start (head 1: its retake is inside the start), then the vanished-asset stage as a head stage
-\* (head: true) when the retake found gone assets with findings, then the stage-start the row says.
-\* A refused start changes nothing (StartChecks.tla, RunLifecycle.tla), so it is not a step here.
-\* A stop can fall between any two steps.
-ResumeRowUnique == (~alive /\ run < MaxRuns) => Cardinality(MatchesIn(log)) = 1
-
-ResumeStart ==
-  /\ ~alive /\ run < MaxRuns /\ Cardinality(MatchesIn(log)) = 1
-  /\ (RowIn(log).mode # "reject" \/ Mutation = "resume_done")
-  /\ run' = run + 1 /\ alive' = TRUE /\ log' = log \o <<[t |-> "start", run |-> run + 1]>>
-  /\ stage' \in {"head", "vanishH"}
-  /\ UNCHANGED <<it, fr, ghost, cont>>
-
-\* The head vanished-asset stage of this run's retake round (round = run): start, then finish.
-ResumeVanish ==
-  /\ alive /\ stage = "vanishH"
-  /\ log' = log \o <<[EnterRec("check", it, run, Mutation # "head_counts") EXCEPT !.th = TRUE]>>
-  /\ stage' = "vanishOpen" /\ UNCHANGED <<run, alive, it, fr, ghost, cont>>
-ResumeVanishFin ==
-  /\ alive /\ stage = "vanishOpen"
-  /\ log' = log \o <<[t |-> "fin", s |-> "check", fr |-> run, run |-> run, head |-> TRUE]>>
-  /\ stage' = "head" /\ UNCHANGED <<run, alive, it, fr, ghost, cont>>
-
-Begin(sg, i, f) == /\ stage' = sg /\ it' = i /\ fr' = f /\ log' = log \o AddEnter(sg, i, f)
-ResumeEnter ==
-  /\ alive /\ stage = "head" /\ Cardinality(MatchesIn(log)) = 1 /\ RowIn(log).mode # "reject"
-  /\ LET row == RowIn(log)
-         s == StoppedStageIn(log)
-         newIt == NumGates + 1
-         \* SP-BPAUTHORING-004: an update without a snapshot record takes it before anything else.
-         snapFirst == Fn = "update" /\ Recs("snap") = {} /\ Mutation # "skip_snapshot_on_resume" IN
-     IF snapFirst /\ row.mode \in {"continue", "fromSnapshot", "goalRestart", "goalSkipOrRestart"}
-     THEN Begin("snapshot", it, fr)
-     ELSE CASE row.mode = "continue" ->
-                 IF s \in {"start", "snapshot"} THEN Begin("goal", it, fr) ELSE Begin(s, it, fr)
-            [] row.mode = "fromSnapshot" /\ Fn = "update" -> Begin("snapshot", it, fr)
-            [] row.mode \in {"goalRestart", "goalSkipOrRestart", "fromSnapshot"} -> Begin("goal", it, fr)
-            [] row.mode = "newIterWrite" -> newIt <= MaxIter /\ Begin("write", newIt, fr)
-            [] row.mode = "newIterLedger" -> newIt <= MaxIter
-                 /\ stage' = (IF Mutation = "resume_skips_check" THEN "gate" ELSE "check") /\ it' = newIt /\ fr' = fr
-                 /\ log' = log \o <<EnterRec("check", newIt, fr, FALSE)>>
-            [] row.mode = "formalNewRound" -> fr < MaxRound /\ Begin("formal", it, fr + 1)
-  \* N1: an empty run (no work stage, no stop but an SP-BPRUN-045 one) must not change the decision.
-  /\ ghost' = [ghost EXCEPT !.lost = ghost.lost \/
-                 (Cardinality(MatchesIn(WithoutEmpty(log, run))) # 1 \/ RowIn(WithoutEmpty(log, run)) # RowIn(log))]
-  /\ cont' = (RowIn(log).mode = "continue") /\ UNCHANGED <<run, alive>>
-
-Next == \/ StepStart \/ StepSnapshot \/ StepGoal \/ StepWrite \/ StepCheck \/ StepGate \/ ContinueGate \/ StepFormal
-        \/ \E how \in {"launch", "carrier", "verifiers", "needs_input", "dry", "crash"} : Fail(how)
-        \/ ResumeStart \/ ResumeVanish \/ ResumeVanishFin \/ ResumeEnter
+Next == \/ Begin \/ ItemStep \/ ItemsDone \/ EndStage \/ EntryStep
+        \* The entry depends on the records, not on the stop kind (SP-BPRUN-015), so one stop with a record
+        \* (the launch limit) and the end without one (crash) cover the resumes; BLOCKED comes from the stages.
+        \/ \E how \in {"launch", "dry", "needs_input", "crash"} : Fail(how)
+        \/ Resume
 Spec == Init /\ [][Next]_vars
 
 \* ---- Properties ----
-Done == {i \in Recs("stop") : log[i].kind = "done"}
+\* SP-BPFINDINGS-020: every retake round's vanished-asset matching is finished before completion.
+AllRoundsMatched == \A i \in Recs("stop") : log[i].kind = "done" => \A g \in Rounds : \E k \in Recs("fin") : k < i /\ log[k].s = "vanish" /\ log[k].rnd = g
+DoneIdx == {i \in Recs("stop") : log[i].kind = "done"}
 \* SP-BPAUTHORING-026: completion only after a pass and the formal stage that follows it.
-CompleteAfterGateAndFormal == \A i \in Done : FreshPass(SubSeq(log, 1, i - 1))
-\* The script never asks the CLI for a completion it must refuse.
+CompleteAfterGateAndFormal == \A i \in DoneIdx : FreshPass(SubSeq(log, 1, i - 1))
 NoRefusedCompletion == ~ghost.rejectedComplete
-\* A formal result recorded before the last gate never decides the stop (SP-BPAUTHORING-032's "after").
-NoStaleFormalResult == ~ghost.stale
-\* SP-BPAUTHORING-021: gate of an iteration only after placement of that iteration.
-PlacementBeforeGate == \A i \in Recs("gate") : \E k \in Recs("place") : k < i /\ log[k].it = log[i].it
-\* SP-BPAUTHORING-005/035: no stage is skipped, also across resumes.
-NoSkippedStage ==
-  /\ \A i \in Recs("gate") : \E k \in Recs("check") : k < i /\ log[k].it = log[i].it
-  /\ \A i \in Recs("check") : \E k \in Recs("write") : k < i /\ log[k].it <= log[i].it
-  /\ \A i \in Recs("write") : \E k \in Recs("goal") : k < i
-  /\ \A i \in Recs("fres") : \E k \in Recs("gate") : k < i /\ log[k].d = "pass"
-\* SP-BPRUN-013, SP-BPAUTHORING-024: gates per run stay within the per-run increment limit.
-IterationLimitPerRun == \A r \in 1..MaxRuns : Cardinality(GatesOfRun(r)) <= Limit
-\* SP-BPAUTHORING-027: needs_input only at the goal stage.
-NeedsInputOnlyAtGoal == \A i \in Recs("stop") : log[i].kind = "needs_input" => log[i].stage = "goal"
-\* SP-BPRUN-010: only the stop kinds the table uses for this function.
-StopKindsUsed == \A i \in Recs("stop") : \E u \in StopUse : u.fn = Fn /\ u.kind = log[i].kind /\ u.use = "yes"
-\* SP-BPRUN-014: a completed state gets no new run.
-NoRunAfterDone == \A i \in Done : \A k \in Recs("start") : k < i
-\* SP-BPRUN-018: an empty resumed run (head stages only, or the SP-BPRUN-045 stop) does not lose the restart.
-NoLostRestart == ~ghost.lost
-\* SP-BPAUTHORING-004: update takes the snapshot before the goal is fixed, also across resumes.
+\* SP-BPRUN-015 3 / PR-BPDESIGNEDSKILL-020: an agent is never launched again for an item with a result or an
+\* abort, nor in a finished stage; resumed runs go on from the pending items.
+NoRelaunch == ~ghost.relaunch
+\* SP-BPAUTHORING-035 3: an iteration without a gate result is left for a new one only when a stage of it
+\* has all its items aborted.
+DiscardOnlyAllAborted == \A n \in 1..MaxIter :
+  ((\E i \in Recs("enter") : log[i].s \in IterStages /\ log[i].rnd = n + 1) /\ GateRes(n) = {} /\ n \in IterRounds)
+    => \E s \in {"write", "check"} : Started(s, n) /\ \A k \in Items(s) : ItemRec("abort", s, n, k) # {}
+\* SP-BPRUN-018: a run that stops inside a stage it started or read again reports that stage.
+StoppedStageOfRun == \A i \in Recs("stop") : log[i].cur \in {"pre", log[i].stage}
+\* The stopped stage is the last stage the run began, also when it passed finished stages without a record.
+StoppedStageReal == \A i \in Recs("stop") : log[i].actual \in {"none", log[i].stage}
+\* SP-BPRUN-005: no two records of a type share the key the record table gives.
+KeyUnique == \A k \in RecordKeys : \A i, j \in Recs(k.t) : i < j => \E f \in k.fields : log[i][f] # log[j][f]
+PlacementBeforeGate == \A i \in Recs("res") : log[i].item[1] = "gate" => \E k \in Recs("place") : k < i /\ log[k].rnd = log[i].item[2]
 SnapshotBeforeGoal == Fn = "update" => \A i \in Recs("goal") : \E k \in Recs("snap") : k < i
+IterationLimitPerRun == \A r \in 1..MaxRuns : Cardinality(GatesOfRun(r)) <= Limit
+NeedsInputOnlyAtGoal == \A i \in Recs("stop") : log[i].kind = "needs_input" => log[i].stage = "goal"
+StopKindsUsed == \A i \in Recs("stop") : \E u \in StopUse : u.fn = Fn /\ u.kind = log[i].kind /\ u.use = "yes"
+NoRunAfterDone == \A i \in DoneIdx : \A k \in Recs("start") : k < i
 
-\* N6: a head vanished-asset stage that started is finished before completion (its pending items are processed).
-HeadStagesFinished == \A i \in Done : \A e \in Recs("enter") :
-  (e < i /\ log[e].th) => \E f \in Recs("fin") : e < f /\ f < i /\ log[f].fr = log[e].fr
+BoundOK == LastIter <= MaxIter /\ fr <= MaxRound
 
-BoundOK == NumGates <= MaxIter /\ fr <= MaxRound
-
-\* Reachability witnesses (checked as invariants that must be violated).
-WitnessDone == Done = {}
-WitnessDoneAfterResume == ~(\E i \in Done : log[i].run > 1)
-WitnessDoneAfterFormalFailed == ~(\E i \in Done, k \in Recs("stop") : k < i /\ log[k].cause = "formalFailed")
-WitnessDoneAfterVerifiers == ~(\E i \in Done, k \in Recs("stop") : k < i /\ log[k].cause = "verifiers")
-WitnessDoneAfterLaunchAtGate == ~(\E i \in Done, k \in Recs("stop") : k < i /\ log[k].limit = "launch" /\ log[k].stage = "gate")
-WitnessHeadVanishDone == ~(\E i \in Done, k \in Recs("fin") : k < i)
-WitnessIterationLimit == ~(\E k \in Recs("stop") : log[k].limit = "iteration")
-WitnessBlockedAtStart == ~(\E i \in Recs("stop") : log[i].stage = "start" /\ log[i].kind = "blocked" /\ \E k \in Recs("start") : k > i)
+WitnessDone == DoneIdx = {}
+WitnessDoneAfterResume == ~(\E i \in DoneIdx : log[i].run > 1)
+WitnessDiscardAllAborted == ~(\E n \in 1..MaxIter : GateRes(n) = {} /\ n \in IterRounds /\ \E i \in Recs("enter") : log[i].s \in IterStages /\ log[i].rnd = n + 1)
+WitnessCompleteByEntry == ~(\E i \in DoneIdx : log[i].actual = "none")
+WitnessFormalFailedThenDone == ~(\E i \in DoneIdx, k \in Recs("res") : k < i /\ log[k].v = "formalFailed")
+\* The vanished-asset stage before the entry (rows of AuthPreVanish) is not reached: a retake round means the
+\* content changed, so the row "the content changed after the pass" comes first (README: N9).
+PreVanishUnreached == stage # "vanish"
+WitnessNewIterAfterPass == ~(\E n \in 1..MaxIter : GateRes(n) # {} /\ GateOf(n) = "pass" /\ \E i \in Recs("enter") : log[i].s = "check" /\ log[i].rnd = n + 1)
+WitnessIterationLimit == ~(\E i \in Recs("stop") : log[i].kind = "limit" /\ log[i].stage = "gate")
 =============================================================================

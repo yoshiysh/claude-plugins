@@ -75,15 +75,16 @@ E7(r) == /\ r \in alive /\ alive' = alive \ {r}
          /\ ev' = IF r = Cur(log) \/ Mutation = "e7_any_run" THEN "E7" ELSE "E7stale"
          /\ UNCHANGED <<log, inflight, cause>>
 
-\* E8 (SP-BPRUN-014/018): a new run from next_args; a completed state is refused (E_INPUT).
-E8 == /\ Status(log) # "none" /\ Cur(log) < MaxRuns
-      /\ IF Status(log) = "done" /\ Mutation # "resume_done"
-         THEN log' = log /\ alive' = alive
-         ELSE log' = log \cup {[t |-> "start", run |-> Cur(log) + 1]} /\ alive' = alive \cup {Cur(log) + 1}
+\* E8 (SP-BPRUN-014/018): a new run from next_args, only when the start accepts it. The resume of a
+\* completed state is refused (SP-BPRUN-003 4), which is not E8 (Refuse below).
+E8 == /\ Status(log) \notin {"none", "done"} \/ (Status(log) = "done" /\ Mutation = "resume_done")
+      /\ Cur(log) < MaxRuns
+      /\ log' = log \cup {[t |-> "start", run |-> Cur(log) + 1]} /\ alive' = alive \cup {Cur(log) + 1}
       /\ ev' = "E8" /\ UNCHANGED <<inflight, cause>>
-\* SP-BPRUN-003/045, bp-run.md "## 状態とイベント": a resume the start refuses (any of its checks) is not E8
-\* and changes nothing (no run, stop record or premise). The order of the checks is StartChecks.tla.
-Refuse == /\ Status(log) \notin {"none", "done"} /\ Cur(log) < MaxRuns
+\* SP-BPRUN-003/045, bp-run.md "## 状態とイベント": a resume the start refuses (any of its checks, also a
+\* completed state) is not E8 and changes nothing (no run, stop record or premise). The order of the
+\* checks is StartChecks.tla.
+Refuse == /\ Status(log) # "none" /\ Cur(log) < MaxRuns
           /\ log' = IF Mutation = "refusal_registers"
                     THEN log \cup {[t |-> "start", run |-> Cur(log) + 1], [t |-> "stop", run |-> Cur(log) + 1, kind |-> "blocked", e |-> "E6"]}
                     ELSE log

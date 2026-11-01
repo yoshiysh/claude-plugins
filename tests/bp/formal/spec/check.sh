@@ -87,35 +87,41 @@ done
 
 expect_pass auth-update Authoring Authoring.cfg 's/^$//'
 expect_pass auth-create Authoring Authoring.cfg 's/Fn = "update"/Fn = "create"/'
-expect_invariant auth-n6-head-vanish-open Authoring Authoring.cfg 's/^$//' HeadStagesFinished "$known"
-expect_invariant auth-laststop-always Authoring Authoring.cfg "$(mutation laststop_always)" ResumeRowUnique ''
-expect_invariant auth-same-round-after-gate Authoring Authoring.cfg "$(mutation same_round_after_gate)" NoStaleFormalResult ''
+expect_pass auth-pre-vanish-unreached Authoring Authoring.cfg 's/^INVARIANTS .*/INVARIANTS PreVanishUnreached/'
+expect_invariant auth-n7-stopped-stage-lags Authoring Authoring.cfg 's/^$//' StoppedStageReal "$known"
+expect_invariant auth-rerun-finished Authoring Authoring.cfg "$(mutation rerun_finished)" NoRelaunch ''
+expect_invariant auth-redo-all-items Authoring Authoring.cfg "$(mutation redo_all_items)" NoRelaunch ''
+expect_invariant auth-discard-any Authoring Authoring.cfg "$(mutation discard_any)" DiscardOnlyAllAborted ''
+expect_invariant auth-no-reread Authoring Authoring.cfg "$(mutation no_reread)" StoppedStageOfRun ''
+expect_invariant auth-enter-again Authoring Authoring.cfg "$(mutation enter_again)" KeyUnique ''
+expect_invariant auth-drop-last-row Authoring Authoring.cfg "$(mutation drop_last_row)" EntryDefined ''
+expect_invariant auth-skip-snapshot-on-resume Authoring Authoring.cfg "$(mutation skip_snapshot_on_resume)" SnapshotBeforeGoal ''
 expect_invariant auth-skip-placement Authoring Authoring.cfg "$(mutation skip_placement)" PlacementBeforeGate ''
 expect_invariant auth-skip-formal Authoring Authoring.cfg "$(mutation skip_formal)" CompleteAfterGateAndFormal ''
-expect_invariant auth-resume-skips-check Authoring Authoring.cfg "$(mutation resume_skips_check)" NoSkippedStage ''
-expect_invariant auth-head-counts Authoring Authoring.cfg "$(mutation head_counts)" NoLostRestart ''
-expect_invariant auth-skip-snapshot-on-resume Authoring Authoring.cfg "$(mutation skip_snapshot_on_resume)" SnapshotBeforeGoal ''
-expect_invariant auth-needs-input-anywhere Authoring Authoring.cfg "$(mutation needs_input_anywhere)" NeedsInputOnlyAtGoal ''
-expect_invariant auth-needs-input-no-row Authoring Authoring.cfg "$(mutation needs_input_anywhere)" ResumeRowUnique ''
-expect_invariant auth-limit-unchecked Authoring Authoring.cfg "$(mutation limit_unchecked)" IterationLimitPerRun ''
+expect_invariant auth-limit-unchecked Authoring Authoring.cfg "$(mutation limit_unchecked); s/Limit = 2/Limit = 1/" IterationLimitPerRun ''
 expect_invariant auth-stop-dry Authoring Authoring.cfg "$(mutation stop_dry)" StopKindsUsed ''
 expect_invariant auth-resume-done Authoring Authoring.cfg "$(mutation resume_done)" NoRunAfterDone ''
-for w in WitnessBlockedAtStart WitnessDone WitnessDoneAfterResume WitnessDoneAfterFormalFailed WitnessDoneAfterVerifiers WitnessDoneAfterLaunchAtGate WitnessHeadVanishDone WitnessIterationLimit; do
+expect_invariant auth-needs-input-anywhere Authoring Authoring.cfg "$(mutation needs_input_anywhere)" NeedsInputOnlyAtGoal ''
+for w in WitnessDone WitnessDoneAfterResume WitnessDiscardAllAborted WitnessCompleteByEntry WitnessFormalFailedThenDone WitnessIterationLimit WitnessNewIterAfterPass; do
   expect_invariant "auth-$w" Authoring Authoring.cfg 's/^$//' "$w" ' (reachable)'
 done
 
 expect_pass insp-review Inspection Inspection.cfg 's/^$//'
 expect_pass insp-audit Inspection Inspection.cfg 's/Fn = "review"/Fn = "audit"/'
-expect_invariant insp-n6-head-vanish-open Inspection Inspection.cfg 's/^$//' HeadStagesFinished "$known"
+expect_invariant insp-n7-stopped-stage-lags Inspection Inspection.cfg 's/^$//' StoppedStageReal "$known"
+expect_invariant insp-rerun-finished Inspection Inspection.cfg "$(mutation rerun_finished)" NoRelaunch ''
+expect_invariant insp-redo-all-items Inspection Inspection.cfg "$(mutation redo_all_items)" NoRelaunch ''
+expect_invariant insp-vanish-latest-only Inspection Inspection.cfg "$(mutation vanish_latest_only)" AllRoundsMatched ''
+expect_invariant insp-no-reread Inspection Inspection.cfg "$(mutation no_reread)" StoppedStageOfRun ''
+expect_invariant insp-enter-again Inspection Inspection.cfg "$(mutation enter_again)" KeyUnique ''
 expect_invariant insp-omit-placement Inspection Inspection.cfg "$(mutation omit_placement)" PlacementBeforeStop ''
+expect_invariant insp-mismatch-continues Inspection Inspection.cfg "$(mutation mismatch_continues)" NoVerifyAfterMismatch ''
 expect_invariant insp-back-edge Inspection Inspection.cfg "$(mutation back_edge)" NoBackEdge ''
 expect_invariant insp-skip-stage Inspection Inspection.cfg "$(mutation skip_stage)" NoSkippedStage ''
-expect_invariant insp-mismatch-continues Inspection Inspection.cfg "$(mutation mismatch_continues)" NoVerifyAfterMismatch ''
 expect_invariant insp-stop-needs-input Inspection Inspection.cfg "$(mutation stop_needs_input)" StopKindsUsed ''
 expect_invariant insp-resume-done Inspection Inspection.cfg "$(mutation resume_done)" NoRunAfterDone ''
-expect_invariant insp-fin-ignores-head Inspection Inspection.cfg "$(mutation fin_ignores_head)" NoLostRestart ''
-expect_invariant insp-head-counts Inspection Inspection.cfg "$(mutation head_counts)" NoLostRestart ''
-for w in WitnessDoneAfterResume WitnessDoneAfterCloseStop WitnessMismatch WitnessHeadVanishDone WitnessDoneAfterVanishStop; do
+expect_invariant insp-entry-skips-targets Inspection Inspection.cfg "$(mutation entry_skips_targets)" EntryIsTargets ''
+for w in WitnessDoneAfterResume WitnessMismatch WitnessTwoRoundsMatched; do
   expect_invariant "insp-$w" Inspection Inspection.cfg 's/^$//' "$w" ' (reachable)'
 done
 

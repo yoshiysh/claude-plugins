@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  allDecisionTables, authResumeTable, authStages, coverage, decisionTable, formalTable, gateNextTable, inspResumeTable, inspStages,
-  resultOf, rowsFor, specText, stateMachine, stopCauses, stopUseRows, tableIn, tables, where, cliOps,
+  allDecisionTables, authEntryTable, authStages, coverage, decisionTable, formalTable, gateNextTable, inspStages, recordKeys,
+  resultOf, rowsFor, specText, stateMachine, stopUseRows, tableIn, tables, where, cliOps,
 } from './extract.mjs';
 import { SPEC_FILES } from './extract.mjs';
 import { outsideFences } from '../../../../tools/lib/bp-docs.mjs';
@@ -182,12 +182,8 @@ test('問い A・W の答えの並びで、答えてはならない並び（bp-c
   }
 });
 
-test('形式検証の判定表の cause は stop が受ける値だけを使い、通らない行は必ず cause を持つ', () => {
-  const { values } = stopCauses();
-  for (const r of formalTable().rows) if (!r.passes) assert.ok(values.includes(r.cause), `${where('bp-authoring.md', r.line)}: ${r.cause}`);
-  const text = specText('bp-authoring.md');
-  const s045 = text.slice(text.indexOf('#### SP-BPAUTHORING-045'), text.indexOf('### 停止'));
-  for (const m of s045.matchAll(/`(verifiers|formal\w+)`/g)) assert.ok(values.includes(m[1]), m[1]);
+test('形式検証の判定表の通らない行は必ず cause を持ち、その値は formalUnrunnable か formalFailed', () => {
+  for (const r of formalTable().rows) if (!r.passes) assert.ok(['formalUnrunnable', 'formalFailed'].includes(r.cause), `${where('bp-authoring.md', r.line)}: ${r.cause}`);
 });
 
 test('合否の後の進み方の表の行き先は、gate の出力の next の値と同じ数だけある', () => {
@@ -199,62 +195,57 @@ test('合否の後の進み方の表の行き先は、gate の出力の next の
   assert.deepEqual([...nexts].sort(), [...values].sort());
 });
 
-test('create・update の再開の表は、止まりうる停止と段の全ての組に当たる行をちょうど 1 つ持つ', () => {
-  const { rows, causes, allStages } = authResumeTable();
-  const stages = authStages();
-  const uses = stopUseRows().filter((u) => u.fn === 'create' && u.use === 'yes').map((u) => u.kind);
-  // needs_input で止まってよい段（SP-BPAUTHORING-027）。
-  const s027 = /needs_input で止まってよいのは、(.+?)の段（/.exec(specText('bp-authoring.md'));
-  assert.ok(s027, 'SP-BPAUTHORING-027 の段が読めない');
-  const needsInputStages = stages.filter((s) => s027[1].includes(s.name)).map((s) => s.id);
-  // 検証役・反証役が結果を返せないことによる BLOCKED は、それらを起動する段と、「検証が成り立たない」を出す合否の段（SP-BPAUTHORING-005 のただし書き）。
-  const verifierStages = [...new Set([...stages.filter((s) => /検証役|反証役/.test(s.role)).map((s) => s.id), 'gate'])];
-  // 再開の始め方の出所にならない SP-BPRUN-045 の停止（cause が guideline）は組に入れない（SP-BPRUN-018）。
-  const combos = [];
-  for (const fn of ['create', 'update']) for (const kind of uses) {
-    if (kind === 'done') { combos.push({ fn, kind, stage: null }); continue; }
-    for (const stage of allStages.filter((s) => fn === 'update' || s !== 'snapshot')) {
-      if (kind === 'needs_input') { if (needsInputStages.includes(stage)) combos.push({ fn, kind, stage }); continue; }
-      if (kind === 'limit') {
-        combos.push({ fn, kind, stage, limit: 'launch' });
-        if (stage === 'gate') combos.push({ fn, kind, stage, limit: 'iteration' });
-        continue;
-      }
-      for (const cause of causes) {
-        if (cause.startsWith('formal') && stage !== 'formal') continue;
-        if (cause === 'verifiers' && !verifierStages.includes(stage)) continue;
-        combos.push({ fn, kind, stage, cause });
-      }
-    }
-  }
-  for (const fn of ['create', 'update']) for (const stage of allStages) combos.push({ fn, kind: 'nostop', stage });
-  const bad = [];
-  for (const x of combos) {
-    const hits = rows.filter((r) => r.kind === x.kind
-      && (x.kind !== 'limit' || r.limit === x.limit)
-      && (x.kind !== 'blocked' || r.cause.includes(x.cause))
-      && (x.kind === 'done' || r.fnStages[x.fn].includes(x.stage)));
-    if (hits.length !== 1) bad.push({ ...x, lines: hits.map((h) => h.line) });
-  }
-  assert.deepEqual(bad, []);
+test('create・update の入口の段の表は、全ての行を閉じた語の集合で読め、最後の合否の各値に行がある', () => {
+  const { rows } = authEntryTable();
+  assert.ok(rows.length >= 10);
+  // 合否の 3 つの値（合格・不合格・検証が成り立たない）と、合否の無い反復・反復の無い状態・目標の無い状態の全てに、当たる行がある。
+  const conds = rows.map((r) => r.cond);
+  for (const c of ['noGoal', 'noIter', 'noGate', 'gateFail', 'gateUnverifiable', 'passOther']) assert.ok(conds.includes(c), c);
+  // 「上記以外」で終わる合格の行が、合格の行の最後にある（上から順に当てるので、合格の全ての状態に当たる行がある）。
+  assert.equal(conds.lastIndexOf('passOther'), rows.length - 1);
+  // 照合の後に新しい反復へ戻す行の条件が、モデルの写す 3 つ（照合で状態を変えた・判定できない・合否の後の内容の変化）と同じ。
+  assert.deepEqual(authEntryTable().changedSubs.sort(), ['changed', 'contentChanged', 'unsure']);
 });
 
-test('review・audit の再開の表は、段の並びの全ての段をちょうど 1 回持つ', () => {
-  const { rows, sequence } = inspResumeTable();
-  const counted = sequence.map((s) => ({ s, n: rows.filter((r) => r.stages.includes(s)).length }));
-  assert.deepEqual(counted.filter((c) => c.n !== 1), []);
-  // 並びの外の段は、段の表（SP-BPINSPECTION-001）にある段だけを許す（最初の流れの消えた資産の照合の行）。
-  const flowStages = inspStages().map((s) => s.id);
-  const extra = rows.flatMap((r) => r.stages).filter((s) => !sequence.includes(s) && !flowStages.includes(s));
-  assert.deepEqual(extra, []);
+// 記録の表の同一性の鍵と、その記録を書く操作が受け取る鍵の欄を照らす（前の版の blocking：段の終わりの鍵が段・回なのに、stage-finish が head で区別していた）。
+const OP_KEY = { stage: 'stage', round: 'round', part: 'part', head: 'head' };
+function opKeyFields(name) {
+  const op = cliOps().find((o) => o.name === name);
+  // 括弧の外の欄の名前。`head: true` のように値つきで書いた欄も名前で拾う。
+  let depth = 0;
+  let top = '';
+  for (const ch of op.takes) {
+    if (ch === '（' || ch === '(') depth += 1;
+    else if (ch === '）' || ch === ')') depth = Math.max(0, depth - 1);
+    else if (depth === 0) top += ch;
+  }
+  return [...new Set([...top.matchAll(/`([a-z]\w*)(?::[^`]*)?`/g)].map((m) => m[1]))].filter((f) => f in OP_KEY).map((f) => OP_KEY[f]);
+}
+function recordKey(name) {
+  const k = recordKeys().find((r) => r.record === name);
+  assert.ok(k, `記録の表に「${name}」が無い`);
+  return k;
+}
+test('段の開始・段の終わり・段の読み直しの鍵が、stage-start・stage-finish の受け取る欄と食い違わない', () => {
+  const enter = recordKey('段の開始と項目の列挙');
+  const fin = recordKey('段の終わり');
+  const start = opKeyFields('stage-start');
+  const finish = opKeyFields('stage-finish');
+  const same = (a, b, what) => assert.deepEqual([...new Set(a)].sort(), [...new Set(b)].sort(), what);
+  same(finish, [...fin.fields, ...fin.optional], 'stage-finish の欄と段の終わりの鍵');
+  same(start, [...enter.fields, ...enter.optional], 'stage-start の欄と段の開始の鍵');
+  // 段の読み直しは、現在の run が stage-start で書く（鍵は run と stage-start の鍵）。
+  const reread = recordKey('段の読み直し');
+  same([...reread.fields, ...reread.optional].filter((f) => f !== 'run'), [...enter.fields, ...enter.optional], '段の読み直しの鍵');
+  // 段の終わりが閉じる段の開始は、段の終わりの鍵で 1 つに決まる（追加の検証の段の部分は段の終わりの鍵に無いので、部分ごとの終わりは持たない）。
+  for (const f of fin.fields) assert.ok(enter.fields.includes(f), `段の終わりの鍵 ${f} が段の開始の鍵に無い`);
 });
 
-test('review・audit の再開の段の並びは、段の表から開始と消えた資産の照合を除き、追加の起動の部品を足したもの', () => {
-  const { sequence } = inspResumeTable();
-  const flow = inspStages().filter((s) => s.fns.includes('review')).map((s) => s.id);
-  const expected = flow.filter((s) => s !== 'start' && s !== 'vanish');
-  expected.splice(expected.indexOf('verify') + 1, 0, 'extra');
-  assert.deepEqual(sequence, expected);
+test('モデルが写す記録の種類の鍵は、全てモデルの欄に写せる', () => {
+  for (const name of ['run の開始', '段の読み直し', '段の開始と項目の列挙', '段の終わり', '項目の結果', '打ち切り', '停止']) {
+    const k = recordKey(name);
+    assert.ok(k.mapped, `${k.at}: ${k.cell}`);
+  }
 });
 
 test('停止の種類の表で、review・audit は needs_input を使わず、反復の上限は起動数の上限のときだけ使う', () => {
@@ -296,7 +287,7 @@ test('指摘の種類の値の全ての形に、meaning の作り方がある', 
 test('TLC のモデルに渡す表の module を、仕様の markdown から作れる', async () => {
   const { specTables } = await import('./gen_tables.mjs');
   const tla = specTables();
-  for (const name of ['RunAllowed', 'RunNever', 'RunEvents', 'AuthStageSeq', 'GateNext', 'FormalRows', 'StopCauses', 'AuthResume', 'InspStageSeqReview', 'InspStageSeqAudit', 'InspResume', 'InspResumeSeq', 'InspClosePlacement', 'StartChecks', 'StopUse']) {
+  for (const name of ['RunAllowed', 'RunNever', 'RunEvents', 'AuthStageSeq', 'GateNext', 'FormalRows', 'AuthEntry', 'AuthPreVanish', 'RecordKeys', 'InspStageSeqReview', 'InspStageSeqAudit', 'StartChecks', 'StopUse']) {
     assert.match(tla, new RegExp(`^${name} == `, 'm'), name);
   }
   assert.doesNotMatch(tla, /[^\x00-\x7f]/, 'TLC に渡す module は ASCII だけで書く');
@@ -306,9 +297,9 @@ test('検査に使う表は全て見つかり、行を持つ', () => {
   assert.ok(authStages().length >= 10);
   assert.ok(gateNextTable().rows.length >= 4);
   assert.ok(formalTable().rows.length >= 4);
-  assert.ok(authResumeTable().rows.length >= 10);
+  assert.ok(authEntryTable().rows.length >= 10);
   assert.ok(inspStages().length >= 8);
-  assert.ok(inspResumeTable().rows.length >= 6);
+  assert.ok(recordKeys().length >= 15);
   for (const file of ['bp-run.md', 'bp-authoring.md', 'bp-inspection.md', 'bp-conformance.md', 'bp-findings.md']) assert.ok(tables(file).length > 0, file);
   assert.equal(typeof rowsFor, 'function');
 });
