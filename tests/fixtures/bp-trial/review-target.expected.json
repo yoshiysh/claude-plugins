@@ -7,10 +7,6 @@
       "reason": "SP-BPCONFORMANCE-019"
     },
     {
-      "unit": "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8",
-      "reason": "SP-BPCONFORMANCE-034"
-    },
-    {
       "unit": "SP-BPCONFORMANCE-019",
       "reason": "SP-BPCONFORMANCE-019"
     }
@@ -406,10 +402,8 @@
           "by": "injection"
         },
         "SP-BPCONFORMANCE-034": {
-          "by": "forced",
-          "units": [
-            "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8"
-          ]
+          "by": "none",
+          "reason": "探索グラフ型の題材は上限を満たし、review の試走は題材を走らせない"
         }
       },
       "unmeasured": [

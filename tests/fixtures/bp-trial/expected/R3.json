@@ -4,7 +4,7 @@
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-024",
       "spec": "SP-BPINSPECTION-025",
-      "method": "fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が SP-BPCONFORMANCE-019 と一覧を読めないことを理由に未検査の観点に載ることを確認）",
+      "method": "fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が SP-BPCONFORMANCE-019 を理由に未検査の観点に載ることを確認）",
       "checks": [
         {
           "clause": "fixture（",

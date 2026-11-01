@@ -481,7 +481,8 @@ test('SP-BPAUTHORING-030・SP-BPAUTHORING-023・SP-BPFINDINGS-015: 反証役が�
   assert.match(result.reason, /未反証の候補: .*\/goal\//);
   assert.equal(calls.filter((c) => c.role === 'refute').length, 4);
   assert.equal(result.verification.decision.value, 'unverifiable');
-  assert.deepEqual(result.verification.ledger.findings.map((f) => [f.viewpoint, f.state]), [['conformance', 'dismissed']]);
+  assert.ok(!Object.hasOwn(result.verification.ledger, 'findings'));
+  assert.deepEqual(result.findings.map((f) => [f.viewpoint, f.state]), [['conformance', 'dismissed']]);
   assert.deepEqual(result.verification.iterations, { total: 1, run: 1 });
 });
 
