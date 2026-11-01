@@ -15,7 +15,7 @@ export { EXPECTED_FILE, belongs, injectUnits };
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CRITERIA = path.join(REPO_ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', CRITERIA_DIR);
-export const FIXTURE_DIR = path.join(REPO_ROOT, 'tests', 'fixtures', 'bp-trial', 'review-target');
+export const FIXTURE_DIR = path.join(REPO_ROOT, 'tests', 'bp', 'trial', 'fixtures', 'review-target');
 export const MEASURES = Object.freeze({ injection: 'injection', forced: 'forced', whole: 'whole', none: 'none' });
 const EXIT = Object.freeze({ ok: 0, usage: 2 });
 

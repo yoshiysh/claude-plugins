@@ -42,6 +42,8 @@ export const IDENTITY = Object.freeze({
   [RECORDS.target]: (r) => `${r.t}|${r.run}`,
   [RECORDS.bundle]: (r) => `${r.t}|${r.generation}`,
   [RECORDS.applicability]: () => RECORDS.applicability,
+  [RECORDS.placement]: (r) => `${r.t}|${r.iteration ?? r.run}`,
+  [RECORDS.workLog]: (r) => `${r.t}|${r.run}|${r.role}|${r.item ?? ''}|${r.attempt}`,
 });
 
 export function identity(record) {

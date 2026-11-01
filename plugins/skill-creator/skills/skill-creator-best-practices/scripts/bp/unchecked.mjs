@@ -1,8 +1,11 @@
-import { FIXED_AUDIT_UNCHECKED, UNCHECKED_SCOPES, VERIFY_STAGES, VIEWPOINT } from './constants.mjs';
+import { CONFORMANCE_SP, FIXED_AUDIT_UNCHECKED, UNCHECKED_SCOPES, UNIT_RESULTS, VERIFY_STAGES, VIEWPOINT } from './constants.mjs';
 import { validTarget } from './view.mjs';
 
-// SP-BPINSPECTION-025 の 5 つの場合を状態から導く。照らす先の全体の未検査と PA-3 の固定の 1 件は有効な照らす先の記録から導くので、
+// SP-BPINSPECTION-025 の 7 つの場合を状態から導く。照らす先の全体の未検査と PA-3 の固定の 1 件は有効な照らす先の記録から導くので、
 // 照らせずに止まった前の run の未検査が、直した後の結果に残らない。
+// 強いられた未検査は無視される設定の一覧を読めないときだけ付く（SP-BPCONFORMANCE-019）ので、理由はその仕様項目 ID と一覧を読めないこと（SP-BPINSPECTION-025）。
+const FORCED_REASON = '無視される設定の一覧を読めない';
+
 export function uncheckedViewpoints(v) {
   const target = validTarget(v);
   if (!target) return [];
@@ -13,18 +16,18 @@ export function uncheckedViewpoints(v) {
     }
   }
   const forcedBy = new Map(Object.entries(v.applicability?.forcedBy ?? {}));
-  if (v.applicability && target.viewpoints.includes(VIEWPOINT.flow)) {
-    for (const unit of v.applicability.forced) {
-      out.push({ viewpoint: VIEWPOINT.flow, scope: UNCHECKED_SCOPES.unit, value: unit, reason: forcedBy.get(unit), run: v.applicability.run });
-    }
-  }
   for (const extra of v.extras.values()) {
     const item = v.items.get(extra.item);
     if (!VERIFY_STAGES.has(item.stage) || !Array.isArray(extra.data?.unchecked)) continue;
     for (const u of extra.data.unchecked) {
       const fixed = u.viewpoint === VIEWPOINT.flow && u.scope === UNCHECKED_SCOPES.unit ? forcedBy.get(u.value) : undefined;
-      out.push({ viewpoint: u.viewpoint, scope: u.scope, value: u.value, reason: fixed ?? u.reason, run: v.lineRuns.get(extra.line) });
+      out.push({ viewpoint: u.viewpoint, scope: u.scope, value: u.value, reason: fixed ? `${fixed}: ${FORCED_REASON}` : u.reason, run: v.lineRuns.get(extra.line) });
     }
+  }
+  if (target.viewpoints.includes(VIEWPOINT.flow)) {
+    const placement = v.placements.at(-1);
+    if (placement?.result === UNIT_RESULTS.unchecked) out.push({ viewpoint: VIEWPOINT.flow, scope: UNCHECKED_SCOPES.unit, value: CONFORMANCE_SP.placement, reason: placement.reason, run: placement.run });
+    if (target.coverage) out.push({ viewpoint: VIEWPOINT.flow, scope: UNCHECKED_SCOPES.unit, value: CONFORMANCE_SP.placement, reason: target.coverage, run: target.run });
   }
   if (target.viewpoints.includes(VIEWPOINT.audit)) {
     out.push({ viewpoint: VIEWPOINT.audit, scope: UNCHECKED_SCOPES.pa, value: FIXED_AUDIT_UNCHECKED.value, reason: FIXED_AUDIT_UNCHECKED.reason, run: target.run });

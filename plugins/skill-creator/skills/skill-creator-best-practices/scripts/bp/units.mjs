@@ -1,17 +1,18 @@
-import { CONTRACT_ELEMENTS, CONTRACT_NONE, CRITERIA_CHAPTERS, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINT, VIEWPOINTS } from './constants.mjs';
+import { judgeApplicability } from './applicability.mjs';
+import { CLAUDE_CODE_HOST, CONFORMANCE_SP, CONTRACT_ELEMENTS, CONTRACT_NONE, CRITERIA_CHAPTERS, ROLE_LIMIT_RESULTS, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINT, VIEWPOINTS } from './constants.mjs';
 import { internal } from './errors.mjs';
 import { keyString } from './ids.mjs';
-import { conformanceUnits, hasChapter, kindsFor, parseDoc, read, specUnits } from './kinds.mjs';
+import { conformanceUnits, coverageReason, hasChapter, kindsFor, parseDoc, read, specUnits, verifierUnits } from './kinds.mjs';
 
 const PR = 'PR-BPDESIGNEDSKILL-';
 const SP = /^SP-BPCONFORMANCE-\d{3}$/;
-const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*)[^。]*はどの行でも当たる/;
+const ALWAYS = /(PR-BPDESIGNEDSKILL-[^。]*?)はどの行でも当たる/;
+const BY_SHAPE = /形が([^。、]+)の行では、([^。]*?)も当たる/;
+const PARENTHESES = /（[^）]*）/g;
 const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
-// 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
-const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`] });
-// Claude Code で確かめない制限（SP-BPCONFORMANCE-019）は、PR-BPDESIGNEDSKILL-014 の単位と「権限」の表の最後の行の 2 つの出所を持つ。
-const CLAUDE_CODE_UNCHECKED = 'SP-BPCONFORMANCE-019';
-const FORCED_BY = Object.freeze({ always: CLAUDE_CODE_UNCHECKED, permission: CLAUDE_CODE_UNCHECKED });
+// 強いられた未検査は、無視される設定の一覧を読めないときの SP-BPCONFORMANCE-019 の 2 つの出所（PR-BPDESIGNEDSKILL-014 の単位と「権限」の表の最後の行）だけ（bp-authoring の用語「強いられた未検査」）。
+const FORCED_REQUIREMENTS = Object.freeze([`${PR}014`]);
+const FORCED_BY = 'SP-BPCONFORMANCE-019';
 
 function numbers(text) {
   const out = [];
@@ -64,8 +65,11 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   const nodes = parseDoc(read(criteriaDir, 'conformance'));
   const item = nodes.find((n) => n.level === 4 && n.text.startsWith('SP-BPCONFORMANCE-003'));
   const table = item?.tables.find((t) => t.header[0] === '条件: 形');
-  const always = ALWAYS.exec(item?.body.join('\n') ?? '');
+  const body = item?.body.join('\n') ?? '';
+  const always = ALWAYS.exec(body);
   if (!table || !always) internal('判定基準の写しに SP-BPCONFORMANCE-003 の適用の判定表が無い');
+  const shaped = BY_SHAPE.exec(body);
+  const byShape = shaped ? { shapes: shaped[1].split('・'), requirements: numbers(shaped[2].replace(PARENTHESES, '')) } : { shapes: [], requirements: [] };
   const trace = traceability(nodes);
   const capacity = !tolerateNoCapacity || hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
   const bySpec = unitsBySpec(criteriaDir, capacity);
@@ -77,49 +81,65 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
     if (!list && (capacity || !chapters.has(sp) || readable.has(chapters.get(sp)))) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
     return list ?? [];
   });
-  return { table, always, bySpec, unitsOf };
+  return { table, always: numbers(always[1].replace(PARENTHESES, '')), byShape, bySpec, unitsOf };
 }
 
-// 理由の選び方を CLI と読み取りの tool で割らないため、SP-BPINSPECTION-025 の規則をここ 1 箇所で当てる。
 export function forcedReason(sources, unit) {
   return sources.always.get(unit);
 }
 
-// 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも）。
+// 強いられた未検査になりうる単位ごとに、未検査にした仕様項目 ID を返す（一覧を読めたかは検証役が判定する：SP-BPCONFORMANCE-019）。
 export function forcedSources(criteriaDir, options) {
   const { bySpec, unitsOf } = sources(criteriaDir, options);
   const always = new Map();
-  for (const req of FORCED_REQUIREMENTS.always) unitsOf(req).forEach((u) => always.set(u.value, FORCED_BY.always));
+  for (const req of FORCED_REQUIREMENTS) unitsOf(req).forEach((u) => always.set(u.value, FORCED_BY));
   const permission = bySpec.get(PERMISSION_SP) ?? [];
   const lastPermission = permission.filter((u) => /\/t1\/r\d+$/.test(u.value)).at(-1);
-  if (lastPermission) always.set(lastPermission.value, FORCED_BY.permission);
+  if (lastPermission) always.set(lastPermission.value, FORCED_BY);
   return { always };
 }
 
 export function applicability(criteriaDir, options) {
-  const { table, always, unitsOf } = sources(criteriaDir, options);
-  const forcedAlways = forcedSources(criteriaDir, options).always;
-  const alwaysReqs = always[1].split('・').map((n) => `${PR}${n}`);
+  const { table, always, byShape, unitsOf } = sources(criteriaDir, options);
+  const forced = forcedSources(criteriaDir, options).always;
   return table.rows.map(([form, ledger, fanout, result], i) => {
-    const reqs = [...new Set([...alwaysReqs, ...numbers(result.split('が当た')[0])])].sort();
+    const shaped = byShape.shapes.includes(form) ? byShape.requirements : [];
+    const reqs = [...new Set([...always, ...shaped, ...numbers(result.split('が当た')[0])])].sort();
     const seen = new Map();
-    for (const u of reqs.flatMap(unitsOf)) if (!seen.has(u.value)) seen.set(u.value, u);
+    for (const u of verifierUnits(reqs.flatMap(unitsOf))) if (!seen.has(u.value)) seen.set(u.value, u);
     const units = [...seen.values()];
-    const forced = units.filter((u) => forcedAlways.has(u.value)).map((u) => u.value);
-    return { row: i + 1, form, ledger, fanout, requirements: reqs, units: units.map((u) => ({ value: u.value, meaning: u.meaning })), forced };
+    return { row: i + 1, form, ledger, fanout, requirements: reqs, units: units.map((u) => ({ value: u.value, meaning: u.meaning })), forced: units.filter((u) => forced.has(u.value)).map((u) => u.value) };
   });
 }
 
 const isStr = (v) => typeof v === 'string' && v.length > 0;
 const isKey = (k) => k && isStr(k.asset) && isStr(k.viewpoint) && isStr(k.kind);
 
-function checkConformance(result, rows) {
-  const app = result.applicability;
-  const row = rows.find((r) => r.row === app?.row);
-  if (!row) return `applicability.row が適用の判定表の行ではない: ${JSON.stringify(app?.row)}`;
+// create・update の適合の観点の適用の判定は review と同じ受理の規則で CLI が行を導く（SP-BPAUTHORING-017）。
+// create・update は仕様の観点を持たないので、行の単位を絞らない（値の行も適合の観点が判定する：SP-BPINSPECTION-007）。
+export function judgeConformance(criteriaDir, result, assetIds) {
+  const rows = applicability(criteriaDir);
+  return judgeApplicability(result?.applicability, { assetIds, rows, allowed: new Set(rows.flatMap((r) => r.units.map((u) => u.value))) });
+}
+
+function checkRoleLimits(limits, units) {
+  if (!Array.isArray(limits) || !limits.every((r) => r && ['role', 'restriction'].every((f) => isStr(r[f])) && r.host === CLAUDE_CODE_HOST && Object.values(ROLE_LIMIT_RESULTS).includes(r.result) && Object.keys(r).length === 4)) {
+    return `checkedRoleLimits は {role, restriction, host（${CLAUDE_CODE_HOST}）, result（${Object.values(ROLE_LIMIT_RESULTS).join('・')}）} の並びでなければならない`;
+  }
+  if (limits.some((r) => r.result === ROLE_LIMIT_RESULTS.ineffective)) {
+    const roleUnits = units.filter((u) => u.unit === FORCED_BY || u.unit.startsWith(`${FORCED_BY}/`));
+    if (!roleUnits.length || roleUnits.some((u) => u.result !== UNIT_RESULTS.nonconform)) return `照らした制限に「${ROLE_LIMIT_RESULTS.ineffective}」があるのに ${FORCED_BY} の判定の単位が不適合でない（PR-BPDESIGNEDSKILL-046）`;
+  }
+  return null;
+}
+
+function checkConformance(result, criteriaDir, assetIds) {
+  const judged = judgeConformance(criteriaDir, result, assetIds);
+  if (judged.error) return `適用の判定: ${judged.error}`;
   if (!Array.isArray(result.units)) return 'units が並びでない';
-  const want = new Set(row.units.map((u) => u.value));
-  const forced = new Set(row.forced);
+  const row = { row: judged.row ?? judged.runs.map((r) => r.row).join('・') };
+  const want = new Set(judged.units.map((u) => u.value));
+  const forced = new Set(judged.forced);
   const keys = new Set((result.candidates ?? []).map((c) => keyString(c)));
   const got = new Set();
   for (const u of result.units) {
@@ -144,7 +164,7 @@ function checkConformance(result, rows) {
   if (!Array.isArray(result.residualRisks) || !result.residualRisks.every((r) => r && ['role', 'restriction', 'host', 'reason'].every((f) => isStr(r[f])))) {
     return 'residualRisks は {role, restriction, host, reason} の並びでなければならない';
   }
-  return null;
+  return checkRoleLimits(result.checkedRoleLimits, result.units);
 }
 
 function checkGoal(result, assignment, specIds) {
@@ -176,23 +196,30 @@ function checkContract(result, groundIds, specIds) {
 }
 
 const EXTRA_FIELDS = Object.freeze({
-  conformance: ['applicability', 'units', 'residualRisks'],
+  conformance: ['applicability', 'units', 'residualRisks', 'checkedRoleLimits'],
   goal: ['basisConstraints'],
   contract: ['contractChanges'],
 });
 
-export function extraFields(viewpoint, result) {
+// 網羅の残る危険（SP-BPCONFORMANCE-041 の create・update の行の 2 項目）を CLI が 1 件足す。同じ反復で既に足していれば足さない（SP-BPAUTHORING-017）。
+export function extraFields(viewpoint, result, { criteriaDir, assetIds, coverageDone = false } = {}) {
   const fields = EXTRA_FIELDS[viewpoint] ?? [];
   if (!fields.length) return null;
-  return Object.fromEntries(fields.map((f) => [f, result[f]]));
+  const data = Object.fromEntries(fields.map((f) => [f, result[f]]));
+  if (viewpoint !== 'conformance') return data;
+  const judged = judgeConformance(criteriaDir, result, assetIds);
+  data.derived = judged.runs ? { runs: judged.runs } : { shape: judged.shape, row: judged.row };
+  const reason = coverageDone ? null : coverageReason(criteriaDir);
+  if (reason) data.residualRisks = [...result.residualRisks, { sp: CONFORMANCE_SP.placement, reason }];
+  return data;
 }
 
 // 欄が欠けた結果を受けると、合否の段で判定の単位を付けていない単位が残る（SP-BPCONFORMANCE-018）。
-export function checkExtra(viewpoint, result, { criteriaDir, assignment, groundIds }) {
+export function checkExtra(viewpoint, result, { criteriaDir, assignment, groundIds, assetIds }) {
   if (!Object.hasOwn(VIEWPOINTS, viewpoint)) return null;
   const missing = (EXTRA_FIELDS[viewpoint] ?? []).filter((f) => !Object.hasOwn(result, f));
   if (missing.length) return `create・update の${VIEWPOINTS[viewpoint]}の結果に欄が無い: ${missing.join('・')}`;
-  if (viewpoint === 'conformance') return checkConformance(result, applicability(criteriaDir));
+  if (viewpoint === 'conformance') return checkConformance(result, criteriaDir, assetIds);
   if (viewpoint === 'goal') return checkGoal(result, assignment, specItemIds(criteriaDir));
   if (viewpoint === 'contract') return checkContract(result, groundIds, specItemIds(criteriaDir));
   return null;

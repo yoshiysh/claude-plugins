@@ -27,8 +27,7 @@ export const OUTSIDE_COPY = Object.freeze([
   { file: 'requirements/bp-operations.md', token: 'docs/specifications/bp-*.md', reason: 'bp の仕様書の全体を指す glob で、展開した先は全て写しにある' },
   { file: 'design/skill-design-patterns.md', token: 'docs/', reason: '未決事項の検索範囲を述べる散文で、置き場そのものを指し、判定基準の文書を指さない' },
   { file: 'design/skill-design-patterns.md', token: 'docs/specifications', reason: '未決事項の検索範囲を述べる散文で、仕様書の置き場そのものを指す。具体的な文書の名指しは全て写しの中に解ける' },
-  { file: 'design/skill-design-patterns.md', token: 'docs/guidelines/testing.md', reason: 'make test の運用手順を持つ文書の名指しで、guidelines は判定基準の写しの集合に入らない' },
-  { file: 'specifications/bp-run.md', token: 'docs/guidelines/documentation.md', reason: 'SP-BPRUN-043 の未実装の仕様項目が名指す文書で、実装追従前のため除外' },
+  { file: 'design/skill-design-patterns.md', token: 'docs/guidelines/testing.md', reason: 'make test の運用手順を持つ文書の名指しで、判定基準として読まない（guidelines から写しの集合に入るのは CLI が読む documentation.md だけ）' },
 ]);
 
 const EXIT = Object.freeze({ ok: 0, mismatch: 1, usage: 2 });

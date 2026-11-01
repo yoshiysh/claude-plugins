@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION, GROUND_REF_KEY,
+  CODES, CONFORMANCE_SP, CONTRACT_NONE, GATE_DECISIONS, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION, GROUND_REF_KEY,
   INSPECTING_FUNCTIONS, LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
-  SOURCE_KINDS, STAGE, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
+  REJECT_SCOPE, SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
 import { checkWritableItem, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
@@ -16,9 +16,10 @@ import { checkRepeatNumber, limitState, stopOutcome, unverifiedFiles } from './o
 import { findingsForResult, judgedOnCurrent, ledgerReport, skipList, unrefutedCandidates } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { applicability, contractKind } from './units.mjs';
-import { currentRun, itemStatus, lastFingerprint, runBase, runViewpoints, stageEntry, stoppedStage } from './view.mjs';
-import { inspectOutcome, inspectProgress } from './ops-inspect.mjs';
-import { needCriteria } from './ops-ledger.mjs';
+import { currentRun, lastFingerprint, runBase, runViewpoints, stageEntry, stoppedStage } from './view.mjs';
+import { inspectOutcome } from './ops-inspect.mjs';
+import { formalAfterGate, formalFails, formalRound } from './formal.mjs';
+import { needCriteria, rejected } from './ops-ledger.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
 import { identity, strip } from './records.mjs';
@@ -150,18 +151,23 @@ async function checkSource(view, dir, source, answers) {
   }
 }
 
+const NONE_VALUE = 'なし';
+const isNone = (entry) => entry?.text === NONE_VALUE && (entry.sources === undefined || (Array.isArray(entry.sources) && entry.sources.length === 0));
+
+// failures の要素は {要素の種類, 書き手の値, 理由}（SP-BPAUTHORING-007）。
 export async function checkGoal(view, dir, goal) {
   const failures = [];
-  if (goal === null || typeof goal !== 'object' || Array.isArray(goal)) return [{ element: null, index: null, reason: 'goal はオブジェクトでなければならない' }];
+  if (goal === null || typeof goal !== 'object' || Array.isArray(goal)) return [{ element: null, value: goal ?? null, reason: 'goal はオブジェクトでなければならない' }];
   const answers = view.premises.filter((p) => p.kind === 'answer').map((p) => p.text);
   const pointed = new Set();
   for (const element of Object.values(GOAL_KEYS)) {
     const list = goal[element];
-    if (!Array.isArray(list)) { failures.push({ element, index: null, reason: `${element} が並びでない（値が無い欄は空の並び）` }); continue; }
-    if (element === GOAL_KEYS.deliverables && list.length === 0) failures.push({ element, index: null, reason: '成果物が 1 つも無い' });
-    for (const [index, entry] of list.entries()) {
+    if (!Array.isArray(list)) { failures.push({ element, value: list ?? null, reason: `${element} が並びでない（値が無い欄は空の並び）` }); continue; }
+    if (element === GOAL_KEYS.deliverables && (list.length === 0 || list.every(isNone))) failures.push({ element, value: NONE_VALUE, reason: '成果物が「なし」（成果物を特定できないときは足りない入力を返す：SP-BPAUTHORING-008）' });
+    for (const entry of list) {
+      if (isNone(entry)) continue;
       if (typeof entry?.text !== 'string' || !Array.isArray(entry.sources) || entry.sources.length === 0) {
-        failures.push({ element, index, reason: '要素は text と 1 つ以上の sources を持たなければならない' });
+        failures.push({ element, value: entry?.text ?? null, reason: '要素は text と 1 つ以上の sources を持たなければならない' });
         continue;
       }
       const reasons = [];
@@ -170,12 +176,12 @@ export async function checkGoal(view, dir, goal) {
         if (bad) reasons.push(bad);
         else if (source.kind === SOURCE_KINDS.ground && (element === GOAL_KEYS.deliverables || element === GOAL_KEYS.scope)) pointed.add(source.ground);
       }
-      if (reasons.length === entry.sources.length) failures.push({ element, index, reason: reasons.join(' / ') });
+      if (reasons.length === entry.sources.length) failures.push({ element, value: entry.text, reason: reasons.join(' / ') });
     }
   }
   if (view.state.function === FUNCTION.update) {
     for (const id of treatedGroundIds(view)) {
-      if (!pointed.has(id)) failures.push({ element: 'grounds', index: null, reason: `修正の根拠 ${id} を成果物か範囲の出所として指していない` });
+      if (!pointed.has(id)) failures.push({ element: 'grounds', value: null, reason: `修正の根拠 ${id} が出所として指されていない（成果物か範囲の出所）` });
     }
   }
   return failures;
@@ -187,13 +193,16 @@ export function goalCheck(ctx, req) {
     const item = view.items.get(req.item);
     if (!item || item.stage !== STAGE.goal) reject(CODES.unknownId, `状態に無い目標の固定の段の項目の ID: ${JSON.stringify(req.item)}`);
     checkWritableItem(item);
+    const hasGoal = Object.hasOwn(req, 'goal');
+    if (hasGoal === Object.hasOwn(req, 'missing')) reject(CODES.input, 'goal-check は goal か missing のどちらか 1 つだけを持つ');
+    if (!hasGoal) return missingInput(view, req, item);
     checkRepeatNumber(view, STAGE.goal, req.n);
     if (item.result !== undefined && !view.byKey.has(identity({ t: RECORDS.repeat, stage: STAGE.goal, n: req.n }))) {
       reject(CODES.conflict, `固定した目標が既にある項目に別の繰り返しの番号の照合が届いた: ${req.item}（${req.n}）`);
     }
     const failures = await checkGoal(view, dir, req.goal);
     // 同じ番号に違う目標が届いたら食い違いとして拒否するため、繰り返しの記録に目標の sha256 を持たせる。
-    const records = [{ t: RECORDS.repeat, stage: STAGE.goal, n: req.n, goal: sha256Hex(canonical(req.goal ?? null)) }];
+    const records = [{ t: RECORDS.repeat, stage: STAGE.goal, n: req.n, goal: sha256Hex(canonical(req.goal ?? null)), failures }];
     let id = null;
     if (failures.length === 0) {
       const text = canonical(req.goal);
@@ -215,6 +224,28 @@ export function goalCheck(ctx, req) {
       }),
     };
   });
+}
+
+function missingProblem(missing, impact) {
+  if (!Array.isArray(missing) || missing.length === 0) return 'missing は {question, reason} の 1 つ以上の並びでなければならない';
+  const isText = (v) => typeof v === 'string' && v !== '';
+  if (!missing.every((m) => m && isText(m.question) && isText(m.reason) && Object.keys(m).length === 2)) return 'missing の要素は空でない文字列の question と reason だけを持つ';
+  if (impact === undefined) return null;
+  const kinds = Object.values(GOAL_KEYS);
+  if (!Array.isArray(impact) || !impact.every((k) => kinds.includes(k)) || new Set(impact).size !== impact.length) return `impact は ${kinds.join('・')} の重複の無い並びでなければならない`;
+  return null;
+}
+
+// 書き手が足りない入力を返したとき：繰り返しの回数を増やさず、項目の結果と段の終わりを同じ 1 行で書く（SP-BPRUN-031 の goal-check）。
+function missingInput(view, req, item) {
+  const bad = missingProblem(req.missing, req.impact);
+  if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, null, { missing: req.missing, impact: req.impact }, bad);
+  const result = { missing: req.missing, ...(req.impact === undefined ? {} : { impact: req.impact }) };
+  if (item.result !== undefined && canonical(item.result.result) !== canonical(result)) reject(CODES.conflict, `目標の固定の段の項目に別の結果が既にある: ${req.item}`);
+  return {
+    records: [{ t: RECORDS.result, item: req.item, result }, { t: RECORDS.stageEnd, stage: STAGE.goal, round: item.round }],
+    output: { accepted: true },
+  };
 }
 
 export function filesScan(ctx, req) {
@@ -277,6 +308,12 @@ export function computeGate(view, number) {
     const reason = g.result === UNIT_RESULTS.conform && u.result === UNIT_RESULTS.nonconform ? `${u.reason}（反証で退けられたか直った: ${ids.join(', ')}）` : u.reason;
     return { unit: u.unit, result: g.result, ...(g.unchecked ? { unchecked: g.unchecked } : {}), reason, ...(ids.length ? { findings: ids } : {}) };
   });
+  // SP-BPCONFORMANCE-041 の単位は判定表を当てず placement の記録の結果と理由をそのまま使う（未検査は強いられていない未検査：SP-BPAUTHORING-021）。
+  const placed = view.placements.find((p) => p.iteration === number);
+  if (conf && !aborted.length) {
+    if (!placed) reject(CODES.input, `反復 ${number} の placement の記録が無いので合否を決められない（SP-BPAUTHORING-021）`);
+    unitResults.push({ unit: CONFORMANCE_SP.placement, result: placed.result, ...(placed.result === UNIT_RESULTS.unchecked ? { unchecked: UNCHECKED_KINDS.unforced } : {}), reason: placed.reason });
+  }
   const refuteItems = new Set(itemsOf(view, STAGE.refute, number).map((i) => i.id));
   const unverifiable = {
     findings: gates.filter((g) => g.result === FINDING_GATE.unverifiable).map((g) => g.finding.id),
@@ -295,10 +332,9 @@ export function computeGate(view, number) {
     forced: unitResults.filter((u) => u.unchecked === UNCHECKED_KINDS.forced).map((u) => ({ unit: u.unit, sp: u.unit.split('/')[0] })),
     unverifiable,
     failing,
-    rewrite: {
-      findings: findingsForResult(view).filter((f) => failingSet.has(f.id)),
-      units: failingUnits.map((u) => ({ unit: u.unit, result: u.result, reason: u.reason })),
-    },
+    rewrite: decision === GATE_DECISIONS.fail
+      ? { findings: findingsForResult(view).filter((f) => failingSet.has(f.id)), units: failingUnits }
+      : { findings: [], units: [] },
   };
 }
 
@@ -316,6 +352,7 @@ export function gate(ctx, req) {
       return { item: item.id, ...rec.result, iterations: limitState(after, LIMIT_KEYS.iterations, after.iterations, runBase(after).iterations) };
     };
     if (item.result !== undefined) return { records: [strip(item.result)], output };
+    if (!view.placements.some((p) => p.iteration === req.number)) reject(CODES.input, `反復 ${req.number} の placement の記録が無いので合否を決められない（SP-BPAUTHORING-021）`);
     const count = view.iterations + 1;
     const g = computeGate(view, req.number);
     const reached = count - runBase(view).iterations >= view.state.limits[LIMIT_KEYS.iterations];
@@ -324,27 +361,22 @@ export function gate(ctx, req) {
   });
 }
 
+function gateItems(view) {
+  return [...view.items.values()].filter((i) => i.stage === STAGE.gate && i.result !== undefined).sort((a, b) => a.result.iteration - b.result.iteration);
+}
+
 export function lastGate(view) {
-  return [...view.items.values()].filter((i) => i.stage === STAGE.gate && i.result !== undefined).sort((a, b) => a.result.iteration - b.result.iteration).at(-1) ?? null;
+  return gateItems(view).at(-1) ?? null;
 }
 
-function sectionText(text, heading) {
-  if (!heading) return text;
-  const lines = text.split('\n');
-  const start = lines.findIndex((l) => /^ {0,3}#{1,6}[ \t]/.test(l) && l.replace(/^ {0,3}#{1,6}[ \t]+/, '').trim() === heading);
-  if (start < 0) return null;
-  const level = /^ {0,3}(#{1,6})/.exec(lines[start])[1].length;
-  const end = lines.findIndex((l, i) => i > start && /^ {0,3}(#{1,6})[ \t]/.test(l) && /^ {0,3}(#{1,6})/.exec(l)[1].length <= level);
-  return lines.slice(start, end < 0 ? lines.length : end).join('\n');
-}
-
+// 書く段の結果を持つ最後の反復の designNote の行の区間を逐語で写す（SP-BPAUTHORING-033）。
 export async function designNote(view) {
-  const write = [...view.items.values()].filter((i) => i.stage === STAGE.write && i.result?.result?.designNote).at(-1);
+  const write = [...view.items.values()].filter((i) => i.stage === STAGE.write && i.result?.result?.designNote)
+    .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || a.result.seq - b.result.seq).at(-1);
   if (!write) return null;
-  const note = write.result.result.designNote;
-  const root = view.paths.at(-1).root;
-  const text = await readOrNull(path.join(root, note.path));
-  return { path: note.path, heading: note.heading ?? null, text: text === null ? null : sectionText(text, note.heading) };
+  const { path: rel, startLine, endLine } = write.result.result.designNote;
+  const text = await readOrNull(path.join(view.paths.at(-1).root, rel));
+  return { path: rel, startLine, endLine, text: text === null ? null : text.split('\n').slice(startLine - 1, endLine).join('\n') };
 }
 
 // 停止の時点の指紋から作る。今のファイルから作ると、後の run が対象スキルを書き換えたときに同じ状態の返り値が変わる（SP-BPRUN-032）。
@@ -365,6 +397,27 @@ export function writtenFiles(view) {
   return [...latest.values()].map((f) => ({ path: f.path, action: f.action, verified: !open.has(f.path) }));
 }
 
+function ledgerWithoutFindings(view) {
+  const { findings, ...rest } = ledgerReport(view, runViewpoints(view));
+  return rest;
+}
+
+function remainingWork(view, stop) {
+  return stop.pending.map((id) => {
+    const item = view.items.get(id);
+    return { item: id, stage: STAGES[item.stage], key: item.key };
+  });
+}
+
+// SP-BPAUTHORING-034 の判断材料の表の目標の固定の 2 行。状態に保存した記録だけから作る。
+function decisionMaterials(view, stop, verificationValue) {
+  const round = Math.max(0, ...[...view.stages.values()].filter((st) => st.stage === STAGE.goal).map((st) => st.round ?? 0));
+  const goal = [...view.items.values()].find((i) => i.stage === STAGE.goal && (i.round ?? 0) === round && i.result?.result?.missing);
+  const base = { [RESULT_KEYS.verification]: verificationValue, [RESULT_KEYS.remainingWork]: remainingWork(view, stop) };
+  if (goal) return { [RESULT_KEYS.toDecide]: goal.result.result.missing, [RESULT_KEYS.impact]: goal.result.result.impact ?? null, ...base };
+  return { [RESULT_KEYS.toDecide]: view.lastRepeats.get(STAGE.goal)?.failures ?? null, [RESULT_KEYS.impact]: null, ...base };
+}
+
 function extraOf(view, number, viewpoint) {
   const item = itemsOf(view, STAGE.verify, number).find((i) => i.key?.viewpoint === viewpoint);
   return item ? view.extras.get(item.id)?.data ?? null : null;
@@ -372,15 +425,14 @@ function extraOf(view, number, viewpoint) {
 
 function verification(view, gateItem) {
   const g = gateItem.result.result;
-  const report = ledgerReport(view, runViewpoints(view));
-  const { findings, ...ledger } = report;
   const out = {
     [VERIFICATION_KEYS.decision]: { value: g.decision, findings: [...g.failing.findings, ...g.unverifiable.findings], units: g.failing.units, unverifiable: g.unverifiable },
     [VERIFICATION_KEYS.iterations]: { total: view.iterations, run: view.iterations - runBase(view).iterations },
     [VERIFICATION_KEYS.units]: g.units,
     [VERIFICATION_KEYS.forcedUnchecked]: g.forced,
     [VERIFICATION_KEYS.basisConstraints]: extraOf(view, g.number, 'goal')?.basisConstraints ?? [],
-    [VERIFICATION_KEYS.ledger]: ledger,
+    [VERIFICATION_KEYS.ledger]: ledgerWithoutFindings(view),
+    [VERIFICATION_KEYS.formalVerification]: formalAfterGate(view, gateItem)?.workRecord ?? null,
   };
   if (view.state.function === FUNCTION.update) {
     const changes = extraOf(view, g.number, 'contract')?.contractChanges ?? [];
@@ -412,8 +464,11 @@ export async function outcome(ctx, req) {
   if (gateItem) {
     out[RESULT_KEYS.verification] = verification(view, gateItem);
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
-    out[RESULT_KEYS.findings] = ledgerReport(view, runViewpoints(view)).findings;
+    out[RESULT_KEYS.findings] = findingsForResult(view);
+  } else if (!complete) {
+    out[RESULT_KEYS.verification] = null;
   }
+  if (stop.kind === STOP_KINDS.needsInput) Object.assign(out, decisionMaterials(view, stop, out[RESULT_KEYS.verification] ?? null));
   if (complete) {
     out[RESULT_KEYS.skill] = skillOf(view);
     out[RESULT_KEYS.designNote] = stop.designNote ?? null;
@@ -426,40 +481,16 @@ export async function outcome(ctx, req) {
   return out;
 }
 
-function stoppedDetail(view) {
-  const s = stoppedStage(view);
-  const entry = s.stage == null ? null : stageEntry(view, s.stage, s.round);
-  if (!entry) return { stage: null, round: null, status: s.status, parts: 0, items: [] };
-  return {
-    stage: s.stage, round: s.round, status: s.status, parts: entry.parts,
-    items: entry.items.map((id) => ({ ...itemStatus(view.items.get(id)), key: view.items.get(id).key })),
-  };
-}
-
+// SP-BPRUN-031 の start の行が列挙する progress の欄だけを持つ。
 export function progress(view) {
-  const rounds = (stage) => [...view.stages.values()].filter((s) => s.stage === stage).map((s) => s.round ?? 0);
-  const number = Math.max(0, ...[STAGE.write, STAGE.verify, STAGE.gate].flatMap(rounds));
   const prior = view.runs.length > 1 ? view.stops.get(view.runs.at(-2).id) ?? null : null;
   const g = lastGate(view);
   return {
-    function: view.state.function,
-    iterations: view.iterations,
-    number,
-    goal: view.premises.some((p) => p.kind === 'goal'),
-    goalRound: Math.max(0, ...rounds(STAGE.goal)),
-    goalRepeats: view.repeats.get(STAGE.goal) ?? 0,
-    snapshot: Boolean(view.snapshot),
-    ledger: Boolean(view.ledger),
-    lastStop: prior ? { kind: prior.kind, limitHit: prior.limitHit ?? null, stage: prior.stage, cause: prior.cause ?? null } : null,
-    lastGate: g ? { number: g.result.result.number, decision: g.result.result.decision, next: g.result.result.next, rewrite: g.result.result.rewrite } : null,
-    target: { root: view.paths.at(-1).root, files: view.paths.at(-1).files },
-    goalText: view.premises.filter((p) => p.kind === 'goal').at(-1)?.text ?? null,
-    request: view.state.request ?? null,
-    grounds: view.grounds.filter((g) => isTreatedGround(g.ground)).map((g) => ({ id: g.id, ground: g.ground })),
-    groundCount: view.grounds.length,
-    answers: view.premises.filter((p) => p.kind === 'answer').map((p) => ({ id: p.id, text: p.text })),
-    stopped: stoppedDetail(view),
-    ...(INSPECTING_FUNCTIONS.has(view.state.function) ? { inspection: inspectProgress(view) } : {}),
+    decisions: gateItems(view).map((i) => ({ iteration: i.result.result.number, decision: i.result.result.decision })),
+    lastRewrite: g ? g.result.result.rewrite : null,
+    formalRound: formalRound(view),
+    formalFails: formalFails(view),
+    lastStop: prior ? { kind: prior.kind, limitHit: prior.limitHit ?? null, cause: prior.cause ?? null } : null,
   };
 }
 

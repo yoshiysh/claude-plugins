@@ -20,12 +20,10 @@ export const OPS = Object.freeze({
   reviewJudge: 'review-judge',
   vanishMatch: 'vanish-match',
   report: 'report',
-  record: 'record',
   kinds: 'kinds',
   key: 'key',
   paths: 'paths',
   pathsRetake: 'paths-retake',
-  placement: 'placement',
   snapshot: 'snapshot',
   goalCheck: 'goal-check',
   filesScan: 'files-scan',
@@ -36,6 +34,8 @@ export const OPS = Object.freeze({
   bundle: 'bundle',
   applicability: 'applicability',
   stopDraft: 'stop-draft',
+  placement: 'placement',
+  record: 'record',
 });
 
 // 送り直しで記録が増えないことをテストが操作ごとに照らすので、書き込みの操作の集合はここだけに置く。
@@ -43,6 +43,7 @@ export const WRITE_OPS = Object.freeze([
   OPS.start, OPS.premise, OPS.stageStart, OPS.itemResult, OPS.itemFail, OPS.stageRepeat, OPS.stageFinish, OPS.discard,
   OPS.files, OPS.stop, OPS.ledgerCreate, OPS.ledgerRetake, OPS.assignments, OPS.verdicts, OPS.refutation, OPS.reviewJudge,
   OPS.vanishMatch, OPS.pathsRetake, OPS.snapshot, OPS.goalCheck, OPS.filesScan, OPS.gate, OPS.targets, OPS.bundle, OPS.applicability,
+  OPS.placement, OPS.record,
 ]);
 
 // 入口（SKILL.md）だけが呼ぶ読み出しの操作。run の中の script は呼ばないので、script が写す OPS と分ける（分けないと、入口の操作を足すたびに script の写しが変わる）。
@@ -64,7 +65,7 @@ export const STOP_KINDS = Object.freeze({
 });
 export const LIMIT_HITS = Object.freeze({ iteration: 'iteration', launch: 'launch' });
 // 書き直さずに検証し直す再開（SP-BPAUTHORING-005 のただし書き）に当てる BLOCKED の原因の区分。
-export const STOP_CAUSES = Object.freeze({ verifiers: 'verifiers' });
+export const STOP_CAUSES = Object.freeze({ verifiers: 'verifiers', formalUnrunnable: 'formalUnrunnable', formalFailed: 'formalFailed' });
 const REWRITING_STOPS = Object.freeze([STOP_KINDS.complete, STOP_KINDS.needsInput, STOP_KINDS.iterationLimit, STOP_KINDS.blocked]);
 const INSPECTING_STOPS = Object.freeze([STOP_KINDS.complete, STOP_KINDS.iterationLimit, STOP_KINDS.blocked]);
 export const STOP_KINDS_BY_FUNCTION = Object.freeze({
@@ -160,6 +161,8 @@ export const RECORDS = Object.freeze({
   target: 'target',
   bundle: 'bundle',
   applicability: 'applicability',
+  placement: 'placement',
+  workLog: 'workLog',
 });
 export const FINGERPRINT_AT = Object.freeze({ start: 'start', retake: 'retake', stop: 'stop' });
 export const FILE_ACTIONS = Object.freeze({ write: 'write', delete: 'delete' });
@@ -218,6 +221,9 @@ export const RESULT_KEYS = Object.freeze({
   ledger: 'ledger',
   performance: 'performance',
   unsavedRecords: 'unsavedRecords',
+  toDecide: 'toDecide',
+  impact: 'impact',
+  remainingWork: 'remainingWork',
 });
 export const VERIFICATION_KEYS = Object.freeze({
   decision: 'decision',
@@ -227,8 +233,18 @@ export const VERIFICATION_KEYS = Object.freeze({
   basisConstraints: 'basisConstraints',
   contract: 'contract',
   ledger: 'ledger',
+  checkedRoleLimits: 'checkedRoleLimits',
   formalVerification: 'formalVerification',
 });
+// 形式検証の段の result の欄と性質の結果（SP-BPRUN-031 の「形式検証の段の result」）。
+export const FORMAL_KEYS = Object.freeze({ workRecord: 'workRecord', readable: 'readable', properties: 'properties' });
+export const READABLE_KEYS = Object.freeze({ ok: 'ok', reason: 'reason' });
+export const PROPERTY_KEYS = Object.freeze({ target: 'target', formalized: 'formalized', outcome: 'outcome', reason: 'reason' });
+export const FORMAL_OUTCOMES = Object.freeze({ holds: 'holds', fails: 'fails', unrunnable: 'unrunnable', confirmed: 'confirmed', unconfirmed: 'unconfirmed' });
+// 性能の記録の欄（SP-BPRUN-046）。
+export const PERFORMANCE_KEYS = Object.freeze({ durationMs: 'durationMs', interventions: 'interventions', retries: 'retries', cost: 'cost' });
+// 記録台帳の 1 つの記録の欄（SP-BPRUN-042）。role と item が作業記録の担当、attempt が試行の番号。
+export const WORK_LOG_KEYS = Object.freeze({ role: 'role', item: 'item', attempt: 'attempt', path: 'path', evidence: 'evidence' });
 
 export const GOAL_KEYS = Object.freeze({
   deliverables: 'deliverables',
@@ -245,12 +261,16 @@ export const SNAPSHOT_DIR = 'snapshot';
 export const SNAPSHOT_PARTS = Object.freeze({ root: 'root', plugin: 'plugin' });
 
 export const UNIT_RESULTS = Object.freeze({ conform: 'conform', nonconform: 'nonconform', na: 'na', unchecked: 'unchecked' });
+// 照らした制限の結果（SP-BPAUTHORING-046）。値は仕様の字面そのまま。
+// 照らした制限の配布先（SP-BPAUTHORING-046 は Claude Code での制限だけを照らす）。
+export const CLAUDE_CODE_HOST = 'Claude Code';
+export const ROLE_LIMIT_RESULTS = Object.freeze({ effective: '効く', ineffective: '効かない' });
 export const UNCHECKED_KINDS = Object.freeze({ forced: 'forced', unforced: 'unforced' });
 export const CONTRACT_ELEMENTS = Object.freeze(['発火する条件', '発火しない条件', '入力', '出力', '停止の種類']);
 export const CONTRACT_NONE = 'none';
 export const GATE_DECISIONS = Object.freeze({ pass: 'pass', fail: 'fail', unverifiable: 'unverifiable' });
 export const FINDING_GATE = Object.freeze({ fail: 'fail', ok: 'ok', unverifiable: 'unverifiable' });
-export const GATE_NEXT = Object.freeze({ complete: 'complete', rewrite: 'rewrite', iterationLimit: 'iterationLimit', blocked: 'blocked' });
+export const GATE_NEXT = Object.freeze({ formal: 'formal', rewrite: 'rewrite', iterationLimit: 'iterationLimit', blocked: 'blocked' });
 export const ITERATION_STAGES = Object.freeze([STAGE.write, STAGE.ledger, STAGE.verify, STAGE.verifyExtra, STAGE.refute, STAGE.rejudge, STAGE.gate]);
 // 追加の検証は「見た」が増えなくなるまで回を重ねるので、同じ段・回に部分の列挙を足せる段をここだけに置く（SP-BPFINDINGS-025）。
 export const PARTED_STAGES = Object.freeze([STAGE.verifyExtra]);
@@ -274,7 +294,10 @@ export const RUN_VIEWPOINTS = Object.freeze({
 });
 
 // 適用の判定の閉集合（SP-BPINSPECTION-006 の表の選択肢と、SP-BPCONFORMANCE-003 の条件の値）。値は表の字面そのままにし、表との一致はテストが照らす。
-export const APPLICABILITY_QUESTIONS = Object.freeze(['A', 'Q1', 'Q2', 'Q3']);
+export const APPLICABILITY_QUESTIONS = Object.freeze(['A', 'W', 'Q1', 'Q2', 'Q3']);
+// 問い W の答えで置き場（answers か runs の要素）が決まる問い（SP-BPINSPECTION-006）。
+export const SHAPE_QUESTIONS = Object.freeze(['Q1', 'Q2', 'Q3']);
+export const RUN_SEQUENCE = 'sequence';
 export const APPLICABILITY_ANSWERS = Object.freeze({ yes: 'はい', no: 'いいえ', unreached: '問いに到達しない' });
 export const PRESENCE = Object.freeze({ present: '有', absent: '無' });
 export const SHAPES = Object.freeze({ turn: 'ターンごとの指揮', pipeline: '固定パイプライン型', iterative: '固定集合の反復型', explore: '探索グラフ型' });
@@ -333,6 +356,7 @@ export const CRITERIA_FILES = Object.freeze({
   authoring: Object.freeze(['specifications', 'bp-authoring.md']),
   inspection: Object.freeze(['specifications', 'bp-inspection.md']),
   designedSkill: Object.freeze(['requirements', 'bp-designed-skill.md']),
+  guidelines: Object.freeze(['guidelines', 'documentation.md']),
 });
 // others は bp-conformance の、機能仕様と性能・容量のほかの章（読める章）。章を読めない写しでどの章の仕様項目を落としてよいかを、この閉集合で決める。
 export const CRITERIA_CHAPTERS = Object.freeze({
@@ -340,6 +364,8 @@ export const CRITERIA_CHAPTERS = Object.freeze({
   capacityPrefix: '性能・容量',
   others: Object.freeze(['対象範囲', '用語定義', 'エラー処理と異常系', '検証方法', 'トレーサビリティ表']),
 });
+// CLI が機械の照合で判定する仕様項目（SP-BPFINDINGS-010）と、仕様の観点から除きフローの観点が PR-BPDESIGNEDSKILL-048 の単位として判定する仕様項目（SP-BPINSPECTION-008）。
+export const CONFORMANCE_SP = Object.freeze({ placement: 'SP-BPCONFORMANCE-041', roleModels: 'SP-BPCONFORMANCE-035' });
 export const PROMPT_AUDIT_FILE = 'references/prompt-audit.md';
 // 照らす先の決定の出力で、観点ごとのファイルを名前で指す（パスの順に意味を持たせない）。
 export const TARGET_FILES = Object.freeze({ conformance: 'conformance', design: 'design', inspection: 'inspection', promptAudit: 'promptAudit', designedSkill: 'designedSkill' });
