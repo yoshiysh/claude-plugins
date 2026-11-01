@@ -8,7 +8,7 @@
 |---|---|---|
 | `docs/specifications/authoring.md` | 仕様書: 生成される文書の記述仕様 | 文書の種別と分量／章構成／要求文と仕様項目の書き方／重複と矛盾／ID 体系／トレーサビリティ表／未確定事項の書式／保持規則／ファイル配置と INDEX／状態とイベントの記述／外部規格への言及／根拠が得られない事項の扱い／機械検査が参照する語の集合（SP-AUTHORING-001〜088、欠番は 001・002・004・019・049・083・084／81 件） |
 | `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／形式検証／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜046／46 件） |
-| `docs/specifications/bp-conformance.md` | 仕様書: 対象スキルが備える性質の判定基準と、対象スキルに課す確定値 | 判定の当て方／形の判定／資産台帳／run の記録／形に関わる原則／配布先での確認／fan-out の起動数の上限／性能・容量（対象スキルに課す確定値）／エラー処理と異常系（SP-BPCONFORMANCE-001〜040／40 件） |
+| `docs/specifications/bp-conformance.md` | 仕様書: 対象スキルが備える性質の判定基準と、対象スキルに課す確定値 | 判定の当て方／配置の原則／形の判定／資産台帳／run の記録／形に関わる原則／配布先での確認／fan-out の起動数の上限／性能・容量（対象スキルに課す確定値）／エラー処理と異常系（SP-BPCONFORMANCE-001〜041／41 件） |
 | `docs/specifications/bp-entry.md` | 仕様書: 依頼の振り分け・機能の連鎖・Workflow callsite | 振り分け／連鎖／Workflow callsite／エラー処理と異常系／外部インタフェース（SP-BPENTRY-001〜025／25 件） |
 | `docs/specifications/bp-findings.md` | 仕様書: 指摘と資産台帳 | 台帳と資産／結果の結び付き／反証／指摘の状態／カバレッジと skip 一覧／run をまたぐ指摘の扱い／指摘の形／エラー処理と異常系（SP-BPFINDINGS-001〜037／37 件） |
 | `docs/specifications/bp-inspection.md` | 仕様書: review と audit の観点と流れ | 形と段／観点／フローの観点／監査の観点／担当と起動／対象を書き換えない／対象スキル／外部インタフェース／エラー処理と異常系（SP-BPINSPECTION-001〜030／30 件） |
@@ -151,6 +151,7 @@
 | SP-BPCONFORMANCE-001 | 判定基準の正本 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-002 | 判定の単位 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-003 | 適用の判定表 | `docs/specifications/bp-conformance.md` |
+| SP-BPCONFORMANCE-041 | 判断点の表の照合 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-004 | 形の判定の順序 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-005 | 探索グラフの適用条件 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-006 | 重い形を強いた条件の記録 | `docs/specifications/bp-conformance.md` |

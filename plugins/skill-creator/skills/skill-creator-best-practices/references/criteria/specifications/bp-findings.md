@@ -121,7 +121,7 @@ CLI は、資産ごとに内容の指紋を作り、資産 ID とともに台帳
 | 資産 ID | 担当として渡された資産 ID のどれか |
 | 観点 | その検証役に割り当てられた観点 |
 | 指摘の種類 | その観点の閉集合から選んだ値（SP-BPFINDINGS-010） |
-| 引用 | 問題のある箇所の原文。行番号を添える |
+| 引用 | 問題のある箇所の原文。行番号を添える（CLI が `placement` から作る候補で指す行が無いときは空の文字列：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-007） |
 | 内容 | 基準にどう反しているか |
 | 直し方 | どこをどう書き換えるか |
 
@@ -138,10 +138,12 @@ CLI は、観点ごとに、指摘の種類として受け付ける値の閉集�
 
 | 観点 | 指摘の種類の閉集合の正 |
 |---|---|
-| フローの観点（review）と適合の観点（create・update） | `docs/specifications/bp-conformance.md` の「機能仕様」の章の判定基準の仕様項目 ID と、その仕様項目の判定の単位（SP-BPCONFORMANCE-002）の組。判定の単位が仕様項目そのものであるときは仕様項目 ID だけ |
+| フローの観点（review）と適合の観点（create・update） | `docs/specifications/bp-conformance.md` の「機能仕様」の章の判定基準の仕様項目 ID と、その仕様項目の判定の単位（SP-BPCONFORMANCE-002）の組。判定の単位が仕様項目そのものであるときは仕様項目 ID だけ。SP-BPCONFORMANCE-041 は除く（下の段落） |
 | 仕様の観点（review） | `docs/specifications/bp-conformance.md` の「性能・容量」の章の確定値の仕様項目 ID（判定の単位は仕様項目そのもの） |
 | 目標の観点と契約の観点（create・update） | `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-016 の指摘の種類の閉集合の表 |
 | 監査の観点（audit） | `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-009 の監査の観点の一覧の識別子 |
+
+SP-BPCONFORMANCE-041 は、CLI が `placement`（`docs/specifications/bp-run.md` の SP-BPRUN-031）で判定する（同項：機械の照合だけで判定する）。CLI は、この仕様項目を、フローの観点と適合の観点の閉集合と、検証役に渡す判定の単位から除き、検証役の結果にこの種類の候補か、この単位の結果か未検査の候補があれば、SP-BPFINDINGS-034 のとおり拒否する。この除き方は本段落だけに置き、`docs/specifications/bp-authoring.md` と `docs/specifications/bp-inspection.md` は参照する。CLI が `placement` から作る指摘（SP-BPFINDINGS-014）は、この種類を持つ。
 
 指摘の種類に判定の単位を含めるのは、1 つの仕様項目が原則の表の複数の行を判定の単位に持つからである（含めないと、同じ資産の別の行の違反が同じ鍵になり、1 件にまとまる）。CLI は、フローの観点・適合の観点・仕様の観点の閉集合を、判定基準の写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）から決定的に作る。指摘の種類の値の形は次の表とする。
 
@@ -173,7 +175,7 @@ CLI は、同じ指摘かどうかを指摘の鍵の一致だけで決め、引�
 ### 反証
 
 #### SP-BPFINDINGS-013 反証の実施
-script は、重複でない全ての指摘の候補を、SP-BPFINDINGS-012 でまとめた鍵ごとに、その候補を返した検証役と別の context の反証役に渡さなければならない（生成した本人には自分の誤りが見えない。PR-BPOPERATIONS-031）。反証役は、まとめた鍵ごとに 1 つの判定として「維持」か「却下」のどちらかを選び、理由を添えて返さなければならない。反証役のモデルと effort は `docs/specifications/bp-run.md` の役ごとの割り当てに従う。
+script は、重複でない全ての指摘の候補を、SP-BPFINDINGS-012 でまとめた鍵ごとに、その候補を返した検証役と別の context の反証役に渡さなければならない（生成した本人には自分の誤りが見えない。PR-BPOPERATIONS-031）。反証役は、まとめた鍵ごとに 1 つの判定として「維持」か「却下」のどちらかを選び、理由を添えて返さなければならない。反証役のモデルと effort は `docs/specifications/bp-run.md` の役ごとの割り当てに従う。CLI が作る候補は本項と SP-BPFINDINGS-012 の外にあり、SP-BPFINDINGS-014 の最後の段落に従う。
 
 #### SP-BPFINDINGS-014 反証の結果の記録
 CLI は、反証の結果を次のとおり記録しなければならない。
@@ -184,6 +186,8 @@ CLI は、反証の結果を次のとおり記録しなければならない。
 | 台帳に無い | 却下 | 新しい指摘 ID の指摘を作り、状態を dismissed にし、却下の理由を記録する |
 | 台帳にある | 維持 | 見直しの「存在する」の材料にする（SP-BPFINDINGS-018） |
 | 台帳にある | 却下 | 却下の理由を記録し、見直しの「存在しない」の材料にする（SP-BPFINDINGS-018） |
+
+CLI が `placement` の不適合から作る指摘の候補（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-007。review だけで作る）は、検証役の結果ではないので、SP-BPFINDINGS-012 の重複の判定にかけず、反証の段の項目にせず（`docs/requirements/bp-operations.md` PR-BPOPERATIONS-031 のただし書き）、SP-BPFINDINGS-018 の R にも入れない。CLI は、その候補の鍵が台帳に無ければ、新しい指摘 ID の指摘を作り、状態を open にする。この状態の記録の担当の指紋の組（SP-BPFINDINGS-017）は、その資産の今の内容の指紋（SP-BPFINDINGS-004）1 つからなる組とする。鍵が台帳にあれば、記録を足さない（review は書き換えない run で、状態を遷移させず見直しの判定も持たない：SP-BPFINDINGS-016）。
 
 #### SP-BPFINDINGS-015 未反証の候補
 反証役が結果を返さなかったならば、CLI はその候補を未反証の候補として記録しなければならない。未反証の候補は、open の指摘にも dismissed の指摘にもしてはならない。未反証の記録は、反証役が結果を返さなかった試行ごとに 1 つとし、どの試行かは script が要求に持たせた番号で決める（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `refutation`）。
@@ -299,7 +303,7 @@ run をまたいで指摘の状態を追うかの裁定が下るまで、create 
 | 観点 | SP-BPFINDINGS-010 |
 | 指摘の種類 | SP-BPFINDINGS-010 |
 | 資産 | 資産 ID・パス・範囲の位置。照合で資産を足した指摘（SP-BPFINDINGS-020）は全ての資産 |
-| 引用 | 行番号を添えた原文 |
+| 引用 | 行番号を添えた原文（指す行が無いときは SP-BPFINDINGS-007 の引用の行のとおり） |
 | 内容 | 基準にどう反しているか |
 | 直し方 | どこをどう書き換えるか |
 | 状態 | open・dismissed・resolved・regressed のどれか。SP-BPFINDINGS-028 が状態を載せないとする指摘には載せない |
@@ -442,7 +446,9 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-012 | script の結合テスト（同じ担当を 2 体が見て同じ鍵の候補を返したとき、反証役の起動が 1 回で、その結果が 2 件の候補の両方に記録されることを計数） | 作成中 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-036 | CLI の単体テスト（引用と内容の文言だけが違う同じ鍵の候補 2 件が同じ指摘になり、観点だけが違う 2 件が別の指摘 ID になることを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-010 | CLI の単体テスト（同じ資産に、同じ仕様項目の原則の表の別の行の違反を 2 件記録し、別の指摘になることを確認） | 完了 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | script の結合テスト（全ての重複でない候補が、それを返した検証役と別の反証役に渡ることを確認） | 完了 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | script の結合テスト（検証役が返した全ての重複でない候補が、それを返した検証役と別の反証役に渡ることを確認） | 完了 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-014 | CLI の単体テスト（`placement` の不適合から作った候補が反証の段の項目に入らず、台帳に無い鍵では担当の指紋の組がその資産の内容の指紋 1 つの open の指摘になり、照合と停止の段を始め直して同じ鍵の候補を作っても台帳に記録が足されないことを確認） | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPFINDINGS-010 | CLI の単体テスト（create・update の適合の観点と review のフローの観点の閉集合に SP-BPCONFORMANCE-041 が無く、検証役がその種類の候補かその単位の結果を返すと拒否されることを確認） | 未着手 |
 | PR-BPOPERATIONS-031 | SP-BPFINDINGS-014 | CLI の単体テスト（表の 4 行の入力を与え、記録を確認） | 完了 |
 | PR-BPOPERATIONS-032 | SP-BPFINDINGS-014 | CLI の単体テスト（維持の候補が open、却下の候補が dismissed になることを確認） | 完了 |
 | PR-BPOPERATIONS-043 | SP-BPFINDINGS-014 | CLI の単体テスト（dismissed の指摘に却下の理由が記録されることを確認） | 完了 |
