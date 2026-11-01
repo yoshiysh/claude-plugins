@@ -260,12 +260,11 @@ test('SP-BPINSPECTION-025: 未検査の観点の 5 つの場合を観点・範�
   assert.match(abortedList.find((u) => u.scope === 'whole').reason, /試行の上限/);
 });
 
-// 形がターンごとの指揮の行で PR-BPDESIGNEDSKILL-002 が強いられた未検査になる写し（fixture は反復型の 1 行だけを持つ）。
-async function turnCriteria(t) {
+// PR-BPDESIGNEDSKILL-014 が強いられた未検査になる写し（fixture は反復型の 1 行だけを持つ）。
+async function forcedCriteria(t) {
   return edited(t, path.join('specifications', 'bp-conformance.md'), (s) => s
-    .replace('PR-BPDESIGNEDSKILL-001 はどの行でも当たる。', 'PR-BPDESIGNEDSKILL-001・002 はどの行でも当たる。')
-    .replace('| 固定集合の反復型 | 無 | 有 | 001 が当たる |', '| 固定集合の反復型 | 無 | 有 | 001 が当たる |\n| ターンごとの指揮 | 無 | 無 | 001 が当たる |')
-    .replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |', '| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |\n| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-001 | fixture | 未着手 |'));
+    .replace('PR-BPDESIGNEDSKILL-001 はどの行でも当たる。', 'PR-BPDESIGNEDSKILL-001・014 はどの行でも当たる。')
+    .replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |', '| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |\n| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-001 | fixture | 未着手 |'));
 }
 
 function answers(asset, seq, ledgerAnswer = '無', fanout = '無') {
@@ -295,20 +294,20 @@ test('SP-BPINSPECTION-006・SP-BPFINDINGS-034: 適用の判定が閉集合の外
   await rejects(send(5, answers(id, ['いいえ', '問いに到達しない', '問いに到達しない', '問いに到達しない'])), CODES.conflict);
 });
 
-test('SP-BPINSPECTION-025・SP-BPINSPECTION-007: 形がターンごとの指揮の適用の判定で、強いられた未検査の単位の候補を拒否し、その単位が SP-BPCONFORMANCE-006 を理由に未検査の観点に載る', async (t) => {
-  const ctx = context(t, { criteriaDir: await turnCriteria(t) });
+test('SP-BPINSPECTION-025・SP-BPINSPECTION-007: 適用の判定で強いられた未検査の単位の候補を拒否し、その単位が SP-BPCONFORMANCE-019 を理由に未検査の観点に載る', async (t) => {
+  const ctx = context(t, { criteriaDir: await forcedCriteria(t) });
   if (!ctx) return;
   const { req, assets } = await withLedger(t, 'review', { ctx });
   await run.stageStart(ctx, { ...req, stage: 'applicability', keys: [] });
-  const out = await inspect.applicability(ctx, { ...req, n: 1, result: answers(assets[0].id, ['いいえ', '問いに到達しない', '問いに到達しない', '問いに到達しない']) });
-  assert.equal(out.shape, 'ターンごとの指揮');
+  const out = await inspect.applicability(ctx, { ...req, n: 1, result: answers(assets[0].id, ['はい', 'いいえ', 'はい', '問いに到達しない'], '無', '有') });
+  assert.equal(out.shape, '固定集合の反復型');
   assert.deepEqual(out.forced, ['SP-BPCONFORMANCE-001']);
   const { items, assignment } = await verifyItems(ctx, req, ['flow']);
   const cand = { judgements: assets.map((a, i) => ({ asset: a.id, judgement: i === 0 ? 'candidate' : 'ok' })), candidates: [{ asset: assets[0].id, viewpoint: 'flow', kind: 'SP-BPCONFORMANCE-001', quote: 'L1', content: 'c', fix: 'f' }], unchecked: [] };
   await rejects(ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: cand }), CODES.result);
   await ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: judged(assets, { unchecked: [{ viewpoint: 'flow', scope: 'unit', value: 'SP-BPCONFORMANCE-001', reason: '検証役の理由' }] }) });
   const list = uncheckedViewpoints(await viewOf(ctx, req.state)).filter((u) => u.viewpoint === 'flow');
-  assert.deepEqual(list.map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-001', 'SP-BPCONFORMANCE-006']]);
+  assert.deepEqual(list.map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-001', 'SP-BPCONFORMANCE-019']]);
 });
 
 test('SP-BPINSPECTION-007: review のフローの観点の閉集合から除く単位の表の単位を除き、create・update の適合の観点の閉集合には残す', async (t) => {

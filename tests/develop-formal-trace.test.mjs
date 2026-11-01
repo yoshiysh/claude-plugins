@@ -680,7 +680,7 @@ for (const c of timeoutCases) {
 
         const script = `
 set -uo pipefail
-export PATH="$BINDIR:/bin"
+export PATH="$BINDIR"
 tlc=(java -cp foo.jar tlc2.TLC)
 if command -v timeout >/dev/null 2>&1; then limit=(timeout 1200); elif command -v gtimeout >/dev/null 2>&1; then limit=(gtimeout 1200); else limit=(); fi
 flags=(-deadlock)
@@ -688,7 +688,7 @@ flags=(-deadlock)
 `;
         execFileSync('/bin/bash', ['-c', script], {
           env: {
-            PATH: `${binDir}:/bin`,
+            PATH: binDir,
             BINDIR: binDir,
             WORKDIR: workDir,
             OUT: outFile,

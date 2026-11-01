@@ -197,14 +197,9 @@ test('検証方法（bp-conformance）: 読み取りの出力が、確かめて�
   assert.equal(out.text, text);
 });
 
-test('SP-BPINSPECTION-025: 強いられた未検査の理由は CLI の forcedReason 1 箇所で決め、2 つの出所に当たる単位は SP-BPINSPECTION-025 の規則どおり形から強いられた仕様項目 ID を理由にし、読み取りの tool は理由を自分で計算しない', () => {
-  const inspection = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-inspection.md'), 'utf8');
-  const rule = /同じ単位が (SP-BPCONFORMANCE-\d{3}) とほかの項目の両方に当たるときは、形から強いられたことを理由にして (SP-BPCONFORMANCE-\d{3})/.exec(inspection);
-  assert.ok(rule && rule[1] === rule[2], 'SP-BPINSPECTION-025 に 2 つの出所に当たる単位の理由の規則が無い');
-  for (const other of ['SP-BPCONFORMANCE-019', 'SP-BPCONFORMANCE-034']) {
-    const both = { turnForm: new Map([['u', rule[1]]]), always: new Map([['u', other]]) };
-    assert.equal(forcedReason(both, 'u'), rule[1], other);
-  }
+test('SP-BPINSPECTION-025: 強いられた未検査の理由は CLI の forcedReason 1 箇所で決め、読み取りの tool は理由を自分で計算しない', () => {
+  const sources = { always: new Map([['u', 'SP-BPCONFORMANCE-019']]) };
+  assert.equal(forcedReason(sources, 'u'), 'SP-BPCONFORMANCE-019');
   const tool = readFileSync(path.join(ROOT, 'tools', 'read-bp-trial.mjs'), 'utf8');
   assert.doesNotMatch(tool, /\b(always|turnForm)\.get\(/);
   const ops = readFileSync(path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp', 'ops-inspect.mjs'), 'utf8');

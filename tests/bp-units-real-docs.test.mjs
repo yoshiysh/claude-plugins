@@ -18,17 +18,17 @@ test('SP-BPCONFORMANCE-003・SP-BPAUTHORING-017: 実際の docs/ から、適用
     assert.ok(r.units.length > 0, `行 ${r.row}`);
     for (const always of ['001', '002', '006', '014', '015']) assert.ok(r.requirements.includes(`PR-BPDESIGNEDSKILL-${always}`), `行 ${r.row}: ${always}`);
   }
-  assert.deepEqual(rows[3].requirements.map((x) => x.slice(-3)), ['001', '002', '004', '005', '006', '007', '008', '009', '010', '014', '015', '018']);
+  assert.deepEqual(rows[3].requirements.map((x) => x.slice(-3)), ['001', '002', '004', '005', '006', '007', '008', '009', '010', '014', '015', '018', '046', '051']);
 });
 
-test('SP-BPAUTHORING-017・SP-BPCONFORMANCE-006・SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-019・SP-BPCONFORMANCE-034: 強いられた未検査の 4 つの出所（ターンごとの指揮・Claude Code・「権限」の表の最後の行・実行役の時間の上限）が、実際の docs/ の判定の単位に全て解決する', () => {
+test('SP-BPAUTHORING-017・SP-BPCONFORMANCE-006・SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-019・SP-BPCONFORMANCE-034: 強いられた未検査の出所（Claude Code・「権限」の表の最後の行）が実際の docs/ の判定の単位に全て解決し、006 と 034 は強いられた未検査に含まれない', () => {
   const rows = applicability(DOCS);
   const turn = rows.find((r) => r.form === 'ターンごとの指揮');
   const graph = rows.find((r) => r.form === '探索グラフ型' && r.ledger === '有' && r.fanout === '有');
-  assert.ok(turn.forced.includes('SP-BPCONFORMANCE-006'), 'ターンごとの指揮の PR-BPDESIGNEDSKILL-002');
+  assert.ok(!turn.forced.includes('SP-BPCONFORMANCE-006'), 'ターンごとの指揮の PR-BPDESIGNEDSKILL-002 は強いられた未検査に含まれない');
   assert.ok(graph.forced.includes('SP-BPCONFORMANCE-019'), 'Claude Code の PR-BPDESIGNEDSKILL-014');
   assert.ok(graph.forced.some((u) => u.startsWith('SP-BPCONFORMANCE-014/権限/t1/r')), '「権限」の表の最後の行');
-  assert.ok(graph.forced.some((u) => graph.units.find((x) => x.value === u).meaning.startsWith('実行役の時間に上限を置く')), '実行役の時間の上限の行');
+  assert.ok(!graph.forced.some((u) => graph.units.find((x) => x.value === u).meaning.startsWith('実行役の時間に上限を置く')), '実行役の時間の上限の行は強いられた未検査に含まれない');
   const last = graph.units.filter((u) => u.value.startsWith('SP-BPCONFORMANCE-014/権限/t1/r')).at(-1).value;
   assert.ok(graph.forced.includes(last));
   for (const r of rows) for (const f of r.forced) assert.ok(r.units.some((u) => u.value === f), `行 ${r.row}: ${f}`);

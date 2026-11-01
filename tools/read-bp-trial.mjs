@@ -26,11 +26,12 @@ export function pick(seed, sp, candidates) {
   return candidates[n % candidates.length];
 }
 
-// 除く単位と強いられた未検査は指摘にならないので、そこに仕込むと外れとしか読めない。
+// 除く単位と強いられた未検査、および SP-BPCONFORMANCE-034 に従う行は指摘にならないので、そこに仕込むと外れとしか読めない。
+const EXECUTOR_TIME = 'SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8';
 export function injectable(criteriaDir, row, sp) {
   const r = applicability(criteriaDir).find((x) => x.row === row);
   const flow = new Set(flowUnits(criteriaDir).map((u) => u.value));
-  return r.units.map((u) => u.value).filter((v) => belongs(v, sp) && flow.has(v) && !r.forced.includes(v));
+  return r.units.map((u) => u.value).filter((v) => belongs(v, sp) && flow.has(v) && !r.forced.includes(v) && v !== EXECUTOR_TIME);
 }
 
 export function forcedBy(criteriaDir, row, sp) {
