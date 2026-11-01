@@ -258,7 +258,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 |---|---|---|
 | 実行した各機能の返り値 | run を 1 つ以上起動したとき | 機能の列の順に、各 run の返り値をそのまま載せる（共通の項目は SP-BPRUN-032、機能に固有の項目は `docs/specifications/bp-authoring.md`・`docs/specifications/bp-inspection.md`、指摘と台帳の項目は SP-BPFINDINGS-030） |
 | 未実行の機能 | 連鎖が完了以外で止まったとき（SP-BPENTRY-008・017） | 機能の列のうち起動しなかった機能を、列の順に |
-| 再開の仕方 | 最後に起動した run が完了以外で止まったとき | その run の next_args をそのまま載せ、停止の種類ごとに再開の前に利用者がすること（needs_input では回答を足す、BLOCKED では原因を直す）を添える（SP-BPRUN-014）。run が next_args を返さなかったとき（状態を作らずに止まったとき：SP-BPRUN-032）は、next_args の代わりに、入力を直して新しく起動することを添える |
+| 再開の仕方 | 最後に起動した run が完了以外で止まったとき | その run の next_args をそのまま載せ、停止の種類ごとに再開の前に利用者がすること（needs_input では回答を足す、BLOCKED では原因を直す）を添える（SP-BPRUN-014）。run が next_args を返さなかったとき（状態を作らずに止まったとき：SP-BPRUN-032）は、next_args の代わりに、入力を直して新しく起動することを添える。再開が開始で拒まれ、状態が変わっていないとき（返り値の `startRejected` が `true`：SP-BPRUN-032）は、前の run の停止ではなく拒否の理由を載せ、その理由を直してから同じ next_args で再開することを添える |
 | 当たらなかった部分 | SP-BPENTRY-011・012 のとき | 依頼の該当する文言 |
 | 当たる機能が無いこと | SP-BPENTRY-011 のとき | 当たる機能が無いことと、4 機能の名前 |
 | 組めない・起動できない理由 | SP-BPENTRY-018・019・020・023 のとき | 各項目が定める内容 |
@@ -299,6 +299,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 振り分けの eval（対象スキルを特定できない依頼で run を起動せずに尋ねる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（`startRejected` が `true` の再開の返り値で、`chain-report` の返り値と再開の仕方に前の run の停止が載らず、拒否の理由と、同じ next_args で再開することが載る） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-004 | 振り分けの eval（順を述べた依頼と述べない依頼で、期待する列になる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 連鎖の結合テスト（前の run の返り値より前に次の run が起動されない） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 連鎖の結合テスト（前の run が needs_input・BLOCKED で止まると次の run を起動せず、未実行の機能を返す） | 完了 |

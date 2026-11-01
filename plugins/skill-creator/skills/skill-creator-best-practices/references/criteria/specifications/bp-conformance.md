@@ -271,7 +271,7 @@ create・update は、対象スキルの役ごとの制限について、配布�
 | 読めない | * | PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の判定の単位のうち設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014）を、Claude Code について強いられた未検査とする（create・update の合否を妨げない。保留の根拠は `docs/specifications/bp-authoring.md` の用語「強いられた未検査」）。PR-BPDESIGNEDSKILL-046 の判定の単位を適合とする（効かないと確かめた制限が無い） |
 
 #### SP-BPCONFORMANCE-020 確かめられなかった制限の報告
-SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・update は「残る危険」として結果に載せなければならない。載せる項目は、役の名前・制限の中身・配布先・確かめられなかった理由の 4 つである。一覧を読めないときの Claude Code の理由は、無視される設定の一覧を読めないこととする。一覧に照らした制限は、Claude Code で確かめられなかった制限として載せない。結果の中のどこに載せるかは、`docs/specifications/bp-authoring.md` の完了時の出力を正とする。
+SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・update は「残る危険」として結果に載せなければならない。載せる項目は、役の名前・制限の中身・配布先・確かめられなかった理由の 4 つである。役の名前は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の役の名前の規則に従う（定義のファイルを持たない役は `agent()` の呼び出しの `label`）。一覧を読めないときの Claude Code の理由は、無視される設定の一覧を読めないこととする。一覧に照らした制限は、Claude Code で確かめられなかった制限として載せない。結果の中のどこに載せるかは、`docs/specifications/bp-authoring.md` の完了時の出力を正とする。
 
 ### fan-out の起動数の上限
 
@@ -409,7 +409,7 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 
 - 次の 4 項目は、違反を仕込む review の試走（試走の表の「review の試走」）にだけ当てる。仕込まない試走は、4 項目の後の 2 項目に従う。
 - review の試走の題材は、判定表の「探索グラフ型・資産台帳 有・fan-out 有」の行に到達する対象スキルとする（1 回の review が到達する判定表の行は 1 つなので、当たる単位の最も多い行を選ぶ）。違反を仕込む前の版の review で指摘が 0 件になることを、先に確かめる（基準の run。省くと、仕込んだ違反と元からの違反を見分けられない）。
-- フローの観点の違反は資産 1 つに 1 つだけ仕込む（同じ資産の違反どうしが干渉すると、指摘がどの違反に当たったかを読めない）。仕様の観点の違反は確定値ごとに script の定数へ仕込み、同じ資産に置いてよい（script のファイルは 1 つの資産で、指摘の種類が仕様項目 ID なので読み分けられる）。行ごとに当たり・偽陽性・偽陰性を読む。1 つの要求の判定の単位を 2 つ以上持つ仕様項目（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）は単位を無作為に 1 つ選んで仕込み、選ばなかった単位は確かめていないと宣言する。仕込んだ単位と測る行は正解表（`tests/bp/trial/fixtures/review-target.expected.json`）を正とする。
+- フローの観点の違反は資産 1 つに 1 つだけ仕込む（同じ資産の違反どうしが干渉すると、指摘がどの違反に当たったかを読めない）。仕様の観点の違反は確定値ごとに script の定数へ仕込み、同じ資産に置いてよい（script のファイルは 1 つの資産で、指摘の種類が仕様項目 ID なので読み分けられる）。行ごとに当たり・偽陽性・偽陰性を読む。判定の単位が設計方針文書の表の行・定義の箇条書きの項目・仕様項目の本文の表の行の形（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の値の形）の仕様項目は、単位を無作為に 1 つ選んで仕込み、選ばなかった単位は確かめていないと宣言する。判定の単位が要求の形の SP-BPCONFORMANCE-019 は選ばずに、PR-BPDESIGNEDSKILL-046 の単位に一覧の設定に頼る制限を 1 つ仕込み、PR-BPDESIGNEDSKILL-014 の単位には仕込まない（一覧を読める写しでは、PR-BPDESIGNEDSKILL-014 の単位は判定表のどの行でも不適合にならない）。PR-BPDESIGNEDSKILL-014 の単位は、指摘も未検査の観点も無いこと（適合）を読む。仕込んだ単位と測る行は正解表（`tests/bp/trial/fixtures/review-target.expected.json`）を正とする。
 - 次のどれかに当たれば、仕込んだ全ての行を「作成中」のままにする（一部だけを「完了」にしない。どれも、指摘の有無を違反の当たり・外れとして読めなくする）。
   - 基準の run が完了で止まっていないか、open の指摘が 0 件でないか、題材の判定表の行に着かない。
   - 仕込んだ版の run が完了で止まっていないか、題材の判定表の行に着かない。
@@ -476,7 +476,7 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPDESIGNEDSKILL-046 | SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-019 | 一覧の設定に頼る制限を持つ fixture で、PR-BPDESIGNEDSKILL-046 の判定の単位が不適合になり、PR-BPDESIGNEDSKILL-014 の判定の単位が Claude Code について適合のままであることを照合 | 未着手 |
 | PR-BPDESIGNEDSKILL-049 | SP-BPCONFORMANCE-019, SP-BPCONFORMANCE-020 | 一覧の記述を消した写しで、全ての制限が Claude Code の残る危険に載ることを照合 | 未着手 |
 | PR-BPDESIGNEDSKILL-050 | SP-BPCONFORMANCE-019 | 一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の判定の単位が強いられた未検査になり不適合にならないことを照合 | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-003 | W がはいの fixture で、1 つ目の要素と 2 つ目の要素の両方の `assets` にある資産の資産台帳か fan-out が run の並びと分けた run の両方の行の条件に入り、両方の行で判定されることを照合 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-003 | W がはいの fixture で、1 つ目の要素と 2 つ目の要素の両方の `assets` にある資産の資産台帳か fan-out が run の並びと分けた run の両方の行の条件に入り、両方の行で判定されることを照合。1 つ目の要素の `assets` だけにある資産と、どの要素の `assets` にも無い資産のそれぞれについて、その資産の資産台帳か fan-out が run の並びの行の条件にだけ入り、分けた run の行の条件に入らないことを照合 | 未着手 |
 | PR-BPDESIGNEDSKILL-028 | SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-039 | 段か入力の欄を欠いた fixture と、段の境界を 1 つも持たない run で段の欄を空欄にした fixture で不適合、段が無いことを書いた fixture で適合を照合 | 未着手 |
 | PR-BPDESIGNEDSKILL-051 | SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-041 | 見出し行の無い fixture・見出し行が 2 つの fixture・区切り行の無い fixture・理由の空いたデータ行を持つ fixture で不適合と行番号の理由、データ行が 0 行の fixture・判断点の抜けた表で対がそろう fixture・判断点の層以外に置いたものに理由が無い fixture で適合を照合。フェンスの中に見出し行の例を置いた fixture で、例が数えられないことを照合。どの fixture でも、create・update の残る危険と review の未検査の観点に網羅の理由の 1 件があることを照合 | 未着手 |
 | PR-BPDESIGNEDSKILL-029 | SP-BPCONFORMANCE-039 | 記録台帳の無い fixture で不適合を照合 | 未着手 |
