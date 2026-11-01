@@ -5,7 +5,7 @@ import {
 import { resolveCallsites } from './callsites.mjs';
 import { checkFunction } from './checks.mjs';
 import { reject } from './errors.mjs';
-import { conformanceValue, roleModels } from './kinds.mjs';
+import { ownConcurrency, roleModels } from './kinds.mjs';
 import { excludedOf, outcome } from './ops-author.mjs';
 import { list } from './ops-run.mjs';
 import { readState } from './store.mjs';
@@ -136,12 +136,12 @@ export async function launchArgs(ctx, req) {
   }
   const stray = Object.keys(input).filter((k) => !allowed.includes(k));
   if (stray.length) reject(CODES.input, `${req.launch === LAUNCH_KINDS.new ? '新しい状態での起動' : '再開'}の ${fn} に渡さない項目がある: ${stray.join(', ')}（SP-BPENTRY-013）`);
-  const args = { ...input, [INPUT_KEYS.skillDir]: ctx.skillDir, [INPUT_KEYS.key]: req.key };
+  const args = { ...input, [INPUT_KEYS.skillDir]: ctx.skillDir, [INPUT_KEYS.key]: req.key, [INPUT_KEYS.host]: req.route };
   const out = { route: req.route, source: sourceOf(fn), args };
   if (req.route === ROUTES.codex) {
     args[INPUT_KEYS.maxLaunches] = RUNNER_REQUEST.maxAgents;
     out.request = {
-      limits: { maxAgents: RUNNER_REQUEST.maxAgents, timeoutMs: RUNNER_REQUEST.timeoutMs, concurrency: conformanceValue(ctx.criteriaDir, 'SP-BPCONFORMANCE-027', '体') },
+      limits: { maxAgents: RUNNER_REQUEST.maxAgents, timeoutMs: RUNNER_REQUEST.timeoutMs, concurrency: ownConcurrency(ctx.criteriaDir) },
       modelMap: Object.fromEntries(modelNames(ctx.criteriaDir).map((m) => [m, null])),
       workspace: { mode: RUNNER_REQUEST.mode },
       requirements: [RUNNER_REQUEST.mode],

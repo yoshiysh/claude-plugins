@@ -10,10 +10,7 @@
     }
   ],
   "testDirectories": [
-    {
-      "path": "tests",
-      "prefix": "bp-"
-    },
+    "tests/bp",
     {
       "path": "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp"
     }

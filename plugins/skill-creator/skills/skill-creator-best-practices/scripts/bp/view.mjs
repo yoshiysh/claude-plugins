@@ -22,6 +22,7 @@ export function buildView(lines) {
     items: new Map(),
     iterations: 0,
     repeats: new Map(),
+    lastRepeats: new Map(),
     files: [],
     verified: [],
     ledger: null,
@@ -41,12 +42,16 @@ export function buildView(lines) {
     targets: [],
     bundles: [],
     applicability: null,
+    placements: [],
+    workLogs: [],
     lineRuns: new Map(),
+    lineOps: new Map(),
   };
   let n = 0;
   for (const line of lines) {
     v.lastSeq = line.seq;
     v.lineRuns.set(line.seq, line.run);
+    v.lineOps.set(line.seq, line.op);
     for (const record of line.records) {
       n += 1;
       const r = { ...record, seq: n, line: line.seq };
@@ -96,7 +101,7 @@ function apply(v, r) {
     case RECORDS.fail: v.items.get(r.item).fails.push(r); break;
     case RECORDS.abort: v.items.get(r.item).aborted = r; break;
     case RECORDS.discard: v.items.get(r.item).discarded = r; break;
-    case RECORDS.repeat: v.repeats.set(r.stage, Math.max(v.repeats.get(r.stage) ?? 0, r.n)); break;
+    case RECORDS.repeat: v.repeats.set(r.stage, Math.max(v.repeats.get(r.stage) ?? 0, r.n)); v.lastRepeats.set(r.stage, r); break;
     case RECORDS.file: v.files.push(r); break;
     case RECORDS.verified: v.verified.push(r); break;
     case RECORDS.ledger: v.ledger = r; break;
@@ -145,6 +150,8 @@ function apply(v, r) {
     case RECORDS.target: v.targets.push(r); break;
     case RECORDS.bundle: v.bundles.push(r); break;
     case RECORDS.applicability: v.applicability = r; break;
+    case RECORDS.placement: v.placements.push(r); break;
+    case RECORDS.workLog: v.workLogs.push(r); break;
     default: throw new Error(`未知の記録の種類: ${r.t}`);
   }
 }

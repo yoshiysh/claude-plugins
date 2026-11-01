@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { FUNCTION, CRITERIA_CHAPTERS, CRITERIA_FILES, PRINCIPLE_HEADER, UPDATE_ONLY_MARK } from './constants.mjs';
+import { CONFORMANCE_SP, FUNCTION, CRITERIA_CHAPTERS, CRITERIA_FILES, PRINCIPLE_HEADER, UPDATE_ONLY_MARK } from './constants.mjs';
 import { scanMarkdown } from './assets.mjs';
 import { internal } from './errors.mjs';
 
@@ -128,6 +128,33 @@ export function conformanceUnits(criteriaDir) {
   return out;
 }
 
+// SP-BPFINDINGS-010 の最後から 2 つ目の段落の除き方。検証役に渡す単位と閉集合は全てここを通す。
+export function verifierUnits(units) {
+  return units.filter((u) => u.value !== CONFORMANCE_SP.placement);
+}
+
+export function placementUnit(criteriaDir) {
+  return conformanceUnits(criteriaDir).find((s) => s.sp === CONFORMANCE_SP.placement)?.units[0] ?? null;
+}
+
+const COVERAGE_RULE = /理由は「([^」]+)」とし、この文言は本項だけに置く/;
+
+// SP-BPCONFORMANCE-041 の網羅の理由。文言は同項だけに置くので写しから読む。
+export function coverageReason(criteriaDir) {
+  const node = parseDoc(read(criteriaDir, 'conformance')).find((n) => n.level === 4 && n.text.startsWith(CONFORMANCE_SP.placement));
+  return node ? COVERAGE_RULE.exec(node.body.join('\n'))?.[1] ?? null : null;
+}
+
+const IGNORED_SETTINGS = /無視されるのは `[^`]+`/;
+
+// 無視される設定の一覧（設計方針文書「形の判定」の節で設定を名前で挙げた記述）を写しから読めるか（SP-BPCONFORMANCE-019）。
+export function ignoredSettingsReadable(criteriaDir) {
+  let nodes;
+  try { nodes = parseDoc(read(criteriaDir, 'design')); } catch { return false; }
+  const section = nodes.find((n) => n.level === 2 && n.text === '形の判定');
+  return Boolean(section && [section, ...descendants(nodes, section)].some((n) => n.body.some((l) => IGNORED_SETTINGS.test(l))));
+}
+
 export function specUnits(criteriaDir) {
   const spec = parseDoc(read(criteriaDir, 'conformance'));
   return specItems(spec, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix)).map((i) => ({ value: i.id, meaning: i.title }));
@@ -147,7 +174,7 @@ export function conformanceTable(criteriaDir, headingPrefix, firstHeader) {
 
 // SP-BPCONFORMANCE-035 の best-practices の役の表を読む唯一の関数（役・model・effort）。
 export function roleModels(criteriaDir) {
-  return conformanceTable(criteriaDir, 'SP-BPCONFORMANCE-035', 'best-practices の役').rows.map(([role, model, effort]) => ({ role, model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }));
+  return conformanceTable(criteriaDir, CONFORMANCE_SP.roleModels, 'best-practices の役').rows.map(([role, model, effort]) => ({ role, model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }));
 }
 
 // 確定値の仕様項目の本文の「<数> <単位>以下」を読む（値を CLI に書き写さない）。
@@ -155,6 +182,14 @@ export function conformanceValue(criteriaDir, id, unit) {
   const node = parseDoc(read(criteriaDir, 'conformance')).find((n) => n.level === 4 && n.text.startsWith(id));
   const m = node && new RegExp(`(\\d+) ${unit}以下`).exec(node.body.join('\n'));
   if (!m) internal(`${id} に「<数> ${unit}以下」が無い`);
+  return Number(m[1]);
+}
+
+// best-practices 自身の同時実行の定数 CONCURRENCY の値（SP-BPCONFORMANCE-027 の本文）。
+export function ownConcurrency(criteriaDir) {
+  const node = parseDoc(read(criteriaDir, 'conformance')).find((n) => n.level === 4 && n.text.startsWith('SP-BPCONFORMANCE-027'));
+  const m = node && /`CONCURRENCY` の値は (\d+) とする/.exec(node.body.join('\n'));
+  if (!m) internal('SP-BPCONFORMANCE-027 に best-practices 自身の CONCURRENCY の値が無い');
   return Number(m[1]);
 }
 
@@ -181,15 +216,24 @@ export function flowExclusions(criteriaDir) {
   return excluded;
 }
 
+function roleModelUnits(criteriaDir) {
+  if (!hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix))) return [];
+  return specUnits(criteriaDir).filter((u) => u.value === CONFORMANCE_SP.roleModels);
+}
+
+export function conformanceKinds(criteriaDir) {
+  return verifierUnits([...conformanceUnits(criteriaDir).flatMap((s) => s.units), ...roleModelUnits(criteriaDir)]);
+}
+
 export function flowUnits(criteriaDir) {
   const excluded = new Set(flowExclusions(criteriaDir).map((e) => e.unit));
-  return conformanceUnits(criteriaDir).flatMap((s) => s.units).filter((u) => !excluded.has(u.value));
+  return conformanceKinds(criteriaDir).filter((u) => !excluded.has(u.value));
 }
 
 const BUILDERS = Object.freeze({
   flow: (dir) => flowUnits(dir),
-  conformance: (dir) => conformanceUnits(dir).flatMap((s) => s.units),
-  spec: (dir) => specUnits(dir),
+  conformance: (dir) => conformanceKinds(dir),
+  spec: (dir) => specUnits(dir).filter((u) => u.value !== CONFORMANCE_SP.roleModels),
   goal: (dir, fn) => authoringUnits(dir, '目標', fn),
   contract: (dir, fn) => authoringUnits(dir, '契約', fn),
   audit: (dir) => auditUnits(dir),

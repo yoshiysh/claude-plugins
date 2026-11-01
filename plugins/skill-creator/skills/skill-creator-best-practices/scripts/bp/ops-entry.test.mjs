@@ -47,7 +47,7 @@ test('SP-BPENTRY-013: launch-args は起動の種類 × 項目の表のとおり
   const ctx = { skillDir: SKILL_DIR, criteriaDir: CRITERIA };
   for (const fn of FUNCTIONS) {
     const out = await launchArgs(ctx, { route: ROUTES.native, launch: LAUNCH_KINDS.new, key: 'k1', input: NEW_INPUT[fn] });
-    assert.deepEqual(out.args, { ...NEW_INPUT[fn], skillDir: SKILL_DIR, key: 'k1' });
+    assert.deepEqual(out.args, { ...NEW_INPUT[fn], skillDir: SKILL_DIR, key: 'k1', host: ROUTES.native });
     assert.equal(out.source, fn === 'create' || fn === 'update' ? WORKFLOW_SOURCES.author : WORKFLOW_SOURCES.inspect);
     const missing = Object.keys(NEW_INPUT[fn]).filter((k) => k !== 'function');
     for (const k of missing) {
@@ -60,7 +60,7 @@ test('SP-BPENTRY-013: launch-args は起動の種類 × 項目の表のとおり
     }
   }
   const resumed = await launchArgs(ctx, { route: ROUTES.native, launch: LAUNCH_KINDS.resume, key: 'k2', input: { ...RESUME_INPUT, answer: '回答' } });
-  assert.deepEqual(resumed.args, { ...RESUME_INPUT, answer: '回答', skillDir: SKILL_DIR, key: 'k2' });
+  assert.deepEqual(resumed.args, { ...RESUME_INPUT, answer: '回答', skillDir: SKILL_DIR, key: 'k2', host: ROUTES.native });
   assert.equal(resumed.source, WORKFLOW_SOURCES.author);
   for (const k of [INPUT_KEYS.function, INPUT_KEYS.request, INPUT_KEYS.target, INPUT_KEYS.grounds, INPUT_KEYS.maxLaunches, INPUT_KEYS.skillDir]) {
     await rejects(launchArgs(ctx, { route: ROUTES.native, launch: LAUNCH_KINDS.resume, key: 'k2', input: { ...RESUME_INPUT, [k]: 'x' } }), CODES.input);
@@ -68,6 +68,18 @@ test('SP-BPENTRY-013: launch-args は起動の種類 × 項目の表のとおり
   await rejects(launchArgs(ctx, { route: ROUTES.native, launch: LAUNCH_KINDS.resume, key: 'k2', input: {} }), CODES.input);
   await rejects(launchArgs(ctx, { route: 'other', launch: LAUNCH_KINDS.new, key: 'k', input: NEW_INPUT.review }), CODES.input);
   await rejects(launchArgs(ctx, { route: ROUTES.native, launch: LAUNCH_KINDS.new, input: NEW_INPUT.review }), CODES.input);
+});
+
+test('SP-BPENTRY-013・SP-BPENTRY-016: launch-args が Codex runner の経路で出す request の limits.concurrency が 3 で、どちらの経路でも args が route と同じ値の host を持ち、入力の host を拒否する', async () => {
+  const ctx = { skillDir: SKILL_DIR, criteriaDir: CRITERIA };
+  for (const route of Object.values(ROUTES)) {
+    for (const [launch, input] of [[LAUNCH_KINDS.new, NEW_INPUT.review], [LAUNCH_KINDS.resume, RESUME_INPUT]]) {
+      const out = await launchArgs(ctx, { route, launch, key: 'k', input });
+      assert.equal(out.args.host, route);
+      if (route === ROUTES.codex) assert.equal(out.request.limits.concurrency, 3);
+      await rejects(launchArgs(ctx, { route, launch, key: 'k', input: { ...input, host: route } }), CODES.input);
+    }
+  }
 });
 
 test('SP-BPENTRY-015・SP-BPENTRY-016: launch-args は native の起動に上限と request を付けず、codex の起動には新規・再開とも limits.maxAgents と同じ上限と、limits・modelMap の全ての鍵・書き込みのできる mode・requirements を持つ request を付ける', async () => {
@@ -93,7 +105,7 @@ test('SP-BPENTRY-007・SP-BPENTRY-008: chain-next は止まっていない前の
   const ctx = entryCtx(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const started = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const started = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root }, limits: LIMITS });
   const running = await chainNext(ctx, { state: started.state, next: 'update' });
   assert.equal(running.proceed, false);
   assert.equal(running.stopKind, null);
@@ -111,8 +123,8 @@ test('SP-BPFINDINGS-031・SP-BPAUTHORING-029: 開始の操作は、完了で止�
   const ctx = entryCtx(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const review = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
-  const update = (grounds, r = root) => run.start(ctx, { key: newKey(), function: 'update', target: { root: r }, limits: LIMITS, grounds });
+  const review = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const update = (grounds, r = root) => run.start(ctx, { host: 'native', key: newKey(), function: 'update', target: { root: r }, limits: LIMITS, grounds });
   await rejects(update([{ from: review.state }]), CODES.input);
   await run.stop(ctx, { state: review.state, run: review.run, kind: STOP_KINDS.blocked, reason: '止めた', launches: 3 });
   await rejects(update([{ from: review.state }]), CODES.input);

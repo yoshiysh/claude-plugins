@@ -28,8 +28,8 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = pull_request ]; then
             git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
-            run=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
-              tests/formal/bp-prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
+            run=$(sh tests/bp/formal/prd/prd_sections.sh affected tests/bp/formal/prd/PRD.sections \
+              tests/bp/formal/prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
           else
             run=true
           fi
@@ -61,7 +61,7 @@ jobs:
           command -v java
           command -v rustc
           command -v shasum
-          tests/formal/bp-prd/check.sh
+          tests/bp/formal/prd/check.sh
 
   verification:
     runs-on: ubuntu-latest

@@ -9,6 +9,8 @@ import * as ledger from './bp/ops-ledger.mjs';
 import * as author from './bp/ops-author.mjs';
 import * as inspect from './bp/ops-inspect.mjs';
 import { HANDLERS as ENTRY_HANDLERS } from './bp/ops-entry.mjs';
+import { placement } from './bp/placement.mjs';
+import { record } from './bp/worklog.mjs';
 import { locateState } from './bp/store.mjs';
 import { resolvePayload, sealResponse, verifyRequest } from './bp/transport.mjs';
 
@@ -50,6 +52,8 @@ const HANDLERS = {
   [OPS.bundle]: inspect.bundle,
   [OPS.applicability]: inspect.applicability,
   [OPS.stopDraft]: run.stopDraft,
+  [OPS.placement]: placement,
+  [OPS.record]: record,
   ...ENTRY_HANDLERS,
 };
 

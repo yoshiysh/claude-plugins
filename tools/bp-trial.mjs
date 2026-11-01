@@ -21,7 +21,7 @@ import { TRACE_STATUSES } from './lib/bp-docs.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL_REL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 export const SKILL_DIR = path.join(REPO_ROOT, SKILL_REL);
-export const TRIAL_DIR = path.join(REPO_ROOT, 'tests', 'fixtures', 'bp-trial');
+export const TRIAL_DIR = path.join(REPO_ROOT, 'tests', 'bp', 'trial', 'fixtures');
 export const RUNS_FILE = path.join(TRIAL_DIR, 'runs.json');
 export const RECORDS_DIR = path.join(TRIAL_DIR, 'records');
 export const EXPECTED_FILE = path.join(TRIAL_DIR, 'review-target.expected.json');
@@ -475,7 +475,7 @@ export async function main(argv) {
     const r = await record(name, argv[s + 1]);
     return { exitCode: EXIT.ok, text: `${name} の記録を書いた（${r.result.stopKind}、起動 ${r.launches.total}）` };
   }
-  return { exitCode: EXIT.usage, text: '使い方: node tools/bp-trial.mjs prepare <run> | record <run> --state <状態 ID>（run は tests/fixtures/bp-trial/runs.json の名前。試走の worktree の中で走らせる）' };
+  return { exitCode: EXIT.usage, text: '使い方: node tools/bp-trial.mjs prepare <run> | record <run> --state <状態 ID>（run は tests/bp/trial/fixtures/runs.json の名前。試走の worktree の中で走らせる）' };
 }
 
 if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {

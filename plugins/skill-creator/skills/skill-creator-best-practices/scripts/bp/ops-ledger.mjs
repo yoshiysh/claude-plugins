@@ -63,6 +63,10 @@ function fpsOf(view, assetIds) {
   return fps;
 }
 
+function liveAssetIds(view) {
+  return new Set([...view.assets.values()].filter((a) => !a.gone).map((a) => a.id));
+}
+
 export function rejected(scope, attempt, assignment, payload, reason) {
   return {
     records: [{ t: RECORDS.rejected, scope, attempt, sum: sum(payload ?? null), assignment, reason }],
@@ -194,11 +198,12 @@ export function verdicts(ctx, req) {
     const fn = view.state.function;
     const inspecting = INSPECTING_FUNCTIONS.has(fn);
     const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds)
-      ?? (REWRITING_FUNCTIONS.has(fn) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null)
+      ?? (REWRITING_FUNCTIONS.has(fn) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view), assetIds: liveAssetIds(view) }) : null)
       ?? (inspecting ? checkInspectExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, fn, viewpoints: runViewpoints(view), forced: view.applicability?.forced ?? [] }) : null);
     if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
     const records = [resultRecord];
-    const extra = REWRITING_FUNCTIONS.has(fn) ? extraFields(req.viewpoint, req.result) : inspecting ? inspectExtraFields(req.result) : null;
+    const coverageDone = [...view.extras.values()].some((x) => x.viewpoint === req.viewpoint && view.items.get(x.item)?.round === item.round && x.data?.residualRisks?.some((r) => r.sp));
+    const extra = REWRITING_FUNCTIONS.has(fn) ? extraFields(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assetIds: liveAssetIds(view), coverageDone }) : inspecting ? inspectExtraFields(req.result) : null;
     if (extra) records.push({ t: RECORDS.extra, item: req.item, viewpoint: req.viewpoint, data: extra });
     for (const j of req.result.judgements) {
       records.push({ t: RECORDS.seen, item: req.item, asset: j.asset, viewpoint: req.viewpoint, assignment: assignment.id, fpset: assignment.fpset, digest: assignment.fps[j.asset], value: j.judgement });

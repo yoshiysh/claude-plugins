@@ -8,7 +8,7 @@ import { CODES, OUTCOMES, REJECT_SCOPE, STATES_DIR } from './constants.mjs';
 import { fingerprintSet } from './ids.mjs';
 import { readAll } from './journal.mjs';
 import { buildView } from './view.mjs';
-import { CRITERIA_FIXTURE, LIMITS, context, skillDir, newKey } from './fixtures/harness.mjs';
+import { CRITERIA_FIXTURE, LIMITS, answersFor, context, skillDir, newKey } from './fixtures/harness.mjs';
 import { applicability } from './units.mjs';
 
 const K1 = 'SP-BPCONFORMANCE-010/目標の固定/t2/r1';
@@ -30,7 +30,7 @@ async function setup(t, { fn = 'update', files = FOUR, ctx: given } = {}) {
   const ctx = given ?? context(t);
   if (!ctx) return {};
   const root = await skillDir(t, files);
-  const s = await run.start(ctx, { key: newKey(), function: fn, target: { root }, limits: LIMITS, ...(fn === 'update' ? { grounds: [{ text: 'a' }] } : {}) });
+  const s = await run.start(ctx, { host: 'native', key: newKey(), function: fn, target: { root }, limits: LIMITS, ...(fn === 'update' ? { grounds: [{ text: 'a' }] } : {}) });
   const req = { state: s.state, run: s.run };
   const made = await ledger.ledgerCreate(ctx, req);
   const byLoc = (name) => made.assets.find((a) => JSON.stringify(a.loc).includes(name) || a.path === name)?.id;
@@ -41,7 +41,7 @@ async function setup(t, { fn = 'update', files = FOUR, ctx: given } = {}) {
 const ROW = applicability(CRITERIA_FIXTURE)[0];
 function withExtra(viewpoint, result) {
   const extra = {
-    conformance: { applicability: { row: ROW.row }, units: ROW.units.map((u) => ({ unit: u.value, result: 'conform', reason: 'r' })), residualRisks: [] },
+    conformance: { applicability: answersFor(ROW, result.judgements?.[0]?.asset), units: ROW.units.map((u) => ({ unit: u.value, result: 'conform', reason: 'r' })), residualRisks: [], checkedRoleLimits: [] },
     goal: { basisConstraints: [] },
     contract: { contractChanges: [] },
   }[viewpoint] ?? {};
@@ -93,7 +93,7 @@ test('SP-BPFINDINGS-033 @error:empty-ledger: ファイルが 0 件の対象ス�
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t, { 'SKILL.md': '' });
-  const s = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const s = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root }, limits: LIMITS });
   await assert.rejects(ledger.ledgerCreate(ctx, { state: s.state, run: s.run }), (e) => e.code === CODES.input && /0 件/.test(e.reason));
   assert.equal((await viewOf(ctx, s.state)).ledger, null);
 });
@@ -216,7 +216,7 @@ test('SP-BPFINDINGS-011: 別の台帳 ID の台帳では指摘 ID が異なり�
   const f2 = (await refuteAll(ctx, two.req, 1, 'uphold'))[0].finding;
   assert.notEqual(f1, f2);
   await fs.writeFile(path.join(one.root, 'SKILL.md'), '---\nname: y\n---\n# A\na\n# B\nb\n');
-  const r2 = await run.start(ctx, { key: newKey(), state: one.req.state });
+  const r2 = await run.start(ctx, { host: 'native', key: newKey(), state: one.req.state });
   const req2 = { state: one.req.state, run: r2.run };
   assert.equal(r2.retake.counts.changed, 1);
   await verify(ctx, req2, { round: 2, judgements: allJudged(one.assets, 'ok', { [a1]: 'candidate' }), candidates: [cand(a1, K1, 'conformance', '再開後')] });
@@ -367,7 +367,7 @@ test('SP-BPFINDINGS-018: 却下された候補と同じ内容の候補が別の�
 test('SP-BPFINDINGS-019: 前の run が open を記録した指摘に、再開した run で「存在しない」を与えると、状態が記録されず見直しの判定だけが記録される', async (t) => {
   const { ctx, req, root, finding } = await openFinding(t);
   if (!ctx) return;
-  const r2 = await run.start(ctx, { key: newKey(), state: req.state });
+  const r2 = await run.start(ctx, { host: 'native', key: newKey(), state: req.state });
   const req2 = { state: req.state, run: r2.run };
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nfixed\n');
   await ledger.ledgerRetake(ctx, req2);
@@ -559,7 +559,7 @@ test('SP-BPRUN-031: 台帳の書き込みの操作が SP-BPRUN-017 に反する�
   await ledger.verdicts(ctx, { ...req, item: items[0], assignment: sid, viewpoint: 'conformance', result });
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
   const refute = await run.stageStart(ctx, { ...req, stage: 'refute', round: 1, keys });
-  await run.start(ctx, { key: newKey(), state: req.state });
+  await run.start(ctx, { host: 'native', key: newKey(), state: req.state });
   const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state));
   const calls = {
     ledgerCreate: { ...req },
@@ -729,7 +729,7 @@ test('SP-BPFINDINGS-033 @recovery:populate-after-rejection: 空の台帳を拒�
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t, { 'SKILL.md': '' });
-  const started = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const started = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root }, limits: LIMITS });
   const req = { state: started.state, run: started.run };
   await assert.rejects(ledger.ledgerCreate(ctx, req), (error) => error.code === CODES.input && /0 件/.test(error.reason));
   assert.equal((await viewOf(ctx, started.state)).ledger, null);
@@ -748,7 +748,7 @@ test('SP-BPFINDINGS-033: 資産数 0 と 1 の境界で台帳の有無が変わ�
       const ctx = context(t);
       if (!ctx) return;
       const root = await skillDir(t, { 'SKILL.md': text });
-      const started = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+      const started = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root }, limits: LIMITS });
       const req = { state: started.state, run: started.run };
       if (expected === 0) {
         await assert.rejects(ledger.ledgerCreate(ctx, req), (error) => error.code === CODES.input && /0 件/.test(error.reason));

@@ -17,7 +17,7 @@ export const meta = {
 }
 
 // 以下の定数は CLI の scripts/bp/constants.mjs と仕様の表の写し。script は import できないので写しを持ち、
-// 一致は tests/bp-spelling.test.mjs が照らす（写しを 1 字でも変えるとテストが落ちる）。本文が閉集合の値をリテラルで書き直すと照合の外に出るので、
+// 一致は tests/bp/docs/spelling.test.mjs が照らす（写しを 1 字でも変えるとテストが落ちる）。本文が閉集合の値をリテラルで書き直すと照合の外に出るので、
 // 本文は定数から引く（同じテストが本文のリテラルと prompt の引用を照らす）。
 const OPS = {
   start: 'start', premise: 'premise', stageStart: 'stage-start', itemResult: 'item-result', itemFail: 'item-fail',
@@ -101,7 +101,7 @@ const CONCURRENCY = 3
 // 検証役の大きい結果を運搬役に写させないため作業ファイルで渡す。本物の agent での拒否の率は未実測（公開前の本物の agent での試走で測る）。
 const PAYLOAD_MODE = 'file'
 
-// 起動数の勘定（SP-BPCONFORMANCE-022 の式。値の根拠は tests/bp-author-workflow.test.mjs の最悪の経路の計数）。
+// 起動数の勘定（SP-BPCONFORMANCE-022 の式。値の根拠は tests/bp/workflow/author-workflow.test.mjs の最悪の経路の計数）。
 // RESERVE は停止の前の書き込みの運搬役 1 と停止の運搬役 1（SP-BPRUN-021 の予約分）。
 const WORST = {
   start: 2,

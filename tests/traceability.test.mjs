@@ -10,7 +10,7 @@ import { acquireLock, releaseLock, io } from '../scripts/traceability/lock.mjs';
 import { validatePlans, loadConfig, readSpecs } from '../scripts/traceability/specs.mjs';
 import { runTests, coverageReport } from '../scripts/traceability/runner.mjs';
 import { specIds } from '../tools/lib/bp-docs.mjs';
-import { testTitles } from './helpers/bp-docs.mjs';
+import { testTitles } from './bp/helpers/docs.mjs';
 
 const id = 'SP-BPTEST-001';
 const spec = (status='完了') => ({[id]:{id,status:status === '完了' ? 'complete':'in-progress',rows:[{status,verification:'unit'}]}});
@@ -271,7 +271,7 @@ const pass = name => normalize([{type:'test:pass',data:{testId:1,parentId:0,name
 
 test('test titles and the trace-status check expand ID ranges with one function, so the inner ID of a range is linked', () => {
   const expected = ['SP-BPCONFORMANCE-027','SP-BPCONFORMANCE-028','SP-BPCONFORMANCE-029','SP-BPCONFORMANCE-030','SP-BPCONFORMANCE-031','SP-BPCONFORMANCE-036'];
-  const title = testTitles(fileURLToPath(new URL('./bp-spelling.test.mjs',import.meta.url))).find(x => x.includes('SP-BPCONFORMANCE-027〜031'));
+  const title = testTitles(fileURLToPath(new URL('./bp/docs/spelling.test.mjs',import.meta.url))).find(x => x.includes('SP-BPCONFORMANCE-027〜031'));
   assert.deepEqual(specIds(title),expected);
   const [linked] = pass(title);
   assert.deepEqual(linked.ids,expected);

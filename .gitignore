@@ -8,7 +8,7 @@ __pycache__/
 **/dynamic-workflows/workspace/
 # best-practices の状態は run の記録で、成果物ではないので追跡しない。
 /.best-practices/
-# 試走の道具が worktree に写す題材。記録は tests/fixtures/bp-trial/records/ に写すので、写しそのものは追跡しない。
+# 試走の道具が worktree に写す題材。記録は tests/bp/trial/fixtures/records/ に写すので、写しそのものは追跡しない。
 /.bp-trial/
 # prd-spec の W（SKILL.md S0）: 開発中は [SKILL_DIR] がこのリポジトリの中にある。tests/fixtures/workspace/ は追跡するので anchor する。
 /plugins/workflow/skills/prd-spec/workspace/
