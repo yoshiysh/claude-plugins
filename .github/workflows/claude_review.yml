@@ -16,7 +16,7 @@ jobs:
       ${{ github.event.pull_request.draft == false &&
           github.event.sender.type == 'User' &&
           github.event.pull_request.head.repo.full_name == github.repository }}
-    uses: yoshiysh/github-workflows/.github/workflows/claude-review.yml@9d19a71d56fc9babf47ff037a0e048f47345d076
+    uses: yoshiysh/github-workflows/.github/workflows/claude-review.yml@9d19a71d56fc9babf47ff037a0e048f47345d076 # main
     with:
       runs-on: '"ubuntu-latest"'
       doc-domains: '["developers.openai.com","learn.chatgpt.com","docs.python.org","nodejs.org"]'
