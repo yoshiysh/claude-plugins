@@ -63,6 +63,60 @@ jobs:
           command -v shasum
           tests/bp/formal/prd/check.sh
 
+  formal-bp-spec-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
+            run=$(sh tests/bp/formal/prd/prd_sections.sh affected tests/bp/formal/spec/SPEC.sections \
+              tests/bp/formal/spec/ tests/bp/formal/prd/tlc_cases.sh tests/bp/formal/prd/prd_sections.sh \
+              tools/lib/bp-docs.mjs docs/specifications/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
+          else
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  formal-bp-spec:
+    needs: formal-bp-spec-scope
+    if: needs.formal-bp-spec-scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '11'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.12.0'
+      - name: Download pinned TLC
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+        run: |
+          curl --fail --location --retry 3 --output "$TLA2TOOLS" \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+      - name: Check BP specification models
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+        run: |
+          command -v java
+          command -v node
+          command -v shasum
+          tests/bp/formal/spec/check.sh
+
   verification:
     runs-on: ubuntu-latest
     steps:

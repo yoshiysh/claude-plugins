@@ -1,0 +1,40 @@
+f060547543145560e3132196604a76a66f82f1eaa6b5ebf96595dadf0a25067c	docs/specifications/bp-run.md	#### SP-BPRUN-005 状態の中身
+9570865c809c52f5905db35f2501ed0029608c39648e47232c1071ab7e29fa50	docs/specifications/bp-run.md	#### SP-BPRUN-006 状態の書き込みの規則
+9c1ddc4a4e0943d6ecdec4e406c8db0c8d73acb580000b9243cc65b0d42f1d6b	docs/specifications/bp-run.md	#### SP-BPRUN-010 停止の種類
+8cf8ae6546d8e582a7acf119c8b0f57acb5326419bb31905105ed1699be1da30	docs/specifications/bp-run.md	#### SP-BPRUN-011 停止の記録
+746890fbb6dee19cf5b67a0fd8b1d797e0a20382ea2631cd2ec96653df39c400	docs/specifications/bp-run.md	#### SP-BPRUN-013 反復の上限の数え方
+eae0fcf2bafae0edcc338fe2410588fb54b5c698c21c353160cd31481433450d	docs/specifications/bp-run.md	#### SP-BPRUN-014 再開の起動
+5c95809ea829c794096a9ea60d740dd319326bfa2921f5d09ab96f5d41cca301	docs/specifications/bp-run.md	#### SP-BPRUN-015 再開した run の始め方
+f656439a668f2f619fb3af780213eec64b5f2a83f7ca388b83f6d081419fd03e	docs/specifications/bp-run.md	#### SP-BPRUN-017 現在でない run の書き込み
+a7ea52cb791fd258b3e8bb965406a45de3723cad185553e6b5a9e3d6605fcdf0	docs/specifications/bp-run.md	#### SP-BPRUN-018 停止の記録の無い run からの再開
+657ddacb724bfab21200ced2f87d7bb94ed21b791cb6605798d61a404d727422	docs/specifications/bp-run.md	#### SP-BPRUN-028 fan-out の項目の工程の欠け
+d5e046f5a79ad179ec3d0c4766eebf530ec4659d3f3224e7fa42d58772d79675	docs/specifications/bp-run.md	#### SP-BPRUN-029 全件の欠けと CLI の拒否
+45fecf98400c54a402ec916d0774e12490543e9f0d8d691e4c74556b0f1b7d63	docs/specifications/bp-run.md	#### SP-BPRUN-031 CLI の操作
+e3314473fe53be6b99ce82c2a713f346aaf472e8b0b97757b01918f4bf6f76d7	docs/specifications/bp-run.md	## 状態とイベント
+7982e00955740724bdd9a80eba786620e98b4ee990cc5cddfdd97706bf19b1e7	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-005 段の並びと反復
+9b518811214f8ab4581c27a403be9414130317c51aa0999714d683fa83c841ae	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-036 項目の ID に含める番号
+d834d4054c9dfc09cc019e4468668707063e89e1d362fd05e027c93026cf80b3	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-010 再開した run の目標の固定
+0ce68425cc6357cf0a9c39c916c469576427d70673214a1312978e7b872aa177	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-021 判定の単位の結果
+bc7088939d43c66bb4d9d7e4987045d3640b0d265b06ca13d1bc15d704c510b2	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-023 反復の合否
+0ca563826f67773220851eb034bf71f173e51d4380062e8f1629b3acf65f3e68	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-024 反復の数え方
+21cd1ad8a0924194ad31942ffea8b99f730c1e785c457f46218d17918b8eb6b7	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-025 合否の後の進み方
+665e0acc956319a77cc6486ef1dfa845eeb7bfbf7d402f2dfb0868a483aec625	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-026 完了の条件
+7a3d78978a37a012d57d9bb6d6d57ba0704f9b68c72e0e9654be2095e1918e7d	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-042 形式検証の段
+a3a76372e4526a3fcaf970b2b4f06a014eec1bf792bcae5b2076e9c9d37e6cfa	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-044 形式検証の段を通ったとするとき
+b6010f42b3d09b9be184a7e57d8798fc87273732887e93b055feed19da99cfc4	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-045 形式検証の失敗
+cb3a45d502ae225ed8fc07acfcd3625c6f71cbb1692faf3de73fec1a2f62ab8c	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-027 needs_input で止まるところ
+c7648fe54329e5719358e27a089282bdca460b427929f468aa85882843127563	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-035 再開した run が始めるところ
+2207a6518b25e99f0c85154afd79f0598f13ff3163bd0838ab5f2fe6533fbc9f	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-032 検証の結果
+7c50550bd394dabfb4b4f90e5a5f35cd888a897024802c237f193699c81395a9	docs/specifications/bp-inspection.md	### 形と段
+db1bb8c40bc064b99c69d2f9126981953bbb6915d6b33cdca892d7da6881efb2	docs/specifications/bp-inspection.md	#### SP-BPINSPECTION-019 照合と停止
+02b5e9ac072fc85cd86fcbf4a3e5ede23eee43d350b66386e3b4a1247ee966ee	docs/specifications/bp-inspection.md	#### SP-BPINSPECTION-029 再開したときの照らす先の食い違い
+454674a710c41188ddad8b4a953c22c35c82d6f558451f8a40609dbdd530ad28	docs/specifications/bp-inspection.md	#### SP-BPINSPECTION-030 再開した run の段の順
+e107e5c709ccc3c76df27d13f50d78f78c1ad95b402f082507e9e97354068b4f	docs/specifications/bp-run.md	#### SP-BPRUN-003 run の開始
+109fb2461d69e84cc74b24649c1e78ed85fc176a5dc75bdcda87eeb964ea4ccb	docs/specifications/bp-run.md	#### SP-BPRUN-038 段の開始と項目の列挙
+6d1bf527d48f84f022dc1fae8a0cfaa06d70990c4e4ee5e0c20c71b64b15cf74	docs/specifications/bp-run.md	#### SP-BPRUN-020 上限に収まらない項目
+c0eab26ce93889ce42afdc1635865f1adda301157dbaaa54198d0f04e12f2012	docs/specifications/bp-run.md	#### SP-BPRUN-035 残した項目からの再開の手順
+2fe96cf2e00f2e748b921d8b69d930bc2b99de90d0c6c5f467ab90714fd8c6f2	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-004 作り直す前の写し
+c0fc3cde01ffa14b2aa7202c9c654f5249d08fc8c4cde5ee42b090ecac6250c7	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-008 待たれる入力の不足
+5e69d5c68dba61506d1b710dd88cd1a46fe3f3e8b4740270b28311f71c9134c8	docs/specifications/bp-authoring.md	#### SP-BPAUTHORING-030 検証が成り立たない
+03912b848bc1ac5ca758856d2003e252e12e4c41609905d59f667f0d5b5edccf	docs/specifications/bp-inspection.md	#### SP-BPINSPECTION-004 照らす先の決定
+d5eef598e6f93c3996faa90f76cedf92e7cc8081df015532090eb2915c3f0bfd	docs/specifications/bp-run.md	#### SP-BPRUN-045 文書の一般規約の版を得られないとき
