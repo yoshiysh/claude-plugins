@@ -155,7 +155,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPOPERATIONS-046",
       "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（完了の返り値に観点ごとの skip 一覧が載る）",
+      "method": "fixture の run（完了の返り値の `verification.ledger` に観点ごとの skip 一覧が載り、`verification.ledger` に指摘の一覧が無く、最上位に `skip` が無い）",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -199,7 +199,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPDESIGNEDSKILL-014",
       "spec": "SP-BPAUTHORING-017",
-      "method": "fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、その制限が残る危険に載る）",
+      "method": "fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、一覧を持つ写しでは不適合の指摘になり、一覧の記述を消した写しではその制限が残る危険に載る）",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -219,7 +219,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPDESIGNEDSKILL-015",
       "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（完了の返り値の残る危険に 4 項目があり、SP-BPRUN-032 の項目と別に載る）",
+      "method": "fixture の run（完了の返り値の残る危険に、4 項目の要素と網羅の残る危険の 2 項目の要素 1 件があり、SP-BPRUN-032 の項目と別に載る）",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -318,7 +318,7 @@
       "file": "bp-conformance.md",
       "req": "PR-BPDESIGNEDSKILL-015",
       "spec": "SP-BPCONFORMANCE-020",
-      "method": "確かめられなかった制限が 4 項目そろって結果に載ることを照合",
+      "method": "確かめられなかった制限が 4 項目そろって結果に載り、一覧に照らした制限が Claude Code の行として載らないことを照合",
       "checks": [
         {
           "clause": "照合",
