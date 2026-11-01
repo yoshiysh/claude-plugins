@@ -63,7 +63,7 @@ review と audit の Workflow script は、固定パイプライン型に、観�
 | 5 | 適用の判定 | — | 検証役・運搬役 | review だけ | なし | SP-BPINSPECTION-006 |
 | 6 | 観点ごとの検証 | 観点ごとの検証（項目を並列化する） | 検証役・運搬役 | review・audit | 観点と担当の組（SP-BPINSPECTION-016）。skip 一覧への追加の起動では、観点と追加の起動の担当 | SP-BPINSPECTION-016・018、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-025 |
 | 7 | 反証 | 反証 | 反証役・運搬役 | review・audit | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012 でまとめた指摘の鍵 | SP-BPINSPECTION-018 |
-| 8 | 消えた資産の照合 | 観点ごとの検証（項目を並列化する） | 検証役・運搬役 | review・audit | 消えた資産に結び付いた指摘ごと（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-020） | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-020・SP-BPFINDINGS-037 |
+| 8 | 消えた資産の照合 | 観点ごとの検証（項目を並列化する） | 検証役・運搬役 | review・audit | 照合を終えていない取り直しの回ごとに、その取り直しで消えた資産に結び付いた指摘ごと（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-020） | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-020・SP-BPFINDINGS-037 |
 | 9 | 照合と停止 | — | 運搬役 | review・audit | なし | SP-BPINSPECTION-019、`docs/specifications/bp-run.md` の SP-BPRUN-026・SP-BPRUN-011 |
 
 skip 一覧への追加の起動は、観点ごとの検証の段の中の部品として、段の slug `verify-extra` で記録する（`docs/specifications/bp-run.md` の SP-BPRUN-038）。
@@ -167,7 +167,7 @@ CLI は、受理した答えを状態に書き、W がはいでないときは�
 
 検証役は、判定のために担当の外の資産を読んでよい。判定を返すのは担当の資産だけにしなければならない。
 
-フローの観点の検証役は、PR-BPDESIGNEDSKILL-014 の Claude Code の判定の単位と PR-BPDESIGNEDSKILL-046 の判定の単位を、create・update の適合の観点の検証役と同じく、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 の Claude Code の行と判定表で判定しなければならない。一覧の設定に頼る制限は、制限ごとに PR-BPDESIGNEDSKILL-046 の単位の指摘の候補にする（制限ごとの指摘の種類は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。review は `checkedRoleLimits` を持たないので、効かない制限ごとに候補がそろっているかは検証役の判断だけで決まり、CLI は照らさない。一覧を読めないときに強いられた未検査とした単位（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）は、理由に保留の根拠と一覧を読めないことを書いて未検査の観点の候補として返す（SP-BPINSPECTION-025）。review は照らした制限 `checkedRoleLimits` と残る危険 `residualRisks` を返さない（PR-BPDESIGNEDSKILL-015 の報告は create・update の検証の結果に宛てたもの）。Codex runner の扱いは SP-BPCONFORMANCE-019 の Codex runner の行のとおりとする。
+フローの観点の検証役は、PR-BPDESIGNEDSKILL-014 の Claude Code の判定の単位と PR-BPDESIGNEDSKILL-046 の判定の単位を、create・update の適合の観点の検証役と同じく、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 の Claude Code の行と判定表で判定しなければならない。一覧の設定に頼る制限は、制限ごとに PR-BPDESIGNEDSKILL-046 の単位の指摘の候補にする（制限ごとの指摘の種類は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。同名の役（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）の制限は照らさず、候補にもせず、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 のとおり強いられた未検査とした単位（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）を、未検査の観点の候補として返す（理由は SP-BPINSPECTION-025）。review は `checkedRoleLimits` を持たないので、効かない制限ごとに候補がそろっているかは検証役の判断だけで決まり、CLI は照らさない。一覧を読めないときに強いられた未検査とした単位（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）は、理由に保留の根拠と一覧を読めないことを書いて未検査の観点の候補として返す（SP-BPINSPECTION-025）。review は照らした制限 `checkedRoleLimits` と残る危険 `residualRisks` を返さない（PR-BPDESIGNEDSKILL-015 の報告は create・update の検証の結果に宛てたもの）。Codex runner の扱いは SP-BPCONFORMANCE-019 の Codex runner の行のとおりとする。
 
 フローの観点の検証役は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の単位を判定してはならない（閉集合と単位からの除き方と拒否は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。この単位は、照合と停止の段で送る `placement`（`docs/specifications/bp-run.md` の SP-BPRUN-031。送る順は SP-BPINSPECTION-019）の記録で決まる。結果が適合なら何も載せず、未検査なら CLI が未検査の観点にする（SP-BPINSPECTION-025）。結果が不適合なら、CLI は、`placement` の `lines` が指す行を含む資産（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）ごとに、次の指摘の候補を 1 件作らなければならない（依頼者の裁定）。`lines` が空のとき（見出し行が 0）は、対象スキルの根の `SKILL.md` の資産（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）のうち、frontmatter の資産（位置 `{"k":"fm"}`）、最初の見出しより前の本文の資産（`{"k":"pre"}`）、文書の先頭から数えて最初の節の資産、の順で最初に台帳の今の資産にあるものに 1 件作る（同項の規則では、空白でない内容を持つ `SKILL.md` はこのどれかを必ず持つ）。`SKILL.md` の資産が台帳の今の資産に 1 つも無いとき（`SKILL.md` が空白だけのとき）は、台帳の今の資産のうち資産 ID の昇順で最初の資産に 1 件作る。
 
@@ -302,11 +302,11 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 
 | 項目 | 綴り | 中身（完了以外） |
 |---|---|---|
-| 止まった段 | `stoppedStage` | 停止の記録の段（CLI が `docs/specifications/bp-run.md` の SP-BPRUN-018 の規則で決めた段）の名前。名前は同文書の SP-BPRUN-038 の表の「段」の列とし、1 行に 2 つの名前がある `verify` は、create・update と同じ「検証」とする。停止の記録に段が無いときは `null` |
+| 止まった段 | `stoppedStage` | 停止の記録の段（CLI が `docs/specifications/bp-run.md` の SP-BPRUN-018 の規則で決めた段）の名前。名前は同文書の SP-BPRUN-038 の表の「段」の列とし、1 行に 2 つの名前がある `verify` は、create・update と同じ「検証」とする。停止の記録に段が無いときは「開始」（create・update と同じ）。再開の `start` を拒否された run（`docs/specifications/bp-run.md` の SP-BPRUN-032）は、状態を読まないので「開始」とする |
 
-次の 2 つの run は、CLI の `outcome` を読まずに script が返り値を作るので、止まった段を持たない。
-- 状態を作らずに止まった run（SP-BPINSPECTION-026。入力の誤りで開始の操作の前に止まったときを含む）。
-- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）。止まった段は、CLI の `stop-draft`（同文書の SP-BPRUN-031）から読めたときだけ、理由に書く（SP-BPRUN-027）。
+次の 2 つの run は、CLI の `outcome` を読まずに script が返り値を作る。止まった段は create・update（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-034）と同じ規則で決める。
+- 状態を作らずに止まった run（SP-BPINSPECTION-026。入力の誤りで開始の操作の前に止まったときを含む）: 「開始」。
+- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）: CLI の `stop-draft`（同文書の SP-BPRUN-031）の `stage`（`null` なら「開始」）。`stop-draft` を読めなかったときは `null` とし、段を読めなかったことを理由に書く（SP-BPRUN-027）。
 
 #### SP-BPINSPECTION-025 未検査の観点の形と載せるもの
 未検査の観点の 1 件は、観点、範囲、理由、記録した run を持たなければならない。範囲は、観点の全体か、判定の単位か、監査の観点の識別子のどれかとする。CLI は次の表の全ての場合に未検査の観点を作り、同じ観点と範囲と理由の重複は 1 件にまとめなければならない。
@@ -314,7 +314,7 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 | 場合 | 観点 | 範囲 | 理由 |
 |---|---|---|---|
 | 仕様の観点の照らす先を読めない（SP-BPINSPECTION-005） | 仕様の観点 | 観点の全体 | 読めなかった照らす先のパス |
-| 検証役が判定の単位を未検査とした（SP-BPINSPECTION-007・SP-BPINSPECTION-008） | フローの観点か仕様の観点 | 判定の単位 | 検証役の理由。`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 で無視される設定の一覧を読めないときに強いられた未検査とした単位は、その保留の根拠（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）と、一覧を読めないこと |
+| 検証役が判定の単位を未検査とした（SP-BPINSPECTION-007・SP-BPINSPECTION-008） | フローの観点か仕様の観点 | 判定の単位 | 検証役の理由。`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 で強いられた未検査とした単位は、その保留の根拠（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）と、一覧を読めないこと（一覧を読めないとき）か同名の役の名前とその定義のファイルのパス（同名の役があるとき） |
 | bp-designed-skill の要求を優先して外した（SP-BPINSPECTION-012） | 監査の観点 | 監査の観点の識別子 | 優先した要求 ID と理由 |
 | モデルに固有の鮮度を評価できない（SP-BPINSPECTION-013） | 監査の観点 | PA-4 | 名指しが無いか、証拠が無いか |
 | 観点の全ての検証の項目が打ち切りになった（`docs/specifications/bp-run.md` の SP-BPRUN-028） | その観点 | 観点の全体 | 打ち切りの理由 |
@@ -337,34 +337,12 @@ SP-BPINSPECTION-021 に当たらないとき、CLI の開始の操作は状態�
 SP-BPINSPECTION-010 の照合で一致しなかったならば、script は、検証役を起動せずに、BLOCKED と理由（食い違った番号と名前）を返さなければならない。
 
 #### SP-BPINSPECTION-029 再開したときの照らす先の食い違い
-前の run が照らす先の決定の段を終えた状態から再開した run では、照らす先の決定の段で、CLI は照らす先を読み直し、状態にある照らす先の指紋と照らさなければならない。食い違ったならば、script は、検証役も反証役も起動せずに、BLOCKED と理由（食い違った照らす先のパス）を返さなければならない（違う基準で付けた指摘と判定が、1 つの台帳に混ざる）。再開した run は、状態にある観点の集合と、状態に結果のある担当の組と適用の判定をそのまま使い、作り直してはならない。
+前の run が照らす先の決定の段を終えた状態から再開した run では、照らす先の決定の段で、CLI は照らす先を読み直し、状態にある照らす先の指紋と照らさなければならない。食い違ったならば、script は、検証役も反証役も起動せずに、BLOCKED と理由（食い違った照らす先のパス）を返さなければならない（違う基準で付けた指摘と判定が、1 つの台帳に混ざる）。状態にある観点の集合と、状態に結果のある担当の組と適用の判定の扱いは、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従う。
 
 前の run が照らす先の決定の段を終える前に止まったとき（照らす先を読めずに BLOCKED になったときなど）は、本項を当てず、照らす先の決定の段を最初から行う（SP-BPINSPECTION-030。照合すると、利用者が直した照らす先が前の記録と食い違い、再開のたびに BLOCKED になる）。段を終えたかは、状態の段の進み（`docs/specifications/bp-run.md` の SP-BPRUN-005）の終えた段で決める。
 
-#### SP-BPINSPECTION-030 再開した run の段の順
-review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従い、終えていない段から続け、終えた段の結果（状態にある担当の組と適用の判定を含む）を作り直してはならない。ただし、再開した run の開始で行う台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）と、それに伴う資産の束の書き直し（SP-BPINSPECTION-017）と、その取り直しで消えた資産が新しく記録されたときの消えた資産の照合の段は、それぞれの段を終えていても行い、本項の例外とする。再び行う消えた資産の照合の段の回は、`docs/specifications/bp-run.md` の SP-BPRUN-038 のとおり、その取り直しの番号とする（台帳の作成と資産の束の段は項目を持たないので回を持たない）。照らす先の決定の段を終える前に止まった run はその段を最初から行い、終えた後に止まった run は同じ段で SP-BPINSPECTION-029 の照合を行う。audit は適用の判定の段を持たないので、その段を飛ばす。止まった段ごとの段の順の細目は次のとおりとする。
-
-再開した run は、止まった段によらず、まず次の 4 つを順に行う。4 つは再開の頭の段（`docs/specifications/bp-run.md` の SP-BPRUN-018）とし、`stage-start` と `stage-finish` の `head: true` で始めて終える。頭の段の扱いは create・update（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-035）と同じとする。照らす先が食い違えば検証役も反証役も起動せずに止まる（SP-BPINSPECTION-029）ので、消えた資産の照合は照らす先の決定より後に置く。照合で使う資産 ID の一覧は書き直した資産の束から読む。
-
-1. 開始の段（再開の `start`）。台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）は再開の `start` が行い、結果を出力の `retake` で返す。script は再開の頭で `ledger-retake` を呼ばない（呼ぶと同じ取り直しを 2 度記録する）
-2. 照らす先の決定（段を終えていれば SP-BPINSPECTION-029 の照合、終えていなければ最初から）
-3. 台帳の作成と資産の束（台帳があれば作らない。資産の束は世代が同じなら同じ中身になり、取り直しで世代が変われば書き直す：SP-BPINSPECTION-017）
-4. 消えた資産の照合（止まった段が最初の流れの消えた資産の照合の段（段の表の 8）のときはその回の未着手の項目、取り直しで消えた資産に結び付いた指摘があるときはその回の項目）
-
-その後は、CLI が `docs/specifications/bp-run.md` の SP-BPRUN-018 で頭の段を除いて決めた止まった段（開始の操作の出力の `stoppedStage`）で、次の表で続ける。段の並びは、照らす先の決定・台帳の作成と資産の束・担当の作成・適用の判定・観点ごとの検証・skip 一覧への追加の起動・反証・照合と停止とする（消えた資産の照合は並びに入れない）。止まった段の段の終わりの記録があれば、並びの次の段から続ける。停止の種類（起動数の上限・BLOCKED・停止の記録の無い終わり）と停止の記録の `cause` で始め方を変えない（review・audit は対象を書き換えないので、書かずに検証し直す分岐が要らない）。
-
-| 止まった段 | 始め方 | 前の回の未着手 |
-|---|---|---|
-| 照らす先の決定・台帳の作成と資産の束 | 担当の作成から（照らす先の決定と資産の束は上の 2・3 で済んでいる） | — |
-| 担当の作成 | 担当の組が状態にあれば、抽出役を起動せず、担当の作成の段の終わりと次の段の開始だけを書く（結果を書いた運搬役が段の終わりの前に応答を失った run。作り直すと別の担当 ID の組が増える）。無ければこの段を最初から。繰り返しの回数は run の開始時からの増分で上限に当てる（`docs/specifications/bp-run.md` の SP-BPRUN-005） | — |
-| 適用の判定（review だけ） | 段の開始の記録が無ければ（担当の作成の段を終えた後、次の段の開始を書く前に止まった run）、段の開始を書いてから行う（開始の記録が無いまま結果を書くと CLI が拒否し続ける）。結果が状態にあれば、検証役を起動せず、観点ごとの検証の段の開始だけを書く（起動し直すと、違う答えが最初の結果と食い違い、再開のたびに `E_CONFLICT` で止まる）。無ければこの段を最初から | — |
-| 観点ごとの検証 | 担当と適用の判定は状態のものを使い、同じ鍵で段の開始を書き直して、結果の無い項目だけを順位の順に処理する。前の run で打ち切った項目は処理し直さず、全件の打ち切り（`docs/specifications/bp-run.md` の SP-BPRUN-029）に数えない | 処理する |
-| skip 一覧への追加の起動 | 止まった部分の結果の無い項目を、その観点の skip 一覧の担当で処理し、その後 skip 一覧が空になるか見た資産が増えなくなるまで部分を足す（`docs/specifications/bp-run.md` の SP-BPRUN-035 の 3 のただし書きの破棄は、create・update だけに当てる） | 処理する |
-| 反証 | 鍵の一覧を `refutation-items` で読み直し、結果の無い鍵だけを処理する。前の run で打ち切った鍵は処理し直さず、未反証の候補として結果に残る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-015） | 処理する |
-| 消えた資産の照合（段の表の 8 の、最初の流れの段） | 上の 4 でその回の未着手の項目を処理したので、照合と停止から | 処理する（上の 4） |
-| 照合と停止 | この段を最初から（review は `placement`・`stop`・`outcome`、audit は `stop`・`outcome`。review の完了の `stop` は現在の run の `placement` の記録を求める：`docs/specifications/bp-run.md` の SP-BPRUN-031） | — |
-
-止まった段が反証より後で、再開の開始の取り直しで内容が変わった資産があっても、観点ごとの検証と追加の起動をやり直さない。本項の例外は取り直し・資産の束の書き直し・消えた資産の照合の 3 つだけである。変わった資産は skip 一覧と「今の内容で判定したか」の値で結果に出る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-021・SP-BPFINDINGS-023）。全件の打ち切りで BLOCKED になった観点ごとの検証の段から再開すると、打ち切った項目は結果の無い項目に入らない（`docs/specifications/bp-run.md` の SP-BPRUN-018）。その資産は skip 一覧に残るので、続く追加の起動で見られる（原因を直して再開する経路：SP-BPRUN-014）。
+#### SP-BPINSPECTION-030 再開した run の入口の段
+review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 のとおり進む。入口の段（同項の 2）は、照らす先の決定の段とする（照らす先の食い違いを、検証役と反証役を起動する前に見つけるため：SP-BPINSPECTION-029）。照らす先の決定の段と台帳の作成と資産の束の段と照合と停止の段は、終えていても再開した run で、段の開始を書いてから最初から行う（同項の 3 のただし書き。照合と停止の段は、review の完了の `stop` が現在の run の `placement` を求めるため：SP-BPINSPECTION-019）。照らす先の決定の段は SP-BPINSPECTION-029 に従い、台帳の作成と資産の束の段は、台帳を作り直さず、開始の段の取り直しに合わせて資産の束を書き直す（SP-BPINSPECTION-017）。
 
 ## 検証方法
 
@@ -416,6 +394,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-025 | CLI の単体テスト（表の 7 つの場合を 1 つずつ作り、未検査の観点の観点・範囲・理由を確認。同じ未検査を 2 体が返したとき 1 件になることを確認） | 作成中 |
 | PR-BPDESIGNEDSKILL-051 | SP-BPINSPECTION-007 | script の模擬実行（照合と停止の段で `placement` が結果の項目より先に送られ、フローの観点の閉集合に SP-BPCONFORMANCE-041 が無いことを確認。理由の空いたデータ行を持つ対象スキルで、その行を含む資産に種類 `SP-BPCONFORMANCE-041` の open の指摘が反証の段を経ずに出ることを確認。判断点の表の無い対象スキルで、`SKILL.md` の frontmatter の資産に指摘が出ること、frontmatter の無い `SKILL.md` では最初の見出しより前の本文か最初の節の資産に出ること、空白だけの `SKILL.md` では資産 ID の昇順の最初の資産に出ることを確認。照合と停止の段で `placement` が `stop` より先に、停止と同じ運搬役で送られることを確認。検証役が種類 `SP-BPCONFORMANCE-041` の候補を返すと拒否されることを確認） | 未着手 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が、保留の根拠（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」）と一覧を読めないことを理由に未検査の観点に載り、PR-BPDESIGNEDSKILL-046 の単位が未検査の観点に載らないことを確認） | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | script の模擬実行（役の名前が同じ定義が 2 つある対象スキルの review で、同名の役の制限の候補が出ず、PR-BPDESIGNEDSKILL-014 の単位の未検査の観点が保留の根拠 `SP-BPCONFORMANCE-019` と同名の役の名前と定義のパスを理由に持つことを確認） | 未着手 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（一覧の設定に頼る制限を持つ対象スキルの review で、PR-BPDESIGNEDSKILL-046 の単位の指摘が制限ごとに出て、結果に `checkedRoleLimits` と `residualRisks` が無いことを確認） | 未着手 |
 | PR-BPOPERATIONS-050 | SP-BPINSPECTION-027 | script の模擬実行（prompt-audit の写しが無い audit で、検証役を起動せず、BLOCKED と、引き継ぐ監査の観点が無いことを含む理由と、止まった段を返し、指摘の一覧を返さないことを確認） | 未着手 |
 | PR-BPOPERATIONS-050 | SP-BPINSPECTION-024 | script の模擬実行（prompt-audit の写しが無い audit の返り値の `stoppedStage` が照らす先の決定であることを確認） | 未着手 |
@@ -427,8 +406,10 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-017 | CLI の単体テスト（未検査の観点の候補を足した結果が受理され、範囲が 3 種の外の候補を含む結果が拒否されることを確認） | 完了 |
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-029 | script の模擬実行（停止中に照らす先を書き換えて再開し BLOCKED になること、書き換えずに再開すると抽出役と適用の判定が再び起動されないこと、照らす先を読めずに BLOCKED になった run を照らす先を直して再開すると照らす先の決定の段をやり直して進むことを確認） | 完了 |
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（止まった段ごとに状態を作って再開し、終えた段の結果が作り直されず、照らす先の決定の段を終えた状態からの再開でだけ照合が行われることを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（再開の頭の 4 つの段が `head: true` で始まり、止まった段を開始の操作の出力の `stoppedStage` から読むことと、照合と停止の段で止まった review の再開で `placement` を送ってから完了の `stop` を送ることを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（最初の流れの消えた資産の照合の段で止まった review を再開し、頭の段でその回の未着手の項目を処理して照合と停止の段へ進むことと、再開の頭で `ledger-retake` が呼ばれず `start` の `retake` が使われることを確認） | 未着手 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（止まった段の違う状態のそれぞれから再開した review・audit が、照らす先の決定の段から始まって資産の束を書き直し、終えた段の agent を起動し直さず、照合と停止の段で止まった review の再開で `placement` を送ってから完了の `stop` を送ることを確認） | 未着手 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（最初の流れの消えた資産の照合の段で止まった review を再開し、その回の未着手の項目を流れの消えた資産の照合の段で処理して照合と停止の段へ進むことと、再開した run が `ledger-retake` を呼ばず `start` の `retake` を使うことを確認） | 未着手 |
+| PR-BPOPERATIONS-047 | SP-BPINSPECTION-024 | script の模擬実行（段の記録が 1 つも無いまま停止の記録を書いた review・audit の返り値の止まった段が「開始」になることを確認） | 未着手 |
+| PR-BPOPERATIONS-047 | SP-BPINSPECTION-024 | script の模擬実行（再開の `start` を拒否された review・audit の返り値の止まった段が「開始」で、前の run の停止の値を持たないことを確認） | 未着手 |
 | PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果の対象スキルのパスの一覧が、状態にある今の一覧と 1 字も違わないことを確認） | 完了 |
-| PR-BPOPERATIONS-047 | SP-BPINSPECTION-024 | script の模擬実行（完了以外の返り値の鍵が SP-BPRUN-032 の表の鍵と止まった段だけで、状態を作らずに止まった run と停止の記録を書けなかった BLOCKED は止まった段を持たないことを確認） | 完了 |
+| PR-BPOPERATIONS-047 | SP-BPINSPECTION-024 | script の模擬実行（完了以外の返り値の鍵が SP-BPRUN-032 の表の鍵と止まった段だけで、状態を作らずに止まった run の止まった段が「開始」、停止の記録を書けなかった BLOCKED の止まった段が `stop-draft` の段（読めなければ `null`）であることを確認） | 未着手 |
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（台帳の作成と資産の束の段を終えた状態から、停止の間に節を 1 つ書き換えて再開し、台帳が取り直され資産の束が書き直されることを確認） | 完了 |

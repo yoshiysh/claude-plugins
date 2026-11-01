@@ -270,8 +270,10 @@ create・update は、対象スキルの役ごとの制限について、配布�
 | 読めた | 効かない制限がある | PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の判定の単位のうち設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014）を、Claude Code について適合とする。PR-BPDESIGNEDSKILL-046 の判定の単位を不適合とし、効かない制限ごとに指摘の候補を出す（制限ごとの指摘の種類は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010） |
 | 読めない | * | PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の判定の単位のうち設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014）を、Claude Code について強いられた未検査とする（create・update の合否を妨げない。保留の根拠は `docs/specifications/bp-authoring.md` の用語「強いられた未検査」）。PR-BPDESIGNEDSKILL-046 の判定の単位を適合とする（効かないと確かめた制限が無い） |
 
+役の名前（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の役の名前の規則）が同じ agent の定義が 2 つ以上ある役（同項の「同名の役」）は、どの定義が起動されるかが決まらないので、その役の制限を一覧に照らさず、Claude Code で効くかを確かめられなかった制限とする（PR-BPDESIGNEDSKILL-015。一覧に照らした制限ではないので、同要求の 2 文目に当たらない）。同名の役の制限は、上の判定表の「照らした結果」に入れず、PR-BPDESIGNEDSKILL-046 の不適合にしない。同名の役があるとき、PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の判定の単位のうち設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014）は、上の判定表によらず Claude Code について強いられた未検査とする（`docs/specifications/bp-authoring.md` の用語「強いられた未検査」。create・update の合否を妨げない：PR-BPDESIGNEDSKILL-050 と同じく、確かめられなかった制限があることだけを理由に検証を通らなかったと判定しない）。create・update は、加えて同名の役を SP-BPCONFORMANCE-020 の残る危険として載せる。review・audit は残る危険を返さないので、強いられた未検査を未検査の観点として載せる。
+
 #### SP-BPCONFORMANCE-020 確かめられなかった制限の報告
-SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・update は「残る危険」として結果に載せなければならない。載せる項目は、役の名前・制限の中身・配布先・確かめられなかった理由の 4 つである。役の名前は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の役の名前の規則に従う（定義のファイルを持たない役は `agent()` の呼び出しの `label`）。一覧を読めないときの Claude Code の理由は、無視される設定の一覧を読めないこととする。一覧に照らした制限は、Claude Code で確かめられなかった制限として載せない。結果の中のどこに載せるかは、`docs/specifications/bp-authoring.md` の完了時の出力を正とする。
+SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・update は「残る危険」として結果に載せなければならない。載せる項目は、役の名前・制限の中身・配布先・確かめられなかった理由の 4 つである。役の名前は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の役の名前の規則に従う。一覧を読めないときの Claude Code の理由は、無視される設定の一覧を読めないこととする。一覧に照らした制限は、Claude Code で確かめられなかった制限として載せない。同名の役（SP-BPCONFORMANCE-019）は役ごとに 1 件とし、制限の中身はその役の名前を持つ定義のファイルのパスの並び（その定義の制限の全て）、配布先は Claude Code、理由は同じ役の名前の定義が 2 つ以上あり、どれが起動されるかが決まらないこととする。結果の中のどこに載せるかは、`docs/specifications/bp-authoring.md` の完了時の出力を正とする。
 
 ### fan-out の起動数の上限
 

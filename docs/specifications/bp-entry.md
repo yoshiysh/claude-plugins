@@ -79,10 +79,11 @@ marketplace への登録・公開は `docs/requirements/bp-operations.md` のス
 review・update・audit の run を起動する前に、入口は、CLI に対象スキルのパスの一覧（形は `docs/specifications/bp-run.md` の用語定義）を作らせ（SP-BPRUN-031）、callsite の入力に渡さなければならない（run の開始の入力：SP-BPRUN-003）。一覧の根は、依頼が指す対象スキルのディレクトリとする。一覧に入れるファイルは SP-BPENTRY-022 に、一覧を作れないときは SP-BPENTRY-023 に従う。create の対象スキルのパスの決め方は `docs/specifications/bp-authoring.md` に従う。連鎖の 2 番目以降の機能の対象スキルは SP-BPENTRY-009 に従う。
 
 #### SP-BPENTRY-022 パスの一覧に入れるファイル
-対象スキルのパスの一覧に入れるファイルは、次のとおりとしなければならない（範囲は `docs/requirements/bp-operations.md` の用語「対象スキル」）。callsite を workflow script に解決する規則は本項だけに置き、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-022、連鎖の SP-BPENTRY-009、CLI がパスの一覧を作る処理と取り直す処理（SP-BPRUN-031）は本項を参照する。
+対象スキルのパスの一覧に入れるファイルは、次のとおりとしなければならない（範囲は `docs/requirements/bp-operations.md` の用語「対象スキル」）。callsite を workflow script に解決する規則と、agent の定義を見つける規則は本項だけに置き、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-022、連鎖の SP-BPENTRY-009、CLI がパスの一覧を作る処理と取り直す処理（SP-BPRUN-031）は本項を参照する。
 
 - 根のディレクトリの中の全てのファイル
 - 対象スキルの SKILL.md にある Workflow callsite が起動する、自分の plugin の workflow script。`Workflow({ name: "<plugin>:<meta.name>" })` の callsite は、`<plugin>` が対象スキルの属する plugin であるときだけ、その plugin の `workflows/` 直下で literal の `meta.name` が一致するファイルに解決する。`Workflow({ scriptPath })` の callsite は、対象スキルのディレクトリを基準に解決する（`references/claude-workflow-compatibility.md` の Caller 境界の固定の節）
+- 対象スキルが起動する、自分の plugin の agent の定義。対象スキルの SKILL.md と、上の箇条で一覧に入れた workflow script に、`<plugin>:<name>` の形の literal の文字列があり、`<plugin>` が対象スキルの属する plugin であるとき、その plugin の根の `agents/` 直下の Markdown のファイルのうち、役の名前（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の役の名前の規則）が `<name>` と一致するもの。一致するファイルの無い文字列は agent の参照と扱わず、SP-BPENTRY-023 の解決できなかったものにも入れない（同じ形の文字列は skill の呼び出し名と `Workflow({ name })` の callsite にもある）。一覧の `agents` に入れ、一覧の中には入れない（`docs/specifications/bp-run.md` の用語「一覧の中」）
 
 #### SP-BPENTRY-023 パスの一覧を作れないとき
 対象スキルのディレクトリを依頼から特定できないとき、入口は run を起動せず、利用者にターンの中で尋ねなければならない。自分の plugin を指す callsite のどれかをファイルに解決できないとき、入口は、解決できたパスだけで一覧を作って run を起動し、解決できなかった callsite を `SKILL.md` の行番号とともに、対象スキルから外したものとして返り値に載せなければならない（SP-BPENTRY-021。載せないと、外した callsite が見た範囲に入ったと読まれる）。
@@ -164,7 +165,7 @@ callsite は、best-practices の Workflow に次の入力を渡さなければ�
 |---|---|---|
 | 機能 | `function` | 新しい状態での起動 |
 | 依頼文 | `request` | 新しい状態での create |
-| 対象スキルのパスの一覧 | `target`（`{"root": <根>, "files": [<根の外のファイル>]}`） | 新しい状態での起動 |
+| 対象スキルのパスの一覧 | `target`（`{"root": <根>, "files": [<根の外の workflow script>], "agents": [<根の外の agent の定義>]}`） | 新しい状態での起動 |
 | 修正の根拠 | `grounds`（前の run の参照の形 `{"from": <状態 ID>}` を含む：SP-BPFINDINGS-031） | 新しい状態での update |
 | next_args | `nextArgs` | 再開 |
 | 利用者の回答 | `answer` | 回答を足した再開 |
@@ -258,7 +259,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 |---|---|---|
 | 実行した各機能の返り値 | run を 1 つ以上起動したとき | 機能の列の順に、各 run の返り値をそのまま載せる（共通の項目は SP-BPRUN-032、機能に固有の項目は `docs/specifications/bp-authoring.md`・`docs/specifications/bp-inspection.md`、指摘と台帳の項目は SP-BPFINDINGS-030） |
 | 未実行の機能 | 連鎖が完了以外で止まったとき（SP-BPENTRY-008・017） | 機能の列のうち起動しなかった機能を、列の順に |
-| 再開の仕方 | 最後に起動した run が完了以外で止まったとき | その run の next_args をそのまま載せ、停止の種類ごとに再開の前に利用者がすること（needs_input では回答を足す、BLOCKED では原因を直す）を添える（SP-BPRUN-014）。run が next_args を返さなかったとき（状態を作らずに止まったとき：SP-BPRUN-032）は、next_args の代わりに、入力を直して新しく起動することを添える。再開が開始で拒まれ、状態が変わっていないとき（返り値の `startRejected` が `true`：SP-BPRUN-032）は、前の run の停止ではなく拒否の理由を載せ、その理由を直してから同じ next_args で再開することを添える |
+| 再開の仕方 | 最後に起動した run が完了以外で止まったとき | その run の next_args をそのまま載せ、停止の種類ごとに再開の前に利用者がすること（needs_input では回答を足す、BLOCKED では原因を直す）を添える（SP-BPRUN-014）。run が next_args を返さなかったとき（状態を作らずに止まったとき：SP-BPRUN-032）は、next_args の代わりに、入力を直して新しく起動することを添える。再開が開始で拒まれ、状態が変わっていないとき（返り値の `startRejected` が `true`：SP-BPRUN-032）は、前の run の停止ではなく拒否の理由を載せ、返り値が next_args を持てばその理由を直してから同じ next_args で再開することを、持たなければ（状態が無いか完了している：SP-BPRUN-003 の 2・4）新しい run として起動し直すことを添える |
 | 当たらなかった部分 | SP-BPENTRY-011・012 のとき | 依頼の該当する文言 |
 | 当たる機能が無いこと | SP-BPENTRY-011 のとき | 当たる機能が無いことと、4 機能の名前 |
 | 組めない・起動できない理由 | SP-BPENTRY-018・019・020・023 のとき | 各項目が定める内容 |
@@ -296,10 +297,12 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-002 | SP-BPENTRY-006 | 連鎖の結合テスト（review・update・audit の run の入力に、根が対象スキルのディレクトリのパスの一覧が渡る） | 完了 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 完了 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 連鎖の結合テスト（解決できない callsite が行番号とともに返り値に外したものとして載る） | 完了 |
+| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | CLI の単体テスト（SKILL.md か一覧の workflow script に自分の plugin の `<plugin>:<name>` の文字列を持つ対象スキルで、パスの一覧の `agents` に役の名前が一致する `agents/` 直下の定義が入り、一覧の中に入らない。一致する定義が無い文字列（skill の呼び出し名と `Workflow({ name })` の callsite を含む）は `agents` にも `unresolved` にも入らない。別の plugin の文字列は入らない） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 振り分けの eval（対象スキルを特定できない依頼で run を起動せずに尋ねる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（`startRejected` が `true` の再開の返り値で、`chain-report` の返り値と再開の仕方に前の run の停止が載らず、拒否の理由と、同じ next_args で再開することが載る） | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（`startRejected` が `true` で `nextArgs` を持つ再開の返り値で、`chain-report` の返り値と再開の仕方に前の run の停止が載らず、拒否の理由と、同じ next_args で再開することが載る） | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（`startRejected` が `true` で `nextArgs` を持たない再開の返り値（状態の無い状態 ID と完了した状態）で、再開の仕方に next_args が無く、新しい run として起動し直すことが載る） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-004 | 振り分けの eval（順を述べた依頼と述べない依頼で、期待する列になる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 連鎖の結合テスト（前の run の返り値より前に次の run が起動されない） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 連鎖の結合テスト（前の run が needs_input・BLOCKED で止まると次の run を起動せず、未実行の機能を返す） | 完了 |
