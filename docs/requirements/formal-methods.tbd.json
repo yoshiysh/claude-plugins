@@ -1,0 +1,19 @@
+{
+ "tbd": [
+  {
+   "blocking": false,
+   "id": "TBD-FORMALMETHODS-001",
+   "text": "formal-methods の実行形態（単独の手順として回すか、skill-creator-best-practices の create・update の段に組み込むか）が決まっていない。要求文書の「前提と依存」が「実行形態がどちらに決まっても変わらない手順の性質だけを定める」と宣言し、仕様書も実行形態なしに完結しているため、この TBD は文書の確定をブロックしない。ブロックするのはスキルの運用開始であり、実行形態が決まるまで段の呼び出し方と run の単位が定まらない（特定の要求項目には関係せず、要求文書・仕様書の全体に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-FORMALMETHODS-002",
+   "text": "合成の契約の書式（「環境への仮定」と「自分の保証」をどの粒度・形式で書くか）が決まっていない（PR-FORMALMETHODS-030 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-FORMALMETHODS-003",
+   "text": "取り込み候補の採否と、取り込む場合の段への配置が決まっていない。VeriSpecGen 由来の候補（原子的な要求への分解と要求単位の肯定・否定テストの生成）は PR-FORMALMETHODS-017 に、FRET 由来の候補（要求同士の衝突検出）は要求集合そのものへの適用として PR-FORMALMETHODS-017 と PR-FORMALMETHODS-036 に、それぞれ関係する"
+  }
+ ]
+}
