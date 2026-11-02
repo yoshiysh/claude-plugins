@@ -1,7 +1,7 @@
 043c1acf1618b1517d9682903ab928fdc23a03b382596a04220d82d308aa79b5	docs/requirements/bp-designed-skill.md	#### PR-BPDESIGNEDSKILL-007 停止・再開と人間の入力
 4d4c525bc8d4e1d5eaf18b0512a6d5ccabe5e2660cc59af9dd0acce94f395365	docs/requirements/bp-designed-skill.md	### 形式検証
 85a6ae4972cb0cf824aefb7fe80011c24a9bc4ca846464fa61cc86ab138b61bf	docs/requirements/bp-designed-skill.md	### run の記録
-3fcf5a5f4b7057109f0c92562edd341bfee4938386d21d498c979eb64b60f915	docs/requirements/bp-operations.md	## 用語
+649f5d040f6fee368abd32ff3a2fb9e93cf696b91e42267ba2d372f43194d404	docs/requirements/bp-operations.md	## 用語
 d9595e16037367a4aa529d34c3f782b9124d1ddc4586b1ccf9171c7dd3123ee2	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-005 待たれる入力の不足
 b32422615a26043a1a8bb2ba4abcdba1e785ba878a87e6ef3f4b00747b32802e	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-009 生成と別の context での検証
 ce96221c966e8c1854bdaa08affd99654c445857ce33a8908e0f8c166e89e80b	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-010 検証を通るまでの完了の扱い
@@ -11,8 +11,8 @@ c49ac04867aced805d21ff113a2265fd39c625edfb70821fac4df6f5a1a3341c	docs/requiremen
 6290247e2d9a73220b6657f4a7eba0f093c7cbedbdc80cc8012e0c82415615b0	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-041 途中で止まったときの報告
 e2f759161d0ca3a547bf48b1400164aef6f7dc15f0a7f01185469c09d3dd2677	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-051 best-practices の run の記録
 1d0d2836f45ee10cd06cd753b349be44cbdf67e4dd170c0d30b5aa7213d10f66	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-052 needs_input の返り値
-9fee547132e4be60fa4440317cdb40246f8463f1e47f403f2d5875428459e169	docs/design/skill-design-patterns.md	## 用語
-c0e63a87f4340e7b44018e9330853fcd60c15636d2efd18c6c62375728322b55	docs/design/skill-design-patterns.md	## 停止・再開と人間の入力
-da30ec35fe95d13ad397981b16a843e0126d5fce6e41dc3150772b94b30289ff	docs/design/skill-design-patterns.md	### 停止
-1a68f3c9e4e345bdf5b89a46bdf4fbf368f63d09e39ba5ac3679513877076489	docs/design/skill-design-patterns.md	## 機械で確かめる
-8a18ea05efa22282d940f5c48fc434e8d9a682ad71cf9703ba6d8d3b7fb581be	docs/design/skill-design-patterns.md	## 記録と改善
+24ee194b6468fad584237f92b3d01d404ba99bd3284a94e44f044fe5604b3051	docs/design/skill-design-patterns.md	## 用語
+5cabec6e4f94cb5c725d2b8bf230eb8f4c62a8a2a6fefe49bdb7b3221ea9e6eb	docs/design/skill-design-patterns.md	## 停止・再開と人間の入力
+8c76e94b7c21c1a32949dca04e44eaab1ebcc055695b26e0996fa21823c8ae13	docs/design/skill-design-patterns.md	### 停止
+686704085bf5155f2b238a3b005978383919db379a2dd6cc7ece24af4f92bde2	docs/design/skill-design-patterns.md	## 機械で確かめる
+7dbe922ca52889f3bca1356036220899d95c72acd5c5446563e7f1b88855190a	docs/design/skill-design-patterns.md	## 記録と改善
