@@ -25,7 +25,7 @@
 | 文書の層 | 要求・仕様・コードの 3 つ。上から下へ、要求 → 仕様 → コードの順に詳細化する |
 | 規範文 | 要求文書の要求文と、仕様書の仕様項目 |
 | 上流 | 入力で渡された、検査対象が依拠する文書。検査対象より上の文書の層の文書と、検査対象が原則の出所として参照する文書（このリポジトリのスキルなら設計方針文書）からなる |
-| 起動の同一性 | 入力の集合と、結果を変える指定（機能・重い検査の要否・手法・有限範囲・抽象化）と、書いてよい先の組 |
+| 起動の同一性 | 入力の集合と、結果を変える指定（機能・文書の層・重い検査の要否・手法・有限範囲・抽象化）と、書いてよい先の組 |
 | 入力の集合 | run の入力で渡された検査対象・上流・audit のモデルと、PR-FORMALMETHODS-101 の範囲に入る文書と同じ場所の `.tbd.json` の、パスと指紋の組 |
 | 呼び出し側 | formal-methods をスキル呼び出しで起動する他のスキル（例: best-practices・prd-spec）。formal-methods を単独で起動する人は「利用者」と呼ぶ |
 | 自分の文書 | formal-methods のスキルのディレクトリのうち写しを除くファイルと、本文書と `docs/specifications/formal-methods.md` |
@@ -79,7 +79,7 @@
 | step | formal-methods の手順の単位。設計方針文書の「用語」の節の「段」に当たる |
 | run・状態・CLI・運搬役・作業ファイル・停止の種類・BLOCKED・ヒント・next_args | 設計方針文書の「用語」と「停止・再開と人間の入力」の節が定める意味で使う |
 | 対象の欠け | 設計方針文書の「用語」の節が定める意味で使う。本文書での範囲は、検査対象と上流の欠けと、audit では入力で渡されたモデルの欠けである。作る機能が自分で作ったモデルの欠けは含めない |
-| 前の結果を返す状態 | PR-FORMALMETHODS-121 で止まった状態を除き、対象の欠けがあり、PR-FORMALMETHODS-152（作る機能：その step の全ての検査を終えた）か PR-FORMALMETHODS-153（audit：全ての確かめを終えた）か PR-FORMALMETHODS-163 の止まる条件を満たした状態 |
+| 前の結果を返す状態 | PR-FORMALMETHODS-121 で止まった状態を除き、対象の欠けがあり、欠けの帰属を決める step を終え、PR-FORMALMETHODS-152（作る機能：その step の全ての検査を終えた）か PR-FORMALMETHODS-153（audit：全ての確かめを終えた）か PR-FORMALMETHODS-163 の止まる条件を満たした状態 |
 | 差し込み口 | 入口の step から呼べる、コードの層の単位を切る材料を作る部分の受け口。形は `docs/specifications/formal-methods.md` が持つ |
 | 続きからの起動 | PR-FORMALMETHODS-193 で、起動の同一性が同じ未完了の状態の続きから始める run。next_args の有無を問わない。設計方針文書の「再開」（next_args で新しい run を起動すること）より広く、next_args の無い起動も含み、起動の同一性の違う起動（PR-FORMALMETHODS-229）は含まない |
 | 作業記録・記録台帳・文書の一般規約 | `docs/requirements/bp-operations.md` の「用語」の節が定める意味で使う |
@@ -126,7 +126,7 @@
 - 検査対象と上流の修正（呼び出し側か利用者が行う）。
 - 他のスキルの呼び出しと、人の答えを待つこと。
 - プログラムの契約と定理証明（PR-FORMALMETHODS-108）。
-- run をまたぐ指摘の追跡と収束の判定（PR-FORMALMETHODS-172 の保持規則）。
+- 別の run の欠けどうしを結び付ける追跡と収束の判定（PR-FORMALMETHODS-172 の保持規則）。
 - 設計方針文書の「体数と同時実行」の節の原則のうち、取り込みの表の起動数の上限の要求に含まれないもの。同時に走る agent の数の上限は host と呼び出し側が持ち、formal-methods が 1 run の起動数の総数のほかに上限を置くと、呼び出し側の上限と二重になる。
 - 形式手法を使わない通常の実装・レビュー・文書作成。
 
@@ -141,6 +141,7 @@
   - install 先には、リポジトリの `docs/` が届かない。
   - host（Claude Code の native Workflow と Codex runner）が Workflow script を実行し、役ごとの agent のモデルと effort を指定して役を起動できる。
   - Codex runner は、`limits` の maxAgents で 1 run の agent の数を制限し、resource limits に当たると run 全体を失敗させる（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`）。
+  - 道具（TLC）を動かす Java の実行環境は、run の起動の前に用意されている。
   - run の中で、道具の固定した版を取得する経路（ネットワークか取得済みの置き場）がある。
   - 道具の取得と、作業場所・記録台帳の置き場・書いてよい先への書き込みに要る許可は、run の起動の前に付与されている。
   - 検査対象の `.tbd.json` は `docs/specifications/authoring.md` の未確定事項の形式に、トレーサビリティ表は同文書のトレーサビリティ表の列構成に従う。
@@ -252,7 +253,7 @@ formal-methods は、設計方針文書の「機械で確かめる」の節の�
 ### best-practices の形
 
 #### PR-FORMALMETHODS-030 停止と再開
-formal-methods は、取り込みの表の「停止と再開」の行の要求（PR-BPDESIGNEDSKILL-007）を満たさなければならない（止まった run の理由と未着手が残らないと、続きからの起動で最初からやり直すことになる）。
+formal-methods は、取り込みの表の「停止と再開」の行の要求を満たさなければならない（止まった run の理由と未着手が残らないと、続きからの起動で最初からやり直すことになる）。
 
 #### PR-FORMALMETHODS-031 待たれる入力の原則に従わない
 formal-methods は、PR-FORMALMETHODS-030 の要求が拠る設計方針文書の「停止・再開と人間の入力」の節のうち、needs_input と待たれる入力に関わる部分に従ってはならない（従うと PR-FORMALMETHODS-011 と食い違う）。
@@ -267,16 +268,16 @@ formal-methods は、停止の種類を、完了・反復の上限・BLOCKED の
 formal-methods は、BLOCKED の返り値に、設計方針文書の「停止・再開と人間の入力」の節が定める理由の区分を、PR-FORMALMETHODS-175 の表の区分の列のとおりに付けなければならない（区分が無いと、呼び出し側が環境と入力を直すのか文書を直すのかを決められない）。
 
 #### PR-FORMALMETHODS-034 状態の書き込み
-formal-methods は、取り込みの表の「状態の書き込み」の行の要求（PR-BPDESIGNEDSKILL-012）を満たさなければならない（組・単位・欠けを役が状態へ直接書くと、検証役を通らない組と欠けが状態に入り、続きからの起動がそれを終えた step の結果として使う）。
+formal-methods は、取り込みの表の「状態の書き込み」の行の要求を満たさなければならない（組・単位・欠けを役が状態へ直接書くと、検証役を通らない組と欠けが状態に入り、続きからの起動がそれを終えた step の結果として使う）。
 
 #### PR-FORMALMETHODS-035 run の記録
-formal-methods は、取り込みの表の「run の記録」の行の要求（PR-BPDESIGNEDSKILL-028〜PR-BPDESIGNEDSKILL-030・PR-BPDESIGNEDSKILL-032〜PR-BPDESIGNEDSKILL-036・PR-BPDESIGNEDSKILL-038〜PR-BPDESIGNEDSKILL-040・PR-BPDESIGNEDSKILL-042）を満たさなければならない（作業記録が無いと、返した欠けと帰属が、どの step のどの組・単位から出たかを後から辿れない）。
+formal-methods は、取り込みの表の「run の記録」の行の要求を満たさなければならない（作業記録が無いと、返した欠けと帰属が、どの step のどの組・単位から出たかを後から辿れない）。
 
 #### PR-FORMALMETHODS-036 役ごとの agent のモデルと effort
-formal-methods は、取り込みの表の「役ごとの agent のモデルと effort」の行の要求（PR-BPDESIGNEDSKILL-048）を満たさなければならない（指定しないと、組の抽出や照合のような機械的な役もセッションのモデルで走り、毎回回す軽い検査の費用が膨らむ）。
+formal-methods は、取り込みの表の「役ごとの agent のモデルと effort」の行の要求を満たさなければならない（指定しないと、組の抽出や照合のような機械的な役もセッションのモデルで走り、毎回回す軽い検査の費用が膨らむ）。
 
 #### PR-FORMALMETHODS-037 起動数の上限
-formal-methods は、取り込みの表の「起動数の上限」の行の要求（PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-017・PR-BPDESIGNEDSKILL-019〜PR-BPDESIGNEDSKILL-023）を満たさなければならない（上限を受け取らないと、Codex runner の上で run 全体が失敗する）。
+formal-methods は、取り込みの表の「起動数の上限」の行の要求を満たさなければならない（上限を受け取らないと、Codex runner の上で run 全体が失敗する）。
 
 #### PR-FORMALMETHODS-038 生成と検証の役を分ける
 formal-methods は、性質・モデル・変異を生成する役と、規則の散在（PR-FORMALMETHODS-164）で数える規則を選ぶ役の出力を、生成した役と別の context で起動した検証役に確かめさせなければならない（自分の出力を自分で検証すると、盲点が相関する）。
@@ -871,6 +872,12 @@ formal-methods は、試行の上限を、状態に書いた試行の回数の�
 #### PR-FORMALMETHODS-162 収束の判定の幅
 作る機能は、収束しないと判定するのに見るモデルの修正の回の数を、PR-FORMALMETHODS-165 の上限より小さくしなければならない（判定の幅が上限以上だと、収束の判定が出る前に必ず上限で止まる）。
 
+#### PR-FORMALMETHODS-265 モデルの修正の回の結果を持ち越す
+作る機能は、モデルの修正の回ごとの結果を、回の順に状態に書かなければならない（状態に無いと、続きから起動した run が前の run までの修正の回を収束の判定に使えない）。
+
+#### PR-FORMALMETHODS-266 収束の判定を run をまたいだ累計で行う
+作る機能は、収束しないという判定を、PR-FORMALMETHODS-265 で状態に書いた修正の回の結果の並びの全体で行わなければならない（run の中の回だけで判定すると、続きから起動した run が判定の幅に届かないまま PR-FORMALMETHODS-165 の上限で止まる）。
+
 #### PR-FORMALMETHODS-163 収束しないとき
 収束しないと判定したならば、PR-FORMALMETHODS-154 に当たる場合を除き、作る機能は、モデルの修正を続けずに BLOCKED で止まらなければならない（修正を続けると、直しが持ち込む欠けが増え続ける）。
 
@@ -904,7 +911,7 @@ PR-FORMALMETHODS-170 で終えた step の結果を再利用したとき、forma
 設計方針文書の「水準と未決事項」に残る、run をまたぐ指摘の追跡の裁定が下るまで、formal-methods は、別の run の欠けどうしを結び付けて収束を判定してはならない（裁定の前に結び付けると、未決の追跡の規則を formal-methods が先に決めることになる）。
 
 #### PR-FORMALMETHODS-173 保持規則に当たらないもの
-formal-methods は、PR-FORMALMETHODS-159・PR-FORMALMETHODS-258・PR-FORMALMETHODS-166 の回数の持ち越しと、PR-FORMALMETHODS-170 の終えた step の結果の読み継ぎを、PR-FORMALMETHODS-172 の保持規則のために止めてはならない（これらは同じ起動の同一性の状態を続けるだけで欠けどうしを結び付けず、止めると続きからの起動が回数の上限と終えた step の結果を失う）。
+formal-methods は、PR-FORMALMETHODS-159・PR-FORMALMETHODS-258・PR-FORMALMETHODS-166 の回数の持ち越しと、PR-FORMALMETHODS-170 の終えた step の結果の読み継ぎと、PR-FORMALMETHODS-266 の run をまたいだ収束の判定を、PR-FORMALMETHODS-172 の保持規則のために止めてはならない（これらが使う回数・結果・修正の回の並びは同じ起動の同一性の状態の中にだけあり、起動の同一性は入力の集合を含むのでその間で入力の中身は変わらず、別の run の欠けを結び付けることを禁じる理由である入力の変化が起きないうえ、止めると続きからの起動が回数の上限と終えた step の結果と判定の幅を失う）。
 
 #### PR-FORMALMETHODS-191 修正と再検証を同じ run で行わない
 formal-methods は、検査対象か上流の欠けで止まった run の中で、その欠けを直したものの再検証を行ってはならない（検査対象と上流の修正と再検証は、呼び出し側が直したあと next_args を付けずに起動し直した別の run が PR-FORMALMETHODS-229 の新しい状態で行い、失敗の記録と、その失敗を前提にしない再検証を分ける）。
@@ -944,11 +951,11 @@ formal-methods は、停止ごとに次の表の要求に従って残さなけ�
 | 停止 | 当たるとき | 理由の区分 | 状態 | 範囲と限界の記録 | モデル | 返り値 |
 |---|---|---|---|---|---|---|
 | 完了 | PR-FORMALMETHODS-178・PR-FORMALMETHODS-180・PR-FORMALMETHODS-192 | — | 完了と照合の証拠 | PR-FORMALMETHODS-178・PR-FORMALMETHODS-180 で完了するときは PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148・PR-FORMALMETHODS-098・PR-FORMALMETHODS-241、PR-FORMALMETHODS-192 で前の完了を返すときは前の run のまま | 作る機能で作ったときだけ、書いてよい先が入力にあればそこに、無ければ作業場所に置く | PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・範囲と限界の記録が作業場所に無いときは、無いことと確かめていない範囲 |
-| 反復の上限 | PR-FORMALMETHODS-165・PR-FORMALMETHODS-154・PR-FORMALMETHODS-156 | — | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・未着手 | PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148 | 作業場所に残す | PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・next_args |
-| BLOCKED（状態に書いて止まる：対象の欠け） | PR-FORMALMETHODS-152・PR-FORMALMETHODS-153・PR-FORMALMETHODS-163（規則の散在の欠けがあるとき（数えた箇所が 2 か所以上）） | 対象の欠け | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・未着手 | PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148 | 作業場所に残す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-148・PR-FORMALMETHODS-138（next_args は返さない） |
+| 反復の上限 | PR-FORMALMETHODS-165・PR-FORMALMETHODS-154・PR-FORMALMETHODS-156 | — | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・PR-FORMALMETHODS-265・未着手 | PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148 | 作業場所に残す | PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・next_args |
+| BLOCKED（状態に書いて止まる：対象の欠け） | PR-FORMALMETHODS-152・PR-FORMALMETHODS-153・PR-FORMALMETHODS-163（規則の散在の欠けがあるとき（数えた箇所が 2 か所以上））。いずれも欠けの帰属を決める step を終えたとき | 対象の欠け | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・PR-FORMALMETHODS-265・未着手 | PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148 | 作業場所に残す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-148・PR-FORMALMETHODS-138（next_args は返さない） |
 | BLOCKED（前の結果を返す） | PR-FORMALMETHODS-231 | 対象の欠け | 書かない | 前の run のまま | 前の run のまま | PR-FORMALMETHODS-033・状態にある対象の欠け・PR-FORMALMETHODS-148・範囲と限界の記録が作業場所に無いときは、無いことと確かめていない範囲 |
-| BLOCKED（状態に書いて止まる：失敗） | PR-FORMALMETHODS-111・PR-FORMALMETHODS-121・PR-FORMALMETHODS-158・PR-FORMALMETHODS-174・PR-FORMALMETHODS-163（規則の散在の欠けが無いとき（数えた箇所が 1 か所以下））、作業記録・証拠・記録台帳の保存の失敗、CLI による状態の書き込みの拒否（停止の記録の書き込みを除く） | 失敗 | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・未着手 | PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148 | 作業場所に残す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・保存の失敗のときは PR-FORMALMETHODS-035 の保存できなかった範囲と理由・PR-FORMALMETHODS-121 のときは変わったファイル・next_args |
-| BLOCKED（状態に書いて止まる：記録の保存の失敗） | 作業場所への範囲と限界の記録かモデルの保存の失敗 | 失敗 | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・未着手 | 保存できなかったものは返り値だけで返す（PR-FORMALMETHODS-148） | 保存できなかったものは返り値だけで返す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・next_args |
+| BLOCKED（状態に書いて止まる：失敗） | PR-FORMALMETHODS-111・PR-FORMALMETHODS-121・PR-FORMALMETHODS-158・PR-FORMALMETHODS-174・PR-FORMALMETHODS-163（規則の散在の欠けが無いとき（数えた箇所が 1 か所以下））、作業記録・証拠・記録台帳の保存の失敗、CLI による状態の書き込みの拒否（停止の記録の書き込みを除く）、前提の実行環境（Java）が無いか、版が足りない | 失敗 | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・PR-FORMALMETHODS-265・未着手 | PR-FORMALMETHODS-145・PR-FORMALMETHODS-147・PR-FORMALMETHODS-148 | 作業場所に残す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・保存の失敗のときは PR-FORMALMETHODS-035 の保存できなかった範囲と理由・PR-FORMALMETHODS-121 のときは変わったファイル・next_args |
+| BLOCKED（状態に書いて止まる：記録の保存の失敗） | 作業場所への範囲と限界の記録かモデルの保存の失敗 | 失敗 | PR-FORMALMETHODS-168・PR-FORMALMETHODS-159・PR-FORMALMETHODS-166・PR-FORMALMETHODS-265・未着手 | 保存できなかったものは返り値だけで返す（PR-FORMALMETHODS-148） | 保存できなかったものは返り値だけで返す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-148・PR-FORMALMETHODS-138・next_args |
 | BLOCKED（状態に書かずに止まる：入口） | PR-FORMALMETHODS-043・PR-FORMALMETHODS-155 | 失敗 | 書かない | PR-FORMALMETHODS-150 | 作らない | PR-FORMALMETHODS-033・PR-FORMALMETHODS-149・起動の同一性の構成要素（用語の表の「起動の同一性」）に入らない入力を拒否したときに、起動の同一性から決まる作業場所に状態があればその状態の next_args |
 | BLOCKED（状態に書かずに止まる：停止の記録を書けない） | 停止の記録の書き込みを CLI が拒否したか、運搬役が失敗した | 失敗 | 最後に CLI が受け付けた書き込みまで | PR-FORMALMETHODS-150 | 作業場所に残す | PR-FORMALMETHODS-033・PR-FORMALMETHODS-138 の分かっている欠け・確かめていない範囲（PR-FORMALMETHODS-121 に当たったことを状態に書けなかったときは、続きからの起動と PR-FORMALMETHODS-231 で前の結果を返す起動がそれを見つけられないことを含む）・PR-FORMALMETHODS-121 のときは変わったファイル・作業場所に状態があればその状態の next_args |
 | 停止の記録の無い終わり（host が run を終わらせた） | — | — | 最後に CLI が受け付けた書き込みまで | — | 作業場所に残る | 無い（次の起動は PR-FORMALMETHODS-192・PR-FORMALMETHODS-231・PR-FORMALMETHODS-193・PR-FORMALMETHODS-229 に従う） |
@@ -963,7 +970,7 @@ formal-methods は、返り値の並びと next_args の形を、`docs/specifica
 PR-FORMALMETHODS-175 の表の 2 つ以上の行に当たるならば、formal-methods は、「BLOCKED（状態に書かずに止まる：停止の記録を書けない）」の行を他の全ての行より先に当てなければならない（停止の記録を書けないときは、他の行の状態を書けない）。
 
 #### PR-FORMALMETHODS-251 対象の欠けの行を先に当てる
-PR-FORMALMETHODS-175 の表の 2 つ以上の行に当たり、「BLOCKED（状態に書かずに止まる：停止の記録を書けない）」の行にも PR-FORMALMETHODS-121 にも当たらないならば、PR-FORMALMETHODS-152 と PR-FORMALMETHODS-165 に同時に当たるときを含め、formal-methods は、「BLOCKED（状態に書いて止まる：対象の欠け）」の行を、「BLOCKED（状態に書いて止まる：失敗）」・「BLOCKED（状態に書いて止まる：記録の保存の失敗）」・「反復の上限」の行より先に当てなければならない（区分は直す先を示し、対象の欠けがあれば呼び出し側はまずそれを直す）。
+PR-FORMALMETHODS-175 の表の 2 つ以上の行に当たり、「BLOCKED（状態に書かずに止まる：停止の記録を書けない）」の行にも PR-FORMALMETHODS-121 にも当たらず、欠けの帰属を決める step を終えたならば、PR-FORMALMETHODS-152 と PR-FORMALMETHODS-165 に同時に当たるときを含め、formal-methods は、「BLOCKED（状態に書いて止まる：対象の欠け）」の行を、「BLOCKED（状態に書いて止まる：失敗）」・「BLOCKED（状態に書いて止まる：記録の保存の失敗）」・「反復の上限」の行より先に当てなければならない（区分は直す先を示し、対象の欠けがあれば呼び出し側はまずそれを直す）。
 
 #### PR-FORMALMETHODS-259 入力が変わった run を先に当てる
 PR-FORMALMETHODS-121 と、「BLOCKED（状態に書いて止まる：対象の欠け）」の行に同時に当たるならば、「BLOCKED（状態に書かずに止まる：停止の記録を書けない）」の行に当たる場合を除き、formal-methods は、PR-FORMALMETHODS-121 の「BLOCKED（状態に書いて止まる：失敗）」の行を先に当てなければならない（入力が途中で変わった run で見つけた欠けは、どの中身に基づくものかが定まらず、対象の欠けとして返すと直す先を示せない）。
