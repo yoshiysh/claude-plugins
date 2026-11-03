@@ -5804,6 +5804,17 @@ class SameSessionResume(unittest.TestCase):
         self.assertIn("違います", res["reason"])
         self.assertFalse(has(again["labels"], "flow-check:g1-answers") or has(again["labels"], "resolver:3a"), "数だけ比べると、聞いていない問いの回答を今の問いに当てる")
 
+    def test_聞いた問いの順序が逆でもIDが同じならゲートを通る(self):
+        spec = {"flow_open": 2, "questions_at": {"3": ["RS-001", "RS-002"]}}
+        world = self._w("order")
+        stopped = run({"args": args(), **spec, "world": world})
+        ids = stopped["result"]["question_ids"]
+        self.assertEqual(ids, ["RS-001", "RS-002"])
+        reversed_ids = ["RS-002", "RS-001"]
+        again = run({"args": {**args(), "gates_answered": {"g1": reversed_ids}}, **spec, "world": world, "cache": stopped["calls"],
+                     "write_answers": {"answers/g1.md": ["RS-001", "RS-002"]}, "ruled_at": {"3a": ["RS-001", "RS-002"]}})
+        self.assertEqual(again["result"]["status"], "done", again["result"].get("reason"))
+
     def test_next_argsで回答を当てる段から始めても回答のファイルが問いに答えていなければ当てない(self):
         g0 = run({"args": args(), "flow_open": 2, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
         g1 = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
