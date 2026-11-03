@@ -1233,18 +1233,15 @@ class CarriedTbd(_Workspace):
         _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-002")
         self.assertTrue(any("NO-EVIDENCE" in f for f in _findings(ws)), "写しの無い文書と同じく、trace の無い項目を根拠なしとして数える")
 
-    def test_keep_answersオプションでanswersディレクトリが保護される(self):
+    def test_resetでanswersディレクトリが消去される(self):
         repo, _ = self._save("TBD-RAUTH-001")
         ws = self._next_ws(repo, [("requirements", "auth")])
         answers_dir = ws / "answers"
         answers_dir.mkdir(parents=True, exist_ok=True)
         (answers_dir / "g1.md").write_text("# 回答\n\n- RS-001: 案A\n")
-        res = _ok(ws, "reset", "--keep", "requirements/auth", "--keep-answers")
-        self.assertNotIn("answers", res["removed"])
-        self.assertTrue((answers_dir / "g1.md").exists(), "keep-answers を指定すると answers/g1.md が残る")
         res_normal = _ok(ws, "reset", "--keep", "requirements/auth")
         self.assertIn("answers", res_normal["removed"])
-        self.assertFalse(answers_dir.exists(), "指定しない場合は消える")
+        self.assertFalse(answers_dir.exists(), "reset は古い answers ディレクトリを消去する")
 
     def test_formal_model_generates_tla_and_bounded_checker(self):
         ws = self.ws

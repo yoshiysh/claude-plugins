@@ -739,7 +739,7 @@ function stateCheck(d, sec, out, fallbackEdges) {
     }
   }
   // 到達と出口は初期状態（[*] --> X）を持つ図があるときだけ判定する。初期状態が無いと起点が決まらない。
-  const initial = diagramEdges.filter((e) => e.from === '[*]').map((e) => e.to)
+  const initial = [...new Set(diagramEdges.filter((e) => e.from === '[*]').map((e) => e.to))]
   if (initial.length > 1) {
     out.push({ c: 'STATE_MULTIPLE_INITIAL', d: key, a: [key, initial.join(' / ')] })
   }
@@ -757,18 +757,13 @@ function stateCheck(d, sec, out, fallbackEdges) {
       seen.add(s)
       queue.push(...(nexts.get(s) || []))
     }
-    for (const s of allStates) {
-      if (!seen.has(s)) out.push({ c: 'STATE_UNREACHABLE', d: key, a: [key, s] })
-      const exits = [...(nexts.get(s) || [])].filter((to) => to !== s)
-      if (!terminal.has(s) && !exits.length) out.push({ c: 'STATE_DEADEND', d: key, a: [key, s] })
-    }
+    const coReachable = new Set(terminal)
     if (terminal.size > 0) {
       const prevs = new Map()
       for (const t of transitions) {
         if (!prevs.has(t.to)) prevs.set(t.to, new Set())
         prevs.get(t.to).add(t.from)
       }
-      const coReachable = new Set(terminal)
       const rQueue = [...terminal]
       while (rQueue.length) {
         const curr = rQueue.shift()
@@ -779,11 +774,14 @@ function stateCheck(d, sec, out, fallbackEdges) {
           }
         }
       }
-      for (const s of seen) {
-        const exits = [...(nexts.get(s) || [])].filter((to) => to !== s)
-        if (!terminal.has(s) && exits.length > 0 && !coReachable.has(s)) {
-          out.push({ c: 'STATE_TRAP', d: key, a: [key, s] })
-        }
+    }
+    for (const s of allStates) {
+      if (!seen.has(s)) out.push({ c: 'STATE_UNREACHABLE', d: key, a: [key, s] })
+      const exits = [...(nexts.get(s) || [])].filter((to) => to !== s)
+      if (!terminal.has(s) && !exits.length) {
+        out.push({ c: 'STATE_DEADEND', d: key, a: [key, s] })
+      } else if (!terminal.has(s) && seen.has(s) && exits.length > 0 && terminal.size > 0 && !coReachable.has(s)) {
+        out.push({ c: 'STATE_TRAP', d: key, a: [key, s] })
       }
     }
   }
@@ -2228,7 +2226,7 @@ function wsReset(ws, opts) {
   const carried = Object.fromEntries(keep.map((key) => [key, carriedTbd(ws, key)]).filter(([, tbd]) => tbd))
   const metas = keep.filter((key) => fixed.includes(key) || carried[key]).map((key) => ledgerOf('meta').file(key))
   const carries = keep.map(carryFileOf)
-  const removes = opts.keepAnswers ? RESET_REMOVES.filter((x) => x !== 'answers') : RESET_REMOVES
+  const removes = RESET_REMOVES
   const removed = fs
     .readdirSync(ws)
     .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || removes.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)) || (CARRY_FILE.test(n) && !carries.includes(n)))
@@ -4450,7 +4448,6 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--input') o.input = take()
     else if (a === '--sweep') o.sweep = true
     else if (a === '--keep') o.keep = take().split(',').map((s) => s.trim()).filter(Boolean)
-    else if (a === '--keep-answers') o.keepAnswers = true
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o

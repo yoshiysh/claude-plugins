@@ -269,6 +269,11 @@ stateDiagram-v2
         ids = _ids(_structural([_doc(md)]), "ST-STATE-")
         self.assertIn("ST-STATE-MULTIPLE-INITIAL-specifications/flow", ids)
 
+    def test_同一初期状態への重複矢印はSTATE_MULTIPLE_INITIALを誤検出しない(self):
+        md = STATE_DOC.replace("[*] --> 下書き", "[*] --> 下書き\n    [*] --> 下書き : ラベルあり")
+        ids = _ids(_structural([_doc(md)]), "ST-STATE-")
+        self.assertNotIn("ST-STATE-MULTIPLE-INITIAL-specifications/flow", ids)
+
 
 DT_DOC = """## 保存
 

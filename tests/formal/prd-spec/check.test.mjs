@@ -34,6 +34,19 @@ test('PrdSpec files exist and match structure', () => {
   assert.match(readme, /approved --> done:\s*Complete/);
 });
 
+function nonEmptysubsets(arr) {
+  const result = [];
+  const n = arr.length;
+  for (let i = 1; i < (1 << n); i++) {
+    const sub = [];
+    for (let j = 0; j < n; j++) {
+      if (i & (1 << j)) sub.push(arr[j]);
+    }
+    result.push(sub);
+  }
+  return result;
+}
+
 test('Bounded Model Checking: state space satisfies invariants and reaches done', () => {
   // BFS model exploration of PrdSpec state space
   const initial = {
@@ -45,7 +58,7 @@ test('Bounded Model Checking: state space satisfies invariants and reaches done'
     auditPassed: false,
   };
 
-  const keyOf = (s) => `${s.phase}|${s.questions.sort().join(',')}|${s.answers.sort().join(',')}|${s.blockingIssues}|${s.passes}|${s.auditPassed}`;
+  const keyOf = (s) => `${s.phase}|${[...s.questions].sort().join(',')}|${[...s.answers].sort().join(',')}|${s.blockingIssues}|${s.passes}|${s.auditPassed}`;
 
   const visited = new Set();
   const queue = [initial];
@@ -62,6 +75,10 @@ test('Bounded Model Checking: state space satisfies invariants and reaches done'
 
     // Invariant 1: TypeOK
     assert.ok(['draft', 'reviewing', 'needs_input', 'blocked', 'approved', 'done'].includes(s.phase));
+    assert.ok(typeof s.blockingIssues === 'number' && s.blockingIssues >= 0, 'blockingIssues >= 0');
+    assert.ok(typeof s.passes === 'number' && s.passes >= 0 && s.passes <= MAX_PASSES + 1, 'passes in bounds');
+    assert.ok(s.questions.every((q) => q >= 1 && q <= MAX_QUESTIONS), 'questions within bounds');
+    assert.ok(s.answers.every((a) => a >= 1 && a <= MAX_QUESTIONS), 'answers within bounds');
 
     // Invariant 2: NoUnresolvedQuestionsOnApproval
     if (s.phase === 'approved' || s.phase === 'done') {
@@ -79,6 +96,11 @@ test('Bounded Model Checking: state space satisfies invariants and reaches done'
       assert.equal(s.auditPassed, true);
     }
 
+    // Invariant 4: ValidTerminal
+    if (s.phase === 'done') {
+      assert.ok(s.auditPassed, 'Valid terminal requires auditPassed');
+    }
+
     // Generate successor states
     const nextStates = [];
 
@@ -87,20 +109,22 @@ test('Bounded Model Checking: state space satisfies invariants and reaches done'
       nextStates.push({ ...s, phase: 'reviewing', passes: s.passes + 1 });
     }
 
-    // AskQuestions
+    // AskQuestions: 1..MAX_QUESTIONS の空でない任意の部分集合
     if (s.phase === 'reviewing' && s.passes <= MAX_PASSES) {
-      for (let q = 1; q <= MAX_QUESTIONS; q++) {
-        if (!s.questions.includes(q)) {
-          nextStates.push({ ...s, phase: 'needs_input', questions: [...s.questions, q] });
-        }
+      const allQs = Array.from({ length: MAX_QUESTIONS }, (_, i) => i + 1);
+      for (const qs of nonEmptysubsets(allQs)) {
+        nextStates.push({ ...s, phase: 'needs_input', questions: [...qs].sort() });
       }
     }
 
-    // ProvideAnswers
+    // ProvideAnswers: 未回答の問いから空でない任意の部分集合を回答
     if (s.phase === 'needs_input') {
       const unans = s.questions.filter((q) => !s.answers.includes(q));
       if (unans.length > 0) {
-        nextStates.push({ ...s, phase: 'reviewing', answers: [...s.answers, ...unans] });
+        for (const ans of nonEmptysubsets(unans)) {
+          const newAnswers = [...new Set([...s.answers, ...ans])].sort();
+          nextStates.push({ ...s, phase: 'reviewing', answers: newAnswers });
+        }
       }
     }
 
