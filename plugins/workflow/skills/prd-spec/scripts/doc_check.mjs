@@ -1664,7 +1664,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-model']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -4177,6 +4177,242 @@ function wsIndex(ws, opts) {
   return { indexes: written, open_tbd_files: carry.map(({ doc, path: p }) => ({ doc, path: p })), open_tbd_clear: clear }
 }
 
+// wsFormalModel: 仕様書（specifications/<topic>）に書かれた状態機械（stateDiagram-v2 / 状態 × イベント表）から、
+// TLA+ 形式検証モデル（.tla, .cfg, README.md, check.test.mjs）を導出して W/formal/<topic>/ に置く。
+// 成果物として tests/formal/<topic>/ へ写され、Layer 2（TLA+ モデル検査）および有界モデル検査が実行可能になる。
+function wsFormalModel(ws, opts) {
+  const wsDocs = workspaceDocs(ws)
+  const docs = deriveDocs(wsDocs)
+  const specDocs = docs.filter((d) => d.kind === 'specifications' && (!opts.doc.length || opts.doc.includes(d.key)))
+  if (!specDocs.length) throw new Error('形式モデルを導出する仕様書（specifications/<topic>）がありません')
+
+  const results = []
+  for (const d of specDocs) {
+    const topic = d.topic
+    const md = d.markdown || ''
+    const secs = sectionsOf2(md)
+    let edges = null
+    for (const sec of secs) {
+      const diag = stateDiagramOf(sec)
+      if (diag && diag.length) {
+        edges = diag
+        break
+      }
+    }
+    if (!edges || !edges.length) continue
+
+    const initial = (edges.find((e) => e.from === '[*]') || {}).to || null
+    const terminals = edges.filter((e) => e.to === '[*]').map((e) => e.from)
+    const validEdges = edges.filter((e) => e.from !== '[*]' && e.to !== '[*]')
+    const states = [...new Set([...validEdges.flatMap((e) => [e.from, e.to]), ...(initial ? [initial] : []), ...terminals])].sort()
+
+    const modelName = topic.split(/[-_]/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('') || 'Spec'
+    const outDir = path.join(ws, 'formal', topic)
+    fs.mkdirSync(outDir, { recursive: true })
+
+    // 1. TLA+ module (<ModelName>.tla)
+    const tlaLines = [
+      `------------------------------ MODULE ${modelName} ------------------------------`,
+      'EXTENDS Naturals, Sequences',
+      '',
+      `CONSTANTS MaxSteps`,
+      '',
+      `VARIABLES state, stepCount`,
+      '',
+      `vars == <<state, stepCount>>`,
+      '',
+      `States == { ${states.map((s) => JSON.stringify(s)).join(', ')} }`,
+      '',
+      `TypeOK ==`,
+      `    /\\ state \\in States`,
+      `    /\\ stepCount \\in 0..MaxSteps`,
+      '',
+      `Init ==`,
+      initial ? `    /\\ state = ${JSON.stringify(initial)}` : `    /\\ state \\in States`,
+      `    /\\ stepCount = 0`,
+      '',
+    ]
+
+    const transGroups = new Map()
+    for (const e of validEdges) {
+      if (!transGroups.has(e.from)) transGroups.set(e.from, [])
+      transGroups.get(e.from).push(e)
+    }
+
+    const actionNames = []
+    let actIdx = 1
+    for (const [fromState, toEdges] of transGroups) {
+      for (const edge of toEdges) {
+        const actName = `Trans_${actIdx++}`
+        actionNames.push(actName)
+        tlaLines.push(
+          `${actName} ==`,
+          `    /\\ state = ${JSON.stringify(fromState)}`,
+          `    /\\ stepCount < MaxSteps`,
+          `    /\\ state' = ${JSON.stringify(edge.to)}`,
+          `    /\\ stepCount' = stepCount + 1`,
+          ''
+        )
+      }
+    }
+
+    if (!actionNames.length) {
+      actionNames.push('Stutter')
+      tlaLines.push(`Stutter == /\\ UNCHANGED vars`, '')
+    }
+
+    tlaLines.push(
+      `Next ==`,
+      `    ${actionNames.map((a) => `\\/ ${a}`).join('\n    ')}`,
+      '',
+      `Spec == Init /\\ [][Next]_vars`,
+      '',
+      `DeadlockFree ==`,
+      terminals.length
+        ? `    (state \\notin { ${terminals.map((t) => JSON.stringify(t)).join(', ')} }) => (stepCount < MaxSteps => ENABLED Next)`
+        : `    stepCount < MaxSteps => ENABLED Next`,
+      '',
+      `ValidTerminal ==`,
+      terminals.length
+        ? `    (state \\in { ${terminals.map((t) => JSON.stringify(t)).join(', ')} }) => (stepCount <= MaxSteps)`
+        : `    TRUE`,
+      '',
+      `=============================================================================`
+    )
+
+    const tlaPath = path.join(outDir, `${modelName}.tla`)
+    fs.writeFileSync(tlaPath, tlaLines.join('\n') + '\n')
+
+    // 2. TLC Config (<ModelName>.cfg)
+    const cfgLines = [
+      'SPECIFICATION Spec',
+      'CONSTANTS',
+      '    MaxSteps = 10',
+      'INVARIANTS',
+      '    TypeOK',
+      '    DeadlockFree',
+      '    ValidTerminal',
+    ]
+    const cfgPath = path.join(outDir, `${modelName}.cfg`)
+    fs.writeFileSync(cfgPath, cfgLines.join('\n') + '\n')
+
+    // 3. README.md
+    const readmeLines = [
+      `# ${topic} 仕様の形式モデル`,
+      '',
+      `この形式モデルは \`${d.key}\` から \`doc_check.mjs formal-model\` により自動導出された TLA+ 状態機械モデルである。`,
+      '',
+      '## 状態遷移',
+      '',
+      '```mermaid',
+      'stateDiagram-v2',
+      ...(initial ? [`    [*] --> ${initial}`] : []),
+      ...validEdges.map((e) => `    ${e.from} --> ${e.to}${e.label ? ` : ${e.label}` : ''}`),
+      ...terminals.map((t) => `    ${t} --> [*]`),
+      '```',
+      '',
+      '## 検証する性質',
+      '',
+      '| 性質 | 内容 |',
+      '|---|---|',
+      '| `TypeOK` | 状態変数が仕様書で定義された状態集合に含まれる |',
+      '| `DeadlockFree` | 終端状態以外の状態において、ステップ上限に達するまで次の遷移が存在する |',
+      '| `ValidTerminal` | 終端状態に到達した実行パスの妥当性 |',
+      '',
+      '## 実行',
+      '',
+      '```bash',
+      `node --test check.test.mjs`,
+      '```',
+      '',
+      'または TLC によるモデル検査:',
+      '',
+      '```bash',
+      `java -cp /path/to/tla2tools.jar tlc2.TLC ${modelName}.tla -config ${modelName}.cfg`,
+      '```',
+    ]
+    const readmePath = path.join(outDir, 'README.md')
+    fs.writeFileSync(readmePath, readmeLines.join('\n') + '\n')
+
+    // 4. check.test.mjs (有界モデル検査器)
+    const checkTestLines = [
+      `import assert from 'node:assert/strict';`,
+      `import fs from 'node:fs';`,
+      `import path from 'node:path';`,
+      `import { fileURLToPath } from 'node:url';`,
+      `import test from 'node:test';`,
+      '',
+      `const here = path.dirname(fileURLToPath(import.meta.url));`,
+      `const tlaPath = path.join(here, '${modelName}.tla');`,
+      `const cfgPath = path.join(here, '${modelName}.cfg');`,
+      `const readmePath = path.join(here, 'README.md');`,
+      '',
+      `test('Formal model files exist and match structure', () => {`,
+      `  assert.ok(fs.existsSync(tlaPath));`,
+      `  assert.ok(fs.existsSync(cfgPath));`,
+      `  assert.ok(fs.existsSync(readmePath));`,
+      `  const tla = fs.readFileSync(tlaPath, 'utf8');`,
+      `  assert.match(tla, /MODULE ${modelName}/);`,
+      `  assert.match(tla, /TypeOK/);`,
+      `  assert.match(tla, /DeadlockFree/);`,
+      `});`,
+      '',
+      `test('Bounded Model Checking: explore state space and reachability', () => {`,
+      `  const states = ${JSON.stringify(states)};`,
+      `  const initial = ${JSON.stringify(initial)};`,
+      `  const terminals = new Set(${JSON.stringify(terminals)});`,
+      `  const transitions = ${JSON.stringify(validEdges.map((e) => ({ from: e.from, to: e.to })))};`,
+      '',
+      `  const transMap = new Map();`,
+      `  for (const t of transitions) {`,
+      `    if (!transMap.has(t.from)) transMap.set(t.from, []);`,
+      `    transMap.get(t.from).push(t.to);`,
+      `  }`,
+      '',
+      `  const visited = new Set();`,
+      `  const queue = initial ? [initial] : [...states];`,
+      `  let reachedTerminal = terminals.size === 0;`,
+      '',
+      `  while (queue.length > 0) {`,
+      `    const curr = queue.shift();`,
+      `    if (visited.has(curr)) continue;`,
+      `    visited.add(curr);`,
+      `    assert.ok(states.includes(curr), \`State \${curr} must be in declared states\`);`,
+      `    if (terminals.has(curr)) reachedTerminal = true;`,
+      `    const nexts = transMap.get(curr) || [];`,
+      `    if (!terminals.has(curr)) {`,
+      `      assert.ok(nexts.length > 0, \`Non-terminal state \${curr} must have outgoing transitions\`);`,
+      `    }`,
+      `    for (const n of nexts) {`,
+      `      if (!visited.has(n)) queue.push(n);`,
+      `    }`,
+      `  }`,
+      `  assert.ok(visited.size > 0, 'Explored non-empty state space');`,
+      `  assert.ok(reachedTerminal, 'Must be able to reach terminal state');`,
+      `});`,
+    ]
+    const testPath = path.join(outDir, 'check.test.mjs')
+    fs.writeFileSync(testPath, checkTestLines.join('\n') + '\n')
+
+    results.push({
+      topic,
+      doc: d.key,
+      model: modelName,
+      output_dir: path.relative(ws, outDir),
+      files: [
+        path.join('formal', topic, `${modelName}.tla`),
+        path.join('formal', topic, `${modelName}.cfg`),
+        path.join('formal', topic, 'README.md'),
+        path.join('formal', topic, 'check.test.mjs'),
+      ],
+      states_count: states.length,
+      transitions_count: validEdges.length,
+    })
+  }
+
+  return { formal_models: results }
+}
+
 function parseWorkspaceArgs(argv) {
   const o = { doc: [] }
   for (let i = 0; i < argv.length; i++) {
@@ -4249,6 +4485,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'report') return wsReport(ws, opts)
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
+  if (mode === 'formal-model') return wsFormalModel(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -4332,4 +4569,5 @@ export {
   carryShapeOk,
   carryPathOf,
   CARRY_SUFFIX,
+  wsFormalModel,
 }

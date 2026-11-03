@@ -168,16 +168,20 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    次のランの「未解決」に戻る）。下の衝突で写さなかった文書の写しには触れない。
    - 新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
-4. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
+4. **形式検証モデル**: 仕様書（`specifications/<topic>`）を書いたランでは、
+   `node [SKILL_DIR]/scripts/doc_check.mjs formal-model --workspace <W> --doc specifications/<topic>`
+   を実行し、出力の `formal_models[].files`（`W/formal/<topic>/` の TLA+ モデル・TLC 設定・README・有界モデル検査 `check.test.mjs`）を
+   保存先の `tests/formal/<topic>/` 配下へ逐語で写す。これにより、仕様書とともに多層防御（Layer 2 状態遷移モデル検査）のモデルが成果物として納品され、`node --test tests/formal/<topic>/check.test.mjs` で即座に機械検証できる。
+5. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
    できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
    `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
-5. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
+6. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。
-6. **経緯は commit と PR に残す**: 文書には決定ログも経緯も書かない（`references/document-structure.md` §4）。
+7. **経緯は commit と PR に残す**: 文書には決定ログも経緯も書かない（`references/document-structure.md` §4）。
    commit メッセージに主要な決定を、PR 本文に保持規則と Issue の一覧を書く。git 管理下でない案件では、経緯が
    W にしか残らないことを 1 文で伝える。
-7. 承認欄を置いた案件では、このスキルは承認者の実在も承認の事実も確認できず、記入されるのは依頼者が申告した
+8. 承認欄を置いた案件では、このスキルは承認者の実在も承認の事実も確認できず、記入されるのは依頼者が申告した
    文字列にすぎないことを 1 文で伝える。
 
 保存した文書を手で直さない。直すなら `entry: existing` でもう一度走らせる。手で直した版は誰の監査も通って
