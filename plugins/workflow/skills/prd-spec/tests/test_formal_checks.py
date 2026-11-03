@@ -223,6 +223,52 @@ stateDiagram-v2
     def test_固定文書は検査しない(self):
         self.assertEqual(_ids(_structural([_doc(STATE_DOC, fixed=True)]), "ST-STATE-"), [])
 
+    def test_終端へ抜けられないループをSTATE_TRAPとして拾う(self):
+        md = """## 状態とイベント
+
+```mermaid
+stateDiagram-v2
+    [*] --> 下書き
+    下書き --> 承認待ち : E1 申請する
+    承認待ち --> 完了 : E2 承認する
+    完了 --> [*]
+    下書き --> ループA : E3 差し戻す
+    ループA --> ループB : E1 申請する
+    ループB --> ループA : E2 承認する
+```
+
+> 対象の状態: 下書き / 承認待ち / 完了 / ループA / ループB
+> 対象のイベント: E1 申請する / E2 承認する / E3 差し戻す
+
+| 現在の状態 | イベント | 種別 | 次の状態 | 定義済みか |
+|---|---|---|---|---|
+| 下書き | E1 | 正常系 | 承認待ち | ✅ SP-1 |
+| 下書き | E2 | 異常系 | 発生しない | ✅ |
+| 下書き | E3 | 正常系 | ループA | ✅ SP-2 |
+| 承認待ち | E1 | 異常系 | 発生しない | ✅ |
+| 承認待ち | E2 | 正常系 | 完了 | ✅ SP-3 |
+| 承認待ち | E3 | 異常系 | 発生しない | ✅ |
+| 完了 | E1 | 異常系 | 発生しない | ✅ |
+| 完了 | E2 | 異常系 | 発生しない | ✅ |
+| 完了 | E3 | 異常系 | 発生しない | ✅ |
+| ループA | E1 | 正常系 | ループB | ✅ SP-4 |
+| ループA | E2 | 異常系 | 発生しない | ✅ |
+| ループA | E3 | 異常系 | 発生しない | ✅ |
+| ループB | E1 | 異常系 | 発生しない | ✅ |
+| ループB | E2 | 正常系 | ループA | ✅ SP-5 |
+| ループB | E3 | 異常系 | 発生しない | ✅ |
+"""
+        ids = _ids(_structural([_doc(md)]), "ST-STATE-")
+        self.assertIn("ST-STATE-TRAP-specifications/flow-ループA", ids)
+        self.assertIn("ST-STATE-TRAP-specifications/flow-ループB", ids)
+        self.assertNotIn("ST-STATE-TRAP-specifications/flow-下書き", ids)
+        self.assertNotIn("ST-STATE-TRAP-specifications/flow-承認待ち", ids)
+
+    def test_複数の初期状態をSTATE_MULTIPLE_INITIALとして拾う(self):
+        md = STATE_DOC.replace("[*] --> 下書き", "[*] --> 下書き\n    [*] --> 承認待ち")
+        ids = _ids(_structural([_doc(md)]), "ST-STATE-")
+        self.assertIn("ST-STATE-MULTIPLE-INITIAL-specifications/flow", ids)
+
 
 DT_DOC = """## 保存
 

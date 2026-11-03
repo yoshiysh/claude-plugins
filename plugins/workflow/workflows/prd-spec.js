@@ -393,8 +393,10 @@ const ENV_ARGS = ['skillDir', 'role_opts']
 // RESUME_ARGS: resumeFromRunId で呼び直すときに元の run の args へ足す欄。next_args には載らないので hash の外に置く（入れると、next_args から
 // 始めた run の resume が state_hash で止まる）。
 const RESUME_ARGS = ['gates_answered']
+// RUNNER_ARGS: Codex runner や実行環境が付与するメタデータ。next_args には載らず、外部 runner の再開で state_hash が合わなくなるのを防ぐ。
+const RUNNER_ARGS = ['runDir', 'host', 'trustedSource', 'requirements', 'trustedPluginRoots']
 const isEmpty = (v) => v === undefined || (Array.isArray(v) ? !v.length : v && typeof v === 'object' && !Object.keys(v).length)
-const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !RESUME_ARGS.includes(k) && !isEmpty(v)))))
+const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !RESUME_ARGS.includes(k) && !RUNNER_ARGS.includes(k) && !isEmpty(v)))))
 
 // reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
@@ -2221,7 +2223,7 @@ async function needsAnswers(from, onward) {
   const ids = pendingQuestions(state)
   const asked = GATES_ANSWERED[gate]
   if (!asked) return answersStop(gate, from, ids, {})
-  if (canonicalText(uniq(asked)) !== canonicalText(uniq(ids))) {
+  if (canonicalText(uniq(asked).sort()) !== canonicalText(uniq(ids).sort())) {
     return answersStop(gate, from, ids, { reason: `gates_answered.${gate}（${list(asked)}）が今の問い（${list(ids)}）と違います（resume が保存された結果から外れて live で走り直した）。今の問いを聞き直してください` })
   }
   const unanswered = await answersUnchecked(gate, from, ids)
@@ -2273,7 +2275,7 @@ async function answersUnchecked(gate, from, ids) {
   const cmd = cli('answers', `--file ${gateAnswers(gate)} --ids ${ids.join(',')}`)
   const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
   const ac = parseStdout(x && x.answers_check)
-  const echoed = ac && ac.file === gateAnswers(gate) && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
+  const echoed = ac && ac.file === gateAnswers(gate) && canonicalText(uniq(ac.ids || []).sort()) === canonicalText(uniq(ids).sort()) && Array.isArray(ac.missing) && Array.isArray(ac.free)
   if (echoed && !ac.missing.length) {
     answersFree[gate] = ac.free
     return null
