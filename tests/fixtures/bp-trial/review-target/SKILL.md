@@ -94,6 +94,7 @@ Claude Code では、plugin から読み込む agent の設定の一部が無視
 ## 返り値
 
 - `stopKind`・`reason`・`nextArgs`（完了以外）
+- `reasonClass`（BLOCKED のとき。理由の区分で、失敗なら `failure`。このスキルは対象のリポジトリを直さないと進めない停止を持たないので、BLOCKED は全て `failure` になる。起動の項目の欠けや上限の誤りも失敗に含める）
 - `facts`（受理した事実。事実ごとに検証方式と、示したツールの結果）
 - `cause`（完了のとき。原因の説明と、根拠の事実 ID）
 - `coverage`（台帳の資産のうち、実行役が見た割合）と `skip`（見なかった資産の一覧）
