@@ -1233,6 +1233,56 @@ class CarriedTbd(_Workspace):
         _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-002")
         self.assertTrue(any("NO-EVIDENCE" in f for f in _findings(ws)), "写しの無い文書と同じく、trace の無い項目を根拠なしとして数える")
 
+    def test_resetでanswersディレクトリが消去される(self):
+        repo, _ = self._save("TBD-RAUTH-001")
+        ws = self._next_ws(repo, [("requirements", "auth")])
+        answers_dir = ws / "answers"
+        answers_dir.mkdir(parents=True, exist_ok=True)
+        (answers_dir / "g1.md").write_text("# 回答\n\n- RS-001: 案A\n")
+        res_normal = _ok(ws, "reset", "--keep", "requirements/auth")
+        self.assertIn("answers", res_normal["removed"])
+        self.assertFalse(answers_dir.exists(), "reset は古い answers ディレクトリを消去する")
+
+    def test_formal_model_generates_tla_and_bounded_checker(self):
+        ws = self.ws
+        spec_content = """# 認証仕様書
+
+## 状態とイベント
+
+```mermaid
+stateDiagram-v2
+    [*] --> ログイン待ち
+    ログイン待ち --> 認証成功 : E1 パスワード一致
+    認証成功 --> [*]
+```
+
+> 対象の状態: ログイン待ち / 認証成功
+> 対象のイベント: E1 パスワード一致
+
+| 現在の状態 | イベント | 種別 | 次の状態 | 定義済みか |
+|---|---|---|---|---|
+| ログイン待ち | E1 | 正常系 | 認証成功 | ✅ SP-1 |
+"""
+        (ws / "specifications-auth.md").write_text(spec_content)
+        res = _ok(ws, "formal-model", "--doc", "specifications/auth")
+        self.assertIn("formal_models", res)
+        models = res["formal_models"]
+        self.assertEqual(len(models), 1)
+        m = models[0]
+        self.assertEqual(m["topic"], "auth")
+        self.assertEqual(m["model"], "Auth")
+        formal_dir = ws / "formal" / "auth"
+        self.assertTrue((formal_dir / "Auth.tla").exists())
+        self.assertTrue((formal_dir / "Auth.cfg").exists())
+        self.assertTrue((formal_dir / "README.md").exists())
+        self.assertTrue((formal_dir / "check.test.mjs").exists())
+        tla_text = (formal_dir / "Auth.tla").read_text()
+        self.assertIn("MODULE Auth", tla_text)
+        self.assertIn("ログイン待ち", tla_text)
+        self.assertIn("認証成功", tla_text)
+        proc = subprocess.run(["node", "--test", str(formal_dir / "check.test.mjs")], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"check.test.mjs failed: {proc.stderr}")
+
 
 if __name__ == "__main__":
     unittest.main()

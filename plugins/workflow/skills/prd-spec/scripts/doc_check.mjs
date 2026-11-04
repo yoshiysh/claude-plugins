@@ -348,6 +348,20 @@ const FINDING_TEXT = {
     issue: `状態「${s}」から出る遷移が表にも図にも無く、終端（\`--> [*]\`）でもない。この状態に入ると抜けられない。`,
     fix: `「${s}」から出る遷移を書くか、終端なら図に「${s} --> [*]」を書く。`,
   }),
+  STATE_TRAP: (docKey, s) => ({
+    id: `ST-STATE-TRAP-${docKey}-${s}`,
+    location: '状態とイベント',
+    quote: s,
+    issue: `状態「${s}」から終端状態（\`--> [*]\`）へ至る経路がありません。この状態に入ると完了へ到達できない閉塞ループまたはデッドロックになります。`,
+    fix: `「${s}」から終端状態へ進む遷移経路を追加するか、脱出条件を定めてください。`,
+  }),
+  STATE_MULTIPLE_INITIAL: (docKey, initials) => ({
+    id: `ST-STATE-MULTIPLE-INITIAL-${docKey}`,
+    location: '状態とイベント',
+    quote: initials,
+    issue: `初期状態（\`[*] --> ...\`）が複数定義されています（${initials}）。系の起点が決定論的に定まりません。`,
+    fix: '初期状態を 1 つに絞るか、分岐条件を定めてください。',
+  }),
   STATE_AXIS: (docKey, s, e, what, value) => ({
     id: `ST-STATE-AXIS-${docKey}-${s}-${e}-${what}`,
     location: '状態とイベント',
@@ -725,7 +739,10 @@ function stateCheck(d, sec, out, fallbackEdges) {
     }
   }
   // 到達と出口は初期状態（[*] --> X）を持つ図があるときだけ判定する。初期状態が無いと起点が決まらない。
-  const initial = diagramEdges.filter((e) => e.from === '[*]').map((e) => e.to)
+  const initial = [...new Set(diagramEdges.filter((e) => e.from === '[*]').map((e) => e.to))]
+  if (initial.length > 1) {
+    out.push({ c: 'STATE_MULTIPLE_INITIAL', d: key, a: [key, initial.join(' / ')] })
+  }
   if (initial.length) {
     const nexts = new Map()
     for (const t of transitions) {
@@ -740,10 +757,32 @@ function stateCheck(d, sec, out, fallbackEdges) {
       seen.add(s)
       queue.push(...(nexts.get(s) || []))
     }
+    const coReachable = new Set(terminal)
+    if (terminal.size > 0) {
+      const prevs = new Map()
+      for (const t of transitions) {
+        if (!prevs.has(t.to)) prevs.set(t.to, new Set())
+        prevs.get(t.to).add(t.from)
+      }
+      const rQueue = [...terminal]
+      while (rQueue.length) {
+        const curr = rQueue.shift()
+        for (const p of (prevs.get(curr) || [])) {
+          if (!coReachable.has(p)) {
+            coReachable.add(p)
+            rQueue.push(p)
+          }
+        }
+      }
+    }
     for (const s of allStates) {
       if (!seen.has(s)) out.push({ c: 'STATE_UNREACHABLE', d: key, a: [key, s] })
       const exits = [...(nexts.get(s) || [])].filter((to) => to !== s)
-      if (!terminal.has(s) && !exits.length) out.push({ c: 'STATE_DEADEND', d: key, a: [key, s] })
+      if (!terminal.has(s) && !exits.length) {
+        out.push({ c: 'STATE_DEADEND', d: key, a: [key, s] })
+      } else if (!terminal.has(s) && seen.has(s) && exits.length > 0 && terminal.size > 0 && !coReachable.has(s)) {
+        out.push({ c: 'STATE_TRAP', d: key, a: [key, s] })
+      }
     }
   }
 }
@@ -1623,7 +1662,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-model']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -2187,9 +2226,10 @@ function wsReset(ws, opts) {
   const carried = Object.fromEntries(keep.map((key) => [key, carriedTbd(ws, key)]).filter(([, tbd]) => tbd))
   const metas = keep.filter((key) => fixed.includes(key) || carried[key]).map((key) => ledgerOf('meta').file(key))
   const carries = keep.map(carryFileOf)
+  const removes = RESET_REMOVES
   const removed = fs
     .readdirSync(ws)
-    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)) || (CARRY_FILE.test(n) && !carries.includes(n)))
+    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || removes.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)) || (CARRY_FILE.test(n) && !carries.includes(n)))
     .sort()
   for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
   for (const key of keep.filter((k) => fixed.includes(k) || carried[k])) {
@@ -4135,6 +4175,242 @@ function wsIndex(ws, opts) {
   return { indexes: written, open_tbd_files: carry.map(({ doc, path: p }) => ({ doc, path: p })), open_tbd_clear: clear }
 }
 
+// wsFormalModel: 仕様書（specifications/<topic>）に書かれた状態機械（stateDiagram-v2 / 状態 × イベント表）から、
+// TLA+ 形式検証モデル（.tla, .cfg, README.md, check.test.mjs）を導出して W/formal/<topic>/ に置く。
+// 成果物として tests/formal/<topic>/ へ写され、Layer 2（TLA+ モデル検査）および有界モデル検査が実行可能になる。
+function wsFormalModel(ws, opts) {
+  const wsDocs = workspaceDocs(ws)
+  const docs = deriveDocs(wsDocs)
+  const specDocs = docs.filter((d) => d.kind === 'specifications' && (!opts.doc.length || opts.doc.includes(d.key)))
+  if (!specDocs.length) throw new Error('形式モデルを導出する仕様書（specifications/<topic>）がありません')
+
+  const results = []
+  for (const d of specDocs) {
+    const topic = d.topic
+    const md = d.markdown || ''
+    const secs = sectionsOf2(md)
+    let edges = null
+    for (const sec of secs) {
+      const diag = stateDiagramOf(sec)
+      if (diag && diag.length) {
+        edges = diag
+        break
+      }
+    }
+    if (!edges || !edges.length) continue
+
+    const initial = (edges.find((e) => e.from === '[*]') || {}).to || null
+    const terminals = edges.filter((e) => e.to === '[*]').map((e) => e.from)
+    const validEdges = edges.filter((e) => e.from !== '[*]' && e.to !== '[*]')
+    const states = [...new Set([...validEdges.flatMap((e) => [e.from, e.to]), ...(initial ? [initial] : []), ...terminals])].sort()
+
+    const modelName = topic.split(/[-_]/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('') || 'Spec'
+    const outDir = path.join(ws, 'formal', topic)
+    fs.mkdirSync(outDir, { recursive: true })
+
+    // 1. TLA+ module (<ModelName>.tla)
+    const tlaLines = [
+      `------------------------------ MODULE ${modelName} ------------------------------`,
+      'EXTENDS Naturals, Sequences',
+      '',
+      `CONSTANTS MaxSteps`,
+      '',
+      `VARIABLES state, stepCount`,
+      '',
+      `vars == <<state, stepCount>>`,
+      '',
+      `States == { ${states.map((s) => JSON.stringify(s)).join(', ')} }`,
+      '',
+      `TypeOK ==`,
+      `    /\\ state \\in States`,
+      `    /\\ stepCount \\in 0..MaxSteps`,
+      '',
+      `Init ==`,
+      initial ? `    /\\ state = ${JSON.stringify(initial)}` : `    /\\ state \\in States`,
+      `    /\\ stepCount = 0`,
+      '',
+    ]
+
+    const transGroups = new Map()
+    for (const e of validEdges) {
+      if (!transGroups.has(e.from)) transGroups.set(e.from, [])
+      transGroups.get(e.from).push(e)
+    }
+
+    const actionNames = []
+    let actIdx = 1
+    for (const [fromState, toEdges] of transGroups) {
+      for (const edge of toEdges) {
+        const actName = `Trans_${actIdx++}`
+        actionNames.push(actName)
+        tlaLines.push(
+          `${actName} ==`,
+          `    /\\ state = ${JSON.stringify(fromState)}`,
+          `    /\\ stepCount < MaxSteps`,
+          `    /\\ state' = ${JSON.stringify(edge.to)}`,
+          `    /\\ stepCount' = stepCount + 1`,
+          ''
+        )
+      }
+    }
+
+    if (!actionNames.length) {
+      actionNames.push('Stutter')
+      tlaLines.push(`Stutter == /\\ UNCHANGED vars`, '')
+    }
+
+    tlaLines.push(
+      `Next ==`,
+      `    ${actionNames.map((a) => `\\/ ${a}`).join('\n    ')}`,
+      '',
+      `Spec == Init /\\ [][Next]_vars`,
+      '',
+      `DeadlockFree ==`,
+      terminals.length
+        ? `    (state \\notin { ${terminals.map((t) => JSON.stringify(t)).join(', ')} }) => (stepCount < MaxSteps => ENABLED Next)`
+        : `    stepCount < MaxSteps => ENABLED Next`,
+      '',
+      `ValidTerminal ==`,
+      terminals.length
+        ? `    (state \\in { ${terminals.map((t) => JSON.stringify(t)).join(', ')} }) => (stepCount <= MaxSteps)`
+        : `    TRUE`,
+      '',
+      `=============================================================================`
+    )
+
+    const tlaPath = path.join(outDir, `${modelName}.tla`)
+    fs.writeFileSync(tlaPath, tlaLines.join('\n') + '\n')
+
+    // 2. TLC Config (<ModelName>.cfg)
+    const cfgLines = [
+      'SPECIFICATION Spec',
+      'CONSTANTS',
+      '    MaxSteps = 10',
+      'INVARIANTS',
+      '    TypeOK',
+      '    DeadlockFree',
+      '    ValidTerminal',
+    ]
+    const cfgPath = path.join(outDir, `${modelName}.cfg`)
+    fs.writeFileSync(cfgPath, cfgLines.join('\n') + '\n')
+
+    // 3. README.md
+    const readmeLines = [
+      `# ${topic} 仕様の形式モデル`,
+      '',
+      `この形式モデルは \`${d.key}\` から \`doc_check.mjs formal-model\` により自動導出された TLA+ 状態機械モデルである。`,
+      '',
+      '## 状態遷移',
+      '',
+      '```mermaid',
+      'stateDiagram-v2',
+      ...(initial ? [`    [*] --> ${initial}`] : []),
+      ...validEdges.map((e) => `    ${e.from} --> ${e.to}${e.label ? ` : ${e.label}` : ''}`),
+      ...terminals.map((t) => `    ${t} --> [*]`),
+      '```',
+      '',
+      '## 検証する性質',
+      '',
+      '| 性質 | 内容 |',
+      '|---|---|',
+      '| `TypeOK` | 状態変数が仕様書で定義された状態集合に含まれる |',
+      '| `DeadlockFree` | 終端状態以外の状態において、ステップ上限に達するまで次の遷移が存在する |',
+      '| `ValidTerminal` | 終端状態に到達した実行パスの妥当性 |',
+      '',
+      '## 実行',
+      '',
+      '```bash',
+      `node --test check.test.mjs`,
+      '```',
+      '',
+      'または TLC によるモデル検査:',
+      '',
+      '```bash',
+      `java -cp /path/to/tla2tools.jar tlc2.TLC ${modelName}.tla -config ${modelName}.cfg`,
+      '```',
+    ]
+    const readmePath = path.join(outDir, 'README.md')
+    fs.writeFileSync(readmePath, readmeLines.join('\n') + '\n')
+
+    // 4. check.test.mjs (有界モデル検査器)
+    const checkTestLines = [
+      `import assert from 'node:assert/strict';`,
+      `import fs from 'node:fs';`,
+      `import path from 'node:path';`,
+      `import { fileURLToPath } from 'node:url';`,
+      `import test from 'node:test';`,
+      '',
+      `const here = path.dirname(fileURLToPath(import.meta.url));`,
+      `const tlaPath = path.join(here, '${modelName}.tla');`,
+      `const cfgPath = path.join(here, '${modelName}.cfg');`,
+      `const readmePath = path.join(here, 'README.md');`,
+      '',
+      `test('Formal model files exist and match structure', () => {`,
+      `  assert.ok(fs.existsSync(tlaPath));`,
+      `  assert.ok(fs.existsSync(cfgPath));`,
+      `  assert.ok(fs.existsSync(readmePath));`,
+      `  const tla = fs.readFileSync(tlaPath, 'utf8');`,
+      `  assert.match(tla, /MODULE ${modelName}/);`,
+      `  assert.match(tla, /TypeOK/);`,
+      `  assert.match(tla, /DeadlockFree/);`,
+      `});`,
+      '',
+      `test('Bounded Model Checking: explore state space and reachability', () => {`,
+      `  const states = ${JSON.stringify(states)};`,
+      `  const initial = ${JSON.stringify(initial)};`,
+      `  const terminals = new Set(${JSON.stringify(terminals)});`,
+      `  const transitions = ${JSON.stringify(validEdges.map((e) => ({ from: e.from, to: e.to })))};`,
+      '',
+      `  const transMap = new Map();`,
+      `  for (const t of transitions) {`,
+      `    if (!transMap.has(t.from)) transMap.set(t.from, []);`,
+      `    transMap.get(t.from).push(t.to);`,
+      `  }`,
+      '',
+      `  const visited = new Set();`,
+      `  const queue = initial ? [initial] : [...states];`,
+      `  let reachedTerminal = terminals.size === 0;`,
+      '',
+      `  while (queue.length > 0) {`,
+      `    const curr = queue.shift();`,
+      `    if (visited.has(curr)) continue;`,
+      `    visited.add(curr);`,
+      `    assert.ok(states.includes(curr), \`State \${curr} must be in declared states\`);`,
+      `    if (terminals.has(curr)) reachedTerminal = true;`,
+      `    const nexts = transMap.get(curr) || [];`,
+      `    if (!terminals.has(curr)) {`,
+      `      assert.ok(nexts.length > 0, \`Non-terminal state \${curr} must have outgoing transitions\`);`,
+      `    }`,
+      `    for (const n of nexts) {`,
+      `      if (!visited.has(n)) queue.push(n);`,
+      `    }`,
+      `  }`,
+      `  assert.ok(visited.size > 0, 'Explored non-empty state space');`,
+      `  assert.ok(reachedTerminal, 'Must be able to reach terminal state');`,
+      `});`,
+    ]
+    const testPath = path.join(outDir, 'check.test.mjs')
+    fs.writeFileSync(testPath, checkTestLines.join('\n') + '\n')
+
+    results.push({
+      topic,
+      doc: d.key,
+      model: modelName,
+      output_dir: path.relative(ws, outDir),
+      files: [
+        path.join('formal', topic, `${modelName}.tla`),
+        path.join('formal', topic, `${modelName}.cfg`),
+        path.join('formal', topic, 'README.md'),
+        path.join('formal', topic, 'check.test.mjs'),
+      ],
+      states_count: states.length,
+      transitions_count: validEdges.length,
+    })
+  }
+
+  return { formal_models: results }
+}
+
 function parseWorkspaceArgs(argv) {
   const o = { doc: [] }
   for (let i = 0; i < argv.length; i++) {
@@ -4206,6 +4482,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'report') return wsReport(ws, opts)
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
+  if (mode === 'formal-model') return wsFormalModel(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -4289,4 +4566,5 @@ export {
   carryShapeOk,
   carryPathOf,
   CARRY_SUFFIX,
+  wsFormalModel,
 }
