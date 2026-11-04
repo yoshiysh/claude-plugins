@@ -449,52 +449,326 @@
 | SP-VERIFICATION-039 | 検査結果が定めた形式に合わないとき | `docs/specifications/verification.md` |
 | SP-VERIFICATION-044 | やり直しても形式に合わないとき | `docs/specifications/verification.md` |
 | SP-VERIFICATION-041 | 検査を 1 件も実施できなかったときの終了 | `docs/specifications/verification.md` |
-| SP-DEVELOPADDRESSREVIEW-001 | 指摘の全数収集 | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-002 | 分類と独立検証 | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-003 | triage 構造の保持と path/sum 引き渡し | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-004 | 停止結果の引き継ぎ | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-005 | implement 修正結果の検証 | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-006 | remote への push | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-007 | required checks の非同期待ち合わせ | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-008 | 返信の投稿と照合確認 | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPADDRESSREVIEW-009 | 条件付き resolve の執行 | `docs/specifications/develop-address-review.md` |
-| SP-DEVELOPIMPLEMENT-001 | 目標の不変固定と回答の追記 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-002 | 方針の版と照合先ブランチの特定 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-003 | 対象の種類に応じた経路分岐 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-004 | 計画の run とケース計画 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-005 | 規範文書の洗い出し段（implement-scope） | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-006 | 作業ファイルの読み手制限 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-007 | 同一 run 内と run 跨ぎのコンテキスト引き渡し | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-008 | 開始時 check と差分比較 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-009 | review の呼び出しと修正ループ | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-010 | 範囲外指摘の検出と根を探す段 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-011 | 範囲拡大の人間ゲート | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-012 | 前提・環境障害の即時停止 | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPIMPLEMENT-013 | 最終照合・commit・push | `docs/specifications/develop-implement.md` |
-| SP-DEVELOPPLUGIN-001 | 呼び出し名と配布形態 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-002 | スキル間の呼び出し制限 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-003 | 実行環境の判定とフォールバック | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-004 | 固有値の外部化と設定導出 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-005 | 利用側の宣言の検証 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-006 | 方針の版の決定順序 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-007 | 方針文書の読み取り元 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-008 | 人が読む出力の言語制御 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-009 | 変更対象の決定的分類 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-010 | 単一状態ディレクトリと世代管理 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-011 | run 返り値の軽量化と record-run | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-012 | 書き込ませない役の事後変化検出 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-013 | 停止情報の形式 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-014 | relaunch の禁止と新しい run による再開 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPPLUGIN-015 | 役ごとのモデル・effort の指定 | `docs/specifications/develop-plugin.md` |
-| SP-DEVELOPREVIEW-001 | レビュー対象と diff の導出 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-002 | 観点の導出と focus 段 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-003 | 洗い出しの束の配分とサイズ上限 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-004 | 観点別 reviewer の並列起動 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-005 | 2 段の独立検証 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-006 | 確定指摘の構造保持 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-007 | 運搬役の本文軽量化と path/sum 受け渡し | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-008 | PR への投稿と投稿確認 | `docs/specifications/develop-review.md` |
-| SP-DEVELOPREVIEW-009 | git 外対象のレビュー（external モード） | `docs/specifications/develop-review.md` |
+| SP-DEVELOPADDRESSREVIEW-001 | 入口における指摘受領 |  |
+| SP-DEVELOPADDRESSREVIEW-002 | PR 存在時の目標設定 |  |
+| SP-DEVELOPADDRESSREVIEW-003 | PR 非存在時のローカル目標 |  |
+| SP-DEVELOPADDRESSREVIEW-004 | PR 非存在時の作業ツリー整合 |  |
+| SP-DEVELOPADDRESSREVIEW-005 | ブランチ指定時の方針版導出 |  |
+| SP-DEVELOPADDRESSREVIEW-006 | リモート未存在ブランチのエラー処理 |  |
+| SP-DEVELOPADDRESSREVIEW-007 | 外部レビュー結果のスキーマ検証 |  |
+| SP-DEVELOPADDRESSREVIEW-008 | 外部指摘 ID の一意性 |  |
+| SP-DEVELOPADDRESSREVIEW-009 | 指摘本文の改竄禁止 |  |
+| SP-DEVELOPADDRESSREVIEW-010 | 事前 push 権限確認 |  |
+| SP-DEVELOPADDRESSREVIEW-011 | push 不可時の早期停止 |  |
+| SP-DEVELOPADDRESSREVIEW-012 | 指摘以降のコミット一覧取得 |  |
+| SP-DEVELOPADDRESSREVIEW-013 | 分類ロールの二段実行 |  |
+| SP-DEVELOPADDRESSREVIEW-014 | 分類不一致時の安全エスカレーション |  |
+| SP-DEVELOPADDRESSREVIEW-015 | 分類実行時の作業ツリー不変性 |  |
+| SP-DEVELOPADDRESSREVIEW-016 | 既修正（already_fixed）の判定 |  |
+| SP-DEVELOPADDRESSREVIEW-017 | 修正コミットの照合 |  |
+| SP-DEVELOPADDRESSREVIEW-018 | 既修正指摘の除外 |  |
+| SP-DEVELOPADDRESSREVIEW-019 | 人間判断要（discuss / question）の抽出 |  |
+| SP-DEVELOPADDRESSREVIEW-020 | 同一状態での二重分類抑止 |  |
+| SP-DEVELOPADDRESSREVIEW-021 | 停止位置オプション（--stop-at） |  |
+| SP-DEVELOPADDRESSREVIEW-022 | develop:implement への修正委託 |  |
+| SP-DEVELOPADDRESSREVIEW-023 | 修正対象 0 件時のスキップ |  |
+| SP-DEVELOPADDRESSREVIEW-024 | develop:implement 停止時の連動停止 |  |
+| SP-DEVELOPADDRESSREVIEW-025 | リモートへの Push 実行 |  |
+| SP-DEVELOPADDRESSREVIEW-026 | PR 非存在時の CI/返信スキップ |  |
+| SP-DEVELOPADDRESSREVIEW-027 | 監視対象 SHA の固定 |  |
+| SP-DEVELOPADDRESSREVIEW-028 | push 済み SHA と PR head の一致検証 |  |
+| SP-DEVELOPADDRESSREVIEW-029 | required checks 監視ループ |  |
+| SP-DEVELOPADDRESSREVIEW-030 | CI 失敗時の不介入規約 |  |
+| SP-DEVELOPADDRESSREVIEW-031 | 監視タイムアウト時の再開 |  |
+| SP-DEVELOPADDRESSREVIEW-032 | 再開時 head ドリフト検知 |  |
+| SP-DEVELOPADDRESSREVIEW-033 | 待ち再開の上限回数 |  |
+| SP-DEVELOPADDRESSREVIEW-034 | 待ち再開カウンタの記録 |  |
+| SP-DEVELOPADDRESSREVIEW-035 | 返信直前の PR 状態再照合 |  |
+| SP-DEVELOPADDRESSREVIEW-036 | 外部プッシュ検知時の返信中止 |  |
+| SP-DEVELOPADDRESSREVIEW-037 | メンション付き個別返信 |  |
+| SP-DEVELOPADDRESSREVIEW-038 | 既修正指摘への返信フォーマット |  |
+| SP-DEVELOPADDRESSREVIEW-039 | 返信内容の事前検証 |  |
+| SP-DEVELOPADDRESSREVIEW-040 | 不正返信文の送信抑止 |  |
+| SP-DEVELOPADDRESSREVIEW-041 | Resolve 候補の条件 |  |
+| SP-DEVELOPADDRESSREVIEW-042 | 分類別 Resolve 判定表 |  |
+| SP-DEVELOPADDRESSREVIEW-043 | Resolve 前の GraphQL 照合 |  |
+| SP-DEVELOPADDRESSREVIEW-044 | 不整合 thread の resolve 抑止 |  |
+| SP-DEVELOPADDRESSREVIEW-045 | 全 Resolve 候補の網羅性検査 |  |
+| SP-DEVELOPADDRESSREVIEW-046 | 最終完了結果の返却 |  |
+| SP-DEVELOPADDRESSREVIEW-047 | 修正不要かつ push 不可時のハンドリング |  |
+| SP-DEVELOPADDRESSREVIEW-048 | 人間裁定値の注入 |  |
+| SP-DEVELOPADDRESSREVIEW-049 | コミットの委託 |  |
+| SP-DEVELOPADDRESSREVIEW-050 | thread 更新検知時の返信中止 |  |
+| SP-DEVELOPADDRESSREVIEW-051 | 返信中止指摘の明記 |  |
+| SP-DEVELOPADDRESSREVIEW-052 | Push 拒絶時の安全停止 |  |
+| SP-DEVELOPADDRESSREVIEW-053 | 解消コミット特定不能時の差し戻し |  |
+| SP-DEVELOPADDRESSREVIEW-054 | 未コミット時の push 中止 |  |
+| SP-DEVELOPADDRESSREVIEW-055 | implement 段からの再開 |  |
+| SP-DEVELOPADDRESSREVIEW-056 | 指定停止段の操作抑止 |  |
+| SP-DEVELOPADDRESSREVIEW-057 | push 抑止時のコミット保全 |  |
+| SP-DEVELOPADDRESSREVIEW-058 | 停止状態名の統一 |  |
+| SP-DEVELOPADDRESSREVIEW-059 | 停止からの再開決定表 |  |
+| SP-DEVELOPADDRESSREVIEW-060 | 全体完了の成立条件 |  |
+| SP-DEVELOPADDRESSREVIEW-061 | 人間判断の許容語彙 |  |
+| SP-DEVELOPADDRESSREVIEW-062 | 裁定済み指摘の再審査抑止 |  |
+| SP-DEVELOPADDRESSREVIEW-063 | 常時不変条件（Invariants） |  |
+| SP-DEVELOPADDRESSREVIEW-064 | fix 裁定時の対象パス明記 |  |
+| SP-DEVELOPADDRESSREVIEW-065 | 停止中の追加指示処理 |  |
+| SP-DEVELOPADDRESSREVIEW-066 | 子スキル停止情報の完全伝達 |  |
+| SP-DEVELOPADDRESSREVIEW-067 | トリアージ構造の保持と引き渡し |  |
+| SP-DEVELOPADDRESSREVIEW-068 | 子スキル停止情報の継承 |  |
+| SP-DEVELOPIMPLEMENT-001 | 目標の不変固定 |  |
+| SP-DEVELOPIMPLEMENT-002 | 人間回答の履歴追記 |  |
+| SP-DEVELOPIMPLEMENT-003 | 方針版の照合 |  |
+| SP-DEVELOPIMPLEMENT-004 | 照合先ブランチの導出 |  |
+| SP-DEVELOPIMPLEMENT-005 | SHA-1/SHA-256 検証 |  |
+| SP-DEVELOPIMPLEMENT-006 | 計画実行の二重化 |  |
+| SP-DEVELOPIMPLEMENT-007 | 計画審査不合格時の差し戻し |  |
+| SP-DEVELOPIMPLEMENT-008 | 人間判断要求時の安全停止 |  |
+| SP-DEVELOPIMPLEMENT-009 | 計画段階での作業ツリー不変性 |  |
+| SP-DEVELOPIMPLEMENT-010 | Check 設定未宣言時の停止 |  |
+| SP-DEVELOPIMPLEMENT-011 | Check コマンド推測の禁止 |  |
+| SP-DEVELOPIMPLEMENT-012 | 計画確認用停止オプション |  |
+| SP-DEVELOPIMPLEMENT-013 | 計画停止からの再開手順 |  |
+| SP-DEVELOPIMPLEMENT-014 | 作業ツリー予期せぬ変更の検知 |  |
+| SP-DEVELOPIMPLEMENT-015 | 差分検知時の上書き禁止 |  |
+| SP-DEVELOPIMPLEMENT-016 | 実装前ベースライン check |  |
+| SP-DEVELOPIMPLEMENT-017 | 未定義 check の実行禁止 |  |
+| SP-DEVELOPIMPLEMENT-018 | 実装役（Implementer）の単独書き込み権 |  |
+| SP-DEVELOPIMPLEMENT-019 | 変更後 check 必須合格 |  |
+| SP-DEVELOPIMPLEMENT-020 | テストケース設計基準 |  |
+| SP-DEVELOPIMPLEMENT-021 | 修正上限到達時の停止 |  |
+| SP-DEVELOPIMPLEMENT-022 | 上限到達時の作業ツリー保全 |  |
+| SP-DEVELOPIMPLEMENT-023 | develop:review スキル呼び出し |  |
+| SP-DEVELOPIMPLEMENT-024 | review 上限停止の伝播 |  |
+| SP-DEVELOPIMPLEMENT-025 | レビュー結果の構造化記録 |  |
+| SP-DEVELOPIMPLEMENT-026 | 返却値スキーマの機械照合 |  |
+| SP-DEVELOPIMPLEMENT-027 | 確定指摘のみの修正対象化 |  |
+| SP-DEVELOPIMPLEMENT-028 | 未検証指摘の人間エスカレーション |  |
+| SP-DEVELOPIMPLEMENT-029 | レビュー合否判定の進行分岐 |  |
+| SP-DEVELOPIMPLEMENT-030 | 未レビュー範囲の透明性報告 |  |
+| SP-DEVELOPIMPLEMENT-031 | 最終照合不合格時のコミット阻止 |  |
+| SP-DEVELOPIMPLEMENT-032 | 最終照合不合格時の変更保全 |  |
+| SP-DEVELOPIMPLEMENT-033 | コミットの実行規約 |  |
+| SP-DEVELOPIMPLEMENT-034 | プッシュの実行規約 |  |
+| SP-DEVELOPIMPLEMENT-035 | 最終成功結果の返却 |  |
+| SP-DEVELOPIMPLEMENT-036 | 依頼文の完全保存 |  |
+| SP-DEVELOPIMPLEMENT-037 | 目標への付加禁止 |  |
+| SP-DEVELOPIMPLEMENT-038 | 依頼文と目標の改竄防止 |  |
+| SP-DEVELOPIMPLEMENT-039 | 停止中のヒント受付口 |  |
+| SP-DEVELOPIMPLEMENT-040 | ヒントの取り込み |  |
+| SP-DEVELOPIMPLEMENT-041 | ヒント入力ガイダンス提示 |  |
+| SP-DEVELOPIMPLEMENT-042 | 不正状態でのヒント拒否 |  |
+| SP-DEVELOPIMPLEMENT-043 | 計画外変更の拒否 |  |
+| SP-DEVELOPIMPLEMENT-044 | 修正不要時の安全早期終了 |  |
+| SP-DEVELOPIMPLEMENT-045 | review failed 時の修正キューイング |  |
+| SP-DEVELOPIMPLEMENT-046 | 設計破綻時の断念 (abandon) |  |
+| SP-DEVELOPIMPLEMENT-047 | abandon 停止時の詳細報告 |  |
+| SP-DEVELOPIMPLEMENT-048 | abandon 時のコミット・プッシュ絶対禁止 |  |
+| SP-DEVELOPIMPLEMENT-049 | address-review からの修正受託時 |  |
+| SP-DEVELOPIMPLEMENT-050 | プッシュ拒絶時の安全停止 |  |
+| SP-DEVELOPIMPLEMENT-051 | PR 修正時の push 抑止 |  |
+| SP-DEVELOPIMPLEMENT-052 | 記録回答のコンテキスト注入 |  |
+| SP-DEVELOPIMPLEMENT-053 | 未存在ブランチのエラー停止 |  |
+| SP-DEVELOPIMPLEMENT-054 | 不正テスト基準の拒絶 |  |
+| SP-DEVELOPIMPLEMENT-055 | 手動修正後の再開 |  |
+| SP-DEVELOPIMPLEMENT-056 | 不正形式の即時拒否 |  |
+| SP-DEVELOPIMPLEMENT-057 | 最終照合の実行 |  |
+| SP-DEVELOPIMPLEMENT-058 | 実装破棄とクリーンロールバック |  |
+| SP-DEVELOPIMPLEMENT-059 | 修正後 check の差分比較 |  |
+| SP-DEVELOPIMPLEMENT-060 | 修正回数上限カウンタ |  |
+| SP-DEVELOPIMPLEMENT-061 | 変更不要時の結果明記 |  |
+| SP-DEVELOPIMPLEMENT-062 | abandon 時の人間裁定 |  |
+| SP-DEVELOPIMPLEMENT-063 | 指摘数の正確な計量 |  |
+| SP-DEVELOPIMPLEMENT-064 | 同一指摘のループ防止 |  |
+| SP-DEVELOPIMPLEMENT-065 | ヒント反映後のベースライン再測定 |  |
+| SP-DEVELOPIMPLEMENT-066 | ヒント反映計画の承認ゲート |  |
+| SP-DEVELOPIMPLEMENT-067 | ベースライン結果欠如時の測定強制 |  |
+| SP-DEVELOPIMPLEMENT-068 | 停止状態の標準分類 |  |
+| SP-DEVELOPIMPLEMENT-069 | 再開マッピング決定表 |  |
+| SP-DEVELOPIMPLEMENT-070 | 完了の厳格定義 |  |
+| SP-DEVELOPIMPLEMENT-071 | 完了前の未読ヒント検査 |  |
+| SP-DEVELOPIMPLEMENT-072 | 上限到達からの計画改訂再開 |  |
+| SP-DEVELOPIMPLEMENT-073 | 虚偽の変更不要報告の検出 |  |
+| SP-DEVELOPIMPLEMENT-074 | 修正対象件数のゼロ判定 |  |
+| SP-DEVELOPIMPLEMENT-075 | 呼び直しデッドロック防止 |  |
+| SP-DEVELOPIMPLEMENT-076 | 停止中の不正追加入力拒絶 |  |
+| SP-DEVELOPIMPLEMENT-077 | 状態欠如レスポンスのエラー処理 |  |
+| SP-DEVELOPIMPLEMENT-078 | 実装後停止からの新規起動 |  |
+| SP-DEVELOPIMPLEMENT-079 | 規範文書洗い出し段 |  |
+| SP-DEVELOPIMPLEMENT-080 | 条件別ケース計画 |  |
+| SP-DEVELOPIMPLEMENT-081 | 作業ファイルの分離と独立性 |  |
+| SP-DEVELOPIMPLEMENT-082 | 同一 run 内再開の票引き渡し |  |
+| SP-DEVELOPIMPLEMENT-083 | 範囲外指摘の根本原因探索 |  |
+| SP-DEVELOPIMPLEMENT-084 | 範囲拡大の人為的承認ゲート |  |
+| SP-DEVELOPIMPLEMENT-085 | 環境・前提障害の即時停止 |  |
+| SP-DEVELOPPLUGIN-001 | 呼び出し名規約 |  |
+| SP-DEVELOPPLUGIN-002 | 3スキルの版の一致 |  |
+| SP-DEVELOPPLUGIN-003 | 呼び出しの向き |  |
+| SP-DEVELOPPLUGIN-004 | 実行環境欠如時の安全停止 |  |
+| SP-DEVELOPPLUGIN-005 | Codex runner 実行アダプタ |  |
+| SP-DEVELOPPLUGIN-006 | 段の選択決定権 |  |
+| SP-DEVELOPPLUGIN-007 | 司令塔の成果物不介入 |  |
+| SP-DEVELOPPLUGIN-008 | 固有値の外部化 |  |
+| SP-DEVELOPPLUGIN-009 | 再設計アーキテクチャの適用 |  |
+| SP-DEVELOPPLUGIN-010 | 機能境界の限定 |  |
+| SP-DEVELOPPLUGIN-011 | 宣言の形式検証 |  |
+| SP-DEVELOPPLUGIN-012 | PR 対象時の方針コミット解決 |  |
+| SP-DEVELOPPLUGIN-013 | 作業ツリー対象時の方針コミット解決 |  |
+| SP-DEVELOPPLUGIN-014 | 方針コミット未解決時の停止 |  |
+| SP-DEVELOPPLUGIN-015 | 版からの分離抽出 |  |
+| SP-DEVELOPPLUGIN-017 | 人間向け出力の言語 |  |
+| SP-DEVELOPPLUGIN-018 | 言語の既定値 |  |
+| SP-DEVELOPPLUGIN-019 | 言語非依存の境界 |  |
+| SP-DEVELOPPLUGIN-020 | 言語決定の優先順位 |  |
+| SP-DEVELOPPLUGIN-021 | Codex runner における書き込み制限 |  |
+| SP-DEVELOPPLUGIN-022 | 読み取り専用ステップの隔離 |  |
+| SP-DEVELOPPLUGIN-023 | 状態書き込みのアトミック性 |  |
+| SP-DEVELOPPLUGIN-024 | 意図せぬ書き込みの事後検知 |  |
+| SP-DEVELOPPLUGIN-025 | ツール制限と事後検査の二重防御 |  |
+| SP-DEVELOPPLUGIN-026 | 不正書き込み検知時の即時停止・ロールバック |  |
+| SP-DEVELOPPLUGIN-027 | 変化の報告形式 |  |
+| SP-DEVELOPPLUGIN-028 | 残留リスクの明示 |  |
+| SP-DEVELOPPLUGIN-029 | 事前権限チェック |  |
+| SP-DEVELOPPLUGIN-030 | 前提の安全配達 |  |
+| SP-DEVELOPPLUGIN-031 | 欠落前提の自己申告 |  |
+| SP-DEVELOPPLUGIN-032 | 停止時の返却構造体 |  |
+| SP-DEVELOPPLUGIN-033 | 外部ツール障害のハンドリング |  |
+| SP-DEVELOPPLUGIN-034 | 失敗状態の記録 |  |
+| SP-DEVELOPPLUGIN-035 | 再開トークンと状態照合 |  |
+| SP-DEVELOPPLUGIN-036 | 多重起動（Relaunch）の禁止 |  |
+| SP-DEVELOPPLUGIN-037 | 対話型入力待ちの禁止 |  |
+| SP-DEVELOPPLUGIN-038 | 人間判断待ち停止 |  |
+| SP-DEVELOPPLUGIN-039 | 遅延書き込みの排斥 |  |
+| SP-DEVELOPPLUGIN-040 | サブエージェント失敗の捕捉 |  |
+| SP-DEVELOPPLUGIN-041 | セッション跨ぎの永続化 |  |
+| SP-DEVELOPPLUGIN-042 | 転記ミスの自動検知 |  |
+| SP-DEVELOPPLUGIN-043 | トークン予算の注入 |  |
+| SP-DEVELOPPLUGIN-044 | 既定のトークン予算 |  |
+| SP-DEVELOPPLUGIN-045 | 予算枯渇時の安全縮退 |  |
+| SP-DEVELOPPLUGIN-046 | 実行メトリクス記録 |  |
+| SP-DEVELOPPLUGIN-047 | 形式判定のログ化 |  |
+| SP-DEVELOPPLUGIN-048 | 全検証合格後の外部反映 |  |
+| SP-DEVELOPPLUGIN-049 | 外部副作用の不可逆性警告 |  |
+| SP-DEVELOPPLUGIN-050 | 設定先行配備規約 |  |
+| SP-DEVELOPPLUGIN-051 | 既存 CI/CD 非破壊性 |  |
+| SP-DEVELOPPLUGIN-052 | CLI オプションの後方互換 |  |
+| SP-DEVELOPPLUGIN-053 | マーケットプレイス登録整合 |  |
+| SP-DEVELOPPLUGIN-054 | best-practices review 合格保証 |  |
+| SP-DEVELOPPLUGIN-055 | 形式検証モデルとの照合 |  |
+| SP-DEVELOPPLUGIN-056 | 成果物の全数静的検査 |  |
+| SP-DEVELOPPLUGIN-057 | 実環境スモーク試走 |  |
+| SP-DEVELOPPLUGIN-058 | スキル説明文の汎用性 |  |
+| SP-DEVELOPPLUGIN-059 | 発火トリガーの正確性 |  |
+| SP-DEVELOPPLUGIN-060 | 旧ワークフロースキルの廃止 |  |
+| SP-DEVELOPPLUGIN-061 | 廃止と削除の段階分離 |  |
+| SP-DEVELOPPLUGIN-062 | dcf contextual-code-review の代替 |  |
+| SP-DEVELOPPLUGIN-063 | 外部リポジトリへの提供保証 |  |
+| SP-DEVELOPPLUGIN-064 | 撤去順序の規律 |  |
+| SP-DEVELOPPLUGIN-065 | 機能等価性の維持 |  |
+| SP-DEVELOPPLUGIN-066 | 廃止による非互換の文書化 |  |
+| SP-DEVELOPPLUGIN-067 | 旧名エイリアスの過渡的保持 |  |
+| SP-DEVELOPPLUGIN-068 | 利用者向け移行ガイダンス |  |
+| SP-DEVELOPPLUGIN-069 | pk/dcf 移行完了検証 |  |
+| SP-DEVELOPPLUGIN-070 | ドメイン固有観点の外挿 |  |
+| SP-DEVELOPPLUGIN-071 | モデル選択の根拠 |  |
+| SP-DEVELOPPLUGIN-072 | 外部リポジトリ固有機能の分離 |  |
+| SP-DEVELOPPLUGIN-073 | 仕様トレーサビリティ全数照合 |  |
+| SP-DEVELOPPLUGIN-074 | 履歴書き換え push の禁止 |  |
+| SP-DEVELOPPLUGIN-075 | 外部入力の原典記録 |  |
+| SP-DEVELOPPLUGIN-076 | 証拠に基づく判定 |  |
+| SP-DEVELOPPLUGIN-077 | 停止理由の証拠性 |  |
+| SP-DEVELOPPLUGIN-078 | 停滞検知とエスカレーション |  |
+| SP-DEVELOPPLUGIN-079 | 自己書き換えの禁止 |  |
+| SP-DEVELOPPLUGIN-080 | 外部指定コミットの優先解決 |  |
+| SP-DEVELOPPLUGIN-081 | 移行期間の縮退運転 |  |
+| SP-DEVELOPPLUGIN-082 | 完了判定基準 |  |
+| SP-DEVELOPPLUGIN-083 | 回帰評価 (evals) |  |
+| SP-DEVELOPPLUGIN-084 | 廃止スキルの安全撤去 |  |
+| SP-DEVELOPPLUGIN-085 | モデル指定のオーバーライド |  |
+| SP-DEVELOPPLUGIN-086 | 変更種類による分類マトリクス |  |
+| SP-DEVELOPPLUGIN-087 | 参照渡しとチェックサム検証 |  |
+| SP-DEVELOPPLUGIN-088 | 状態世代と遅延書き込み排斥 |  |
+| SP-DEVELOPREVIEW-001 | 目標の不変固定 |  |
+| SP-DEVELOPREVIEW-002 | 非チェックアウトPRの安全取得 |  |
+| SP-DEVELOPREVIEW-003 | pin 値（固定ハッシュ）の照合 |  |
+| SP-DEVELOPREVIEW-004 | 観点の閉集合原則 |  |
+| SP-DEVELOPREVIEW-005 | 方針文書未存在時の既定観点 |  |
+| SP-DEVELOPREVIEW-006 | 必須適用観点（Mandatory Viewpoints） |  |
+| SP-DEVELOPREVIEW-007 | 必須観点の出所明記 |  |
+| SP-DEVELOPREVIEW-008 | 方針文書欠落時の必須観点 |  |
+| SP-DEVELOPREVIEW-009 | 方針文書に基づく観点の動的導出 |  |
+| SP-DEVELOPREVIEW-010 | 計画審査による不正観点の排除 |  |
+| SP-DEVELOPREVIEW-011 | スキルファイル固有の観点割り当て |  |
+| SP-DEVELOPREVIEW-012 | スキル観点における規則参照 |  |
+| SP-DEVELOPREVIEW-013 | 「読むもの」参照の完全解決 |  |
+| SP-DEVELOPREVIEW-014 | 方針文書未配置の報告 |  |
+| SP-DEVELOPREVIEW-015 | 構文不正方針文書の処理 |  |
+| SP-DEVELOPREVIEW-016 | ファイル種別の 4 分類 |  |
+| SP-DEVELOPREVIEW-017 | spec/prd 宣言未存在時の判定 |  |
+| SP-DEVELOPREVIEW-018 | 指摘重大度の語彙統一 |  |
+| SP-DEVELOPREVIEW-019 | Focus 作成役の責務 |  |
+| SP-DEVELOPREVIEW-020 | Focus の完全引用規約 |  |
+| SP-DEVELOPREVIEW-021 | Focus 作成時の対象コード不変性 |  |
+| SP-DEVELOPREVIEW-022 | 不整合 Focus の棄却 |  |
+| SP-DEVELOPREVIEW-023 | Focus の省略禁止 |  |
+| SP-DEVELOPREVIEW-024 | 二段検証による指摘の確定 |  |
+| SP-DEVELOPREVIEW-025 | 確定に必要な検証票 |  |
+| SP-DEVELOPREVIEW-026 | レビュー資産台帳 |  |
+| SP-DEVELOPREVIEW-027 | 閲覧履歴の記録 |  |
+| SP-DEVELOPREVIEW-028 | 未読資産の追加レビュー起動 |  |
+| SP-DEVELOPREVIEW-029 | 追加起動の上限回数 |  |
+| SP-DEVELOPREVIEW-030 | レビュー結果ステータス |  |
+| SP-DEVELOPREVIEW-031 | 棄却指摘の記録 |  |
+| SP-DEVELOPREVIEW-032 | 確定指摘の返却 |  |
+| SP-DEVELOPREVIEW-033 | 未審査範囲の申告 |  |
+| SP-DEVELOPREVIEW-034 | 意図せぬ書き込み検知時の停止 |  |
+| SP-DEVELOPREVIEW-035 | 起動数上限の受領 |  |
+| SP-DEVELOPREVIEW-036 | 上限未指定時の安全既定値 |  |
+| SP-DEVELOPREVIEW-037 | 枠の事前予約 |  |
+| SP-DEVELOPREVIEW-038 | 起動数の厳密計測 |  |
+| SP-DEVELOPREVIEW-039 | 枠超過項目の未着手登録 |  |
+| SP-DEVELOPREVIEW-040 | 未着手項目の優先順位付け |  |
+| SP-DEVELOPREVIEW-041 | 停止時の中間結果永続化 |  |
+| SP-DEVELOPREVIEW-042 | 再開時の未着手キュー消化 |  |
+| SP-DEVELOPREVIEW-043 | 再開前 pin 不変照合 |  |
+| SP-DEVELOPREVIEW-044 | 再開セッションの権限継承 |  |
+| SP-DEVELOPREVIEW-045 | 並行エージェント数制御 |  |
+| SP-DEVELOPREVIEW-046 | 同種指摘の統合 |  |
+| SP-DEVELOPREVIEW-047 | 投稿条件の充足 |  |
+| SP-DEVELOPREVIEW-048 | 呼び出し元存在時の投稿抑止 |  |
+| SP-DEVELOPREVIEW-049 | 行不解決指摘のサマリ投稿 |  |
+| SP-DEVELOPREVIEW-050 | 投稿前内容確認 |  |
+| SP-DEVELOPREVIEW-051 | 投稿内容の不一致防止 |  |
+| SP-DEVELOPREVIEW-052 | gh CLI 欠如時のフォールバック |  |
+| SP-DEVELOPREVIEW-053 | Git 外対象の入力検証 |  |
+| SP-DEVELOPREVIEW-054 | 貼り付けテキストの隔離保存 |  |
+| SP-DEVELOPREVIEW-055 | Git 外対象の目標設定 |  |
+| SP-DEVELOPREVIEW-056 | Git 外対象の観点限定 |  |
+| SP-DEVELOPREVIEW-057 | Git 外対象の台帳管理 |  |
+| SP-DEVELOPREVIEW-058 | Git 外対象の範囲外明記 |  |
+| SP-DEVELOPREVIEW-059 | 除外宣言未存在時のデフォルト除外 |  |
+| SP-DEVELOPREVIEW-060 | 自動生成物の除外 |  |
+| SP-DEVELOPREVIEW-061 | 基点ディレクトリ未宣言時のルート適用 |  |
+| SP-DEVELOPREVIEW-062 | 未解決参照の透明性記録 |  |
+| SP-DEVELOPREVIEW-063 | 参照先文書読取不能時の扱い |  |
+| SP-DEVELOPREVIEW-064 | 読取不能文書の構造化申告 |  |
+| SP-DEVELOPREVIEW-065 | 方針文書未存在時の Focus 生成 |  |
+| SP-DEVELOPREVIEW-066 | 上限到達時の返却構造体 |  |
+| SP-DEVELOPREVIEW-067 | 投稿失敗時の安全終了 |  |
+| SP-DEVELOPREVIEW-068 | 未定義ファイル種別のフォールバック観点 |  |
+| SP-DEVELOPREVIEW-069 | 未検証指摘の分離返却 |  |
+| SP-DEVELOPREVIEW-070 | 枠不足時の項目分割 |  |
+| SP-DEVELOPREVIEW-071 | Codex runner 起動数上限 |  |
+| SP-DEVELOPREVIEW-072 | 停止状態の命名 |  |
+| SP-DEVELOPREVIEW-073 | 停止状態からの再開遷移 |  |
+| SP-DEVELOPREVIEW-074 | レビュー完了条件 |  |
+| SP-DEVELOPREVIEW-075 | 同一 pin での二重投稿防止 |  |
+| SP-DEVELOPREVIEW-076 | pin 変更後の旧指摘無効化 |  |
+| SP-DEVELOPREVIEW-077 | 停止中外部変更の遮断 |  |
+| SP-DEVELOPREVIEW-078 | 洗い出し束の効率的配分 |  |
+| SP-DEVELOPREVIEW-079 | 運搬役の軽量化と path/sum 照合 |  |
+| SP-DEVELOPREVIEW-080 | 前段指摘構造の厳格継承 |  |
 
 ## 検査結果
 
