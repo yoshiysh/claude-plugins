@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 
 // OBSOLETE_TERMS: 現行規制として引用すると誤りになる語。QMSR（2026-02-02 施行）により
 // 21 CFR 820.30 Design Controls は [Reserved] 化され、現行 Part 820 本文にこれらの語は
@@ -1662,7 +1663,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-model']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-model', 'formal-check', 'mutation-check']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -4181,11 +4182,11 @@ function wsIndex(ws, opts) {
 function wsFormalModel(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   const docs = deriveDocs(wsDocs)
-  const specDocs = docs.filter((d) => d.kind === 'specifications' && (!opts.doc.length || opts.doc.includes(d.key)))
-  if (!specDocs.length) throw new Error('形式モデルを導出する仕様書（specifications/<topic>）がありません')
+  const targetDocs = docs.filter((d) => (!opts.doc.length || opts.doc.includes(d.key)))
+  if (!targetDocs.length) throw new Error('形式モデルを導出する文書がありません')
 
   const results = []
-  for (const d of specDocs) {
+  for (const d of targetDocs) {
     const topic = d.topic
     const md = d.markdown || ''
     const secs = sectionsOf2(md)
@@ -4392,6 +4393,23 @@ function wsFormalModel(ws, opts) {
     const testPath = path.join(outDir, 'check.test.mjs')
     fs.writeFileSync(testPath, checkTestLines.join('\n') + '\n')
 
+    const modelJsonPath = path.join(outDir, 'model.json')
+    fs.writeFileSync(
+      modelJsonPath,
+      JSON.stringify(
+        {
+          topic,
+          model: modelName,
+          initial,
+          terminals,
+          states,
+          transitions: validEdges,
+        },
+        null,
+        2
+      ) + '\n'
+    )
+
     results.push({
       topic,
       doc: d.key,
@@ -4402,6 +4420,7 @@ function wsFormalModel(ws, opts) {
         path.join('formal', topic, `${modelName}.cfg`),
         path.join('formal', topic, 'README.md'),
         path.join('formal', topic, 'check.test.mjs'),
+        path.join('formal', topic, 'model.json'),
       ],
       states_count: states.length,
       transitions_count: validEdges.length,
@@ -4409,6 +4428,110 @@ function wsFormalModel(ws, opts) {
   }
 
   return { formal_models: results }
+}
+
+// wsFormalCheck: 導出された W/formal/<topic>/check.test.mjs を実行し、モデル検査・有界検査の合否を判定する。
+function wsFormalCheck(ws, opts) {
+  const formalDir = path.join(ws, 'formal')
+  if (!fs.existsSync(formalDir)) {
+    return { ok: true, total_models: 0, passed: 0, failed: 0, defects: [], blocking: 0 }
+  }
+
+  const topics = fs.readdirSync(formalDir).filter((f) => fs.statSync(path.join(formalDir, f)).isDirectory())
+  const results = []
+  const defects = []
+
+  for (const topic of topics) {
+    const testFile = path.join(formalDir, topic, 'check.test.mjs')
+    if (!fs.existsSync(testFile)) continue
+
+    const proc = spawnSync('node', ['--test', testFile], {
+      cwd: path.join(formalDir, topic),
+      encoding: 'utf8',
+      timeout: 30000,
+    })
+
+    if (proc.status === 0) {
+      results.push({ topic, ok: true, properties: ['TypeOK', 'DeadlockFree', 'ValidTerminal'] })
+    } else {
+      const errOut = (proc.stderr || proc.stdout || 'Model check failed').trim()
+      defects.push({
+        topic,
+        error: errOut.slice(0, 500),
+        reason: `形式モデル ${topic} の検査で不変条件違反またはデッドロックが検出されました`,
+      })
+      results.push({ topic, ok: false, error: errOut.slice(0, 500) })
+    }
+  }
+
+  const ok = defects.length === 0
+  return {
+    ok,
+    total_models: results.length,
+    passed: results.filter((r) => r.ok).length,
+    failed: defects.length,
+    defects,
+    blocking: defects.length,
+  }
+}
+
+// wsMutationCheck: 導出された形式モデルに変異（意図的な論理誤り）を注入し、検査器の検出力（Kill Rate）を検証する。
+function wsMutationCheck(ws, opts) {
+  const formalDir = path.join(ws, 'formal')
+  if (!fs.existsSync(formalDir)) {
+    return { ok: true, total_mutants: 0, killed: 0, surviving: 0, kill_rate: 100 }
+  }
+
+  const topics = fs.readdirSync(formalDir).filter((f) => fs.statSync(path.join(formalDir, f)).isDirectory())
+  let totalMutants = 0
+  let killed = 0
+  const surviving = []
+
+  for (const topic of topics) {
+    const testFile = path.join(formalDir, topic, 'check.test.mjs')
+    if (!fs.existsSync(testFile)) continue
+
+    const origContent = fs.readFileSync(testFile, 'utf8')
+
+    // 変異 1: 終端状態到達不能変異 (M1)
+    totalMutants++
+    const m1Content = origContent.replace(/let reachedTerminal = terminals\.size === 0;/, 'let reachedTerminal = false;')
+    const m1Path = path.join(formalDir, topic, 'mutant_m1.test.mjs')
+    fs.writeFileSync(m1Path, m1Content)
+    const proc1 = spawnSync('node', ['--test', m1Path], { cwd: path.join(formalDir, topic), timeout: 10000 })
+    try { fs.unlinkSync(m1Path) } catch {}
+    if (proc1.status !== 0) {
+      killed++
+    } else {
+      surviving.push({ topic, mutant: 'M1_TerminalUnreachable', reason: '終端状態未達の変異が検出されませんでした' })
+    }
+
+    // 変異 2: 未定義状態への遷移変異 (M2)
+    totalMutants++
+    const m2Content = origContent.replace(/transMap\.get\(curr\) \|\| \[\];/, '["__UNDEFINED_STATE__"];')
+    const m2Path = path.join(formalDir, topic, 'mutant_m2.test.mjs')
+    fs.writeFileSync(m2Path, m2Content)
+    const proc2 = spawnSync('node', ['--test', m2Path], { cwd: path.join(formalDir, topic), timeout: 10000 })
+    try { fs.unlinkSync(m2Path) } catch {}
+    if (proc2.status !== 0) {
+      killed++
+    } else {
+      surviving.push({ topic, mutant: 'M2_UndefinedState', reason: '未定義状態への不正遷移が検出されませんでした' })
+    }
+  }
+
+  const ok = surviving.length === 0
+  const killRate = totalMutants > 0 ? (killed / totalMutants) * 100 : 100
+
+  return {
+    ok,
+    total_mutants: totalMutants,
+    killed,
+    surviving: surviving.length,
+    kill_rate: killRate,
+    surviving_details: surviving,
+    blocking: surviving.length,
+  }
 }
 
 function parseWorkspaceArgs(argv) {
@@ -4483,6 +4606,8 @@ function runWorkspace(mode, argv) {
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
   if (mode === 'formal-model') return wsFormalModel(ws, opts)
+  if (mode === 'formal-check') return wsFormalCheck(ws, opts)
+  if (mode === 'mutation-check') return wsMutationCheck(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -4567,4 +4692,6 @@ export {
   carryPathOf,
   CARRY_SUFFIX,
   wsFormalModel,
+  wsFormalCheck,
+  wsMutationCheck,
 }

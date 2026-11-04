@@ -653,5 +653,101 @@ class CompactAndParity(unittest.TestCase):
             self.assertIn(f"  {code}: (", table, code)
 
 
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class FormalCheckWorkspaceMode(unittest.TestCase):
+    """doc_check.mjs の formal-model, formal-check, mutation-check 実行検証。"""
+
+    def test_形式モデルの自動導出と検査および変異検査(self):
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            # 仕様書マークダウンの配置
+            doc = ws / "specifications-flow.md"
+            doc.write_text(
+                "# フロー仕様\n\n"
+                "## 状態遷移\n\n"
+                "```mermaid\n"
+                "stateDiagram-v2\n"
+                "    [*] --> Init\n"
+                "    Init --> Active : start\n"
+                "    Active --> Done : finish\n"
+                "    Done --> [*]\n"
+                "```\n",
+                encoding="utf-8",
+            )
+            # formal-model 実行
+            r_model = subprocess.run(
+                ["node", str(DOC_CHECK), "formal-model", "--workspace", str(ws)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r_model.returncode, 0, r_model.stderr)
+            out_model = json.loads(r_model.stdout)
+            self.assertEqual(len(out_model["formal_models"]), 1)
+            self.assertEqual(out_model["formal_models"][0]["topic"], "flow")
+
+            # 導出された TLA+ と テストコードの検証
+            formal_dir = ws / "formal" / "flow"
+            self.assertTrue((formal_dir / "flow.tla").exists())
+            self.assertTrue((formal_dir / "flow.cfg").exists())
+            self.assertTrue((formal_dir / "check.test.mjs").exists())
+            self.assertTrue((formal_dir / "model.json").exists())
+
+            # formal-check 実行
+            r_check = subprocess.run(
+                ["node", str(DOC_CHECK), "formal-check", "--workspace", str(ws)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r_check.returncode, 0, r_check.stderr)
+            out_check = json.loads(r_check.stdout)
+            self.assertTrue(out_check["ok"])
+            self.assertEqual(out_check["blocking"], 0)
+
+            # mutation-check 実行
+            r_mut = subprocess.run(
+                ["node", str(DOC_CHECK), "mutation-check", "--workspace", str(ws)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r_mut.returncode, 0, r_mut.stderr)
+            out_mut = json.loads(r_mut.stdout)
+            self.assertIn("kill_rate", out_mut)
+            self.assertGreaterEqual(out_mut["total_mutants"], 2)
+
+    def test_形式モデルの不変条件違反検出(self):
+        with tempfile.TemporaryDirectory() as d:
+            ws = Path(d)
+            formal_dir = ws / "formal" / "broken"
+            formal_dir.mkdir(parents=True)
+            # デッドロック（終端以外の孤立状態）を含む壊れた model.json を配置
+            model = {
+                "name": "broken",
+                "states": ["Init", "Deadlock", "Done"],
+                "initial": "Init",
+                "terminals": ["Done"],
+                "transitions": [
+                    {"from": "Init", "to": "Deadlock", "event": "err"},
+                    {"from": "Init", "to": "Done", "event": "ok"},
+                ],
+            }
+            (formal_dir / "model.json").write_text(json.dumps(model), encoding="utf-8")
+            (formal_dir / "check.test.mjs").write_text(
+                "import assert from 'node:assert/strict';\n"
+                "import test from 'node:test';\n"
+                "test('Deadlock Free', () => { assert.fail('Deadlock detected at Deadlock'); });\n"
+            )
+
+            r = subprocess.run(
+                ["node", str(DOC_CHECK), "formal-check", "--workspace", str(ws)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertFalse(out["ok"])
+            self.assertGreater(out["blocking"], 0)
+            self.assertTrue(len(out["defects"]) > 0)
+
+
 if __name__ == "__main__":
     unittest.main()

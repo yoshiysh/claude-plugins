@@ -755,7 +755,7 @@ const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, requi
 const STASH_SCHEMA = { type: 'object', properties: { stash_check: STR, unstash_check: STR, flow_check: STR } }
 const RECOPY_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, stash_check: STR, unstash_check: STR, doc_check: STR, tree_digest: STR },
+  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, stash_check: STR, unstash_check: STR, doc_check: STR, tree_digest: STR, formal_model: STR, formal_check: STR, mutation_check: STR },
 }
 
 const FLOW_SCHEMA = {
@@ -856,6 +856,9 @@ const AUDIT_SCHEMA = {
         },
         diff_error: STR,
         audited: STR,
+        formal_model: STR,
+        formal_check: STR,
+        mutation_check: STR,
         tree_digest: STR,
       },
     },
@@ -2598,9 +2601,15 @@ async function backupDocs(stage, docs) {
   throw Object.assign(new Error(`flow-check（段 ${stage}）が token ${token} で文書 ${list(keys)} の本文の控えを取った doc_check backup の stdout を返しませんでした（控えが無いまま writer を起動すると、この段の再実行が止まった run の途中の本文から始まる）`), { rerunStage: true })
 }
 
-// designatedCmds: 指名された監査役の doc と tree-digest は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
+// designatedCmds: 指名された監査役の doc、formal-check と tree-digest は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
 // 監査役の実行中の値なので、取り直さずに段からやり直させる（snapshotFault）。
-const designatedCmds = () => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`), tree_digest: cli('tree-digest') })
+const designatedCmds = () => ({
+  doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`),
+  formal_model: cli('formal-model'),
+  formal_check: cli('formal-check'),
+  mutation_check: cli('mutation-check'),
+  tree_digest: cli('tree-digest'),
+})
 const snapshotFault = (d) => (d && copyFault(d.audited) ? `（snapshot の stdout の写しが checksum（${STDOUT_FNV}）に合いません。snapshot は基準を書き直すので取り直しません）` : '')
 
 async function stage4() {
@@ -2714,6 +2723,7 @@ async function stage5() {
   plan[plan.length - 1].designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
+    `続けて（形式モデルの導出と検査）: \`${cli('formal-model')}\` → designated.formal_model、\`${cli('formal-check')}\` → designated.formal_check`,
     `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
   const { results, missing } = await runAuditors(plan, round, '5')
@@ -2722,6 +2732,7 @@ async function stage5() {
   if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
   const audited = parseStdout(cd.designated && cd.designated.audited)
   const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
+  const formalCheck = parseStdout(cd.designated && cd.designated.formal_check)
   if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
   const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
@@ -2729,6 +2740,18 @@ async function stage5() {
   state.tree_digest = audited.digest
   noteAudited(audited, base)
   const findings = recordFindings(plan, results)
+  if (formalCheck && !formalCheck.ok && Array.isArray(formalCheck.defects)) {
+    for (const d of formalCheck.defects) {
+      findings.push({
+        id: `FM-${round}-${findings.length + 1}`,
+        doc: d.topic || 'all',
+        item_id: 'FORMAL-DEFECT',
+        blocking: true,
+        reason: d.reason || '形式検証で不変条件違反またはデッドロックが検出されました',
+        direction: `形式モデル ${d.topic} の不変条件違反（反例: ${d.error || ''}）を解消するよう、状態遷移または決定表を改稿してください。`,
+      })
+    }
+  }
   setPending(findings, docCheck, [])
   return '6'
 }
@@ -2890,6 +2913,7 @@ async function stage8() {
   const designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
     `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
+    `続けて（形式モデル更新と再検査）: \`${cli('formal-model')}\` → designated.formal_model、\`${cli('formal-check')}\` → designated.formal_check、\`${cli('mutation-check')}\` → designated.mutation_check`,
     `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
   plan[0].designatedText = designatedText
@@ -2944,6 +2968,30 @@ async function stage8() {
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
   const findings = recordFindings(allPlan, allResults)
+  const formalCheck = parseStdout(d.formal_check)
+  if (formalCheck && !formalCheck.ok && Array.isArray(formalCheck.defects)) {
+    for (const def of formalCheck.defects) {
+      findings.push({
+        id: `FM-${round}-${findings.length + 1}`,
+        doc: def.topic || 'all',
+        item_id: 'FORMAL-DEFECT',
+        blocking: true,
+        reason: def.reason || '形式検証で不変条件違反またはデッドロックが検出されました',
+        direction: `形式モデル ${def.topic} の不変条件違反（反例: ${def.error || ''}）を解消するよう、状態遷移または決定表を改稿してください。`,
+      })
+    }
+  }
+  const mutationCheck = parseStdout(d.mutation_check)
+  if (mutationCheck && !mutationCheck.ok && mutationCheck.surviving > 0) {
+    findings.push({
+      id: `MUT-${round}-${findings.length + 1}`,
+      doc: 'all',
+      item_id: 'MUTATION-SURVIVING',
+      blocking: true,
+      reason: `各層完成ゲートの変異検査で未検出変異体が ${mutationCheck.surviving} 件検出されました（検出力不足）`,
+      direction: `未検出変異体を検出できるよう、決定表の境界条件または不変条件を厳格化してください。`,
+    })
+  }
   const docCheck = parseStdout(d.doc_check)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
   const prev = pendingView(state.pending, state.item_routes)
@@ -3032,7 +3080,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
   return blocked(`${why}。blocking が ${blocking} 件残りました（尽きた項目: ${byRoute('exhausted')} / 経路を変えた項目: ${byRoute('rerouted')}）${flowLeft}${noDrafts}`, null, report)
 }
 
-// stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。
+// stage9: 事後報告と完了。事後報告は resolutions からの導出物なので、生成する役を起動しない。
 async function stage9() {
   return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })
 }
