@@ -21,9 +21,7 @@
 ## 結論と範囲
 
 - 土台は claude-plugins の `repo-implement`・`repo-review`・`address-review`（`.agents/skills/` の未公開の実体）にする。CLI と `stateDir` で状態を持ち、sum で写し間違いを止め、検証役を生成役と別の context に置く作りは、3 リポジトリの中でこれだけが持つ（出所は「3 リポジトリから取り込む仕組み」）。
-- 今の役の分担・段・照合は残す。変えるのは 2 種類だけ。（この行は `docs/design/develop-skills-redesign.md` の「develop-plugin.md との関係」で置き換える。役・段・照合も変える）
-  - claude-plugins に固有の値の直書きを、利用側リポジトリの宣言と導出に移す（「利用側リポジトリとの契約」）。
-  - 一般化と設計方針への適合に要る段・op を足す。足すのは、投稿と投稿の確認、上限で止めた review-run の返り値をセッション側の CLI が状態に書く op とそこからの再開、skip 一覧からの追加起動、`REVIEW.md` の必須の観点の強制、観点ごとの focus を書く役、`pipeline_status`、PR の head の worktree、`stopAfter: "plan"` とそこからの再開、外のレビュー結果の分類（PR のある対象と無い対象）、返信の前の required checks の待ち、条件つきの resolve、git の外の対象のレビュー。どれも本文の該当節に書く。
+- 今の役の分担・段・照合を土台としつつ、再設計案（`docs/design/develop-skills-redesign.md`）が定めた変更（役: 根を探す役・抽出役、段: 変更種類の分類経路と洗い出し段、照合: 票と path/sum による参照渡し、状態の世代管理）を行う。また、claude-plugins 固有値の直書きを利用側の宣言と導出に移し（「利用側リポジトリとの契約」）、一般化と設計方針への適合に要る段・op を足す（投稿確認、上限停止からの再開、必須観点の強制、観点別 focus 役、返信前 required checks 待ち、条件付き resolve、git 外対象レビュー等。各節に詳述）。
 - 3 スキルは同じ plugin に入れる。implement は review の返り値を厳密に照合し、address-review は implement に修正を渡す。別々の plugin にすると、相手の版がずれたときに照合が壊れる。
 
 | 共通化するもの（develop が持つ） | 利用側リポジトリに残すもの |
