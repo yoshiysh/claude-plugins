@@ -377,3 +377,11 @@ address-review は、PR-DEVELOPADDRESSREVIEW-063 の条件に加えて次の条�
 | 分類と分類の検証の後で完了 | `A_RouteClassifyOnly`・`A_RouteNoFixStop` | `AddressGoal` |
 | 修正か push の後で完了 | `A_ImplVerified`・`A_ImplNoChangeStop`・`A_PushOkDone` | `AddressGoal` |
 | 返信か resolve の確認の後で完了 | `A_ReplyConfirmedDone`・`A_ResolveConfirmed` | `AddressGoal` |
+
+### 再設計案に基づく固有要求
+
+#### PR-DEVELOPADDRESSREVIEW-067 triage 構造の保持と引き渡し
+address-review は、triage が確定した指摘、根拠、直す path、守ろうとする性質を文に潰さず、構造のままファイルの path と SHA-256 sum で develop:implement に引き渡さなければならない。
+
+#### PR-DEVELOPADDRESSREVIEW-068 停止結果の引き継ぎ
+address-review は、停止からの再開時に、既に合意・確定した指摘の扱いを引き継ぎ、同じ指摘を最初からやり直してはならない。

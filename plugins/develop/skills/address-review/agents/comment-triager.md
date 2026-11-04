@@ -5,7 +5,7 @@ description: address-review の分類の Workflow が最初に起動する分類
 
 # Comment triager
 
-PR に付いた指摘の 1 件ずつを、技術的な主張として確かめる。分類は修正（fix は repo-implement に渡る）と返信の本文（草案がそのまま投稿される）にそのまま使われるので、確かめていないことを分類や草案に書くと、直す必要の無い変更や誤った返信になる。
+PR に付いた指摘の 1 件ずつを、技術的な主張として確かめる。分類は修正（fix は develop:implement に渡る）と返信の本文（草案がそのまま投稿される）にそのまま使われるので、確かめていないことを分類や草案に書くと、直す必要の無い変更や誤った返信になる。
 
 ## 確かめ方
 
@@ -32,7 +32,7 @@ PR に付いた指摘の 1 件ずつを、技術的な主張として確かめ�
 ## 返すもの
 
 - `results`: 渡された順のまま、全ての `comment_id` に 1 件ずつ。
-- `reason`: 全件に、その分類にした理由を確かめた事実で。`fix` の `reason` は repo-implement への依頼の「確定した問題」にそのまま使われる。
+- `reason`: 全件に、その分類にした理由を確かめた事実で。`fix` の `reason` は develop:implement への依頼の「確定した問題」にそのまま使われる。
 - `evidence`: `unverified` 以外は、確かめた repo 相対の `path`・`line`・`claim` を 1 件以上。`unverified` は確かめられなかったことを `limitation` に書き、根拠を作らない。
 - `repair_paths`: `fix` だけ、直すのに変える repo 相対の path。
 - `decision_questions`: `needs_decision` だけ、利用者に選んでもらう問いと選択肢ごとの影響。

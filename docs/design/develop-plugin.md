@@ -55,7 +55,7 @@
 | 役の prompt | 各スキルの `agents/*.md`（planner・plan-reviewer・implementer、reviewer・finding-verifier、comment-triager・triage-verifier） | 役の指示。Workflow source が `skillDir` からパスで読む。subagent としては登録しないので、frontmatter の道具の制限には頼らない（「権限」） |
 | CLI | 各スキルの `scripts/<skill>-cli.mjs` と `<skill>-core.mjs` | 状態の読み書き、照合、`next` の決定 |
 | Workflow source | `plugins/develop/workflows/*.js`（公開時に `register_plugin.py` が移す） | 段の制御。SKILL.md からは名前で呼ぶ |
-| 共有の決定的処理 | `review/scripts/develop-core.mjs`（案） | `canonical`・`fnvSum`・SHA の形・repo 相対 path の判定・利用側の設定の読み込みと検査 |
+| 共有の決定的処理 | `plugins/develop/scripts/develop-core.mjs`（案） | `canonical`・`fnvSum`・SHA の形・repo 相対 path の判定・利用側の設定の読み込みと検査 |
 | 既定の観点 | `review/references/default-lenses.md` | `workflow:pr-review` の `references/review-lenses.md` を移したもの |
 | 設定の schema | `review/references/repo-config.schema.json`（案） | 利用側の宣言の形 |
 | テスト（配布物） | 各スキルの `scripts/*.test.mjs` | core と CLI の単体のテスト、Workflow source の定数と core の一致の照合。`Makefile` が Node のテストとして拾うのはこの形で、`<skill>/tests/*.test.mjs` は拾わない（`Makefile` の `SKILL_NODE_TEST_FILES` を読んで確かめた） |
@@ -64,7 +64,7 @@
 Workflow source の名前（`meta.name`）は `implement-plan`・`implement-run`・`review-run`・`address-review-triage` にする（案）。今の 4 本のうち 3 本（`repo-implement-plan`・`repo-implement-run`・`repo-review-run`）は `repo-` を頭に持ち、配布先の呼び出し名と合わない（`I:p1-best-practices-8`。finding id の書き方は「bp 計測から導いた差分」）。`address-review-triage` はそのまま使える。洗い出しと根を探す段の run を足す案は `docs/design/develop-skills-redesign.md`「develop-plugin.md との関係」。
 
 **共有の処理を 1 箇所にする。** 今は `canonical`・`fnvSum` が core と Workflow source に字面で複製され、一致を照らすのはリポジトリ直下の `tests/repo-implement-workflow.test.mjs`・`tests/repo-review-workflow.test.mjs`・`tests/address-review-workflow.test.mjs` の 3 本だけ（各スキルの `scripts/*.test.mjs` を source のファイル名 `plan.js`・`implement.js`・`review.js`・`triage.js` で grep し、当たったのは `address-review/scripts/address-cli.test.mjs:289` の fixture のファイル名 `address-review-triage.json` の 1 行だけで、一致の照合ではなかった）。develop では次のようにする。
-- CLI の core 3 つは `review/scripts/develop-core.mjs` を兄弟参照で import する。review を置き場に選ぶのは、implement も address-review も review に依存し、review は他に依存しないから（依存の向きと置き場の向きを揃える）。スキルの間の import は、`plugins/*/skills/*/scripts/` を `from '../../` で grep した範囲では先例が無い。`check_portability.py` が通すかは未確認で、段 1 で確かめる。
+- CLI の core 3 つは `plugins/develop/scripts/develop-core.mjs` を兄弟参照で import する。review を置き場に選ぶのは、implement も address-review も review に依存し、review は他に依存しないから（依存の向きと置き場の向きを揃える）。スキルの間の import は、`plugins/*/skills/*/scripts/` を `from '../../` で grep した範囲では先例が無い。`check_portability.py` が通すかは未確認で、段 1 で確かめる。
 - Workflow source は import できない（本体は自分の位置を解決できず、runner は `workflows/` 直下の `.js` を全て source として読む）。写しは残す。
 - 上の 3 本のテストは 2 つに分ける。
   - 定数・`canonical`・enum の一致の照合は、同じ plugin のファイルだけを読むので、各スキルの `scripts/*.test.mjs` に移して配布物に入れる。

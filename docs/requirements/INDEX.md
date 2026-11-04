@@ -10,10 +10,10 @@
 | `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／4 機能に共通する run の記録／回答待ちの返り値／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜052／52 件） |
 | `docs/requirements/cleanup.md` | 要求文書: cleanup-branches | 守るもの／取り込み済みの判定／状態の取得／取り込み済みの削除／判断が要る対象の問い／承認された対象の削除／作業状態／作業場所の同期／後処理／退避した変更の復帰／完了報告（PR-CLEANUP-001〜081、欠番は 031・034・035・038・039・072・079／74 件） |
 | `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方（PR-CONSUMER-001〜031、欠番は 014・016／29 件） |
-| `docs/requirements/develop-address-review.md` | 要求文書: develop:address-review | 入口と目標／分類／止める所／修正と push／required checks の待ち／返信／resolve／停止と再開／完了の条件（PR-DEVELOPADDRESSREVIEW-001〜066／66 件） |
-| `docs/requirements/develop-implement.md` | 要求文書: develop:implement | 入口と目標／計画／実装と check／develop:review の呼び出し／最終照合と永続化／停止と再開／完了の条件（PR-DEVELOPIMPLEMENT-001〜078／78 件） |
-| `docs/requirements/develop-plugin.md` | 要求文書: develop plugin 全体と利用側リポジトリとの契約 | 構成と呼び出し／利用側リポジトリとの契約／権限と残る危険／文脈の配達／停止と再開／取得した内容の記録／つまずきの記録と改善／費用と記録／形の判定／永続化と投稿の順序／移行と旧スキルの廃止（PR-DEVELOPPLUGIN-001〜085、欠番は 016／84 件） |
-| `docs/requirements/develop-review.md` | 要求文書: develop:review | 対象と目標／観点／focus／検証と資産台帳／返り値の契約／起動数の上限と再開／PR への投稿／git の外の対象（PR-DEVELOPREVIEW-001〜077／77 件） |
+| `docs/requirements/develop-address-review.md` | 要求文書: develop:address-review | 入口と目標／分類／止める所／修正と push／required checks の待ち／返信／resolve／停止と再開／完了の条件／再設計案に基づく固有要求（PR-DEVELOPADDRESSREVIEW-001〜068／68 件） |
+| `docs/requirements/develop-implement.md` | 要求文書: develop:implement | 入口と目標／計画／実装と check／develop:review の呼び出し／最終照合と永続化／停止と再開／完了の条件／再設計案に基づく固有要求（PR-DEVELOPIMPLEMENT-001〜085／85 件） |
+| `docs/requirements/develop-plugin.md` | 要求文書: develop plugin 全体と利用側リポジトリとの契約 | 構成と呼び出し／利用側リポジトリとの契約／権限と残る危険／文脈の配達／停止と再開／取得した内容の記録／つまずきの記録と改善／費用と記録／形の判定／永続化と投稿の順序／移行と旧スキルの廃止／再設計案に基づく共通要求（PR-DEVELOPPLUGIN-001〜088、欠番は 016／87 件） |
+| `docs/requirements/develop-review.md` | 要求文書: develop:review | 対象と目標／観点／focus／検証と資産台帳／返り値の契約／起動数の上限と再開／PR への投稿／git の外の対象／再設計案に基づく固有要求（PR-DEVELOPREVIEW-001〜080／80 件） |
 | `docs/requirements/requester.md` | 要求文書: 依頼者から見た振る舞い | 判定に迷う場合の共通の扱い／起動と対象の見極め／問いかけと回答／提示と承認／保存と持ち帰り／根拠として読み取る範囲／実行環境と中断（PR-REQUESTER-001〜041、欠番は 002・004・006・016・019・027・028・030／33 件） |
 
 ## 要求一覧
@@ -292,6 +292,8 @@
 | PR-DEVELOPADDRESSREVIEW-065 | 止まっている間のほかの入力 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-063 | どの時点でも守る条件 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-060 | 完了の条件 | `docs/requirements/develop-address-review.md` |
+| PR-DEVELOPADDRESSREVIEW-067 | triage 構造の保持と引き渡し | `docs/requirements/develop-address-review.md` |
+| PR-DEVELOPADDRESSREVIEW-068 | 停止結果の引き継ぎ | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPIMPLEMENT-001 | 目標の固定 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-036 | 依頼の文の保存 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-037 | 目標に足さないもの | `docs/requirements/develop-implement.md` |
@@ -302,7 +304,7 @@
 | PR-DEVELOPIMPLEMENT-004 | 照らす先の branch の導き方 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-053 | 名指された branch が remote に無いとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-005 | 渡された SHA の確認 | `docs/requirements/develop-implement.md` |
-| PR-DEVELOPIMPLEMENT-006 | 計画の run | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-006 | 計画の run の適用経路 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-007 | 計画が通らないとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-008 | 計画の run が人の判断を求めたとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-009 | 計画の run の書き込み | `docs/requirements/develop-implement.md` |
@@ -370,6 +372,13 @@
 | PR-DEVELOPIMPLEMENT-076 | 止まっている間のほかの入力 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-078 | 実装の後の停止から新しく呼ぶとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-070 | 完了の条件 | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-079 | 規範文書の洗い出しの段 | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-080 | 条件ごとのケース計画の適用範囲 | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-081 | 作業ファイルの読み手と独立性 | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-082 | 同一 run 内の作り直しと再開の受け渡し | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-083 | 範囲外の指摘と根を探す段 | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-084 | 範囲拡大の人間ゲート | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-085 | 前提・環境障害の即時停止 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPPLUGIN-001 | 呼び出し名 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-002 | 3 スキルの版の一致 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-003 | 呼び出しの向き | `docs/requirements/develop-plugin.md` |
@@ -378,7 +387,7 @@
 | PR-DEVELOPPLUGIN-006 | 段の選択 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-007 | 司令塔が作らないもの | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-008 | 固有の値の直書き | `docs/requirements/develop-plugin.md` |
-| PR-DEVELOPPLUGIN-009 | 今の 3 スキルから残すもの | `docs/requirements/develop-plugin.md` |
+| PR-DEVELOPPLUGIN-009 | 今の 3 スキルから変えるものと残すもの | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-010 | 足す範囲 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-011 | 宣言の形が合わないとき | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-012 | PR が対象のときの方針の版 | `docs/requirements/develop-plugin.md` |
@@ -454,6 +463,9 @@
 | PR-DEVELOPPLUGIN-068 | 旧名を呼ぶ利用者への案内 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-069 | pk・dcf の置き換えの完了 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-070 | dcf の金融ロジックの観点 | `docs/requirements/develop-plugin.md` |
+| PR-DEVELOPPLUGIN-086 | 変更の種類による分類 | `docs/requirements/develop-plugin.md` |
+| PR-DEVELOPPLUGIN-087 | 運搬役が運ぶ本文と結果の引き渡し | `docs/requirements/develop-plugin.md` |
+| PR-DEVELOPPLUGIN-088 | 状態の世代と遅延書き込みの拒否 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPREVIEW-001 | 目標の固定 | `docs/requirements/develop-review.md` |
 | PR-DEVELOPREVIEW-002 | checkout していない PR | `docs/requirements/develop-review.md` |
 | PR-DEVELOPREVIEW-003 | 渡された pin の値 | `docs/requirements/develop-review.md` |
@@ -531,6 +543,9 @@
 | PR-DEVELOPREVIEW-056 | git の外の対象の観点 | `docs/requirements/develop-review.md` |
 | PR-DEVELOPREVIEW-057 | git の外の対象の資産台帳 | `docs/requirements/develop-review.md` |
 | PR-DEVELOPREVIEW-058 | git の外の対象で見なかったもの | `docs/requirements/develop-review.md` |
+| PR-DEVELOPREVIEW-078 | 洗い出しの束の配り方 | `docs/requirements/develop-review.md` |
+| PR-DEVELOPREVIEW-079 | 運搬役の軽量化と path/sum 照合 | `docs/requirements/develop-review.md` |
+| PR-DEVELOPREVIEW-080 | 前段の指摘構造の受け取り | `docs/requirements/develop-review.md` |
 | PR-REQUESTER-037 | 判定に迷う場合に結論を定めない | `docs/requirements/requester.md` |
 | PR-REQUESTER-040 | 判定に迷う場合に依頼者へ確認する | `docs/requirements/requester.md` |
 | PR-REQUESTER-001 | 対象外の依頼で作成に入らない | `docs/requirements/requester.md` |
