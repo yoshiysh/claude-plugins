@@ -3,7 +3,7 @@ name: address-review
 description: >
   GitHub の PR に付いているレビュー指摘（inline の thread・bot の summary・review の本文）に対応するときに使うこと。
   全ての指摘を CLI が集め、分類の Workflow で comment-triager が全件を分類して別の triage-verifier が独立に確かめ、
-  直すものは構造のまま develop:implement に渡してテストとレビューを通し、commit・push、CI 待ちの後に各指摘へ返信し条件付きで resolve する。
+  直すものは構造のまま develop:implement に渡してテストとレビューを通し、commit・push、CI 待ちの後に各指摘へ返信する（thread の resolve は利用者の判断に残す）。
   「この PR のレビューコメントに対応して」「bot の指摘を直して返信して」「この PR の指摘が妥当か分類だけして」を頼まれたら使う
   （Use when addressing existing review comments on a pull request）。
 ---
@@ -22,13 +22,13 @@ description: >
 
 ## 目的と担い手
 
-このリポジトリの PR に付いたレビュー指摘に、全てを最初に読む → 分類する → 直すものを直す → 返信する、の 1 周で対応する。決められる処理（指摘の収集・対象の選別・分類の結果の照合・修正の依頼の文と返信の本文の組み立て・返信の直前の再照合・投稿の確かめ・次の手の決定）は `scripts/address-cli.mjs` が行い、分類は 2 体の agent、修正は `repo-implement` が行う。司令塔（このスキルを読む session）はファイルを書かず、分類・返信の本文・修正の内容・次の手を自分で作らない（司令塔の手修正と手書きの返信は検証を通らずに成果物と PR に届く）。
+このリポジトリの PR に付いたレビュー指摘に、全てを最初に読む → 分類する → 直すものを直す → 返信する、の 1 周で対応する。決められる処理（指摘の収集・対象の選別・分類の結果の照合・修正の依頼の文と返信の本文の組み立て・返信の直前の再照合・投稿の確かめ・次の手の決定）は `scripts/address-cli.mjs` が行い、分類は 2 体の agent、修正は `develop:implement` が行う。司令塔（このスキルを読む session）はファイルを書かず、分類・返信の本文・修正の内容・次の手を自分で作らない（司令塔の手修正と手書きの返信は検証を通らずに成果物と PR に届く）。
 
 司令塔が CLI の出力を写す以外に行うのは次のとおりで、次の手の判断は CLI の出力の `next` に任せる。
 
 - 依頼の文から PR の番号・止める段（`stopAfter`）・含める指摘（`include`・`only`）を選び、利用者の答えを `decisions` に逐語で写して `collect` に渡す。
 - 分類の Workflow を起動する（throw したときの呼び直しは「分類」の節）。
-- `repo-implement` をスキル呼び出しで起動し、commit と push をその SKILL.md の手順で行う。
+- `develop:implement` をスキル呼び出しで起動し、commit と push をその SKILL.md の手順で行う。
 - CLI が書いた返信を `gh api` で投稿する。
 
 **このスキルを呼んだことを、commit・push・返信の許可とみなす。** 利用者の要件が「返信まで行う」ことなので、段ごとに確認を挟むと要件に反する。依頼が手前で止めるよう明示したときだけ、`stopAfter` で止める。
@@ -55,7 +55,7 @@ JSON
 - `decisions` は前の run で止まった指摘への利用者の答えを `{"<comment_id>": "<利用者の文を逐語で>"}` で渡す（無ければ `{}`）。CLI が使えないもの（state に無い id・空の値）を外して `dropped_decisions` に返すので、それは報告に書く。
 - 利用者が特定のコメントを含めるよう頼んだら `"include": [<comment_id>]` を、特定のものだけを頼んだら `"only": [<comment_id>]` を足す。既定で外すものの理由の正本は `scripts/address-core.mjs` の `EXCLUSION_REASONS`。
 
-CLI は PR と作業ツリーが扱える状態かを確かめ、方針の版を `DEFAULT_POLICY_REF`（`repo-implement` と同じ主ブランチの remote の先端）の SHA に固定し、inline comment・PR の会話（bot の summary を含む）・review の本文・reviewThreads をページングして全件取り、指摘の一覧と返信の直前に照らす議論の snapshot を `stateDir` に書く。gh には argv で渡し、コメントの本文を shell に通さない。
+CLI は PR と作業ツリーが扱える状態かを確かめ、方針の版を `DEFAULT_POLICY_REF`（`develop:implement` と同じ主ブランチの remote の先端）の SHA に固定し、inline comment・PR の会話（bot の summary を含む）・review の本文・reviewThreads をページングして全件取り、指摘の一覧と返信の直前に照らす議論の snapshot を `stateDir` に書く。gh には argv で渡し、コメントの本文を shell に通さない。
 
 ## 分類
 
@@ -86,7 +86,7 @@ Workflow({
 | op | 足す入力 | 出力の主な値 |
 | --- | --- | --- |
 | `triage-result` | `triage`（分類の Workflow の返り値。tasks の `.output` の包みのまま `triagePath` でもよい） | `results`（止まったときも、返り値にあれば各指摘の分類と根拠）・`questions`、fix があれば `request`・`fix_ids` |
-| `record-fix` | `verify`（repo-implement の verify の出力そのまま）か `stopped`（止まった理由の文） | `commit_message`・`branch`、修正したか（`fixed`） |
+| `record-fix` | `verify`（develop:implement の verify の出力そのまま）か `stopped`（止まった理由の文） | `commit_message`・`branch`、修正したか（`fixed`） |
 | `recheck` | `fixCommit`（push した SHA か JSON の `null`） | `replies`（`endpoint`・`input_path`）・`skipped`・`blocked`・`new_items` |
 | `confirm-replies` | 無し | `passed`・`confirmed`・`missing`・`duplicated`・`misplaced` |
 
@@ -100,7 +100,7 @@ JSON
 
 ## 報告
 
-PR・base と head の SHA・方針の版・取った指摘の件数と `excluded` の内訳・`dropped_decisions`、分類ごとの件数と各指摘の分類と根拠、`repo-implement` の結果（変更の path・check・レビュー・verify）、commit と push した SHA、返信の件数と `confirm-replies` の結果、`skipped`（直していない fix）・`blocked`（議論が変わった）・`new_items`（collect の後に来た指摘）を書き、後の 3 つは次の run で扱うと書く。止まったときは最後の出力の `next` と `reason`。thread は resolve していないことを書く。実行していない段を実行したと書かない。
+PR・base と head の SHA・方針の版・取った指摘の件数と `excluded` の内訳・`dropped_decisions`、分類ごとの件数と各指摘の分類と根拠、`develop:implement` の結果（変更の path・check・レビュー・verify）、commit と push した SHA、返信の件数と `confirm-replies` の結果、`skipped`（直していない fix）・`blocked`（議論が変わった）・`new_items`（collect の後に来た指摘）を書き、後の 3 つは次の run で扱うと書く。止まったときは最後の出力の `next` と `reason`。thread は resolve していないことを書く。実行していない段を実行したと書かない。
 
 ## 照合しないもの
 
@@ -112,7 +112,7 @@ CLI と分類の Workflow が見ないものは次のとおりで、報告では
 - thread の「返答済み」の除外は、最後に書いたのが認証ユーザーかで決める。認証ユーザーが指摘に答えずに書いた返信も返答として数える（含めるには `include`）。
 - 投稿の反映の遅れが `NEXT` の `wait_and_retry` の待ち時間を超えたとき。`repost` は最初の投稿がまだ読めていないだけでも投稿するので、そのときは二重の投稿になる（`confirm-replies` の `duplicated` に出る）。
 - 拒否の後の流し直しの回数。拒否は記録を書かないので、1 回だけ流し直すことは司令塔が数える。
-- 方針の版の SHA の一致。分類も `repo-implement` も主ブランチの remote の先端（同じ ref 名）で読むが、それぞれが始めた時点の SHA に固定するので、間に主ブランチが進むと別の SHA になる。
-- `repo-implement` の中の照合（計画・check・レビュー・verify）。正本は `repo-implement` の SKILL.md。`record-fix` は verify の出力の `passed` と `actual` だけを見る。
-- fix の返信の草案と実際の修正の一致。草案は修正の前に書かれ、`recheck` が足すのは commit の SHA と変えた path だけで、草案の文が `repo-implement` の変更と合うかは照らさない。
+- 方針の版の SHA の一致。分類も `develop:implement` も主ブランチの remote の先端（同じ ref 名）で読むが、それぞれが始めた時点の SHA に固定するので、間に主ブランチが進むと別の SHA になる。
+- `develop:implement` の中の照合（計画・check・レビュー・verify）。正本は `develop:implement` の SKILL.md。`record-fix` は verify の出力の `passed` と `actual` だけを見る。
+- fix の返信の草案と実際の修正の一致。草案は修正の前に書かれ、`recheck` が足すのは commit の SHA と変えた path だけで、草案の文が `develop:implement` の変更と合うかは照らさない。
 - fix の指摘ごとの修正の中身。`recheck` は、fix の `repair_paths` のどれかが修正の commit で変わったかだけを見て（どれも変わっていなければその返信を `skipped` にする）、その path の変更がその指摘を直したかは見ない。

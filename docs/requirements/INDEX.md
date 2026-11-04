@@ -304,7 +304,7 @@
 | PR-DEVELOPIMPLEMENT-004 | 照らす先の branch の導き方 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-053 | 名指された branch が remote に無いとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-005 | 渡された SHA の確認 | `docs/requirements/develop-implement.md` |
-| PR-DEVELOPIMPLEMENT-006 | 計画の run | `docs/requirements/develop-implement.md` |
+| PR-DEVELOPIMPLEMENT-006 | 計画の run の適用経路 | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-007 | 計画が通らないとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-008 | 計画の run が人の判断を求めたとき | `docs/requirements/develop-implement.md` |
 | PR-DEVELOPIMPLEMENT-009 | 計画の run の書き込み | `docs/requirements/develop-implement.md` |
@@ -387,7 +387,7 @@
 | PR-DEVELOPPLUGIN-006 | 段の選択 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-007 | 司令塔が作らないもの | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-008 | 固有の値の直書き | `docs/requirements/develop-plugin.md` |
-| PR-DEVELOPPLUGIN-009 | 今の 3 スキルから残すもの | `docs/requirements/develop-plugin.md` |
+| PR-DEVELOPPLUGIN-009 | 今の 3 スキルから変えるものと残すもの | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-010 | 足す範囲 | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-011 | 宣言の形が合わないとき | `docs/requirements/develop-plugin.md` |
 | PR-DEVELOPPLUGIN-012 | PR が対象のときの方針の版 | `docs/requirements/develop-plugin.md` |
