@@ -1,13 +1,11 @@
 ---
 name: address-review
 description: >
-  yoshiysh/claude-plugins リポジトリの GitHub の PR に既に付いているレビュー指摘（inline の thread・bot の summary・review の本文）に対応するときに使うこと。
-  全ての指摘を最初に CLI が集め、分類の Workflow で comment-triager が全件を分類して別の triage-verifier が独立に確かめ、
-  直すものは repo-implement に渡してテストとレビューを通し、commit・push の後に各指摘へ返信する（thread は resolve しない）。
-  「この PR のレビューコメントに対応して」「#172 の bot の指摘を直して返信して」「この PR の指摘が妥当か分類だけして」を、
-  このリポジトリについて頼まれたら使う（Use when addressing existing review comments on a pull request of the yoshiysh/claude-plugins repository）。
-  対象外: 新しくレビューすること（repo-review）、PR に載っていないレビュー結果の反映や指摘と関係しない実装・修正（repo-implement）、
-  別のリポジトリの PR、thread の resolve。このリポジトリの PR の指摘には、汎用の workflow:pr-review-fix でなくこれを使う。
+  GitHub の PR に付いているレビュー指摘（inline の thread・bot の summary・review の本文）に対応するときに使うこと。
+  全ての指摘を CLI が集め、分類の Workflow で comment-triager が全件を分類して別の triage-verifier が独立に確かめ、
+  直すものは構造のまま develop:implement に渡してテストとレビューを通し、commit・push、CI 待ちの後に各指摘へ返信し条件付きで resolve する。
+  「この PR のレビューコメントに対応して」「bot の指摘を直して返信して」「この PR の指摘が妥当か分類だけして」を頼まれたら使う
+  （Use when addressing existing review comments on a pull request）。
 ---
 
 # Address review

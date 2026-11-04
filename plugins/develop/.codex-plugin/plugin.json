@@ -1,0 +1,8 @@
+{
+  "name": "develop",
+  "version": "0.1.0",
+  "description": "開発支援・実装・レビュー・指摘対応ワークフロー（develop:implement / develop:review / develop:address-review）",
+  "author": {
+    "name": "yoshiysh"
+  }
+}

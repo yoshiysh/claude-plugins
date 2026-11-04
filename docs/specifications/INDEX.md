@@ -13,6 +13,10 @@
 | `docs/specifications/bp-findings.md` | 仕様書: 指摘と資産台帳 | 台帳と資産／結果の結び付き／反証／指摘の状態／カバレッジと skip 一覧／run をまたぐ指摘の扱い／指摘の形／エラー処理と異常系（SP-BPFINDINGS-001〜037／37 件） |
 | `docs/specifications/bp-inspection.md` | 仕様書: review と audit の観点と流れ | 形と段／観点／フローの観点／監査の観点／担当と起動／対象を書き換えない／対象スキル／外部インタフェース／エラー処理と異常系（SP-BPINSPECTION-001〜030／30 件） |
 | `docs/specifications/bp-run.md` | 仕様書: best-practices の実行基盤 | run の境界／状態と作業場所／run の記録／停止／再開／起動数の上限／判定基準の写し／モデル・effort・権限／エラー処理と異常系／外部インタフェース／性能・容量（SP-BPRUN-001〜048／48 件） |
+| `docs/specifications/develop-address-review.md` | 仕様書: develop:address-review の詳細仕様・分類・返信 | 指摘の収集／分類と独立検証／triage 構造の保持と引き渡し／停止結果の引き継ぎ／implement 修正結果の検証／push／CI 待ち／返信／resolve（SP-DEVELOPADDRESSREVIEW-001〜009／9 件） |
+| `docs/specifications/develop-implement.md` | 仕様書: develop:implement の詳細仕様・経路・制御 | 目標の固定／方針の版とブランチ／経路分岐／計画の run とケース計画／洗い出し段／作業ファイルの読み手制限／run 内外の引き渡し／check／review 修正ループ／根を探す段／人間ゲート／即時停止／最終照合・commit・push（SP-DEVELOPIMPLEMENT-001〜013／13 件） |
+| `docs/specifications/develop-plugin.md` | 仕様書: develop plugin の共通基盤・利用側の宣言・CLI 契約 | 呼び出し名と配布／スキル間呼び出し／実行環境判定／固有値の外部化／利用側の宣言／方針の版／方針文書／言語制御／変更の種類の分類／状態と世代管理／run 返り値と record-run／事後変化検出／停止情報／relaunch 禁止／モデル・effort 指定（SP-DEVELOPPLUGIN-001〜015／15 件） |
+| `docs/specifications/develop-review.md` | 仕様書: develop:review の詳細仕様・観点・2 段検証 | 対象と diff／観点と focus／洗い出しの束の配分／並列 reviewer／2 段検証／確定指摘の構造保持／運搬役の軽量化／PR 投稿・確認／external モード（SP-DEVELOPREVIEW-001〜009／9 件） |
 | `docs/specifications/elicitation.md` | 仕様書: 事前分析と依頼者への問いかけ | 観点の判定／分割案／判定の委ね方／質問の生成と絞り込み／回答の反映／エラー処理と異常系（SP-ELICITATION-001〜049、欠番は 005・006・007・011・016・019・021・022・023・028 ほか 6 件／33 件） |
 | `docs/specifications/flow.md` | 仕様書: 全体の制御 | 起動時の判定／根拠として扱う入力の範囲／中断点と順序の制約／未確定事項の区分・周回・完成判定／保存／中断（SP-FLOW-001〜047、欠番は 001・006・008・009・023・038／41 件） |
 | `docs/specifications/verification.md` | 仕様書: 生成物の検査と改稿 | 検査の実行と記録／同一性の判定／実行可能性の判定／記述規約の検査／構造の検査／文書間の検査／網羅の検査／根拠の検査／改稿の反復／エラー処理と異常系（SP-VERIFICATION-001〜045、欠番は 008・030・040／42 件） |
@@ -445,6 +449,52 @@
 | SP-VERIFICATION-039 | 検査結果が定めた形式に合わないとき | `docs/specifications/verification.md` |
 | SP-VERIFICATION-044 | やり直しても形式に合わないとき | `docs/specifications/verification.md` |
 | SP-VERIFICATION-041 | 検査を 1 件も実施できなかったときの終了 | `docs/specifications/verification.md` |
+| SP-DEVELOPADDRESSREVIEW-001 | 指摘の全数収集 | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-002 | 分類と独立検証 | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-003 | triage 構造の保持と path/sum 引き渡し | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-004 | 停止結果の引き継ぎ | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-005 | implement 修正結果の検証 | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-006 | remote への push | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-007 | required checks の非同期待ち合わせ | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-008 | 返信の投稿と照合確認 | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPADDRESSREVIEW-009 | 条件付き resolve の執行 | `docs/specifications/develop-address-review.md` |
+| SP-DEVELOPIMPLEMENT-001 | 目標の不変固定と回答の追記 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-002 | 方針の版と照合先ブランチの特定 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-003 | 対象の種類に応じた経路分岐 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-004 | 計画の run とケース計画 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-005 | 規範文書の洗い出し段（implement-scope） | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-006 | 作業ファイルの読み手制限 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-007 | 同一 run 内と run 跨ぎのコンテキスト引き渡し | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-008 | 開始時 check と差分比較 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-009 | review の呼び出しと修正ループ | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-010 | 範囲外指摘の検出と根を探す段 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-011 | 範囲拡大の人間ゲート | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-012 | 前提・環境障害の即時停止 | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPIMPLEMENT-013 | 最終照合・commit・push | `docs/specifications/develop-implement.md` |
+| SP-DEVELOPPLUGIN-001 | 呼び出し名と配布形態 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-002 | スキル間の呼び出し制限 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-003 | 実行環境の判定とフォールバック | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-004 | 固有値の外部化と設定導出 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-005 | 利用側の宣言の検証 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-006 | 方針の版の決定順序 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-007 | 方針文書の読み取り元 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-008 | 人が読む出力の言語制御 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-009 | 変更対象の決定的分類 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-010 | 単一状態ディレクトリと世代管理 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-011 | run 返り値の軽量化と record-run | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-012 | 書き込ませない役の事後変化検出 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-013 | 停止情報の形式 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-014 | relaunch の禁止と新しい run による再開 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPPLUGIN-015 | 役ごとのモデル・effort の指定 | `docs/specifications/develop-plugin.md` |
+| SP-DEVELOPREVIEW-001 | レビュー対象と diff の導出 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-002 | 観点の導出と focus 段 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-003 | 洗い出しの束の配分とサイズ上限 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-004 | 観点別 reviewer の並列起動 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-005 | 2 段の独立検証 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-006 | 確定指摘の構造保持 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-007 | 運搬役の本文軽量化と path/sum 受け渡し | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-008 | PR への投稿と投稿確認 | `docs/specifications/develop-review.md` |
+| SP-DEVELOPREVIEW-009 | git 外対象のレビュー（external モード） | `docs/specifications/develop-review.md` |
 
 ## 検査結果
 

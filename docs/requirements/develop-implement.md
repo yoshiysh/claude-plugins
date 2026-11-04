@@ -76,8 +76,8 @@ implement は、PR の番号を渡されたらその PR の base の branch を�
 
 ### 計画
 
-#### PR-DEVELOPIMPLEMENT-006 計画の run
-implement は、計画役と計画のレビュー役を、計画が通るか作り直しの上限に達するまで繰り返す、読み取り専用の run で動かさなければならない。
+#### PR-DEVELOPIMPLEMENT-006 計画の run の適用経路
+implement は、変更の種類が `code` のときに限り、計画役と計画のレビュー役を、計画が通るか作り直しの上限に達するまで繰り返す、読み取り専用の run で動かさなければならない。変更の種類が `document` のときは計画の run を省略し、CLI が目標から計画（対象 path とスコープ）を自動生成しなければならない。変更の種類が `design`（規範文書）のときは、計画の前に PR-DEVELOPIMPLEMENT-079 の洗い出しの段を動かさなければならない。
 
 #### PR-DEVELOPIMPLEMENT-007 計画が通らないとき
 作り直しの上限に達しても計画が通らないならば、implement は作り直しの上限の停止（PR-DEVELOPIMPLEMENT-068）で止まり、計画が通らなかったことと理由・next_args を返さなければならない。
@@ -382,3 +382,26 @@ implement は、次の条件を全て満たすときにだけ完了しなけれ�
 |---|---|---|
 | 直す変更が無い | `I_NoChangeEnd` | `ImplGoal` |
 | 最終照合を通った | `I_FinalDone`・`I_CommitDone`・`I_PushOk` | `ImplGoal` |
+
+### 再設計案に基づく固有要求
+
+#### PR-DEVELOPIMPLEMENT-079 規範文書の洗い出しの段
+変更の種類が `design`（規範文書）であるとき、implement は計画役の前に洗い出しの段（`implement-scope` の抽出役）を必ず動かし、変更対象の概念に触れる箇所を洗い出して束ねなければならない。
+
+#### PR-DEVELOPIMPLEMENT-080 条件ごとのケース計画の適用範囲
+implement は、条件ごとのケース計画を変更の種類が `code` のときに限り必須とし、`document` および `design` の経路ではケース計画を要求してはならない。
+
+#### PR-DEVELOPIMPLEMENT-081 作業ファイルの読み手と独立性
+implement は、前回の作業ファイル（前回の出力等）を読む者を生成役（planner または implementer）の再開時のみに限定し、検証役（plan-reviewer および verifier）には前回の全文作業ファイルを読ませてはならない（検証の独立性を維持するため）。
+
+#### PR-DEVELOPIMPLEMENT-082 同一 run 内の作り直しと再開の受け渡し
+同一 run 内での計画・実装の作り直しにおいて、implement は script が前回の出力を保持して次の prompt に引き渡さなければならない。run をまたぐ再開においては、CLI が書き出した作業ファイルを次回の生成役の prompt に引き渡さなければならない。
+
+#### PR-DEVELOPIMPLEMENT-083 範囲外の指摘と根を探す段
+変更後のレビューで、当初の変更範囲の外を指す指摘が出たとき、implement は直ちに修正を行わず、根を探す段（`implement-scope` の根を探す役）を動かして原因箇所を特定しなければならない。
+
+#### PR-DEVELOPIMPLEMENT-084 範囲拡大の人間ゲート
+根を探す段の結果、修正範囲を広げる必要があると判定された場合、implement は自動的に範囲を広げずに人間ゲート（needs_input）で停止し、判断材料を人に提示して指示を仰がなければならない。
+
+#### PR-DEVELOPIMPLEMENT-085 前提・環境障害の即時停止
+implement は、プロセスの停止（乾き、反復上限、needs_input 等）と前提・環境障害（`E_PIN`, `E_POLICY`, `implementer-failed` 等の BLOCKED）を区別し、前提障害が発生した場合は直ちに BLOCKED で停止しなければならない。

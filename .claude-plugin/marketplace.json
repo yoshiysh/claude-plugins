@@ -36,6 +36,10 @@
         {
             "name": "shunt",
             "source": "./plugins/shunt"
+        },
+        {
+            "name": "develop",
+            "source": "./plugins/develop"
         }
     ]
 }
