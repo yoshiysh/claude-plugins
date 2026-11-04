@@ -73,7 +73,7 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 
 | # | 要求 ID | path:line | ずれ | 守らないと壊れること |
 |---|---|---|---|---|
-| 1 | PR-001・002・004 | `.agents/skills/address-review/scripts/address-core.mjs:307`、`:319-342`、`.agents/skills/address-review/SKILL.md:33`、`.agents/skills/repo-implement/SKILL.md:35-45`、`.agents/skills/repo-implement/scripts/plan.js:21-24`、`:92-97`、`:121`、`:174`、`:179-192`、`.agents/skills/repo-implement/scripts/implement-core.mjs:21` | 変更の種類（文書・SKILL.md・コード）によらず、全ての fix が repo-implement の全段を通る。計画の run を置く理由が書かれていない（`SKILL.md:45` は書く役を分ける理由で、計画役を置く理由ではない）。ケース計画は schema で必須で、変更があって条件 0 件は不合格、各条件は 4 観点それぞれにケースか不適用の理由を要る。文書の変更でも `make test` を開始時と各回に流す | 8 行の文書修正に、計画の Workflow（最大 6 体）、`make test` 2 回（1 回約 349 秒。設計方針文書「水準と未決事項」の実測）、3 観点 × 2 段のレビューが走る |
+| 1 | PR-001・002・004 | `.agents/skills/address-review/scripts/address-core.mjs:307`、`:319-342`、`.agents/skills/address-review/SKILL.md:33`、`.agents/skills/repo-implement/SKILL.md:35-45`、`.agents/skills/repo-implement/scripts/plan.js:21-24`、`:92-97`、`:121`、`:174`、`:179-192`、`.agents/skills/repo-implement/scripts/implement-core.mjs:21` | 変更の種類（文書・SKILL.md・コード）によらず、全ての fix が repo-implement の全段を通る。計画の run を置く理由が書かれていない（`SKILL.md:45` は書く役を分ける理由で、計画役を置く理由ではない）。ケース計画は schema で必須で、変更があって条件 0 件は不合格、各条件は 4 観点それぞれにケースか不適用の理由を要る。文書の変更でも `make test` を開始時と各回に流す | 8 行の文書修正に、計画の Workflow（最大 6 体）、`make test` 2 回（スイートごとの個別実測の合計で約 349 秒、一括完走値ではない。設計方針文書「水準と未決事項」）、3 観点 × 2 段のレビューが走る |
 
 ### 文脈の配達
 

@@ -29,7 +29,7 @@
 | 共通化するもの（develop が持つ） | 利用側リポジトリに残すもの |
 |---|---|
 | 段の順序、CLI の照合（状態・券・snapshot・pin・coverage・票の集計・返信の再照合）、役の prompt（`agents/*.md`）、Workflow source、既定の観点 | 方針文書（`REVIEW.md` とその「読むもの」表が挙げる文書）、check の許可リストと必須 check、除外と生成物の置き場、commit 後の push の要否、人が読む出力の言語 |
-| 役ごとの model・effort（Workflow source の `ROLE_MODELS`。初期値と理由の正本は `docs/design/develop-skills-redesign.md`「役ごとのモデル・effort」） | 領域の観点（dcf の金融ロジック・Rust、pk のコーパス保護）。どれも各リポジトリの `REVIEW.md` に書く |
+| 役ごとの model・effort（Workflow source の `ROLE_MODELS`。初期選定値は `docs/design/develop-skills-redesign.md`「役ごとのモデル・effort」、一般原則と根拠の正本は設計方針文書と eval の記録） | 領域の観点（dcf の金融ロジック・Rust、pk のコーパス保護）。どれも各リポジトリの `REVIEW.md` に書く |
 
 **dcf の magi-issue-resolver は対象外にする。** Issue の選定から PR-ready・振り返りまでを 1 本の Workflow（`.agent/skills/magi-issue-resolver/scripts/issue-resolve.js`）で回すもので、実装・レビュー・指摘対応に分かれていない（dcf の SKILL.md を gh api で読んで確かめた）。「develop:* を呼ぶ側になる」という見立ては、条件つきでだけ成り立つ。
 - develop:implement と develop:address-review は、セッションが CLI を shell で流し、Workflow を段ごとに別の run で起動する作り。Workflow の中の agent から別の Workflow を起動できるかは未確認で、Codex runner は入れ子の workflow を持たない（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md` の未実装の一覧）。magi の Workflow の中から develop:* は呼べない前提で考える。
