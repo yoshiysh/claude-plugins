@@ -252,6 +252,7 @@ state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しか
 | `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指すか、`answer` が残っていれば（回答済みの問い）不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` と理由（`bad`。stderr にも）を出す |
 | `answers --file answers/<ゲート>.md --ids <RS-…>` | flow-check（`gates_answered` のゲートを越える前と、回答を当てる段がそのゲートの stdout を持っていないとき（`next_args` で 3a・3a' から始めた run を含む）） | 回答のファイルがあるか（`exists`）と、`<ID>:` で始まる行の無い問い（`missing`）と、候補の `label` 1 つだけではない回答の節の逐語（`free`。`{id, from, to, text}`。label の後に自由欄が続くか label と違う回答。節の切り方は answer_holds と同じ doc_check の `answerSections`（頭は台帳にある ID の行）。空の回答は入らない）を stdout に出す。script は `free` を回答を当てる resolver のプロンプトに写す（prd-spec.js の `answerExcerpt`）。何も書かない |
 | `report [--drafts <RS-…>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`answered_by`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない）。run の後なので動いている label は無く、`tmp/<label>/` をすべて消して `checks/report.swept.json` と stdout の `swept` に出す |
+| `formal-model [--doc <キー,…>]` | 司令塔（保存の前） | 仕様書（`specifications/<topic>`）の状態図と状態表から TLA+ 形式モデル（`<Topic>.tla`, `<Topic>.cfg`, `README.md`, `check.test.mjs`）を導出して `W/formal/<topic>/` に書く。stdout の `formal_models[].files` に生成したファイル一覧を出す |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、
 fixture テストがこの形で移設前の結果との一致を確かめている。

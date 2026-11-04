@@ -89,7 +89,7 @@ TLC_DOT=/path/to/state-graph.dot TLA2TOOLS=/path/to/tools/tla2tools.jar tests/fo
 | `SavedOrMissingExclusive`・`StopReportReflectsCurrentSave` | 同じ run を保存済みと未保存範囲の両方に入れない。停止報告が保存済みとする記録は、最後に受理した計画以後の保存に基づく。再計画の前の保存を根拠に「未保存なし」と報告しない | PR-BPDESIGNEDSKILL-035・038 |
 | `RetentionWithoutDeleteRequest` | 削除指示の前は、部分保存を含め保存できた記録を保持する | PR-BPDESIGNEDSKILL-034・035・038 |
 | `NoDirectWrite` | 担当が共有台帳へ直接書き込む経路の検出器。正常モデルには担当が台帳へ書く遷移が無いので構成上真であり、`direct_ledger_write` 変異で経路を足したときに反例を返すことだけを確かめる。担当の実装が書き込まないことは検査しない | PR-BPDESIGNEDSKILL-030 |
-| `RunningRequiresAcceptedPlan`・`HintReadOnlyAfterAccept`・`NoUnreadHintOnCompletion`・`ResumeOnlyAfterReportAndRepair`・`ResumeStartsNewRun` | 計画が CLI に受理されるまで実行段階へ進まない。ヒントは計画の受理の時点で既読にし、未読のヒントを残して完了しない。報告と原因解消の後で再開する。再開は前の run の記録と混ざらない新しい run として計画役から始まる | 設計方針「停止・再開と人間の入力」、PR-BPDESIGNEDSKILL-007、bp-operations の用語「run」 |
+| `RunningRequiresAcceptedPlan`・`HintReadOnlyAfterAccept`・`NoUnreadHintOnCompletion`・`ResumeOnlyAfterReportAndRepair`・`ResumeStartsNewRun` | 計画が CLI に受理されるまで実行段階へ進まない。ヒントは計画の受理の時点で既読にし、未読のヒントを残して完了しない。報告と原因解消の後で再開する。再開は前の run の記録と混ざらない新しい run として始まる（モデルでは探索グラフ型として次の手を決める段である計画役から始まる経路に抽象化する） | 設計方針「停止・再開と人間の入力」、PR-BPDESIGNEDSKILL-007、bp-operations の用語「run」 |
 | `DryStopWithoutUnreadHint`・`WitnessDryAfterReadHint` | 未読・配達中のヒントが残っている間は乾きで止まらない。読んだヒントを未読と数えて乾き停止を拒むこともない（既読のヒントがある状態で乾き停止に到達する） | 設計方針「停止」の K ≥ 2 の行の後半、「停止・再開と人間の入力」の計画役が読んだヒントと停止の判定の未読ヒントを一致させる行 |
 | `DryStopAfterTwoDryRounds` | 乾きで止まるのは、計画の受理または再開の後に乾きの周が 2 周続いたときだけ。再開した run は最初の周で乾きと判定しない | 設計方針「停止」の K ≥ 2 の行、「停止・再開と人間の入力」の再開した run がすぐに止まらない行 |
 | `Progress`・`StopReported`・`ResumeProgress` | 後述の公平性の下で、稼働中の run はいずれ完了か停止へ到達し、停止理由はいずれ報告され、報告と修復が済んだ再開は計画へ進む | 設計方針「停止・再開と人間の入力」 |
@@ -153,7 +153,7 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 | 同 | 停止の種類 | `StopMatchesCause`・`StopHasReason`。BLOCKED のうち、検査で対象の欠けが見つかり対象を直さないと先へ進めない停止は、形式検証の失敗（`VerifyFail`）として扱う。全件失敗の連続による停止は対象外（周の中身を持たない） |
 | 同 | 待たれる入力 | `NeedsInput` から報告・`Answer`・`Resume` へ進む経路。`StopMatchesCause`・`ResumeOnlyAfterReportAndRepair`・`WitnessNeedsInputResume` |
 | 同 | 待たれない入力 | 実行中のヒントは `ReplanForHint` で計画に戻って受け付ける。`HintReadOnlyAfterAccept`・`WitnessCompleteAfterHint`。計画役を持たない形の取り込み方は対象外（モデルは計画役を持つ形） |
-| 同 | 「どの停止でも、理由と、未着手の意図と打ち切った意図の一覧を」 | 理由は `StopHasReason`・`StopMatchesCause`・`ReportAccurate`。意図の一覧と完了時の照合の証拠、次の run で読む役（計画役か入口の段か）は対象外（意図・証拠を持たない） |
+| 同 | 「どの停止でも、理由と、止まった段」 | 理由は `StopHasReason`・`StopMatchesCause`・`ReportAccurate`。止まった段・結果を記録していない項目・未着手や打ち切った意図の一覧・完了時の照合の証拠は対象外（段の区分・項目・意図・証拠を持たない） |
 | 同 | 「待たれる入力が要るときは、needs_input と理由を返して止め」 | `StopMatchesCause`、回答の後の再開の到達（`WitnessNeedsInputResume`） |
 | 同 | 「needs_input で止めるときは、理由だけでなく、人間が判断に要る材料」 | 理由は `StopMatchesCause`・`ReportAccurate`。判断の材料は対象外（判断の材料を持たない。要求側の PR-BPOPERATIONS-052 と同じ理由） |
 | 同 | 「ヒントは人間が CLI で状態に追記する」 | `AddHint` は完了以外のどの phase でも有効（`EventContract`）。停止中に足したヒントを次の run で受け付ける到達（`WitnessHintResume` ほか 3 本）と、停止中の追加を無効にした変異での到達不能 |
@@ -163,9 +163,9 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 | 同 | 「完了した状態へのヒントの追記は、CLI が拒否する」 | `AddHint` は `done` で無効。完了後に追記できると `NoUnreadHintOnCompletion` が破れる |
 | 同 | 「止めた run や途中で終わった run は relaunch せず」 | 新しい run としての再開は `ResumeStartsNewRun`。記録・未保存範囲・ヒントは再開をまたいで残る。受理済みの事実・試行の回数・打ち切りの再利用は対象外（事実・意図・試行を持たない） |
 | 同 | 「前の run の遅れた書き込みが、新しい run の状態を変えない」 | 対象外（遅延した書き込みと並行実行を持たない） |
-| 同 | 「完了以外の停止からは再開できる」 | `Repair`・`Answer`・`Resume`、`ResumeOnlyAfterReportAndRepair`・`ResumeProgress`、4 種の停止からの再開の到達 |
-| 同 | 「再開した run は、計画役を持つ形では必ず計画役から始め」 | 計画役を持つ形について、停止からの遷移は `Resume` で `planning` へ進むものだけ（図と `NoUnspecifiedTransitions`）。停止中に足したヒントを次の run で受け付ける到達。計画役を持たない形（入口の段から始める）は対象外（モデルは計画役を持つ形） |
-| 同 | 「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらない」 | 乾きは `DryStopAfterTwoDryRounds`。反復の上限・needs_input・BLOCKED と完了の主張の却下の繰り返しは対象外。モデルは反復の回数、却下の往復、入力が効いたかを状態に持たず、`LimitStop`・`NeedsInput`・`PlanFailed` を環境で起きる事象としていつでも起こりうるものにしているため、再開直後の停止が同じ理由の繰り返しか新しく起きた事象かを区別できない |
+| 同 | 「完了以外の停止からは再開できる」 | `Repair`・`Answer`・`Resume`、`ResumeOnlyAfterReportAndRepair`・`ResumeProgress`、4 種の停止からの再開の到達。但し書きの形（新しい状態から始める）は、前の状態からの `Resume` としては持たず、新しい状態は `Init` からの run に当たる。モデルは対象の内容と run の入力を持たないので、入力が変わったかを区別しない。但し書きが防ぐ、直す前の対象に基づく結果が残ることは、「対象と限界」の再開の項の安全側で吸収する。完了は再開した run で検証と保存を通すことを要する（`CompleteRequiresVerifiedAndPersisted`・`CompleteHasCurrentRunRecord`）。`Resume` が `UNCHANGED` で持ち越す変数は新しい状態と違いうるが、どれも新しい状態より緩い完了を生まない。完了の条件（`Complete` の前提と、`phase = "done"` を前提に持つ `CompleteRequiresVerifiedAndPersisted`・`CompleteHasCurrentRunRecord`・`NoUnreadHintOnCompletion`・`CompletionAfterChecksOfAcceptedPlan`）が読む持ち越しの変数は `records`・`fullySaved`・`deleteRequested`・`hint` の 4 つで、変数ごとに次のとおり。`fullySaved` は `TypeOK` の `fullySaved \subseteq everSaved` と `ResumeStartsNewRun`（再開した run の番号は `everSaved` に無い）から前の run の番号だけを持つので、`CompleteHasCurrentRunRecord` は再開した run 自身の `SavePass` を要する。`records` は `deleteRequested` が偽の間は `RetentionWithoutDeleteRequest` で `everSaved` と等しく、同じ理由で再開した run の番号を持たない（`deleteRequested` が真なら `CompleteHasCurrentRunRecord` は `records` を読まない）。`deleteRequested` は `CompleteHasCurrentRunRecord` の選言に入るが、`RequestDelete` は `Init` からも `deleteRequested` が偽の間は常に有効なので、新しい状態からも同じ値に着く。`hint` は持ち越したヒントにも `Complete` の前提と `NoUnreadHintOnCompletion` が掛かる。残りの `everSaved`・`missing`・`partialRuns`・`saveFailureReason`・`directWrite`・`hintOnStop`・`needsInputSeen`・`hintBlocked`・`hintStopKind` は、完了の条件にも、再開した run が完了へ進む遷移（`Deliver`・`AcceptPlan`・`VerifyPass`・`SavePass`・`Complete`）の前提にも現れない（読むのは停止の記録・報告の前提と不変条件、`ResumeStartsNewRun`、`NoDirectWrite`、遷移の結果の契約、到達の証人）。`verification`・`persistence`・`passed` は `Resume` が初期値に戻す |
+| 同 | 「再開した run は、計画役を持つ形で読まれていないヒントがあれば計画役から始め」 | 停止からの遷移は `Resume` で `planning` へ進むものだけ（図と `NoUnspecifiedTransitions`）。停止中に足したヒントを次の run で受け付ける到達。モデルは段の途中状態や項目ごとの未完了状態を持たず、探索グラフ型として次の手を決める段（planning）から再開する経路だけに抽象化しているため、読まれていないヒントが無い場合に段の途中の項目から再開する部分は対象外。計画役を持たない形は対象外（モデルは計画役を持つ形） |
+| 同 | 「再開した run は、人間の入力が効く前に、前の run と同じ理由ですぐに止まらない」 | 乾きは `DryStopAfterTwoDryRounds`。反復の上限（比べる回数を引き継ぐ上限と 0 から数える上限の区別）・needs_input・BLOCKED と完了の主張の却下の繰り返しは対象外。モデルは反復の回数、却下の往復、入力が効いたかを状態に持たず、`LimitStop`・`NeedsInput`・`PlanFailed` を環境で起きる事象としていつでも起こりうるものにしているため、再開直後の停止が同じ理由の繰り返しか新しく起きた事象かを区別できない |
 | 同 | 「再開した run では、台帳の結び付きとカバレッジを」 | 対象外（資産台帳とカバレッジを持たない） |
 | 同 | 「再開をまたいで残す値」 | 対象外（固定した目標・未着手の意図・試行の回数を持たない）。モデルが持つ値では、記録・未保存範囲・ヒントを再開をまたいで残し、乾きの連続数は残さない |
 | 同 | 「pipeline の外の agent が失敗しても」 | 計画役の失敗は `PlanFailed` で BLOCKED（`StopMatchesCause`）。形式検証・保存の失敗も BLOCKED。それ以外の agent（運搬役など）の失敗は個別の事象として持たないので対象外 |
@@ -199,8 +199,8 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 | 同 | 「効率を比較するときは」 | 対象外。所要時間・人の時間・計算費用を持たない（PR-BPDESIGNEDSKILL-036 と同じ理由） |
 | 同 | 「レビューを既知の正解や事例で評価するときは」 | 対象外。レビューの評価を持たない |
 | 同 | 「試走の記録と指紋」 | 対象外。試走と証拠記録を持たない |
-| 同 | 「文書を指摘で直して再検証するループでは、直しを ID を固定した該当箇所だけにし」 | 対象外。文書の改稿ループは run の外で、モデルの状態に無い |
-| 同 | 「同じループの検証は、毎回全体を対象にする」 | 対象外。同上 |
-| 同 | 「同じループでは、意味の欠けを先に直し」 | 対象外。同上 |
+| 同 | 「スキルの開発で文書を直すループでは、直しを ID を固定した該当箇所だけにし」 | 対象外。文書の改稿ループは run の外で、モデルの状態に無い |
+| 同 | 「スキルの開発で文書を直すループの検証は、毎回全体を対象にする」 | 対象外。同上 |
+| 同 | 「スキルの開発で文書を直すループでは、意味の欠けを先に直し」 | 対象外。同上 |
 | bp-operations「用語」 | needs_input・BLOCKED・run・作業記録・記録台帳 | モデルの語として使う。作業記録と記録台帳は run 単位の記録に丸める |
 | bp-operations「用語」 | 設計方針文書・対象スキル・修正の根拠・best-practices の仕様書・現行の prompt-audit・資産・指摘・カバレッジ・skip 一覧・形・探索グラフ型・context・fan-out・設計の説明・文書の一般規約 | 対象外（モデルの状態に現れない） |

@@ -22,14 +22,14 @@ const OPS = {
   stageRepeat: 'stage-repeat', stageFinish: 'stage-finish', discard: 'discard', files: 'files', stop: 'stop',
   summary: 'summary', list: 'list', ledgerCreate: 'ledger-create', ledgerRetake: 'ledger-retake', assignments: 'assignments',
   verdicts: 'verdicts', refutationItems: 'refutation-items', refutation: 'refutation', reviewJudge: 'review-judge',
-  vanishMatch: 'vanish-match', report: 'report', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
-  snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
+  vanishMatch: 'vanish-match', report: 'report', record: 'record', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
+  placement: 'placement', snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
   targets: 'targets', bundle: 'bundle', applicability: 'applicability', stopDraft: 'stop-draft',
 }
 const STAGE = {
   start: 'start', snapshot: 'snapshot', goal: 'goal', write: 'write', ledger: 'ledger', targets: 'targets', bundle: 'bundle',
   assign: 'assign', applicability: 'applicability', verify: 'verify', verifyExtra: 'verify-extra', refute: 'refute',
-  vanish: 'vanish', rejudge: 'rejudge', gate: 'gate', close: 'close',
+  vanish: 'vanish', rejudge: 'rejudge', gate: 'gate', formal: 'formal', close: 'close',
 }
 const STAGE_TITLES = {
   start: '開始', targets: '照らす先の決定', bundle: '台帳の作成と資産の束', assign: '担当の作成', applicability: '適用の判定',
@@ -45,14 +45,15 @@ const NEXT_ARGS_KEYS = { function: 'function', state: 'state' }
 const LIMIT_KEYS = { attempts: 'attempts', iterations: 'iterations', untilPass: 'untilPass' }
 const INPUT_KEYS = {
   function: 'function', request: 'request', target: 'target', grounds: 'grounds', nextArgs: 'nextArgs', answer: 'answer',
-  maxLaunches: 'maxLaunches', skillDir: 'skillDir', key: 'key',
+  maxLaunches: 'maxLaunches', skillDir: 'skillDir', key: 'key', host: 'host',
 }
 const RESULT_KEYS = {
   stopKind: 'stopKind', reason: 'reason', nextArgs: 'nextArgs', state: 'state', run: 'run', launches: 'launches',
   writtenFiles: 'writtenFiles', unverifiedRoleLimits: 'unverifiedRoleLimits', skill: 'skill', designNote: 'designNote',
-  verification: 'verification', findings: 'findings', skip: 'skip', residualRisks: 'residualRisks', receivedGrounds: 'receivedGrounds',
+  verification: 'verification', findings: 'findings', residualRisks: 'residualRisks', receivedGrounds: 'receivedGrounds',
   excludedCallsites: 'excludedCallsites', unverified: 'unverified', stoppedStage: 'stoppedStage', targets: 'targets',
   applicability: 'applicability', uncheckedViewpoints: 'uncheckedViewpoints', target: 'target', ledger: 'ledger',
+  performance: 'performance', unsavedRecords: 'unsavedRecords',
 }
 const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance', 'goal', 'contract'], review: ['flow', 'spec'], audit: ['audit'] }
 const INSPECT_PIPELINE = ['targets', 'bundle', 'assign', 'applicability', 'verify', 'verify-extra', 'refute', 'close']

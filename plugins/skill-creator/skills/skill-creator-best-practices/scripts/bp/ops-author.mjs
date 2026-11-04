@@ -372,13 +372,15 @@ function extraOf(view, number, viewpoint) {
 
 function verification(view, gateItem) {
   const g = gateItem.result.result;
+  const report = ledgerReport(view, runViewpoints(view));
+  const { findings, ...ledger } = report;
   const out = {
     [VERIFICATION_KEYS.decision]: { value: g.decision, findings: [...g.failing.findings, ...g.unverifiable.findings], units: g.failing.units, unverifiable: g.unverifiable },
     [VERIFICATION_KEYS.iterations]: { total: view.iterations, run: view.iterations - runBase(view).iterations },
     [VERIFICATION_KEYS.units]: g.units,
     [VERIFICATION_KEYS.forcedUnchecked]: g.forced,
     [VERIFICATION_KEYS.basisConstraints]: extraOf(view, g.number, 'goal')?.basisConstraints ?? [],
-    [VERIFICATION_KEYS.ledger]: ledgerReport(view, runViewpoints(view)),
+    [VERIFICATION_KEYS.ledger]: ledger,
   };
   if (view.state.function === FUNCTION.update) {
     const changes = extraOf(view, g.number, 'contract')?.contractChanges ?? [];
@@ -410,13 +412,11 @@ export async function outcome(ctx, req) {
   if (gateItem) {
     out[RESULT_KEYS.verification] = verification(view, gateItem);
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
+    out[RESULT_KEYS.findings] = ledgerReport(view, runViewpoints(view)).findings;
   }
   if (complete) {
-    const report = ledgerReport(view, runViewpoints(view));
     out[RESULT_KEYS.skill] = skillOf(view);
     out[RESULT_KEYS.designNote] = stop.designNote ?? null;
-    out[RESULT_KEYS.findings] = report.findings;
-    out[RESULT_KEYS.skip] = report.skip;
     if (view.state.function === FUNCTION.update) {
       out[RESULT_KEYS.receivedGrounds] = view.grounds.map((g) => ({ ground: g.id, ...(typeof g.ground?.id === 'string' ? { finding: g.ground.id } : {}) }));
     }

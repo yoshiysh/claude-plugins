@@ -12,7 +12,7 @@ c49ac04867aced805d21ff113a2265fd39c625edfb70821fac4df6f5a1a3341c	docs/requiremen
 e2f759161d0ca3a547bf48b1400164aef6f7dc15f0a7f01185469c09d3dd2677	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-051 best-practices の run の記録
 1d0d2836f45ee10cd06cd753b349be44cbdf67e4dd170c0d30b5aa7213d10f66	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-052 needs_input の返り値
 24ee194b6468fad584237f92b3d01d404ba99bd3284a94e44f044fe5604b3051	docs/design/skill-design-patterns.md	## 用語
-5cabec6e4f94cb5c725d2b8bf230eb8f4c62a8a2a6fefe49bdb7b3221ea9e6eb	docs/design/skill-design-patterns.md	## 停止・再開と人間の入力
+82c8339872519e6a60d69f108cce761284962c43db36e93b94467b76704d4540	docs/design/skill-design-patterns.md	## 停止・再開と人間の入力
 8c76e94b7c21c1a32949dca04e44eaab1ebcc055695b26e0996fa21823c8ae13	docs/design/skill-design-patterns.md	### 停止
 686704085bf5155f2b238a3b005978383919db379a2dd6cc7ece24af4f92bde2	docs/design/skill-design-patterns.md	## 機械で確かめる
 7dbe922ca52889f3bca1356036220899d95c72acd5c5446563e7f1b88855190a	docs/design/skill-design-patterns.md	## 記録と改善

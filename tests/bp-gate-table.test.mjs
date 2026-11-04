@@ -38,7 +38,13 @@ const UNIT_MAP = {
 const NEXT_MAP = {
   decision: { 合格: 'pass', 不合格: 'fail', 検証が成り立たない: 'unverifiable' },
   increment: { 反復の上限より小さい: 'below', 反復の上限に達した: 'reached' },
-  result: { 完了で止まる: 'complete', 次の反復の書く段へ戻る: 'rewrite', 反復の上限で止まる: 'iterationLimit', 'SP-BPAUTHORING-030': 'blocked' },
+  result: {
+    形式検証の段へ進む: 'complete',
+    完了で止まる: 'complete',
+    次の反復の書く段へ戻る: 'rewrite',
+    反復の上限で止まる: 'iterationLimit',
+    'SP-BPAUTHORING-030': 'blocked',
+  },
 };
 
 function specRows(header, fields, map) {

@@ -13,6 +13,7 @@ export const meta = {
     { title: '消えた資産の照合' },
     { title: '見直し' },
     { title: '合否' },
+    { title: '形式検証' },
   ],
 }
 
@@ -24,18 +25,18 @@ const OPS = {
   stageRepeat: 'stage-repeat', stageFinish: 'stage-finish', discard: 'discard', files: 'files', stop: 'stop',
   summary: 'summary', list: 'list', ledgerCreate: 'ledger-create', ledgerRetake: 'ledger-retake', assignments: 'assignments',
   verdicts: 'verdicts', refutationItems: 'refutation-items', refutation: 'refutation', reviewJudge: 'review-judge',
-  vanishMatch: 'vanish-match', report: 'report', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
-  snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
+  vanishMatch: 'vanish-match', report: 'report', record: 'record', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
+  placement: 'placement', snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
   targets: 'targets', bundle: 'bundle', applicability: 'applicability', stopDraft: 'stop-draft',
 }
 const STAGE = {
   start: 'start', snapshot: 'snapshot', goal: 'goal', write: 'write', ledger: 'ledger', targets: 'targets', bundle: 'bundle',
   assign: 'assign', applicability: 'applicability', verify: 'verify', verifyExtra: 'verify-extra', refute: 'refute',
-  vanish: 'vanish', rejudge: 'rejudge', gate: 'gate', close: 'close',
+  vanish: 'vanish', rejudge: 'rejudge', gate: 'gate', formal: 'formal', close: 'close',
 }
 const STAGE_TITLES = {
   start: '開始', snapshot: '作り直す前の写し', goal: '目標の固定', write: '書く', ledger: '台帳', verify: '検証',
-  'verify-extra': '追加の検証', refute: '反証', vanish: '消えた資産の照合', rejudge: '見直し', gate: '合否',
+  'verify-extra': '追加の検証', refute: '反証', vanish: '消えた資産の照合', rejudge: '見直し', gate: '合否', formal: '形式検証',
 }
 const CODES = {
   conflict: 'E_CONFLICT', unknownId: 'E_UNKNOWN_ID', staleRun: 'E_STALE_RUN', result: 'E_RESULT', input: 'E_INPUT',
@@ -47,14 +48,15 @@ const NEXT_ARGS_KEYS = { function: 'function', state: 'state' }
 const LIMIT_KEYS = { attempts: 'attempts', iterations: 'iterations', untilPass: 'untilPass' }
 const INPUT_KEYS = {
   function: 'function', request: 'request', target: 'target', grounds: 'grounds', nextArgs: 'nextArgs', answer: 'answer',
-  maxLaunches: 'maxLaunches', skillDir: 'skillDir', key: 'key',
+  maxLaunches: 'maxLaunches', skillDir: 'skillDir', key: 'key', host: 'host',
 }
 const RESULT_KEYS = {
   stopKind: 'stopKind', reason: 'reason', nextArgs: 'nextArgs', state: 'state', run: 'run', launches: 'launches',
   writtenFiles: 'writtenFiles', unverifiedRoleLimits: 'unverifiedRoleLimits', skill: 'skill', designNote: 'designNote',
-  verification: 'verification', findings: 'findings', skip: 'skip', residualRisks: 'residualRisks', receivedGrounds: 'receivedGrounds',
+  verification: 'verification', findings: 'findings', residualRisks: 'residualRisks', receivedGrounds: 'receivedGrounds',
   excludedCallsites: 'excludedCallsites', unverified: 'unverified', stoppedStage: 'stoppedStage', targets: 'targets',
   applicability: 'applicability', uncheckedViewpoints: 'uncheckedViewpoints', target: 'target', ledger: 'ledger',
+  performance: 'performance', unsavedRecords: 'unsavedRecords',
 }
 const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance', 'goal', 'contract'], review: ['flow', 'spec'], audit: ['audit'] }
 const GOAL_KEYS = { deliverables: 'deliverables', scope: 'scope', prohibitions: 'prohibitions', numeric: 'numeric', deixis: 'deixis' }
