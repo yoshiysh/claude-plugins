@@ -166,6 +166,10 @@ test('every active Workflow callsite has an explicit semantic portability classi
     ['workflow/review-document/scripts/review-document.js', 'read-only supported'],
     ['research/dispatch/scripts/orchestrate.js', 'host-default supported'],
     ['research/search/scripts/investigate.js', 'portable'],
+    ['develop/address-review/scripts/triage.js', 'read-only supported'],
+    ['develop/implement/scripts/plan.js', 'read-only supported'],
+    ['develop/implement/scripts/implement.js', 'workspace-write required'],
+    ['develop/review/scripts/review.js', 'read-only supported'],
   ])
   const observed = new Set()
 
