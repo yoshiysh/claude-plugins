@@ -9,12 +9,12 @@
 | `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 配置の原則／形の判定／形に関わる原則／形式検証／run の記録／配布先での確認（PR-BPDESIGNEDSKILL-001〜051／51 件） |
 | `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／4 機能に共通する run の記録／回答待ちの返り値／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜052／52 件） |
 | `docs/requirements/cleanup.md` | 要求文書: cleanup-branches | 守るもの／取り込み済みの判定／状態の取得／取り込み済みの削除／判断が要る対象の問い／承認された対象の削除／作業状態／作業場所の同期／後処理／退避した変更の復帰／完了報告（PR-CLEANUP-001〜081、欠番は 031・034・035・038・039・072・079／74 件） |
-| `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方（PR-CONSUMER-001〜031、欠番は 014・016／29 件） |
+| `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方／形式検証とモデルの提供（PR-CONSUMER-001〜037、欠番は 014・016・032・033・034／32 件） |
 | `docs/requirements/develop-address-review.md` | 要求文書: develop:address-review | 入口と目標／分類／止める所／修正と push／required checks の待ち／返信／resolve／停止と再開／完了の条件（PR-DEVELOPADDRESSREVIEW-001〜066／66 件） |
 | `docs/requirements/develop-implement.md` | 要求文書: develop:implement | 入口と目標／計画／実装と check／develop:review の呼び出し／最終照合と永続化／停止と再開／完了の条件（PR-DEVELOPIMPLEMENT-001〜078／78 件） |
 | `docs/requirements/develop-plugin.md` | 要求文書: develop plugin 全体と利用側リポジトリとの契約 | 構成と呼び出し／利用側リポジトリとの契約／権限と残る危険／文脈の配達／停止と再開／取得した内容の記録／つまずきの記録と改善／費用と記録／形の判定／永続化と投稿の順序／移行と旧スキルの廃止（PR-DEVELOPPLUGIN-001〜085、欠番は 016／84 件） |
 | `docs/requirements/develop-review.md` | 要求文書: develop:review | 対象と目標／観点／focus／検証と資産台帳／返り値の契約／起動数の上限と再開／PR への投稿／git の外の対象（PR-DEVELOPREVIEW-001〜077／77 件） |
-| `docs/requirements/requester.md` | 要求文書: 依頼者から見た振る舞い | 判定に迷う場合の共通の扱い／起動と対象の見極め／問いかけと回答／提示と承認／保存と持ち帰り／根拠として読み取る範囲／実行環境と中断（PR-REQUESTER-001〜041、欠番は 002・004・006・016・019・027・028・030／33 件） |
+| `docs/requirements/requester.md` | 要求文書: 依頼者から見た振る舞い | 判定に迷う場合の共通の扱い／起動と対象の見極め／問いかけと回答／提示と承認／保存と持ち帰り／根拠として読み取る範囲／実行環境と中断（PR-REQUESTER-001〜043、欠番は 002・004・006・016・019・027・028・030／35 件） |
 
 ## 要求一覧
 
@@ -226,6 +226,9 @@
 | PR-CONSUMER-029 | 改稿の経緯の不記載 | `docs/requirements/consumer.md` |
 | PR-CONSUMER-030 | 要求文書の分量 | `docs/requirements/consumer.md` |
 | PR-CONSUMER-031 | 仕様書の分量 | `docs/requirements/consumer.md` |
+| PR-CONSUMER-035 | 形式検証モデルの同時提供 | `docs/requirements/consumer.md` |
+| PR-CONSUMER-036 | 各稿での形式モデルの整合性 | `docs/requirements/consumer.md` |
+| PR-CONSUMER-037 | 形式検証反例の改稿への反映 | `docs/requirements/consumer.md` |
 | PR-DEVELOPADDRESSREVIEW-001 | 入口で受ける指摘 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-002 | PR があるときの目標 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-003 | PR が無いときの目標 | `docs/requirements/develop-address-review.md` |
@@ -564,6 +567,8 @@
 | PR-REQUESTER-034 | 上限を超えて実行を継続しない | `docs/requirements/requester.md` |
 | PR-REQUESTER-025 | 未完成の文書を成果物として保存しない | `docs/requirements/requester.md` |
 | PR-REQUESTER-026 | 中断したことを依頼者へ示す | `docs/requirements/requester.md` |
+| PR-REQUESTER-042 | 形式検証における反例・欠陥の提示 | `docs/requirements/requester.md` |
+| PR-REQUESTER-043 | 形式検証未達時の完了禁止 | `docs/requirements/requester.md` |
 
 ## 関連する仕様文書
 
