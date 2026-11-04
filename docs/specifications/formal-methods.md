@@ -8,11 +8,11 @@
 
 本文書は `####` 見出し 1 つを 1 仕様項目とする。本文書は、要求文書の要求を実現する formal-methods の入力・入口の step・step の並び・役・状態と CLI・各検査の手順・成果物の形・停止と返り値を定める。本文書の表は formal-methods の表の正本である。
 
-欠番: SP-FORMALMETHODS-001〜SP-FORMALMETHODS-080
+欠番: SP-FORMALMETHODS-001〜SP-FORMALMETHODS-080・SP-FORMALMETHODS-435・SP-FORMALMETHODS-451
 
 ### 本文書が実現する要求
 
-要求文書の全ての要求（欠番を除く 255 件）を本文書だけで実現し、対応はトレーサビリティ表が持つ。best-practices の要求は、取り込みの表（SP-FORMALMETHODS-136）が挙げる範囲だけを満たす。
+要求文書の全ての要求を本文書だけで実現し、どの仕様項目が実現するかはトレーサビリティ表が持つ。best-practices の要求は、取り込みの表（SP-FORMALMETHODS-136）が挙げる範囲だけを満たす。
 
 ### 本文書が扱わないもの
 
@@ -44,7 +44,6 @@
 | 抜き出し | CLI が入力の集合の markdown から決定的に作る、構造のある部分の一覧（SP-FORMALMETHODS-152） |
 | 要素 ID | 抜き出しの要素ごとに CLI が作る ID |
 | 行範囲 | ファイルのパスと、開始と終了の行と、行の中の開始と終了の文字位置の組 |
-| 組 ID | 組ごとに CLI が作る ID |
 | 単位 ID | 単位ごとに CLI が作る ID。根の単位は `U0` |
 | 継ぎ目 ID | 継ぎ目ごとに CLI が作る ID |
 | 性質 ID | 性質ごとに CLI が作る ID |
@@ -53,7 +52,6 @@
 | 完了した状態 | 停止の行 `done` の停止の記録を持つ状態 |
 | 起動数 | `docs/specifications/bp-run.md` の用語「起動数」と同じ数え方で数えた、formal-methods の 1 run の `agent()` の呼び出しの数 |
 | 予約分 | 起動数の上限の中に、停止の記録を書くために残す起動の数（SP-FORMALMETHODS-271） |
-| 修正の回 | 作る機能で、モデルを書く役がモデルの欠けを直し、モデルの検証役がその直しを確かめる 1 回 |
 | 正規化した JSON | `docs/specifications/bp-run.md` の SP-BPRUN-038 が項目の鍵に当てる JSON の正規化と同じ形にした JSON |
 | 要素数 | モデルの中で個数を変えられる集まり（例：run・項目・単位）ごとの、要素の個数 |
 | 上流の要求文書 | 上流のうち、`PR-` で始まる ID を `####` 見出しに持つ規範文を 1 件以上持つ文書 |
@@ -75,7 +73,8 @@ formal-methods の Workflow は、利用者が単独で起動したときも呼�
 | 文書の層 | `layer` | `requirements`・`specification`・`code` のいずれか | 入力の拒否（SP-FORMALMETHODS-095） |
 | 機能 | `function` | `build`（作る機能）・`audit` のいずれか | 入力の拒否 |
 | 検査対象 | `target` | ファイルのパス 1 つ | 入力の拒否 |
-| 上流 | `upstream` | ファイルのパスの並び | 空の並び |
+| 上流 | `upstream` | `{path, kind}` の並び。`path` はファイルのパス、`kind` は上流の文書の種別で `requirements`（要求）・`specification`（仕様）・`principle`（原則の出所）のいずれか | 空の並び |
+| 作られた物 | `artifacts` | ファイルのパスの並び | 空の並び |
 | モデル | `model` | ディレクトリのパス 1 つ | `audit` では入力の拒否。`build` では読まない |
 | 重い検査の要否 | `heavy` | `required`（要）・`skipped`（不要）のいずれか | SP-FORMALMETHODS-193 で決める |
 | 手法 | `method` | 文字列 1 つ（受け付ける値は SP-FORMALMETHODS-298） | 手法の表で決める |
@@ -106,7 +105,7 @@ CLI は、起動の同一性を、次の表の欄を持つオブジェクトと�
 | `bounds` | `input.bounds`。無ければ `null` |
 | `abstraction` | `input.abstraction` を昇順に並べたもの。無ければ `null` |
 | `outDir` | `input.outDir` の symlink を辿った実体の絶対パス（ディレクトリがまだ無ければ絶対パス）。無ければ `null` |
-| `inputs` | 入力の集合の要素 `{role, path, fingerprint}` を `role`・`path` の昇順に並べたもの。`role` は `target`・`upstream`・`model`・`tbd` のいずれか、`path` は symlink を辿った実体の絶対パス、`fingerprint` は SP-FORMALMETHODS-085 の指紋。`model` の要素は `audit` のときだけ持ち、`build` で渡された `input.model` は入れない。`tbd` の要素は SP-FORMALMETHODS-092 が定める |
+| `inputs` | 入力の集合の要素 `{role, path, fingerprint}` を `role`・`path` の昇順に並べたもの。`role` は `target`・`upstream`・`artifact`・`model`・`tbd` のいずれか、`path` は symlink を辿った実体の絶対パス、`fingerprint` は SP-FORMALMETHODS-085 の指紋。`upstream` の要素は、`input.upstream` の `kind` を欄 `kind` にも持つ。`artifact` の要素は `input.artifacts` の要素ごとに持つ。`model` の要素は `audit` のときだけ持ち、`build` で渡された `input.model` は入れない。`tbd` の要素は SP-FORMALMETHODS-092 が定める |
 
 #### SP-FORMALMETHODS-085 指紋の算法
 CLI は、指紋を次の表の算法で作らなければならない。
@@ -207,26 +206,34 @@ CLI は、完了した状態でない状態のうち、次の表の条件を全�
 #### SP-FORMALMETHODS-095 入力の拒否の確かめ方
 CLI の `entry` は、要求文書の PR-FORMALMETHODS-043 の表の各行を次の表の確かめ方で判定した結果の、当たった行の綴りを全て、応答の `rejected` の並びに入れなければならない。
 
+23 行目の確かめ方のうち性質の種別に拠るもの（SP-FORMALMETHODS-202 の行 28〜33）は、`entry` の時点では性質の種別が決まっていないので `entry` の判定に入らない。それを当てる CLI の command と停止の行は TBD-SFORMALMETHODS-010 の決まっていない事項である。
+
 | PR-FORMALMETHODS-043 の表の行 | 綴り | 確かめ方 |
 |---|---|---|
 | 1 行目 | `layer` | `input.layer` が SP-FORMALMETHODS-081 の 3 つの値のいずれでもない |
-| 2 行目 | `code-layer` | `input.layer` が `code` で、SP-FORMALMETHODS-106 の差し込み口の表に `code` の行が無い |
+| 2 行目 | `code-layer` | `input.layer` が `code` である（Rust のコードかどうかは `input.target` のファイルの拡張子が `.rs` かで見分けるが、TBD-SFORMALMETHODS-009 の裁定が下るまで、Rust のコードかどうかを問わず当てる） |
 | 3 行目 | `target` | `input.target` が無いか、ファイルとして読めない |
-| 4 行目 | `no-norm` | SP-FORMALMETHODS-152 の抜き出しで、検査対象の規範文が 0 件である |
+| 4 行目 | `no-norm` | `input.layer` が `requirements` か `specification` で、SP-FORMALMETHODS-152 の抜き出しで検査対象の規範文が 0 件である |
 | 5 行目 | `function` | `input.function` が `build`・`audit` のいずれでもない |
 | 6 行目 | `model` | `audit` で `input.model` が無いか、ディレクトリとして読めない |
-| 7 行目 | `audit-heavy` | `audit` で `input.heavy` がある |
-| 8 行目 | `upstream` | `input.upstream` の要素のいずれかがファイルとして読めない |
-| 9 行目 | `out-dir` | `input.outDir` があり、そのディレクトリ（無ければ最も近い既にある親のディレクトリ）に書き込みの権限が無い。ファイルもディレクトリも作らずに権限だけを確かめる |
-| 10 行目 | `workspace` | 状態の root と作業場所（無ければ最も近い既にある親のディレクトリ）に書き込みの権限が無い。ファイルもディレクトリも作らずに権限だけを確かめる |
-| 11 行目 | `next-args-missing` | `input.nextArgs.state` の作業場所に `log.jsonl` が無い |
-| 12 行目 | `state-broken` | `log.jsonl` が読めないか、改行で終わる行のいずれかが JSON でないか、SP-FORMALMETHODS-119 の記録の形でない |
-| 13 行目 | `next-args-shape` | `input.nextArgs` が SP-FORMALMETHODS-265 の形でない |
-| 14 行目 | `next-args-identity` | 状態に書いた起動の同一性とこの起動の起動の同一性を正規化した JSON が違う |
-| 15 行目 | `running` | 作業場所に起動のロックがあり、SP-FORMALMETHODS-102 で走っている起動のものと判定される |
-| 16 行目 | `launches` | `input.limits.launches` があり、1 以上の整数でない |
-| 17 行目 | `method` | `input.method` があり、SP-FORMALMETHODS-298 の受け付ける値でない |
-| 18 行目 | `bounds` | `input.bounds` か `input.abstraction` が SP-FORMALMETHODS-144 の受け付ける値の外にある |
+| 7 行目 | `artifact` | `input.artifacts` の要素のいずれかがファイルとして読めない |
+| 8 行目 | `audit-heavy` | `audit` で `input.heavy` がある |
+| 9 行目 | `heavy` | `build` で `input.heavy` があり、`required`・`skipped` のいずれでもない |
+| 10 行目 | `audit-method` | `audit` で `input.method` があり、モデルの `check.json`（SP-FORMALMETHODS-218）の道具と違う |
+| 11 行目 | `upstream` | `input.upstream` の要素のいずれかの `path` がファイルとして読めない |
+| 12 行目 | `upstream-kind` | `input.upstream` の要素のいずれかが `kind` を持たないか、`kind` が `requirements`・`specification`・`principle` のいずれでもない |
+| 13 行目 | `upstream-layer` | `input.upstream` の要素のいずれかの `kind` が `principle` でなく、`input.layer` より上の文書の層でもない（`specification` より上は `requirements`、`code` より上は `requirements` と `specification` で、`requirements` より上の文書の層は無い） |
+| 14 行目 | `tbd` | SP-FORMALMETHODS-092 で入力の集合に入れた `.tbd.json` のうちファイルがあるもののいずれかが、読めないか、JSON でないか、`docs/specifications/authoring.md` の未確定事項の形式でない |
+| 15 行目 | `out-dir` | `input.outDir` があり、そのディレクトリ（無ければ最も近い既にある親のディレクトリ）に書き込みの権限が無い。ファイルもディレクトリも作らずに権限だけを確かめる |
+| 16 行目 | `workspace` | 状態の root と作業場所（無ければ最も近い既にある親のディレクトリ）に書き込みの権限が無い。ファイルもディレクトリも作らずに権限だけを確かめる |
+| 17 行目 | `next-args-missing` | `input.nextArgs.state` の作業場所に `log.jsonl` が無い |
+| 18 行目 | `state-broken` | `log.jsonl` が読めないか、改行で終わる行のいずれかが JSON でないか、SP-FORMALMETHODS-119 の記録の形でない |
+| 19 行目 | `next-args-shape` | `input.nextArgs` が SP-FORMALMETHODS-265 の形でない |
+| 20 行目 | `next-args-identity` | 状態に書いた起動の同一性とこの起動の起動の同一性を正規化した JSON が違う |
+| 21 行目 | `running` | 作業場所に起動のロックがあり、SP-FORMALMETHODS-102 で走っている起動のものと判定される |
+| 22 行目 | `launches` | `input.limits.launches` があり、1 以上の整数でない |
+| 23 行目 | `method` | 次のどれかに当たる：`build` か `audit` で `input.method` があり、`TOOLS`（SP-FORMALMETHODS-204）の道具の名前のいずれでもない（SP-FORMALMETHODS-298）。`input.method` があり、その道具の `TOOLS` の行の版か SHA-256 が決まっていない（SP-FORMALMETHODS-297・SP-FORMALMETHODS-432）。`build` で `input.method` が `tlc` か `alloy` で、性質の種別が `finite`・`contract`・`theorem` の性質がある（性質の種別が決まって SP-FORMALMETHODS-202 を引くときに、道具を動かす前に当てる）。`audit` で、`input.method` の有無に依らず、モデルの `check.json` から読めた道具が `TOOLS` の道具でないか、その道具の `TOOLS` の行の版か SHA-256 が決まっていない（`check.json` が無いか道具を読めないモデルは SP-FORMALMETHODS-449 に従う）。`audit` で `input.method` とモデルの `check.json` の道具が違うことは 10 行目で当て、23 行目にも当たれば両方の綴りを `rejected` に入れる。`build` で `input.method` が無い入力はこの行に当たらず、手法の表が版の決まっていない道具を引いたときは SP-FORMALMETHODS-433 で止まる |
+| 24 行目 | `bounds` | `input.bounds` か `input.abstraction` が SP-FORMALMETHODS-144 の受け付ける値の外にある |
 
 #### SP-FORMALMETHODS-096 拒否で書かないもの
 CLI の `entry` は、入口の判定が `reject` か `too-few-launches` のとき、状態の root の配下にファイルもディレクトリも作ってはならない。
@@ -312,9 +319,9 @@ CLI は、単位を切る材料を作る部分を、文書の層を鍵にした�
 | `specification` | 材料の抽出役の結果から作る関数（SP-FORMALMETHODS-167） | 入力の集合と抜き出しと材料の抽出役の結果 | 同上 |
 
 #### SP-FORMALMETHODS-334 コードの層の行を持たない
-CLI は、`MATERIAL_MAKERS` に `code` の行を持ってはならない。
+TBD-SFORMALMETHODS-009 の裁定が下るまで、CLI は、`MATERIAL_MAKERS` に `code` の行を持ってはならない。
 
-行を足すと SP-FORMALMETHODS-095 の `code-layer` の確かめが当たらなくなり、入口と返り値の形を変えずにコードの層を受け付けることになる。
+コードの層の単位を切る材料と、コードの層で回す step は、どちらも TBD-SFORMALMETHODS-009 の裁定で決まる。
 
 ### step の表
 
@@ -351,15 +358,15 @@ script は、文書の層・機能・上流の要求文書の有無から、次�
 
 | 条件: 文書の層 | 条件: 機能 | 条件: 上流の要求文書 | 結果 |
 |---|---|---|---|
-| code | * | * | 入口で拒否する（SP-FORMALMETHODS-095 の `code-layer`） |
-| requirements | build | * | `extract`・`tuples`・`light`・`units`・`properties`・`select` を回し、SP-FORMALMETHODS-193 で重い検査を行うときに `tools`・`model`・`fidelity`・`check` を回す。`vertical` は回さない（空の縦は SP-FORMALMETHODS-245） |
+| code | * | * | 入口で拒否する（SP-FORMALMETHODS-095 の `code-layer`。TBD-SFORMALMETHODS-009 の裁定が下るまで） |
+| requirements | build | * | `extract`・`tuples`・`light`・`units`・`properties`・`select`・`check` を回し、SP-FORMALMETHODS-193 で重い検査を行うときに `tools`・`model`・`fidelity` を回す。`vertical` は回さない（空の縦は SP-FORMALMETHODS-245） |
 | requirements | audit | * | `extract`・`tuples`・`light`・`units`・`tools`・`fidelity`・`check` を回す。`vertical` は回さない（空の縦は SP-FORMALMETHODS-245） |
-| specification | build | ある | `extract`・`tuples`・`light`・`units`・`vertical`・`properties`・`select` を回し、SP-FORMALMETHODS-193 で重い検査を行うときに `tools`・`model`・`fidelity`・`check` を回す |
-| specification | build | 無い | `extract`・`tuples`・`light`・`units`・`properties`・`select` を回し、SP-FORMALMETHODS-193 で重い検査を行うときに `tools`・`model`・`fidelity`・`check` を回す。`vertical` は回さない（空の縦は SP-FORMALMETHODS-245） |
+| specification | build | ある | `extract`・`tuples`・`light`・`units`・`vertical`・`properties`・`select`・`check` を回し、SP-FORMALMETHODS-193 で重い検査を行うときに `tools`・`model`・`fidelity` を回す |
+| specification | build | 無い | `extract`・`tuples`・`light`・`units`・`properties`・`select`・`check` を回し、SP-FORMALMETHODS-193 で重い検査を行うときに `tools`・`model`・`fidelity` を回す。`vertical` は回さない（空の縦は SP-FORMALMETHODS-245） |
 | specification | audit | ある | `extract`・`tuples`・`light`・`units`・`vertical`・`tools`・`fidelity`・`check` を回す |
 | specification | audit | 無い | `extract`・`tuples`・`light`・`units`・`tools`・`fidelity`・`check` を回す。`vertical` は回さない（空の縦は SP-FORMALMETHODS-245） |
 
-上流の要求文書の意味は用語定義にあり、重い検査の回し方は SP-FORMALMETHODS-199・SP-FORMALMETHODS-287 が定める。
+上流の要求文書の意味は用語定義にあり、重い検査の回し方は SP-FORMALMETHODS-199・SP-FORMALMETHODS-287 が定める。作る機能で重い検査を行わないときの `check` の項目は SP-FORMALMETHODS-443 が定める。
 
 #### SP-FORMALMETHODS-307 最後に回す step
 script は、SP-FORMALMETHODS-108 の表が回すとした step を全て終えたとき、または SP-FORMALMETHODS-109・SP-FORMALMETHODS-110・SP-FORMALMETHODS-252 で止めると決めたとき、最後に次の表の step を回さなければならない。
@@ -658,7 +665,7 @@ run の途中で人が入れる入力を、formal-methods は、CLI の `hint-ad
 | 抽象化 | `abstraction` | `["data-presence", "failure-class"]` | `data-presence`（データの中身を有無に丸める）と `failure-class`（失敗理由を区分に丸める）の重複の無い部分集合（空の並びを含む） |
 | `bounds` の一部だけが入力にあるとき | — | 入力に無い欄だけに既定値を使う | — |
 
-`DEFAULT_BOUND` と `STATE_BOUND` の値は定数の表にある。上限 + 1 は、上限を超えたときの振る舞いを確かめるための値である。`STATE_BOUND` は実測から決めた値である。`tests/formal/bp-prd` のモデルを TLC v1.7.4（4 worker、Java 11）で検査すると、`MaxRuns = 2` で 32,808 状態を 5.0 秒、`MaxRuns = 3` で 234,350 状態を 28.6 秒で探索した（約 8,200 状態毎秒）。`STATE_BOUND` の状態数はこの速さで約 2 分に当たり、半分の速さでも検査器の 1 回の時間の上限 `TOOL_RUN_TIMEOUT_MS`（SP-FORMALMETHODS-339）に収まる。
+`DEFAULT_BOUND` と `STATE_BOUND` の値は定数の表にある。上限 + 1 は、上限を超えたときの振る舞いを確かめるための値である。`STATE_BOUND` は実測から決めた値である。`tests/formal/bp-prd` のモデルを TLC v1.7.4（4 worker、Java 11）で検査すると、`MaxRuns = 2` で 32,808 状態を 5.0 秒、`MaxRuns = 3` で 234,350 状態を 28.6 秒で探索した（約 8,200 状態毎秒）。`STATE_BOUND` の状態数はこの速さで約 2 分に当たり、検査器の 1 回の時間の上限 `TOOL_RUN_TIMEOUT_MS`（SP-FORMALMETHODS-339）に収まる。
 
 #### SP-FORMALMETHODS-145 入力の指定を優先する
 CLI は、手法・有限範囲・抽象化が入力で指定されたとき、その値を、既定値の表とヒントの `defaults` より優先して使わなければならない。
@@ -1131,28 +1138,79 @@ CLI は、性質の種別を、次の表の値のいずれかに限って受理�
 | `contract` | プログラムの入出力と更新の事前条件・事後条件・不変条件 |
 | `theorem` | 定義や公理から導く一般の性質 |
 
+#### SP-FORMALMETHODS-428 性質の種別は性質ごとに 1 つ
+性質の役は、2 つ以上の性質の種別に当たる規範文を、種別ごとの性質に分け、分けた性質ごとに性質の種別を 1 つだけ付けて返さなければならない。
+
+分けた性質は、それぞれ SP-FORMALMETHODS-202 の表の 1 行を引く。
+
+#### SP-FORMALMETHODS-429 表の外の種別を拒否する
+CLI は、SP-FORMALMETHODS-201 の表の値のどれでもない性質の種別を持つ性質を含む性質の役の結果を、`E_RESULT` で拒否しなければならない。
+
+拒否した結果は SP-FORMALMETHODS-248 の試行の失敗になり、試行の上限に達すると SP-FORMALMETHODS-414 で止まる。
+
 #### SP-FORMALMETHODS-202 手法の表
-CLI は、性質ごとの手法と道具を、性質の種別と `input.method` から引いた次の表の 1 行で決めなければならない。
+CLI は、作る機能の性質ごとの手法と道具を、性質の種別・文書の層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具から引いた次の表の 1 行で決めなければならない。
 
 > 条件の値: 性質の種別 = transition / relation / finite / contract / theorem
-> 条件の値: 手法の指定 = 無い / tlc / alloy
+> 条件の値: 層の区分 = 文書 / コード
+> 条件の値: 手法の指定 = 無い / tlc / alloy / その他の道具
+> 条件の値: 指定の道具で書けるか = 書ける / 書けない
+> 条件の値: コードで書ける道具 = verus / kani / 無い
 
-| 行 | 条件: 性質の種別 | 条件: 手法の指定 | 結果 |
-|---|---|---|---|
-| 1 | transition | 無い | 状態遷移のモデル検査。道具は `tlc` |
-| 2 | transition | tlc | 状態遷移のモデル検査。道具は `tlc` |
-| 3 | transition | alloy | 状態遷移のモデル検査。道具は `alloy` |
-| 4 | relation | 無い | 関係の制約の有限範囲の検査。道具は `tlc` |
-| 5 | relation | tlc | 関係の制約の有限範囲の検査。道具は `tlc` |
-| 6 | relation | alloy | 関係の制約の有限範囲の検査。道具は `alloy` |
-| 7 | finite | * | 全数列挙。道具は CLI |
-| 8 | contract | * | 見送り（検査せず、範囲と限界の記録の見送りに書く） |
-| 9 | theorem | * | 見送り（検査せず、範囲と限界の記録の見送りに書く） |
+| 行 | 条件: 性質の種別 | 条件: 層の区分 | 条件: 手法の指定 | 条件: 指定の道具で書けるか | 条件: コードで書ける道具 | 結果 |
+|---|---|---|---|---|---|---|
+| 1 | transition | 文書 | 無い | * | * | 状態遷移のモデル検査。道具は `tlc` |
+| 2 | transition | 文書 | tlc | * | * | 状態遷移のモデル検査。道具は `tlc` |
+| 3 | transition | 文書 | alloy | * | * | 状態遷移のモデル検査。道具は `alloy` |
+| 4 | relation | 文書 | 無い | * | * | 関係の制約の有限範囲の検査。道具は `tlc` |
+| 5 | relation | 文書 | tlc | * | * | 関係の制約の有限範囲の検査。道具は `tlc` |
+| 6 | relation | 文書 | alloy | * | * | 関係の制約の有限範囲の検査。道具は `alloy` |
+| 7 | finite | 文書 | 無い | * | * | 全数列挙。性質の役が書いた照合の script を CLI が動かし（SP-FORMALMETHODS-430・SP-FORMALMETHODS-440）、道具を使わない |
+| 8 | contract | 文書 | 無い | * | * | プログラムの契約の証明。道具は `dafny`（文書から書いた Dafny のモデル） |
+| 9 | theorem | * | 無い | * | * | 定理の証明。道具は `lean` |
+| 10 | transition | コード | 無い | * | verus | コードの検査。道具は `verus` |
+| 11 | transition | コード | 無い | * | kani | コードの検査。道具は `kani` |
+| 12 | transition | コード | 無い | * | 無い | 層の区分を `文書` としてこの表を引き直した行 |
+| 13 | relation | コード | 無い | * | verus | コードの検査。道具は `verus` |
+| 14 | relation | コード | 無い | * | kani | コードの検査。道具は `kani` |
+| 15 | relation | コード | 無い | * | 無い | 層の区分を `文書` としてこの表を引き直した行 |
+| 16 | finite | コード | 無い | * | verus | コードの検査。道具は `verus` |
+| 17 | finite | コード | 無い | * | kani | コードの検査。道具は `kani` |
+| 18 | finite | コード | 無い | * | 無い | 層の区分を `文書` としてこの表を引き直した行 |
+| 19 | contract | コード | 無い | * | verus | コードの検査。道具は `verus` |
+| 20 | contract | コード | 無い | * | kani | コードの検査。道具は `kani` |
+| 21 | contract | コード | 無い | * | 無い | 層の区分を `文書` としてこの表を引き直した行 |
+| 22 | * | * | その他の道具 | 書ける | * | 指定の道具の検査。道具は `input.method` の道具 |
+| 23 | * | * | その他の道具 | 書けない | * | 手法の指定を `無い` としてこの表を引き直した行 |
+| 24 | transition | コード | tlc | * | * | 層の区分を `文書` としてこの表を引き直した行。`verus`・`kani` を試さない |
+| 25 | transition | コード | alloy | * | * | 層の区分を `文書` としてこの表を引き直した行。`verus`・`kani` を試さない |
+| 26 | relation | コード | tlc | * | * | 層の区分を `文書` としてこの表を引き直した行。`verus`・`kani` を試さない |
+| 27 | relation | コード | alloy | * | * | 層の区分を `文書` としてこの表を引き直した行。`verus`・`kani` を試さない |
+| 28 | finite | * | tlc | * | * | 道具を引かない。入力を SP-FORMALMETHODS-095 の 23 行目 `method` で拒否する |
+| 29 | contract | * | tlc | * | * | 道具を引かない。入力を SP-FORMALMETHODS-095 の 23 行目 `method` で拒否する |
+| 30 | theorem | * | tlc | * | * | 道具を引かない。入力を SP-FORMALMETHODS-095 の 23 行目 `method` で拒否する |
+| 31 | finite | * | alloy | * | * | 道具を引かない。入力を SP-FORMALMETHODS-095 の 23 行目 `method` で拒否する |
+| 32 | contract | * | alloy | * | * | 道具を引かない。入力を SP-FORMALMETHODS-095 の 23 行目 `method` で拒否する |
+| 33 | theorem | * | alloy | * | * | 道具を引かない。入力を SP-FORMALMETHODS-095 の 23 行目 `method` で拒否する |
+
+層の区分は、`input.layer` が `requirements` か `specification` のとき `文書`、`code` のとき `コード` である。手法の指定の `その他の道具` は、`input.method` が `tlc`・`alloy` 以外の `TOOLS` の道具の名前のときである。指定の道具で書けるかは、性質の役が SP-FORMALMETHODS-459 の欄 `method_fit` に付ける値で、手法の指定が `その他の道具` のときだけ見る。コードで書ける道具は、性質の役が SP-FORMALMETHODS-444 の欄 `code_tool` に付ける値で、層の区分が `コード` のときだけ見る。行 23 から層の区分が `コード` の行を引き直した性質は、行 10〜21 のとおり `verus` 先・`kani` 次で道具を決める。行 28〜33 を引いた性質があるときに、どの CLI の command がどの停止の行で止めるかは TBD-SFORMALMETHODS-010 の決まっていない事項である。
+
+#### SP-FORMALMETHODS-431 audit の道具
+CLI は、`check.json` から道具を読めるモデルの audit の性質の道具を、手法の表を引かずに、モデルの `check.json` の道具としなければならない。
+
+#### SP-FORMALMETHODS-449 道具を読めない audit のモデルを入口で拒否しない
+`audit` で `input.model` に `check.json` が無いか `check.json` から道具を読めないモデルを入口でどう扱うか（SP-FORMALMETHODS-095 の 23 行目 `method` に当てるか）と、そのモデルの `tools` の step が使う道具をどう決めるかの裁定が下るまで、CLI は、そのモデルを `check.json` が無いことか道具を読めないことを理由に SP-FORMALMETHODS-095 の 23 行目 `method` で拒否してはならない。
+
+#### SP-FORMALMETHODS-450 道具を読めない audit のモデルの道具を推さない
+SP-FORMALMETHODS-449 の裁定が下るまで、CLI は、そのモデルの道具を `check.json` の外（`input.method`・モデルのファイルの拡張子・手法の表）から決めて `tool-fetch` か `tool-run` を動かしてはならない。
 
 #### SP-FORMALMETHODS-298 手法の指定の受け付ける値
-CLI の `entry` は、`input.method` の値が `tlc`・`alloy` のいずれでもないとき、SP-FORMALMETHODS-095 の `method` で拒否しなければならない。
+CLI の `entry` は、`input.method` の値が `TOOLS`（SP-FORMALMETHODS-204）の道具の名前のいずれでもないとき、作る機能でも audit でも、SP-FORMALMETHODS-095 の `method` で拒否しなければならない。
 
-`contract`・`theorem` は手法の表で見送りに当たり、それ以外の値は道具の集合で扱えない。
+作る機能の `tlc`・`alloy` の指定は `transition`・`relation` の性質に当たり、`finite`・`contract`・`theorem` の性質がある入力は SP-FORMALMETHODS-095 の 23 行目 `method` で拒否される（SP-FORMALMETHODS-202 の行 28〜33）。`kani`・`dafny`・`verus`・`lean` の指定は、性質の役が指定の道具で書けると判断した性質に当たり、書けないと判断した性質は手法の指定が無いときと同じ行を引く（SP-FORMALMETHODS-202 の行 22・23、要求文書の PR-FORMALMETHODS-285）。
+
+#### SP-FORMALMETHODS-432 版の決まっていない道具の指定の拒否
+道具ごとの版の裁定（`dafny` は TBD-SFORMALMETHODS-003、`kani` は TBD-SFORMALMETHODS-004、`verus` は TBD-SFORMALMETHODS-005、`lean` は TBD-SFORMALMETHODS-006）が下るまで、CLI の `entry` は、`input.method` がその道具の入力を、道具の集合で扱えない指定として SP-FORMALMETHODS-095 の `method` で拒否しなければならない。
 
 #### SP-FORMALMETHODS-297 Alloy の版が決まるまでの拒否
 TBD-SFORMALMETHODS-002 の裁定が下るまで、CLI の `entry` は、`input.method` が `alloy` の入力を、道具の集合で扱えない指定として SP-FORMALMETHODS-095 の `method` で拒否しなければならない。
@@ -1163,12 +1221,16 @@ CLI は、性質ごとに、引いた手法の表の行の番号と、引くの�
 #### SP-FORMALMETHODS-204 道具の固定した版の集合
 CLI は、道具の固定した版の閉じた集合を、CLI の定数 `TOOLS` に次の表の行だけで持たなければならない。
 
-| 道具 | 取得するもの | 版 | 取得元 | SHA-256 |
-|---|---|---|---|---|
-| `tlc` | `tla2tools.jar` | v1.7.4 | `https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar` | `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88` |
-| `alloy` | Alloy の jar | TBD-SFORMALMETHODS-002 | TBD-SFORMALMETHODS-002 | TBD-SFORMALMETHODS-002 |
+| 道具 | 検査の仕方 | 取得するもの | 版 | 取得元 | SHA-256 |
+|---|---|---|---|---|---|
+| `tlc` | 探索 | `tla2tools.jar` | v1.7.4 | `https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar` | `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88` |
+| `alloy` | 探索 | Alloy の jar | TBD-SFORMALMETHODS-002 | TBD-SFORMALMETHODS-002 | TBD-SFORMALMETHODS-002 |
+| `kani` | 探索 | TBD-SFORMALMETHODS-004 | TBD-SFORMALMETHODS-004 | TBD-SFORMALMETHODS-004 | TBD-SFORMALMETHODS-004 |
+| `dafny` | 証明 | TBD-SFORMALMETHODS-003 | TBD-SFORMALMETHODS-003 | TBD-SFORMALMETHODS-003 | TBD-SFORMALMETHODS-003 |
+| `verus` | 証明 | TBD-SFORMALMETHODS-005 | TBD-SFORMALMETHODS-005 | TBD-SFORMALMETHODS-005 | TBD-SFORMALMETHODS-005 |
+| `lean` | 証明 | TBD-SFORMALMETHODS-006 | TBD-SFORMALMETHODS-006 | TBD-SFORMALMETHODS-006 | TBD-SFORMALMETHODS-006 |
 
-CLI の全数列挙は CLI の中の処理であり、取得する道具ではない。`tlc` を動かす Java の実行環境は、要求文書の前提により run の起動の前に用意されているので、取得する道具に含めない（版の確かめは SP-FORMALMETHODS-301）。`alloy` を動かす Java の実行環境は要求文書の前提の外であり、その扱いは、Alloy の版と同じく TBD-SFORMALMETHODS-002 の裁定が下るまで決まっていない。
+検査の仕方の `探索` は有限範囲を切って状態か入力を探す道具、`証明` は有限範囲を切らずに証明で確かめる道具である。`finite` の性質の照合の script（SP-FORMALMETHODS-202 の行 7）は CLI が動かすものであり、取得する道具ではない。`tlc` を動かす Java の実行環境は、要求文書の前提により run の起動の前に用意されているので、取得する道具に含めない（版の確かめは SP-FORMALMETHODS-301）。`alloy` を動かす Java の実行環境も、要求文書の前提により run の起動の前に用意されているので、取得する道具に含めない。無いか版が足りないときの止まり方は要求文書の PR-FORMALMETHODS-332 と SP-FORMALMETHODS-434 の 2 段落目に従い、`alloy` に求める Java の版の下限は TBD-SFORMALMETHODS-002 の裁定が下るまで決まっていない。`kani`・`dafny`・`verus`・`lean` を動かす実行環境とその版の下限は、TBD-SFORMALMETHODS-008 の裁定が下るまで決まっていない。
 
 #### SP-FORMALMETHODS-301 TLC を動かす Java の版を確かめる
 CLI の `tool-fetch` は、`tlc` の要求で `java -version` の主版が `JAVA_MIN_MAJOR`（定数の表）未満か `java` を動かせないとき、`tlc` を返さずに、試行の失敗として数えない停止の行 `blocked-failure` の応答を返さなければならない。
@@ -1176,7 +1238,17 @@ CLI の `tool-fetch` は、`tlc` の要求で `java -version` の主版が `JAVA
 `JAVA_MIN_MAJOR` の 11 は、`tests/formal/bp-prd/README.md` が TLC v1.7.4 に求める版（Java 11 以降）であり、`.github/workflows/verification.yml` もこの版で TLC を動かす。環境の版は run の中で直せないので、試行の失敗として数えて試し直しても結果は変わらない。
 
 #### SP-FORMALMETHODS-288 版の決まっていない道具
-TBD-SFORMALMETHODS-002 の裁定が下るまで、CLI は、`TOOLS` の版と SHA-256 が決まっていない行の道具を、取得も使用もしてはならない。
+TBD-SFORMALMETHODS-002〜TBD-SFORMALMETHODS-006 のうちその道具の行の裁定が下るまで、CLI は、`TOOLS` の版と SHA-256 が決まっていない行の道具を、取得も使用もしてはならない。
+
+#### SP-FORMALMETHODS-433 版の決まっていない道具を引いたとき
+CLI の `tool-fetch` は、`TOOLS` の版と SHA-256 が決まっていない行の道具の要求に、取得をせずに、試行の失敗として数えない停止の行 `blocked-failure` の応答を返さなければならない。
+
+版の決まっていない道具は run の中で版を決められないので、試行の失敗として数えて試し直しても結果は変わらない。
+
+#### SP-FORMALMETHODS-434 道具の実行環境を確かめる
+TBD-SFORMALMETHODS-008 の裁定が下るまで、CLI の `tool-fetch` は、`kani`・`dafny`・`verus`・`lean` の要求に、その道具を返してはならない。
+
+実行環境が無いか版が足りないときの止まり方は、`tlc` の Java と同じく試行の失敗として数えない停止の行 `blocked-failure` とする（SP-FORMALMETHODS-301）。確かめる実行環境と版の下限は TBD-SFORMALMETHODS-008 の裁定で決まる。
 
 #### SP-FORMALMETHODS-205 道具を取得する
 CLI の `tool-fetch` は、状態の root の `tools/<道具>-<版>/` に道具が無いとき、`TOOLS` の取得元から取得しなければならない。
@@ -1208,14 +1280,17 @@ CLI の `judge` は、`model` の step で単位ごとにモデルを書く役�
 CLI は、作る機能のモデルが使った抽象化の値ごとに、丸めたもの・丸め方・丸めたことでモデルに現れなくなるものを、範囲と限界の記録の丸めに書かなければならない。
 
 #### SP-FORMALMETHODS-210 有限範囲の記録
-作る機能のモデルを書く役は、作業場所の `models/<単位 ID>/` の `bounds.json` に、次の表の欄を書かなければならない。
+作る機能のモデルを書く役は、`TOOLS` の検査の仕方が `探索` の道具のモデルで、作業場所の `models/<単位 ID>/` の `bounds.json` に、次の表の欄を書かなければならない。
 
 | 欄 | 中身 |
 |---|---|
-| 値 | 集まりごとの要素数、反復回数、状態数の上限 |
+| 値 | 集まりごとの要素数、反復回数、状態数の上限。道具が `kani` のときは、反復回数の上限を `check.json` の検査器の引数の unwind の上限とし、unwind の別の値を持たない |
 | 根拠 | 値ごとに、既定値の表・入力・ヒントのどれから決めたか。既定値の表で上限 + 1 を使ったときは、使った SP-FORMALMETHODS-348 の選択の項目の ID |
 | 結んだ行 | 値ごとに、SP-FORMALMETHODS-348 で選ばれた上限の行の行範囲（あれば） |
 | 狭めた理由 | 既定値か入力の値より小さい値にしたときの理由 |
+
+#### SP-FORMALMETHODS-436 証明の道具に有限範囲の記録を当てない
+CLI は、`TOOLS` の検査の仕方が `証明` の道具のモデルに、SP-FORMALMETHODS-317・SP-FORMALMETHODS-302・SP-FORMALMETHODS-303・SP-FORMALMETHODS-398 を当ててはならない。
 
 #### SP-FORMALMETHODS-317 届かない境界値の記録
 CLI は、`bounds.json` の値が結んだ行の数に届かないものを、届かない旨として範囲と限界の記録の `premises` に書かなければならない。
@@ -1224,7 +1299,9 @@ CLI は、`bounds.json` の値が結んだ行の数に届かないものを、�
 CLI は、`bounds.json` の値が既定値か入力の値より小さいものを、狭めた値と理由とともに範囲と限界の記録の `premises` に書かなければならない。
 
 #### SP-FORMALMETHODS-303 状態数の上限で探索を打ち切る
-CLI の `tool-run` は、検査器の出力する重複を除いた到達状態の数（`tlc` では進み具合の行 `distinct states found` の数）が `bounds.json` の状態数の上限に達したとき、検査器を止めなければならない。
+道具が `tlc` のとき、CLI の `tool-run` は、検査器の進み具合の行 `distinct states found` の重複を除いた到達状態の数が `bounds.json` の状態数の上限に達したとき、検査器を止めなければならない。
+
+`alloy` の検査器の出力から到達状態の数を読む方法は TBD-SFORMALMETHODS-002 の、`kani` の読み方は TBD-SFORMALMETHODS-007 の裁定が下るまで決まっておらず、それまでこの項目はそれらの道具に当たらない。それらの道具の検査は SP-FORMALMETHODS-339 の時間の上限で止まる。
 
 #### SP-FORMALMETHODS-387 打ち切った探索の記録
 CLI は、SP-FORMALMETHODS-303 か SP-FORMALMETHODS-339 で止めた検査の性質の結果を、「探索を打ち切った」と打ち切った上限（状態数か時間）として範囲と限界の記録の `results` に書かなければならない。
@@ -1308,7 +1385,10 @@ CLI は、検査対象に状態遷移図が無いとき、照合する図が無�
 CLI は、作る機能の範囲と限界の記録に、「イベント・遷移の列挙そのものの欠落は、モデルの中を見ても機械では見つからない」という注記を書かなければならない。
 
 #### SP-FORMALMETHODS-218 再実行できる形
-作る機能のモデルを書く役は、作業場所の `models/<単位 ID>/` の `check.json` に、検査器のコマンドの引数の並び・設定のファイルのパス・`assumptions.json` のパス・道具と版を書かなければならない。
+作る機能のモデルを書く役は、作業場所の `models/<単位 ID>/` の `check.json` に、検査器のコマンドの引数の並び・設定のファイルのパス・`assumptions.json` のパス・道具と版・道具が `tlc` のときの型の制約（欄 `type_constraint`。モデルの状態の述語の定義の名前 1 つ）を書かなければならない。
+
+#### SP-FORMALMETHODS-452 モデルの説明の検査の節
+作る機能のモデルを書く役は、`models/<単位 ID>/README.md` の見出しの行 `## 検査` の節に、`check.json` の設定の性質の名前を、その性質が確かめることの説明とともに、`- ` で始まる 1 行ずつに、行の最初のバッククォートで囲んで挙げなければならない。
 
 #### SP-FORMALMETHODS-321 check.json だけから動かす
 CLI の `tool-run` は、`check.json` の中身だけから検査器を動かさなければならない。
@@ -1333,22 +1413,111 @@ CLI の `tool-run` は、`check.json` の中身だけから検査器を動かさ
 #### SP-FORMALMETHODS-222 検査の性質の集合を作る
 CLI の `judge` は、モデルの検査の設定から、性質の集合（道具が `tlc` なら `.cfg` の `INVARIANT`・`INVARIANTS`・`PROPERTY`・`PROPERTIES` の名前、`alloy` なら `check` の名前）を作らなければならない。
 
+`kani`・`dafny`・`verus`・`lean` の性質の集合の作り方は、TBD-SFORMALMETHODS-007 の裁定が下るまで決まっていない。
+
+#### SP-FORMALMETHODS-437 mutations.json の形
+作る機能のモデルを書く役は、`mutations.json` を、欄 `id`（変異の識別子）と欄 `properties`（その変異で落ちるべき性質の名前の 1 つ以上の並び）を持つ変異の配列として書かなければならない。
+
 #### SP-FORMALMETHODS-391 変異と witness の無い性質を欠けにする
-CLI の `judge` は、性質の集合のうち、モデルのディレクトリの `mutations.json` に意味の違う変異が 1 つも無いか、`witness.json` に前件の状態への到達例が無い性質を、`vacuous` の欠けとして書かなければならない。
+CLI の `judge` は、`TOOLS` の検査の仕方が `探索` の道具の性質の集合のうち、意味の違う変異が 1 つも無いか、`witness.json` に前件の状態への到達例が無い性質を、`vacuous` の欠けとして書かなければならない。
+
+性質に意味の違う変異があるとは、`mutations.json` のうちその性質の名前を `properties` に持つ変異で、SP-FORMALMETHODS-446 で `tool-run` を動かして SP-FORMALMETHODS-223 の数え方で反例が出たものが 1 つ以上あることである。
+
+#### SP-FORMALMETHODS-445 変異の置き場
+作る機能のモデルを書く役は、`mutations.json` の変異ごとに、変異が変えたモデルを、`models/<単位 ID>/mutants/<変異の id>.patch` に、`models/<単位 ID>/` を基準にした unified diff の形で書かなければならない。
+
+`mutations.json` の変異の欄は SP-FORMALMETHODS-437 の `id` と `properties` だけとし、patch の置き場は `id` から決まる。audit では、変異は `input.model` の `mutants/<変異の id>.patch` に置かれている。
+
+#### SP-FORMALMETHODS-446 変異を当てた写しで検査する
+CLI の `judge` は、変異と、その変異の `properties` の性質の組ごとに、モデルの置き場（作る機能は `models/<単位 ID>/`、audit は `input.model`）を作業場所に写し、その写しに `patch -p0 -F 0` でその変異の `mutants/<変異の id>.patch` を当て、写しの `check.json` の設定をその性質の名前だけを残して CLI が作った設定に替えた写しの `check.json` で、`tool-run` を動かさなければならない。
+
+#### SP-FORMALMETHODS-447 当てられない変異
+CLI は、`mutants/<変異の id>.patch` が無いか `patch -p0 -F 0` で当てられない変異を、検出力を確かめられないものとして試行の失敗に数えなければならない。
+
+試行の上限に達したときの止まり方は SP-FORMALMETHODS-248 が定める。
 
 #### SP-FORMALMETHODS-223 反例の有無の数え方
 CLI は、役の申告を使わずに、性質ごとの反例の有無を、`tool-run` が保存した検査器の終了コードと出力の違反の行（`tlc` では違反した性質の名前を含む行、`alloy` では反例の見つかった `check` の行）から数えなければならない。
 
+`kani`・`dafny`・`verus`・`lean` の違反の行と証明の未完了の印は、TBD-SFORMALMETHODS-007 の裁定が下るまで決まっていない。
+
+#### SP-FORMALMETHODS-438 証明の未完了の印を合格にしない
+CLI は、`TOOLS` の検査の仕方が `証明` の道具の性質を、検査器の出力に証明の未完了の印があるとき、終了コードと違反の行に依らず合格としてはならない。
+
+#### SP-FORMALMETHODS-439 違反の行の決まっていない道具を合格にしない
+TBD-SFORMALMETHODS-007 の裁定が下るまで、CLI は、`kani`・`dafny`・`verus`・`lean` の性質を合格としてはならない。
+
 #### SP-FORMALMETHODS-224 空振り
-CLI の `judge` は、`check` の step で次の表の条件に当たる性質・変異・説明を、`vacuous` の欠けとして書かなければならない。
+CLI の `judge` は、`check` の step で、`TOOLS` の検査の仕方が `探索` の道具の性質について、次の表の条件に当たる性質・変異・説明を、`vacuous` の欠けとして書かなければならない。
 
 | 空振り | CLI の判定 |
 |---|---|
-| どの変異でも破れない性質 | `mutations.json` の全ての変異で `tool-run` を動かしても、その性質の反例が 1 つも出ない |
 | 恒真の性質 | 初期の状態と遷移を型の制約だけに替えた設定で `tool-run` を動かしても、その性質の反例が出ない |
 | 前件が常に真の性質 | `witness.json` の前件の否定を到達できるかの検査で、到達例が出ない |
-| どの検査にも使われていない変異 | `mutations.json` の変異のうち、`check.json` のどの検査の設定にも現れない |
+| どの検査にも使われていない変異 | `mutations.json` の変異のうち、`properties` のどの名前も、`check.json` の設定のファイルから SP-FORMALMETHODS-222 の手順で作る性質の集合に無い |
 | 説明と実際の検査の食い違い | モデルの置き場の `README.md` が名指す検査の名前の集合と、検査の設定の性質の名前の集合が違う |
+
+意味の違う変異が無い性質と前件への到達例が無い性質は、SP-FORMALMETHODS-391 が `vacuous` の欠けにする。`tlc` の性質の恒真の性質の行は SP-FORMALMETHODS-453・SP-FORMALMETHODS-461、前件が常に真の性質の行は SP-FORMALMETHODS-454、説明と実際の検査の食い違いの行の検査の名前の集合は SP-FORMALMETHODS-457 で確かめる。`alloy` の性質に恒真の性質の行と前件が常に真の性質の行を当てる設定の作り方は TBD-SFORMALMETHODS-002 の、`kani` の性質のものは TBD-SFORMALMETHODS-007 の裁定が下るまで決まっておらず、それまで `kani` の性質は SP-FORMALMETHODS-439 で合格にならない。
+
+#### SP-FORMALMETHODS-453 恒真の性質の行の設定
+CLI の `judge` は、`tlc` の性質の恒真の性質の行を、性質ごとに、次の表のとおり作った写しで `tool-run` を動かして判定しなければならない。
+
+| 写しに置くもの | 中身 |
+|---|---|
+| モデルの置き場 | 作業場所に写したモデルの置き場 |
+| 型の遷移のモジュール | 主のモジュールと同じディレクトリのファイル `FMTypeCheck.tla`。主のモジュールを `EXTENDS` し、`FMTypeNext == <型の制約の名前>'` だけを定義したモジュール `FMTypeCheck` |
+| `check.json` の引数の並び | 主のモジュールの要素を `FMTypeCheck.tla` に替えたもの |
+| `check.json` の設定 | 元の設定の文から `SPECIFICATION`・`INIT`・`NEXT`・`INVARIANT`・`INVARIANTS`・`PROPERTY`・`PROPERTIES` の文を除き、それ以外の文（`CONSTANT`・`CONSTANTS`・`CONSTRAINT`・`CONSTRAINTS`・`ACTION_CONSTRAINT`・`SYMMETRY`・`VIEW` を含む）を元のまま残し、`INIT <型の制約の名前>`・`NEXT FMTypeNext` と、その性質の名前 1 つだけの `INVARIANT` か `PROPERTY`（元の設定で挙がっていた方）を足したもの |
+
+主のモジュールは、写しの `check.json` の引数の並びのうち、モデルの置き場の `.tla` のファイルを名指す要素（拡張子の有無を問わない）である。`PROPERTY` の性質も、公平性の無いこの `INIT`・`NEXT` で検査する。型の制約の名前は、`check.json` の欄 `type_constraint`（SP-FORMALMETHODS-218）の値である。
+
+#### SP-FORMALMETHODS-454 前件が常に真の性質の行の設定
+CLI の `judge` は、`tlc` の性質の前件が常に真の性質の行を、性質ごとに、主のモジュール（SP-FORMALMETHODS-453）と引数の並びの主のモジュールの要素を替えず、元の設定の文から `INVARIANT`・`INVARIANTS`・`PROPERTY`・`PROPERTIES` の文だけを除き、`SPECIFICATION` か `INIT`・`NEXT` と定数を含むそれ以外の文を元のまま残し、`witness.json` がその性質の前件として名指す定義の名前 1 つだけの `INVARIANT` を足した設定に替えた写しで `tool-run` を動かし、SP-FORMALMETHODS-223 の数え方で反例が出たことを前件の否定に到達したこととしなければならない。
+
+#### SP-FORMALMETHODS-460 替えた設定の置き方
+CLI の `judge` は、SP-FORMALMETHODS-453・SP-FORMALMETHODS-454 の替えた設定を写しの `check.json` の設定のファイルのパスに書き、写しの引数の並びに `-config` があればその値をそのパスに替え、無ければ主のモジュールの要素の直前に `-config <そのパス>` を足さなければならない。
+
+#### SP-FORMALMETHODS-461 型の制約の性質に恒真の性質の行を当てない
+CLI の `judge` は、`check.json` の欄 `type_constraint` の値と同じ名前の性質に、SP-FORMALMETHODS-224 の恒真の性質の行を当ててはならず、その行の `vacuous` の欠けを書いてはならない。
+
+同じ名前かは名前の文字列だけで決め、型の制約を推さない（SP-FORMALMETHODS-455）。前件が常に真の性質の行と変異の行は、その性質にも当てる。
+
+#### SP-FORMALMETHODS-455 型の制約を推さない
+CLI は、型の制約を、定義の名前の決まりや `.cfg` の `INVARIANT` から推してはならない。
+
+#### SP-FORMALMETHODS-456 空振りの写しの検査が終わらないとき
+CLI の `judge` は、SP-FORMALMETHODS-453・SP-FORMALMETHODS-454 の写しで動かした `tool-run` の終了コードが成功でも違反でもないとき、その性質を、検出力を確かめられないものとして試行の失敗に数えなければならない。
+
+#### SP-FORMALMETHODS-457 説明が名指す検査の名前の集合
+CLI の `judge` は、説明と実際の検査の食い違いの行の、名指す検査の名前の集合を、モデルの置き場（作る機能は `models/<単位 ID>/`、audit は `input.model`）の直下の `README.md` の、見出しの行 `## 検査` から次の見出しの行の手前までの節にある、`- ` で始まる行ごとの最初のバッククォートで囲んだ文字列の集合としなければならない。節の外と、各行の 2 つ目以降のバッククォートは数えない。
+
+#### SP-FORMALMETHODS-458 空振りの確かめに要るものが無いモデル
+CLI の `judge` は、道具が `tlc` で `check.json` に `type_constraint` が無いモデル、主のモジュール（SP-FORMALMETHODS-453）がちょうど 1 つでないモデル、`README.md` が無いモデル、`README.md` に `## 検査` の節が無いモデルを、次の表のとおり書かなければならない。
+
+| 機能 | 無いもの | 書くもの |
+|---|---|---|
+| 作る機能 | `type_constraint` | そのモデルの `vacuous` の欠け |
+| 作る機能 | ちょうど 1 つの主のモジュール | そのモデルの `vacuous` の欠け |
+| audit | ちょうど 1 つの主のモジュール | SP-FORMALMETHODS-399 のとおり、恒真の性質の行と前件が常に真の性質の行を確かめていない範囲として範囲と限界の記録に書き、欠けにしない |
+| 作る機能 | `README.md` か `## 検査` の節 | そのモデルの `vacuous` の欠け |
+| audit | `type_constraint` | SP-FORMALMETHODS-399 のとおり、恒真の性質の行を確かめていない範囲として範囲と限界の記録に書き、欠けにしない |
+| audit | `README.md` か `## 検査` の節 | SP-FORMALMETHODS-399 のとおり、説明と実際の検査の食い違いの行を確かめていない範囲として範囲と限界の記録に書き、欠けにしない |
+
+#### SP-FORMALMETHODS-440 finite の性質の合否
+CLI は、`check` の step で、SP-FORMALMETHODS-202 の行 7 を引いた `finite` の性質を、`run.json`（SP-FORMALMETHODS-430）の引数の並びで動かした script の終了コードが 0 で、script が標準出力の最後の行に書いた照らした件数が `run.json` の数え方で出所から数えた件数と一致し、その件数が 0 でないときに限り合格とし、それ以外を反例としなければならない。
+
+#### SP-FORMALMETHODS-441 finite の性質の空振り
+CLI は、`check` の step で、SP-FORMALMETHODS-202 の行 7 を引いた `finite` の性質の出所の写しの `run.json` が名指す 1 行を `run.json` の替える文字列に替えた入力で script を動かして終了コードが 0 のとき、その性質を `vacuous` の欠けとして書かなければならない。
+
+#### SP-FORMALMETHODS-442 finite の性質に検査器の数え方を当てない
+CLI は、SP-FORMALMETHODS-202 の行 7 を引いた `finite` の性質に、SP-FORMALMETHODS-223 の反例の数え方と、SP-FORMALMETHODS-224・SP-FORMALMETHODS-391 の空振りの判定を当ててはならない。
+
+行 7 を引いた `finite` の性質は、手法の指定が無い要求と仕様の文書の層の `finite` の性質と、行 18 か行 23 から行 7 を引き直した `finite` の性質である。行 16・17 を引いたコードの層の `finite` の性質と、行 22 を引いた `finite` の性質は道具の性質であり、SP-FORMALMETHODS-223・SP-FORMALMETHODS-224・SP-FORMALMETHODS-391・SP-FORMALMETHODS-438・SP-FORMALMETHODS-439 が当たる。
+
+#### SP-FORMALMETHODS-443 重い検査を行わないときの check の項目
+作る機能の script は、SP-FORMALMETHODS-193 で重い検査を行わないとき、`check` の step の項目を `finite` の性質だけにしなければならない。
+
+`transition`・`relation`・`contract`・`theorem` の性質の検査は要求文書の用語「重い検査」に含まれ、重い検査を行わない run では、SP-FORMALMETHODS-193 が載せる保留に入る。
 
 #### SP-FORMALMETHODS-225 忠実さの項目
 audit の script は、`fidelity` の step の項目を、モデルの `correspondence.json` の行ごと（`correspondence.json` が無ければ検査対象の規範文ごと）にしなければならない。
@@ -1388,6 +1557,8 @@ CLI の `judge` は、次の表の当たるときに `pin-and-rerun` の欠け�
 | `check.json` の検査を `tool-run` で 2 回動かして、性質ごとの反例の有無が 2 回の間か `check.json` に記録された結果と違う | 結果の違った検査 |
 | モデルに `check.json` が無い | 再実行できないこと |
 
+`check.json` が無いか道具を読めないモデルでは、SP-FORMALMETHODS-450 により 1 行目の `tool-run` を動かさない。
+
 #### SP-FORMALMETHODS-230 有限範囲の対応を選ばせる
 script は、モデルの有限範囲の定数ごとに、忠実さの判定役に、対応する検査対象の数の下限か上限の行範囲か、`none` を選ばせなければならない。
 
@@ -1398,7 +1569,7 @@ CLI は、定数の値が SP-FORMALMETHODS-230 で選ばれた行の数に届か
 CLI の `judge` は、モデルの定義のうち、本文が空白を詰めて抜き出しの列挙・記録の鍵・用語の表の語・ID・判定の表の行のいずれかと一致するのに `provenance.json` で生成の印を持たないものと、`provenance.json` に生成か手写しの記録を持たないものを、`hand-copied` の欠けとして書かなければならない。
 
 #### SP-FORMALMETHODS-232 記録のファイルが無いモデルを拒否しない
-CLI の `entry` は、audit のモデルのディレクトリに formal-methods が作る記録のファイル（`provenance.json`・`correspondence.json`・`sections.json`・`layers.json`・`bounds.json`・`mutations.json`・`witness.json`・`check.json`）が無いことを、入口の拒否に使ってはならない。
+CLI の `entry` は、audit のモデルのディレクトリに formal-methods が作る記録のファイル（`provenance.json`・`correspondence.json`・`sections.json`・`layers.json`・`bounds.json`・`mutations.json`・`witness.json`・`check.json`）が無いことを、入口の拒否に使ってはならない。`check.json` から道具を読めないことの入口での扱いは SP-FORMALMETHODS-449 に従う。
 
 #### SP-FORMALMETHODS-399 無いファイルに拠る確かめ
 CLI は、audit で無いファイルに拠る確かめを、SP-FORMALMETHODS-222〜SP-FORMALMETHODS-231 の欠けか、範囲と限界の記録の確かめていない範囲として書かなければならない。
@@ -1457,7 +1628,7 @@ CLI は、状態に書いて止まる run と完了する run の範囲と限界
 | 前提 | `premises` | 外の主体の契約の仮定（SP-FORMALMETHODS-175）、モデルの前提と公平性（SP-FORMALMETHODS-211）、有限範囲と届かない旨（SP-FORMALMETHODS-210）、丸め（SP-FORMALMETHODS-209） |
 | 確かめた範囲 | `checked` | 回した step と、確かめた単位・継ぎ目・縦の対応・性質の ID |
 | 結果 | `results` | step ごとの欠けの件数と欠け ID、性質ごとの反例の有無、重い検査の結果（行った・保留・対象なし） |
-| 確かめていない範囲 | `unchecked` | `notRun`（未実施）・`outOfScope`（対象外。空の縦を含む）・`deferred`（見送り。手法の表の見送りの行の性質）・`onHold`（保留）の 4 つの並び。各要素は、ID があれば ID、無ければ名前と、理由を持つ |
+| 確かめていない範囲 | `unchecked` | `notRun`（未実施）・`outOfScope`（対象外。空の縦を含む）・`onHold`（保留）の 3 つの並び。各要素は、ID があれば ID、無ければ名前と、理由を持つ |
 | 注記 | `notes` | SP-FORMALMETHODS-217・SP-FORMALMETHODS-300・SP-FORMALMETHODS-325 の注記、照らさなかった層の組（SP-FORMALMETHODS-320）、照合する図が無いこと（SP-FORMALMETHODS-390）、残った漏れと不支持の性質（SP-FORMALMETHODS-246） |
 
 #### SP-FORMALMETHODS-242 範囲と限界の記録の一時ファイル
@@ -1498,6 +1669,26 @@ script は、停止の行 `blocked-entry` と `blocked-unrecorded` の返り値�
 
 #### SP-FORMALMETHODS-407 性質を洗い出させる
 script は、`properties` の step の項目ごとに、性質の役に、性質の文・由来の行範囲・性質の種別・仕分けの記録を返させなければならない。
+
+#### SP-FORMALMETHODS-444 コードで書ける道具を返させる
+`input.layer` が `code` のとき、script は、性質の役に、SP-FORMALMETHODS-407 の結果と並べて、性質ごとの欄 `code_tool` を、Verus で検査の対象に書けるなら `verus`、Verus で書けず Kani で書けるなら `kani`、どちらでも書けないなら `無い` として返させなければならない。
+
+#### SP-FORMALMETHODS-459 指定の道具で書けるかを返させる
+作る機能で `input.method` が `tlc`・`alloy` 以外の `TOOLS` の道具の名前のとき、script は、性質の役に、SP-FORMALMETHODS-407 の結果と並べて、性質ごとの欄 `method_fit` を、外部の資料を調べて指定の道具で検査の対象に書けると判断したなら `書ける`、書けないと判断したなら `書けない` として返させなければならない。
+
+#### SP-FORMALMETHODS-430 finite の性質の照合の script
+性質の役は、`finite` の性質ごとに、集合の出所から全件を読んで照らす決定的な script と、次の表の欄を持つ `run.json` を、作業場所の `work/finite/<性質 ID>/` に書かなければならない。
+
+| 欄 | 中身 |
+|---|---|
+| 引数の並び | script を動かすコマンドの引数の並び |
+| 出所 | 集合の出所のファイルのパスの並び |
+| 数え方 | 出所のパスごとの、照らす対象 1 件ごとの行範囲の並び（1 件が複数の行にまたがるときは、その行範囲を 1 つとする）。CLI は行範囲の数を出所から数えた件数とする |
+| 変える行 | 空振りの確かめで出所の写しの替える 1 行のパスと行番号。数え方に挙げたいずれかの行範囲の中の 1 行とする |
+| 替える文字列 | 変える行に替えて置く文字列 |
+
+#### SP-FORMALMETHODS-448 照らす対象の外の変える行を受理しない
+CLI は、`run.json` の変える行が数え方のどの行範囲にも入らない性質の役の結果を、`E_RESULT` で拒否しなければならない。
 
 #### SP-FORMALMETHODS-408 性質を検証役に確かめさせる
 script は、性質の役が返した性質ごとに、性質の検証役に支持か不支持と、項目ごとの漏れの行範囲を返させなければならない。
@@ -2059,7 +2250,7 @@ CLI は、欠けの型を、次の表の綴りのいずれかに限って受理�
 | PR-FORMALMETHODS-256 | SP-FORMALMETHODS-105 | CLI の単体テスト（止まった step・未着手の項目・停止の行の組ごとに、`start` が返す続ける step と項目の並びが SP-FORMALMETHODS-105 の表と違う件数を測る） | 未着手 |
 | PR-FORMALMETHODS-045 | SP-FORMALMETHODS-106 | 静的な照合（CLI の定数 `MATERIAL_MAKERS` の行と SP-FORMALMETHODS-106 の表の行の食い違いの件数と、材料を作る部分の出力のうち SP-FORMALMETHODS-167 の 3 つの表の形でないものの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-066 | SP-FORMALMETHODS-106 | 静的な照合（CLI の定数 `MATERIAL_MAKERS` の行と SP-FORMALMETHODS-106 の表の行の食い違いの件数と、材料を作る部分の出力のうち SP-FORMALMETHODS-167 の 3 つの表の形でないものの件数を測る） | 未着手 |
-| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-334 | 静的な照合（`MATERIAL_MAKERS` に `code` の行がある件数を測る） | 未着手 |
+| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-334 | 静的な照合（TBD-SFORMALMETHODS-009 の裁定の前に `MATERIAL_MAKERS` に `code` の行がある件数を測る） | 未着手 |
 | PR-FORMALMETHODS-045 | SP-FORMALMETHODS-334 | 静的な照合（`MATERIAL_MAKERS` に `code` の行がある件数を測る） | 未着手 |
 | PR-FORMALMETHODS-041 | SP-FORMALMETHODS-107 | script の模擬実行（機能と文書の層の組ごとに、step を SP-FORMALMETHODS-107 の表の順と違う順で始めた件数を測る） | 未着手 |
 | PR-FORMALMETHODS-050 | SP-FORMALMETHODS-107 | script の模擬実行（機能と文書の層の組ごとに、step を SP-FORMALMETHODS-107 の表の順と違う順で始めた件数を測る） | 未着手 |
@@ -2329,13 +2520,13 @@ CLI は、欠けの型を、次の表の綴りのいずれかに限って受理�
 | PR-FORMALMETHODS-189 | SP-FORMALMETHODS-200 | CLI の単体テスト（範囲に入れた単位の並びのうち、依存の広がりの降順と違う並びの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-189 | SP-FORMALMETHODS-316 | script の模擬実行（`model` の step の項目を、SP-FORMALMETHODS-200 の並びと違う順に始めた件数を測る） | 未着手 |
 | PR-FORMALMETHODS-106 | SP-FORMALMETHODS-201 | CLI の単体テスト（性質の役の結果のうち、性質の種別が SP-FORMALMETHODS-201 の表の値のいずれでもないものを受理した件数を測る） | 未着手 |
-| PR-FORMALMETHODS-106 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別と `input.method` の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
-| PR-FORMALMETHODS-107 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別と `input.method` の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
-| PR-FORMALMETHODS-108 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別と `input.method` の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
-| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別と `input.method` の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
-| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-298 | CLI の単体テスト（`input.method` に `tlc`・`alloy` の外の値を渡した入力で、`entry` が `method` で拒否しなかった件数を測る） | 未着手 |
-| PR-FORMALMETHODS-108 | SP-FORMALMETHODS-298 | CLI の単体テスト（`input.method` に `tlc`・`alloy` の外の値を渡した入力で、`entry` が `method` で拒否しなかった件数を測る） | 未着手 |
-| PR-FORMALMETHODS-109 | SP-FORMALMETHODS-298 | CLI の単体テスト（`input.method` に `tlc`・`alloy` の外の値を渡した入力で、`entry` が `method` で拒否しなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-106 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別・層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-107 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別・層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-108 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別・層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別・層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-298 | CLI の単体テスト（作る機能と audit で `TOOLS` の道具の名前の外の値を `input.method` に渡した入力で、`entry` が `method` で拒否しなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-108 | SP-FORMALMETHODS-298 | CLI の単体テスト（作る機能と audit で `TOOLS` の道具の名前の外の値を `input.method` に渡した入力で、`entry` が `method` で拒否しなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-109 | SP-FORMALMETHODS-298 | CLI の単体テスト（作る機能と audit で `TOOLS` の道具の名前の外の値を `input.method` に渡した入力で、`entry` が `method` で拒否しなかった件数を測る） | 未着手 |
 | PR-FORMALMETHODS-107 | SP-FORMALMETHODS-297 | CLI の単体テスト（`TOOLS` の `alloy` の行に版と SHA-256 が無い間に、`input.method` が `alloy` の入力を `entry` が拒否しなかった件数を測る） | 未着手 |
 | PR-FORMALMETHODS-109 | SP-FORMALMETHODS-297 | CLI の単体テスト（`TOOLS` の `alloy` の行に版と SHA-256 が無い間に、`input.method` が `alloy` の入力を `entry` が拒否しなかった件数を測る） | 未着手 |
 | PR-FORMALMETHODS-043 | SP-FORMALMETHODS-297 | CLI の単体テスト（`TOOLS` の `alloy` の行に版と SHA-256 が無い間に、`input.method` が `alloy` の入力を `entry` が拒否しなかった件数を測る） | 未着手 |
@@ -2344,9 +2535,9 @@ CLI は、欠けの型を、次の表の綴りのいずれかに限って受理�
 | PR-FORMALMETHODS-109 | SP-FORMALMETHODS-301 | CLI の単体テスト（Java の主版が `JAVA_MIN_MAJOR` 未満か `java` が無い環境で、`tool-fetch` が `tlc` を返した件数と、停止の行が `blocked-failure` でない件数を測る） | 未着手 |
 | PR-FORMALMETHODS-110 | SP-FORMALMETHODS-301 | CLI の単体テスト（Java の主版が `JAVA_MIN_MAJOR` 未満か `java` が無い環境で、`tool-fetch` が `tlc` を返した件数と、停止の行が `blocked-failure` でない件数を測る） | 未着手 |
 | PR-FORMALMETHODS-111 | SP-FORMALMETHODS-301 | CLI の単体テスト（Java の主版が `JAVA_MIN_MAJOR` 未満か `java` が無い環境で、`tool-fetch` が `tlc` を返した件数と、停止の行が `blocked-failure` でない件数を測る） | 未着手 |
-| PR-FORMALMETHODS-109 | SP-FORMALMETHODS-288 | CLI の単体テスト（`TOOLS` の版と SHA-256 が TBD-SFORMALMETHODS-002 の行の道具を、`tool-fetch` か `tool-run` が取得か使用した件数を測る） | 未着手 |
-| PR-FORMALMETHODS-110 | SP-FORMALMETHODS-288 | CLI の単体テスト（`TOOLS` の版と SHA-256 が TBD-SFORMALMETHODS-002 の行の道具を、`tool-fetch` か `tool-run` が取得か使用した件数を測る） | 未着手 |
-| PR-FORMALMETHODS-107 | SP-FORMALMETHODS-288 | CLI の単体テスト（`TOOLS` の版と SHA-256 が TBD-SFORMALMETHODS-002 の行の道具を、`tool-fetch` か `tool-run` が取得か使用した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-109 | SP-FORMALMETHODS-288 | CLI の単体テスト（`TOOLS` の版と SHA-256 が TBD-SFORMALMETHODS-002〜TBD-SFORMALMETHODS-006 の行の道具を、`tool-fetch` か `tool-run` が取得か使用した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-110 | SP-FORMALMETHODS-288 | CLI の単体テスト（`TOOLS` の版と SHA-256 が TBD-SFORMALMETHODS-002〜TBD-SFORMALMETHODS-006 の行の道具を、`tool-fetch` か `tool-run` が取得か使用した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-107 | SP-FORMALMETHODS-288 | CLI の単体テスト（`TOOLS` の版と SHA-256 が TBD-SFORMALMETHODS-002〜TBD-SFORMALMETHODS-006 の行の道具を、`tool-fetch` か `tool-run` が取得か使用した件数を測る） | 未着手 |
 | PR-FORMALMETHODS-109 | SP-FORMALMETHODS-205 | CLI の単体テスト（状態の root の `tools/<道具>-<版>/` に道具が無い作業コピーで、`tool-fetch` が `TOOLS` の取得元から取得しなかった件数を測る） | 未着手 |
 | PR-FORMALMETHODS-110 | SP-FORMALMETHODS-384 | CLI の単体テスト（SHA-256 の違うファイルを置いた作業コピーで、`tool-fetch` か `tool-run` が照合をせずに道具を返すか動かした件数を測る） | 未着手 |
 | PR-FORMALMETHODS-110 | SP-FORMALMETHODS-385 | CLI の単体テスト（SHA-256 の合わない道具のファイルのうち、`tool-fetch` が消さずに残したものの件数を測る） | 未着手 |
@@ -2445,7 +2636,6 @@ CLI は、欠けの型を、次の表の綴りのいずれかに限って受理�
 | PR-FORMALMETHODS-233 | SP-FORMALMETHODS-240 | CLI の単体テスト（作る機能の重い検査と audit の再実行で反例が出た性質のうち、`property-violation` の欠けにならなかった件数を測る） | 未着手 |
 | PR-FORMALMETHODS-145 | SP-FORMALMETHODS-241 | CLI の単体テスト（状態に書いて止まる run と完了する run の `scope.json` のうち、 SP-FORMALMETHODS-241 の表の欄を欠くものと、確かめていない範囲の要素に ID か名前と理由を欠くものの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-146 | SP-FORMALMETHODS-241 | CLI の単体テスト（状態に書いて止まる run と完了する run の `scope.json` のうち、 SP-FORMALMETHODS-241 の表の欄を欠くものと、確かめていない範囲の要素に ID か名前と理由を欠くものの件数を測る） | 未着手 |
-| PR-FORMALMETHODS-108 | SP-FORMALMETHODS-241 | CLI の単体テスト（状態に書いて止まる run と完了する run の `scope.json` のうち、 SP-FORMALMETHODS-241 の表の欄を欠くものと、確かめていない範囲の要素に ID か名前と理由を欠くものの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-147 | SP-FORMALMETHODS-242 | CLI の単体テスト（状態に書いて止まる run と完了する run の `stop` のうち、停止の記録を足す前に範囲と限界の記録を一時ファイルに書かなかったものの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-147 | SP-FORMALMETHODS-404 | CLI の単体テスト（範囲と限界の記録の一時ファイルを書けない作業コピーで、`stop` が決めた停止の行が `blocked-save` でない件数を測る） | 未着手 |
 | PR-FORMALMETHODS-175 | SP-FORMALMETHODS-404 | CLI の単体テスト（範囲と限界の記録の一時ファイルを書けない作業コピーで、`stop` が決めた停止の行が `blocked-save` でない件数を測る） | 未着手 |
@@ -2570,3 +2760,99 @@ CLI は、欠けの型を、次の表の綴りのいずれかに限って受理�
 | PR-FORMALMETHODS-138 | SP-FORMALMETHODS-234 | CLI の単体テスト（状態と返り値の欠けのうち、 SP-FORMALMETHODS-234 の表の欄を欠くものと、反例か差し戻し先を作れる型なのにそれを欠くものの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-139 | SP-FORMALMETHODS-234 | CLI の単体テスト（状態と返り値の欠けのうち、 SP-FORMALMETHODS-234 の表の欄を欠くものと、反例か差し戻し先を作れる型なのにそれを欠くものの件数を測る） | 未着手 |
 | PR-FORMALMETHODS-138 | SP-FORMALMETHODS-235 | CLI の単体テスト（欠けの型が SP-FORMALMETHODS-235 の表の綴りのいずれでもない書き込みを受理した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-267 | SP-FORMALMETHODS-235 | CLI の単体テスト（欠けの型が SP-FORMALMETHODS-235 の表の綴りのいずれでもない書き込みを受理した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-268 | SP-FORMALMETHODS-395 | CLI の単体テスト（挙げられた制約のうち、その制約を外した設定で `tool-run` が動かなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-269 | SP-FORMALMETHODS-241 | CLI の単体テスト（状態に書いて止まる run と完了する run の `scope.json` のうち、 SP-FORMALMETHODS-241 の表の欄を欠くものと、確かめていない範囲の要素に ID か名前と理由を欠くものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-270 | SP-FORMALMETHODS-418 | CLI の単体テスト（支持された位置が 2 か所以上の欠けのうち、全ての位置をつけた `scattered-rules` の欠けにならなかったものの件数と、1 か所以下で `scattered-rules` が出た件数を測る） | 未着手 |
+| PR-FORMALMETHODS-271 | SP-FORMALMETHODS-412 | CLI の単体テスト（`item-fail` の後に、状態の項目ごとの試行の回数の累計が 1 増えなかった件数を測る。続きから起動した run を含める） | 未着手 |
+| PR-FORMALMETHODS-272 | SP-FORMALMETHODS-308 | CLI の単体テスト（役の結果の受理の前に既読の印が付いたヒントの件数と、受理の後も印が付かないヒントの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-273 | SP-FORMALMETHODS-273 | 静的な照合（Workflow script のうち、`limits.launches` が無いときに項目の件数か起動数を定数で切る箇所の件数を測る） | 未着手 |
+| PR-FORMALMETHODS-274 | SP-FORMALMETHODS-156 | CLI の単体テスト（検査対象の規範文が参照する上流の規範文と節のうち、組の抽出の項目に入らなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-275 | SP-FORMALMETHODS-160 | script の模擬実行（2 つ以上の用語の表が定義する組の対象の語のうち、照合の選択役の項目にならなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-276 | SP-FORMALMETHODS-153 | CLI の単体テスト（受理した組のうち、SP-FORMALMETHODS-153 の表の欄を欠くものと、本文の欄が行範囲の逐語の写しと違うものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-277 | SP-FORMALMETHODS-351 | CLI の単体テスト（食い違った欄のうち、組の検証役が選んだ選択と違う値で組に書かれたものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-278 | SP-FORMALMETHODS-169 | CLI の単体テスト（切った単位の集合のうち、根の単位 `U0` が無いものと、親を持たない単位どうしの継ぎ目の持ち主が `U0` でないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-279 | SP-FORMALMETHODS-390 | CLI の単体テスト（状態遷移図を持たない検査対象の run の `scope.json` のうち、`notes` に照合する図が無いことを持たないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-280 | SP-FORMALMETHODS-399 | CLI の単体テスト（記録のファイルが無いモデルの audit で、そのファイルに拠る確かめが欠けにも確かめていない範囲にも載らなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-281 | SP-FORMALMETHODS-081 | 静的な照合（SKILL.md の callsite と Workflow script が受け取る `input` の欄の集合が SP-FORMALMETHODS-081 の表と一致しない件数を測る） | 未着手 |
+| PR-FORMALMETHODS-282 | SP-FORMALMETHODS-172 | CLI の単体テスト（式の 1 つを書き換えた作業コピーで、`mismatch` の欠けが出なかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-283 | SP-FORMALMETHODS-081 | 静的な照合（SKILL.md の callsite と Workflow script が受け取る `input` の欄の集合が SP-FORMALMETHODS-081 の表と一致しない件数を測る） | 未着手 |
+| PR-FORMALMETHODS-284 | SP-FORMALMETHODS-183 | CLI の単体テスト（参照の連鎖と、名前が同じで実体が違う組を含む作業コピーで、それらが継ぎ目に入った件数と、2 つ以上の単位にまたがる同じ組の対象の組が継ぎ目に入らなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-285 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別・層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-287 | SP-FORMALMETHODS-240 | CLI の単体テスト（作る機能の重い検査と audit の再実行で反例が出た性質のうち、`property-violation` の欠けにならなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-288 | SP-FORMALMETHODS-221 | script の模擬実行（作る機能でモデルの欠けが見つかった step のうち、修正の回を行わずに SP-FORMALMETHODS-221 の step へ進んだか止まった件数を測る。上限と収束の判定で止まる場合を除く） | 未着手 |
+| PR-FORMALMETHODS-289 | SP-FORMALMETHODS-234 | CLI の単体テスト（状態と返り値の欠けのうち、 SP-FORMALMETHODS-234 の表の欄を欠くものと、反例か差し戻し先を作れる型なのにそれを欠くものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-290 | SP-FORMALMETHODS-425 | CLI の単体テスト（収束しないという判定に、モデルの修正の回の外の記録（文書の修正）を使った件数を測る） | 未着手 |
+| PR-FORMALMETHODS-291 | SP-FORMALMETHODS-130 | `make test` の実行（写しの一覧の行ごとに、写しのファイルが無いか、一覧の欄を欠く件数を測る） | 未着手 |
+| PR-FORMALMETHODS-292 | SP-FORMALMETHODS-133 | `make test` の実行（写しを 1 字変えた作業コピーと、一覧の commit を変えた作業コピーで、`make test` が失敗しない件数を測る） | 未着手 |
+| PR-FORMALMETHODS-293 | SP-FORMALMETHODS-145 | CLI の単体テスト（手法・有限範囲・抽象化を入力で指定した run で、使った値が入力の値と違う件数を測る。既定値を変えるヒントを足した状態を含める） | 未着手 |
+| PR-FORMALMETHODS-294 | SP-FORMALMETHODS-258 | CLI の単体テスト（SP-FORMALMETHODS-258 の表の操作の直前に入力の集合のファイルを 1 つ変えた作業コピーで、表の扱いと違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-295 | SP-FORMALMETHODS-147 | CLI の単体テスト（ヒントを足した後に始まった step の役の prompt に配られなかった読まれていないヒントの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-296 | SP-FORMALMETHODS-296 | CLI の単体テスト（並行に呼んだ `item-result` が `ledger.jsonl` に書きかけの行か交ざった行を残した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-297 | SP-FORMALMETHODS-135 | PR のレビュー（設計方針文書の「機械で確かめる」の節の表の行ごとに、SP-FORMALMETHODS-135 の表の満たし方の仕様項目が無いか、その行を満たさない件数を測る） | 未着手 |
+| PR-FORMALMETHODS-298 | SP-FORMALMETHODS-279 | `make test` の実行（SP-FORMALMETHODS-278 の表で「できる」とした行のうち、表の検査器が `make test` に入っていない件数を測る） | 未着手 |
+| PR-FORMALMETHODS-299 | SP-FORMALMETHODS-185 | script の模擬実行（結んだ縦の対応のうち、縦の判定役に詳細化を判定させなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-300 | SP-FORMALMETHODS-081 | 静的な照合（SKILL.md の callsite と Workflow script が受け取る `input` の欄の集合が SP-FORMALMETHODS-081 の表と一致しない件数を測る） | 未着手 |
+| PR-FORMALMETHODS-301 | SP-FORMALMETHODS-183 | CLI の単体テスト（参照の連鎖と、名前が同じで実体が違う組を含む作業コピーで、それらが継ぎ目に入った件数と、2 つ以上の単位にまたがる同じ組の対象の組が継ぎ目に入らなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-302 | SP-FORMALMETHODS-239 | CLI の単体テスト（直し方の候補のうち、帰属した文書と違う文書を直す候補か、帰属した文書より下の文書の層で補う候補を受理した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-303 | SP-FORMALMETHODS-146 | CLI の単体テスト（完了した状態と前の結果を返す状態への `hint-add` を受理した件数と、走っている状態への `hint-add` で状態の停止の記録が足された件数を測る） | 未着手 |
+| PR-FORMALMETHODS-304 | SP-FORMALMETHODS-146 | CLI の単体テスト（完了した状態と前の結果を返す状態への `hint-add` を受理した件数と、走っている状態への `hint-add` で状態の停止の記録が足された件数を測る） | 未着手 |
+| PR-FORMALMETHODS-305 | SP-FORMALMETHODS-178 | CLI の単体テスト（並べる仕組みの選択が `none` の状態のうち、書き換える単位がまとめられていないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-306 | SP-FORMALMETHODS-182 | CLI の単体テスト（トレーサビリティ表の行を欠いた作業コピーで、`traceability` の欠けが出なかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-307 | SP-FORMALMETHODS-240 | CLI の単体テスト（作る機能の重い検査と audit の再実行で反例が出た性質のうち、`property-violation` の欠けにならなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-308 | SP-FORMALMETHODS-236 | CLI の単体テスト（モデルの欠け・上流に定めが無い欠け・2 つの層にまたがる根拠の欠け・1 つの文書に位置を持つ欠けの全ての重なりの組で、帰属が SP-FORMALMETHODS-236 の順で当てた結果と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-309 | SP-FORMALMETHODS-186 | CLI の単体テスト（横の継ぎ目のうち、持ち主が継ぎ目のまたぐ全ての単位を含むいちばん近い上の単位でないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-310 | SP-FORMALMETHODS-115 | script の模擬実行（性質・モデル・変異・規則の散在の選択を、それを作った起動と同じ起動か同じ context の続きで確かめた件数を測る） | 未着手 |
+| PR-FORMALMETHODS-311 | SP-FORMALMETHODS-116 | 静的な照合（SP-FORMALMETHODS-116 の表の出力ごとに、表の確かめ方と違う確かめ方で確かめる script の経路の件数を測る） | 未着手 |
+| PR-FORMALMETHODS-312 | SP-FORMALMETHODS-241 | CLI の単体テスト（状態に書いて止まる run と完了する run の `scope.json` のうち、 SP-FORMALMETHODS-241 の表の欄を欠くものと、確かめていない範囲の要素に ID か名前と理由を欠くものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-313 | SP-FORMALMETHODS-236 | CLI の単体テスト（モデルの欠け・上流に定めが無い欠け・2 つの層にまたがる根拠の欠け・1 つの文書に位置を持つ欠けの全ての重なりの組で、帰属が SP-FORMALMETHODS-236 の順で当てた結果と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-314 | SP-FORMALMETHODS-115 | script の模擬実行（性質・モデル・変異・規則の散在の選択を、それを作った起動と同じ起動か同じ context の続きで確かめた件数を測る） | 未着手 |
+| PR-FORMALMETHODS-315 | SP-FORMALMETHODS-241 | CLI の単体テスト（状態に書いて止まる run と完了する run の `scope.json` のうち、 SP-FORMALMETHODS-241 の表の欄を欠くものと、確かめていない範囲の要素に ID か名前と理由を欠くものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-316 | SP-FORMALMETHODS-240 | CLI の単体テスト（作る機能の重い検査と audit の再実行で反例が出た性質のうち、`property-violation` の欠けにならなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-317 | SP-FORMALMETHODS-396 | CLI の単体テスト（制約を外して反例が出た検査のうち、その反例が `added-constraint` の欠けの反例に無いものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-318 | SP-FORMALMETHODS-394 | CLI の単体テスト（挙げられた制約のうち、`added-constraint` の欠けにならなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-319 | SP-FORMALMETHODS-179 | CLI の単体テスト（使う関係の組から作った階層のうち、 SP-FORMALMETHODS-179 の表の規則と違う親子の件数と、深さを定数で切った件数と、親の単位の確かめに子の単位の組を渡した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-320 | SP-FORMALMETHODS-405 | CLI の単体テスト（停止の記録を足せた `stop` のうち、一時ファイルを `scope.json` へ rename しなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-321 | SP-FORMALMETHODS-150 | script の模擬実行（続きから起動した run で、読まれていないヒントがあることを理由に終えた step の項目を起動し直した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-322 | SP-FORMALMETHODS-234 | CLI の単体テスト（状態と返り値の欠けのうち、 SP-FORMALMETHODS-234 の表の欄を欠くものと、反例か差し戻し先を作れる型なのにそれを欠くものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-323 | SP-FORMALMETHODS-115 | script の模擬実行（性質・モデル・変異・規則の散在の選択を、それを作った起動と同じ起動か同じ context の続きで確かめた件数を測る） | 未着手 |
+| PR-FORMALMETHODS-324 | SP-FORMALMETHODS-243 | CLI の単体テスト（状態に書いて止まる run・完了する run・前の結果を返す run の返り値のうち、`scope` も `scopeMissing` も無いものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-325 | SP-FORMALMETHODS-146 | CLI の単体テスト（完了した状態と前の結果を返す状態への `hint-add` を受理した件数と、走っている状態への `hint-add` で状態の停止の記録が足された件数を測る） | 未着手 |
+| PR-FORMALMETHODS-326 | SP-FORMALMETHODS-146 | CLI の単体テスト（完了した状態と前の結果を返す状態への `hint-add` を受理した件数と、走っている状態への `hint-add` で状態の停止の記録が足された件数を測る） | 未着手 |
+| PR-FORMALMETHODS-286 | SP-FORMALMETHODS-431 | CLI の単体テスト（audit の性質のうち、検査に使った道具が `check.json` の道具と違うものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-106 | SP-FORMALMETHODS-428 | CLI の単体テスト（性質の役が返した性質のうち、種別を 2 つ以上持つものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-106 | SP-FORMALMETHODS-429 | CLI の単体テスト（SP-FORMALMETHODS-202 の表に無い種別の性質のうち、`E_RESULT` で拒否されなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-109 | SP-FORMALMETHODS-432 | CLI の単体テスト（版が決まっていない道具を指定した入力のうち、入口で拒否されなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-109 | SP-FORMALMETHODS-433 | CLI の単体テスト（版が決まっていない道具への `tool-fetch` のうち、試行の失敗として数えたものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-043 | SP-FORMALMETHODS-432 | CLI の単体テスト（版が決まっていない道具を指定した入力のうち、入口で拒否されなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-332 | SP-FORMALMETHODS-434 | CLI の単体テスト（`tool-fetch` の返り値のうち、`kani`・`dafny`・`verus`・`lean` を返したものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-330 | SP-FORMALMETHODS-436 | CLI の単体テスト（証明の道具のモデルに SP-FORMALMETHODS-317・SP-FORMALMETHODS-302・SP-FORMALMETHODS-303・SP-FORMALMETHODS-398 を当てた件数を測る） | 未着手 |
+| PR-FORMALMETHODS-127 | SP-FORMALMETHODS-437 | CLI の単体テスト（`mutations.json` のうち、SP-FORMALMETHODS-437 の形と違うものを受理した件数を測る） | 未着手 |
+| PR-FORMALMETHODS-328 | SP-FORMALMETHODS-438 | CLI の単体テスト（証明が終わっていない印を含む結果のうち、合格としたものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-108 | SP-FORMALMETHODS-438 | CLI の単体テスト（証明が終わっていない印を含む結果のうち、合格としたものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-128 | SP-FORMALMETHODS-439 | CLI の単体テスト（`kani`・`dafny`・`verus`・`lean` の性質のうち、合格としたものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-327 | SP-FORMALMETHODS-430 | CLI の単体テスト（有限の性質のうち、`work/finite/<性質 ID>/` に script か `run.json` を欠くものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-327 | SP-FORMALMETHODS-440 | CLI の単体テスト（有限の性質の実行のうち、終了の値・最後の行の件数・元の件数の照合の結果と合否が違うものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-327 | SP-FORMALMETHODS-441 | CLI の単体テスト（1 行を変えた写しで件数が変わらなかった有限の性質のうち、空振りの欠けにならなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-327 | SP-FORMALMETHODS-442 | CLI の単体テスト（有限の性質に SP-FORMALMETHODS-223・SP-FORMALMETHODS-224・SP-FORMALMETHODS-391 を当てた件数を測る） | 未着手 |
+| PR-FORMALMETHODS-327 | SP-FORMALMETHODS-443 | CLI の単体テスト（重い検査を行わない作る機能の `check` の項目のうち、有限の性質でないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-331 | SP-FORMALMETHODS-202 | CLI の単体テスト（性質の種別・層の区分・`input.method`・指定の道具で書けるか・コードで書ける道具の組ごとに、引いた行が SP-FORMALMETHODS-202 の表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-329 | SP-FORMALMETHODS-391 | CLI の単体テスト（探索の道具の性質ごとに、その性質だけを残した設定で破れない変異を意味のある変異として数えた件数を測る） | 未着手 |
+| PR-FORMALMETHODS-331 | SP-FORMALMETHODS-444 | script の模擬実行（`input.layer` が `code` の `properties` の step の項目のうち、性質の役に `code_tool` を `verus`・`kani`・`無い` のどれかで返させなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-127 | SP-FORMALMETHODS-445 | CLI の単体テスト（作る機能のモデルのうち、`mutations.json` の変異に `mutants/<変異の id>.patch` を持たないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-446 | CLI の単体テスト（変異と性質の組ごとに、patch を当てた写しでその性質だけを残した設定以外で `tool-run` を動かした件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-447 | CLI の単体テスト（patch が無いか当てられない変異のうち、試行の失敗に数えなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-327 | SP-FORMALMETHODS-448 | CLI の単体テスト（変える行が数え方のどの行範囲にも入らない `run.json` のうち、`E_RESULT` で拒否しなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-286 | SP-FORMALMETHODS-449 | CLI の単体テスト（`check.json` が無いか道具を読めないモデルの audit の入力のうち、`method` で拒否したものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-286 | SP-FORMALMETHODS-450 | CLI の単体テスト（`check.json` が無いか道具を読めないモデルの audit の入力のうち、`tool-fetch` か `tool-run` を動かしたものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-285 | SP-FORMALMETHODS-459 | script の模擬実行（`input.method` が `tlc`・`alloy` 以外の道具の名前の作る機能の `properties` の step の項目のうち、性質の役に `method_fit` を `書ける`・`書けない` のどれかで返させなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-333 | SP-FORMALMETHODS-202 | CLI の単体テスト（`input.method` が `tlc` か `alloy` の作る機能の入力に `finite`・`contract`・`theorem` の性質を与えた組のうち、道具を動かしたか `method` で拒否しなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-452 | script の模擬実行（作る機能のモデルのうち、`README.md` の `## 検査` の節に `check.json` の設定の性質の名前が 1 行ずつ挙がっていないものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-453 | CLI の単体テスト（`tlc` の性質ごとに、恒真の性質の行で SP-FORMALMETHODS-453 の表と違う写しで `tool-run` を動かした件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-454 | CLI の単体テスト（`tlc` の性質ごとに、前件が常に真の性質の行で SP-FORMALMETHODS-454 と違う設定の写しで `tool-run` を動かした件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-455 | CLI の単体テスト（`type_constraint` の無い `check.json` のモデルで、型の制約の名前を推して写しを作った件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-456 | CLI の単体テスト（終了コードが成功でも違反でもない空振りの写しの `tool-run` のうち、試行の失敗に数えなかったものの件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-457 | CLI の単体テスト（`README.md` の `## 検査` の節の行ごとに、名指す検査の名前の集合に入れた文字列が最初のバッククォートで囲んだ文字列と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-458 | CLI の単体テスト（SP-FORMALMETHODS-458 の表の行ごとに作ったモデルで、書いたものが表と違う件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-460 | CLI の単体テスト（`-config` の有る引数の並びと無い引数の並びの `tlc` のモデルで、替えた設定のパスを `tool-run` が読まなかった件数を測る） | 未着手 |
+| PR-FORMALMETHODS-129 | SP-FORMALMETHODS-461 | CLI の単体テスト（`type_constraint` と同じ名前の性質のうち、恒真の性質の行を当てたか、その行の `vacuous` の欠けを書いたものの件数を測る） | 未着手 |

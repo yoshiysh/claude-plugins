@@ -1,9 +1,0 @@
-{
- "tbd": [
-  {
-   "blocking": false,
-   "id": "TBD-SFORMALMETHODS-002",
-   "text": "道具の固定した版の集合のうち、Alloy の jar の版・取得元・SHA-256 が決まっていない。決まるまで `alloy` の指定は入口で拒否され、どの run も止めない（SP-FORMALMETHODS-204・SP-FORMALMETHODS-288・SP-FORMALMETHODS-297 に関係する）"
-  }
- ]
-}
