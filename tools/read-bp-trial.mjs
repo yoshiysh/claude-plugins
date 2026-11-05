@@ -18,6 +18,7 @@ export const CRITERIA = path.join(REPO_ROOT, 'plugins', 'skill-creator', 'skills
 export const FIXTURE_DIR = path.join(REPO_ROOT, 'tests', 'bp', 'trial', 'fixtures', 'review-target');
 export const MEASURES = Object.freeze({ injection: 'injection', forced: 'forced', whole: 'whole', none: 'none' });
 const EXIT = Object.freeze({ ok: 0, usage: 2 });
+export const ACCOMPANIED_NOTE = '伴う単位の指摘: ';
 
 // 仕込む単位は人が選ばず、種と仕様項目から決める（選ばなかった単位は確かめていないと宣言する）。
 export function pick(seed, sp, candidates) {
@@ -70,8 +71,25 @@ function matches(f, i) {
   return f.viewpoint === i.viewpoint && f.kind === i.unit && f.assets.some((a) => sameAsset(a, i));
 }
 
+function accompanying(f, i) {
+  return f.viewpoint === i.viewpoint && (i.accompanies ?? []).includes(f.kind) && f.assets.length > 0 && f.assets.every((a) => sameAsset(a, i));
+}
+
+export function accompanyProblems(expected) {
+  return expected.injections.flatMap((i) => {
+    if (i.accompanies === undefined) return [];
+    if (!Array.isArray(i.accompanies) || i.accompanies.length === 0) return [`${i.unit}: 伴う単位が空でない配列でない`];
+    return [
+      ...(new Set(i.accompanies).size === i.accompanies.length ? [] : [`${i.unit}: 伴う単位が重なる`]),
+      ...i.accompanies.filter((u) => !(i.unseen ?? []).includes(u)).map((u) => `${i.unit}: 伴う単位 ${u} が確かめていない単位に無い`),
+    ];
+  });
+}
+
 // 読みが崩れる条件と行ごとの規則は bp-conformance の「検証方法」を正とする。
 export function read({ baseline, injected, expected }) {
+  const declared = accompanyProblems(expected);
+  if (declared.length) throw new Error(`正解表の伴う単位の宣言が不正: ${declared.join('、')}`);
   const findings = open(injected);
   const shape = [
     ...(Array.isArray(baseline.findings) ? [] : ['基準の run の返り値に findings が無い']),
@@ -80,7 +98,9 @@ export function read({ baseline, injected, expected }) {
   ];
   const hits = expected.injections.map((i) => findings.some((f) => matches(f, i)));
   const hitList = expected.injections.map((i, n) => ({ unit: i.unit, viewpoint: i.viewpoint, hit: hits[n] }));
-  const falsePositives = findings.filter((f) => !expected.injections.some((i) => matches(f, i)));
+  const unmatched = findings.filter((f) => !expected.injections.some((i) => matches(f, i)));
+  const accompanied = unmatched.filter((f) => expected.injections.some((i) => accompanying(f, i)));
+  const falsePositives = unmatched.filter((f) => !accompanied.includes(f));
   const interference = falsePositives.filter((f) => expected.injections.some((i) => f.viewpoint === i.viewpoint && f.assets.some((a) => sameAsset(a, i))));
   const unchecked = new Set((injected.uncheckedViewpoints ?? []).map((u) => `${u.viewpoint}|${u.scope}|${u.value}|${u.reason}`));
   const reasonOf = new Map(expected.forced.map((f) => [f.unit, f.reason]));
@@ -116,7 +136,7 @@ export function read({ baseline, injected, expected }) {
     return { req: row.req, spec: row.spec, parts, unmeasured, falsePositives: ownFalse.map(describe), status };
   });
   const unseen = expected.injections.filter((i) => i.unseen?.length).map((i) => ({ sp: i.unit.split('/')[0], picked: i.unit, units: i.unseen }));
-  return { baselineFindings, reachedRow, broken, valid: broken.length === 0, hitList, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map(describe), interference: interference.length, rows, unseen };
+  return { baselineFindings, reachedRow, broken, valid: broken.length === 0, hitList, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map(describe), accompanied: accompanied.map(describe), interference: interference.length, rows, unseen };
 }
 
 // ---- 試走の記録から、行ごとに当たり・外れ・測れない句・崩れを読む（「完了」にしてよい行の集合はここからだけ計算する）
@@ -260,7 +280,7 @@ export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FIL
         for (const row of exp.rows) {
           const r = injected?.rows.find((x) => x.req === row.req && x.spec === row.spec);
           const status = problems.length === 0 && r ? r.status : TRACE_STATUS.inProgress;
-          const notes = problems.length ? problems : r ? [...(injected.valid ? [] : injected.broken), ...r.parts.map((p) => `${p.sp}: ${p.ok === null ? '測らない' : p.ok ? '当たり' : '外れ'}`)] : ['読めない'];
+          const notes = problems.length ? problems : r ? [...(injected.valid ? [] : injected.broken), ...r.parts.map((p) => `${p.sp}: ${p.ok === null ? '測らない' : p.ok ? '当たり' : '外れ'}`), ...injected.accompanied.map((f) => `${ACCOMPANIED_NOTE}${f}`)] : ['読めない'];
           out.push({ file: 'bp-conformance.md', req: row.req, spec: row.spec, method: methods.get(`${row.req}|${row.spec}`) ?? null, run: name, status, notes });
         }
         continue;
@@ -298,6 +318,7 @@ export function render(r) {
     `到達した判定表の行: ${r.reachedRow}`,
     `仕込んだ違反の当たり: ${r.hits}/${r.injections}`,
     `偽陽性: ${r.falsePositives.length}（うち干渉 ${r.interference}）`,
+    `仕込みの伴う単位の指摘（当たりにも偽陽性にも数えない）: ${r.accompanied.length}`,
     `読みが成り立つ: ${r.valid ? 'はい' : `いいえ（全ての行を作成中のままにする。${r.broken.join('、')}）`}`,
     '',
     '| 要求 ID | 仕様項目 ID | 句ごとの読み | 判定 |',
@@ -311,6 +332,7 @@ export function render(r) {
     '確かめていない単位（原則の表の単位から種で 1 つだけ仕込み、残りは仕込んでいない）:',
     ...r.unseen.map((u) => `- ${u.sp}（仕込んだ単位 ${u.picked}）: ${u.units.join(' ')}`),
     ...r.falsePositives.map((f) => `偽陽性: ${f}`),
+    ...r.accompanied.map((f) => `${ACCOMPANIED_NOTE}${f}`),
   ];
   return lines.join('\n');
 }

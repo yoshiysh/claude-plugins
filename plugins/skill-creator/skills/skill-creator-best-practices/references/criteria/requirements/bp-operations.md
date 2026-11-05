@@ -24,7 +24,7 @@
 | 現行の prompt-audit | 現行の best-practices スキルが持つ監査の観点の基準（`plugins/skill-creator/skills/skill-creator-best-practices/references/prompt-audit.md`） |
 | 資産・指摘・カバレッジ・skip 一覧 | 設計方針文書の「資産台帳」の節が定める意味で使う |
 | 形・探索グラフ型 | 設計方針文書の「用語」の節が定める意味で使う（選び方は同文書の「形の判定」の節） |
-| needs_input・BLOCKED | 設計方針文書の「用語」の節が定める停止の種類。needs_input は人間の入力を待って止まったこと、BLOCKED は失敗して続けられずに止まったことを指す |
+| needs_input・BLOCKED | 設計方針文書の「用語」の節が定める停止の種類 |
 | run | スキルが依頼の処理を始めてから完了又は停止するまでの 1 回の実行。Workflow の場合は Workflow の 1 回の実行を指す。止まった run から続けるときは、新しい run を起動する（設計方針文書の「停止・再開と人間の入力」の節） |
 | context | agent が 1 回の実行の中で持つ入力と作業の内容。「生成と別の context」は、生成した agent の context を持たない別の agent を指す |
 | fan-out | 1 つの段で、項目（ファイル・観点・意図など）ごとに agent を起動して処理すること |

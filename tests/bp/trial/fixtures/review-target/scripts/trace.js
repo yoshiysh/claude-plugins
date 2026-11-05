@@ -73,6 +73,10 @@ class Stop {
   }
 }
 
+function classed(r) {
+  return r.stopKind === 'blocked' ? { ...r, reasonClass: 'failure' } : r
+}
+
 // 入力の項目の正本は SKILL.md の「起動」の表。最初の起動も再開も、state・repo・skillDir・resumeKey を受ける。
 function validate(a) {
   const missing = ['state', 'repo', 'skillDir', 'resumeKey'].filter((k) => typeof a?.[k] !== 'string' || a[k] === '')
@@ -85,17 +89,17 @@ function validate(a) {
 const limit = args?.maxLaunches
 const retry = typeof args?.state === 'string' ? { nextArgs: { state: args.state, repo: args.repo, skillDir: args.skillDir, resumeKey: args.resumeKey } } : {}
 if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1)) {
-  return { stopKind: 'blocked', reason: `起動数の上限 ${JSON.stringify(limit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 }
+  return classed({ stopKind: 'blocked', reason: `起動数の上限 ${JSON.stringify(limit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 })
 }
 if (limit !== undefined && limit < MIN_LAUNCHES) {
-  return { stopKind: 'blocked', reason: `起動数の上限 ${limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, ...retry, launches: 0 }
+  return classed({ stopKind: 'blocked', reason: `起動数の上限 ${limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, ...retry, launches: 0 })
 }
 const tokenLimit = args?.maxTokens
 if (tokenLimit !== undefined && !(Number.isInteger(tokenLimit) && tokenLimit >= 1)) {
-  return { stopKind: 'blocked', reason: `トークン量の上限 ${JSON.stringify(tokenLimit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 }
+  return classed({ stopKind: 'blocked', reason: `トークン量の上限 ${JSON.stringify(tokenLimit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 })
 }
 const input = validate(args)
-if (input.error) return { stopKind: 'blocked', reason: input.error, launches: 0 }
+if (input.error) return classed({ stopKind: 'blocked', reason: input.error, launches: 0 })
 const SKILL = input.skillDir
 const ROLES = `${SKILL}/references/roles`
 const run = { state: input.state, run: null, repo: input.repo, workDir: null, writeKey: null, resumeKey: input.resumeKey, methods: null, premises: '', commands: [], round: null, roundLaunches: 0 }
@@ -435,7 +439,7 @@ try {
   stop = e instanceof Stop ? e : new Stop('blocked', `script が止まった: ${e?.message ?? String(e)}`)
 }
 // 停止の記録と、完了が書かれた状態の再開は、同じ返り値の項目を返す（SKILL.md の「返り値」）。
-const result = (written) => ({
+const result = (written) => classed({
   stopKind: stop.kind,
   reason: written.reason,
   ...(stop.kind === 'complete' ? {} : { nextArgs: nextArgs() }),
@@ -452,7 +456,7 @@ const result = (written) => ({
 })
 if (stop.extra.written) return result(stop.extra.written)
 if (!run.run) {
-  return { stopKind: stop.kind, reason: stop.reason, nextArgs: nextArgs(), launches: launchBudget.used(), residualRisks: RESIDUAL_RISKS }
+  return classed({ stopKind: stop.kind, reason: stop.reason, nextArgs: nextArgs(), launches: launchBudget.used(), residualRisks: RESIDUAL_RISKS })
 }
 const final = launchBudget.open(RESERVE)
 let written = null
@@ -461,12 +465,12 @@ try {
   ;[written] = await cli(final, [['stop', { kind: stop.kind, reason: stop.reason, limitHit: stop.extra.limitHit, cause: stop.extra.cause, launches: launchBudget.used() + 1, ...(run.round ? { round: run.round, roundLaunches: run.roundLaunches + 1 } : {}) }]])
 } catch (e) {
   const why = e instanceof Stop ? e.reason : String(e)
-  return {
+  return classed({
     stopKind: 'blocked',
     reason: `停止の記録を書けたかが分からない（止めようとした停止: ${stop.kind}: ${stop.reason}）: ${why}。nextArgs で再開すると、CLI が状態に書かれた停止を読む（完了が書かれていれば完了を返し、停止が書かれていなければ BLOCKED の停止を足してから続ける）`,
     nextArgs: nextArgs(),
     launches: launchBudget.used(),
     residualRisks: RESIDUAL_RISKS,
-  }
+  })
 }
 return result(written)
