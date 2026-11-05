@@ -392,6 +392,8 @@ function fnv(text) {
   return h.toString(16).padStart(8, '0')
 }
 
+const keysFnvOf = (kept, fixed) => fnv(canonicalText({ kept: uniq(kept), fixed: uniq(fixed) }))
+
 // ENV_ARGS: 司令塔が next_args で変えてよい欄（run のデータではない環境。どれを変えてよいかは references/workflow-io.md §3）。
 // nextArgsHash はこれと state_hash の外をすべて覆う。state だけを覆うと workspace・existing_docs・from の写し間違いが通る。
 // 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（この script がそう読むので、打ち直しで [] を落としても意味は変わらない）。
@@ -524,6 +526,10 @@ function undeclaredByDoc(diff, changes, targetDocs) {
 
 // STDOUT_FNV: doc_check が stdout に付ける、本体の digest の欄（doc_check の STDOUT_FNV と同じ。tests が照合する）。
 const STDOUT_FNV = 'stdout_fnv'
+// STDOUT_MODE: doc_check が stdout に付ける、出したモードの欄（doc_check の STDOUT_MODE と同じ。tests が照合する）。
+const STDOUT_MODE = 'stdout_mode'
+// modeOfCmd: cli() が組んだコマンドのモード。取り直しの写しがそのコマンドの stdout かを、stdout のモードと照らす。
+const modeOfCmd = (cmd) => (/\/scripts\/doc_check\.mjs (\S+)/.exec(cmd) || [])[1]
 const BAD_JSON = Symbol('bad json')
 function stdoutRaw(text) {
   if (text && typeof text === 'object') return text
@@ -548,6 +554,12 @@ function parseStdout(text) {
 
 // copyFault: JSON の行はあるのに受け取れない（写し損ね）。JSON の行の無い値（失敗したコマンドの stderr）は写し損ねではなく、これまでの経路で扱う。
 const copyFault = (text) => stdoutRaw(text) !== null && !parseStdout(text)
+
+// docCheckOf: 監査の版の doc の stdout。無ければ構造検査の件数が分からないので、0 件として進めずに段を止める（0 にすると done に届く）。
+function docCheckOf(text) {
+  const o = parseStdout(text)
+  return o && o[STDOUT_MODE] === 'doc' && Number.isInteger(o.blocking) && isMap(o.flow_refs) ? o : null
+}
 
 function planCheckOf(text) {
   const o = parseStdout(text)
@@ -781,10 +793,9 @@ const FORMAL_TRACE_SCHEMA = {
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
 const STASH_SCHEMA = { type: 'object', properties: { stash_check: STR, unstash_check: STR, flow_check: STR } }
-const RECOPY_SCHEMA = {
-  type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, stash_check: STR, unstash_check: STR, doc_check: STR, tree_digest: STR },
-}
+// stdouts: 取り直しの stdout をプロンプトが挙げた順に入れる。欄の名前で受けると、flow-check は普段の欄（flow_check）に入れ、名指しの欄が
+// 空のまま取り直しも止まる（実測: dogfood wf_d3c7a067-468 の crossDoc の取り直し）。
+const RECOPY_SCHEMA = { type: 'object', properties: { stdouts: STRS }, required: ['stdouts'] }
 
 const FLOW_SCHEMA = {
   type: 'object',
@@ -935,8 +946,11 @@ const startErrors = stateErrors(FROM, state)
 if (state.gate !== undefined && state.gates === undefined) startErrors.push('state.gate があるのに state.gates がありません（ゲートを開いた数を持たない版の next_args です。S0 から流し直してください）')
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
 // 固定の文書の照合の基準は段 1 の入口の reset だけが作る。基準の無い run を通すと、照合が黙って飛ぶ。
-if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canonicalText(FIXED_KEYS)) {
-  throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256）が existing_docs と合いません。返った next_args を変えずに渡すか、段 1 から始めてください`)
+const fixedBaseOk = FIXED_KEYS.length
+  ? canonicalText(state.fixed_keys) === canonicalText([...FIXED_KEYS].sort()) && typeof state.fixed_digest === 'string' && state.fixed_digest !== ''
+  : state.fixed_keys === undefined && state.fixed_digest === undefined
+if (FROM !== '1' && !fixedBaseOk) {
+  throw new Error(`args.state.fixed_keys・fixed_digest（固定の文書 ${list(FIXED_KEYS)} と段 1 の入口の digest）が existing_docs と合いません。返った next_args を変えずに渡すか、段 1 から始めてください`)
 }
 
 const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
@@ -1304,12 +1318,16 @@ async function recopy(label, x, cmds, phaseTitle) {
   const bad = Object.keys(cmds).filter((k) => cmds[k] && copyFault(x[k]))
   if (!bad.length) return x
   const l = recopyLabel(label)
-  const lines = bad.map((k) => `実行する: \`${cmds[k]}\`。stdout を加工せずに ${k} に入れる。`)
-  const again = await call([header('flowCheck', running, l), ...lines].join('\n\n'), { ...OPTS.flowCheck, schema: RECOPY_SCHEMA, phase: phaseTitle, label: l })
-  if (!again) throw notRun(l)
-  const still = bad.filter((k) => !parseStdout(again[k]))
+  const lines = bad.map((k, i) => `実行する: \`${cmds[k]}\`。stdout を加工せずに stdouts の ${i + 1} 番目に入れる（${k}）。`)
+  const got = await call([header('flowCheck', running, l), ...lines].join('\n\n'), { ...OPTS.flowCheck, schema: RECOPY_SCHEMA, phase: phaseTitle, label: l })
+  if (!got) throw notRun(l)
+  const again = Object.fromEntries(bad.map((k, i) => [k, Array.isArray(got.stdouts) && got.stdouts.length === bad.length ? got.stdouts[i] : undefined]))
+  const still = bad.filter((k) => {
+    const o = parseStdout(again[k])
+    return !o || o[STDOUT_MODE] !== modeOfCmd(cmds[k])
+  })
   if (still.length) {
-    throw Object.assign(new Error(`${label} と ${l} が返した doc_check の stdout（${still.join('・')}）の写しが 2 回とも checksum（${STDOUT_FNV}）に合いませんでした（壊れた JSON か、欄や要素を欠いた写し）。受け取らずに止めます。この段から next_args で呼び直してください`), { rerunStage: true })
+    throw Object.assign(new Error(`${label} と ${l} が返した doc_check の stdout（${still.join('・')}）の写しが 2 回とも checksum（${STDOUT_FNV}）に合わないか、挙げたコマンドの stdout（${STDOUT_MODE}）ではありませんでした（壊れた JSON か、欄や要素を欠いた写しか、順番を入れ違えた写し）。受け取らずに止めます。この段から next_args で呼び直してください`), { rerunStage: true })
   }
   return { ...x, ...Object.fromEntries(bad.map((k) => [k, again[k]])) }
 }
@@ -2336,15 +2354,15 @@ async function resetEntry() {
   const label = 'flow-check:1-entry'
   const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', RESET_FLAGS)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
   const rc = parseStdout(x && x.reset_check)
-  const shas = rc && rc.fixed_sha256
-  const shaOk = shas && typeof shas === 'object' && canonicalText(Object.keys(shas)) === canonicalText(FIXED_KEYS) && Object.values(shas).every((v) => typeof v === 'string' && v)
+  const digestOk = rc && typeof rc.fixed_digest === 'string' && rc.fixed_digest !== ''
+  const keysOk = rc && rc.keys_fnv === keysFnvOf(KEEP_KEYS, FIXED_KEYS)
   // carried_tbd は保存した文書から引き継いだ開いている TBD（文書のキーごと）。writer の返り値だけから数えると、writer を起動しない文書（固定の文書・
   // 改稿の無い既存文書）の TBD が open_tbd と INDEX から消える。書き換えてよい文書のものは新しい TBD と同じく段 6 の裁定に回す（回さないと閉じる経路が無い）。
   const carried = rc && rc.carried_tbd
   const carriedOk = carried && typeof carried === 'object' && !Array.isArray(carried) &&
     Object.entries(carried).every(([key, ids]) => KEEP_KEYS.includes(key) && Array.isArray(ids) && ids.length && ids.every((id) => typeof id === 'string' && id))
-  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk && carriedOk) {
-    if (FIXED_KEYS.length) state.fixed_sha = shas
+  if (rc && rc.reset === true && Array.isArray(rc.removed) && keysOk && digestOk && carriedOk) {
+    if (FIXED_KEYS.length) Object.assign(state, { fixed_keys: [...FIXED_KEYS].sort(), fixed_digest: rc.fixed_digest })
     const all = Object.values(carried).flat()
     const editable = Object.entries(carried).filter(([key]) => !FIXED_KEYS.includes(key)).flatMap(([, ids]) => ids)
     if (all.length) state.open_tbd = uniq([...(state.open_tbd || []), ...all])
@@ -2354,17 +2372,16 @@ async function resetEntry() {
   return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')
 }
 
-// FIXED_FLAG・fixedMoved: 監査の snapshot に固定の文書の sha256 を返させ、段 1 の入口の値と照合する。固定の文書を書く役はいないので、
+// FIXED_FLAG・fixedMoved: 監査の snapshot に固定の文書の digest を返させ、段 1 の入口の値と照合する。固定の文書を書く役はいないので、
 // 変わっていれば別のランの承認を迂回した書き込みで、どの段からやり直しても本文は戻らない（reset は W の本文を残す）。
 const FIXED_FLAG = FIXED_KEYS.length ? ` --fixed ${FIXED_KEYS.join(',')}` : ''
 function fixedMoved(audited, label) {
   if (!FIXED_KEYS.length) return null
-  const got = audited.fixed_sha256
-  if (!got || typeof got !== 'object') return { error: `監査役が ${label} の snapshot の fixed_sha256（固定の文書 ${list(FIXED_KEYS)} の sha256）を返しませんでした`, rerun: true }
-  const moved = FIXED_KEYS.filter((k) => got[k] !== state.fixed_sha[k])
-  if (!moved.length) return null
-  noteIntegrity(`固定の文書 ${moved.join(', ')} の本文か meta が、段 1 の入口から変わった（${label} の snapshot で照合）`)
-  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
+  const got = audited.fixed_digest
+  if (typeof got !== 'string' || !got) return { error: `監査役が ${label} の snapshot の fixed_digest（固定の文書 ${list(FIXED_KEYS)} の digest）を返しませんでした`, rerun: true }
+  if (got === state.fixed_digest) return null
+  noteIntegrity(`固定の文書（${list(FIXED_KEYS)}）のどれかの本文か meta が、段 1 の入口から変わった（${label} の snapshot で照合）`)
+  return { error: `固定の文書（${list(FIXED_KEYS)}）のどれかが段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
 }
 
 async function stage1() {
@@ -2771,22 +2788,14 @@ function formalDone(n, fa) {
   return { round: n, attempt: fa, report: `${W}/checks/formal-r${n}-a${fa}.json`, unconfirmed: Object.values(byItem), redefined, dropped }
 }
 
-// formalDirsOf: 文書のファイルとモデルの置き場は doc_check doc の stdout から取る（名前の決め方を script に写すと、片方だけ変わる）。
-function formalDirsOf(docCheck) {
-  const fd = docCheck && docCheck.formal_dirs
-  const docs = auditDocs()
-  if (!isMap(fd) || !docs.every((k) => isMap(fd[k]) && typeof fd[k].doc === 'string' && typeof fd[k].dir === 'string')) {
-    throw Object.assign(new Error(`doc_check doc の stdout に文書 ${docs.join(', ')} の formal_dirs がありません`), { rerunStage: true })
-  }
-  return fd
-}
+// placesOf: 文書のファイルとモデルの置き場は、agent が doc_check formal-dirs を自分で実行して読む（名前の決め方を script に写すと片方だけ変わり、
+// 写す stdout に載せると文書の数で伸びた写しを落として run が止まる）。
+const placesOf = () => `文書とモデルの置き場: \`${cli('formal-dirs', auditDocs().map((k) => `--doc ${k}`).join(' '))}\` の stdout の dirs（文書のキー → doc は文書のファイル、dir はモデルの置き場。どちらも ${W}/ からの相対パス）`
 
-const placesOf = (dirs) => `文書とモデルの置き場: ${auditDocs().map((k) => `${W}/${dirs[k].doc} → ${W}/${dirs[k].dir}/`).join('、')}`
-
-function formalModelerPrompt(stage, label, prior, dirs) {
+function formalModelerPrompt(stage, label, prior) {
   return [
     header('formalModeler', stage, label),
-    placesOf(dirs),
+    placesOf(),
     prior.revision ? `改稿の後の版である。変わった項目: ${W}/checks/diff-audited-${prior.revision.n}.json の by_doc。前の検査の結果: ${W}/checks/formal-r${prior.revision.n}-a${prior.revision.fa}.json` : '',
     prior.defect ? `直前の検査でモデルの欠陥が出た: ${prior.defect.text}。${W}/${prior.defect.path} の defects と、反例が導けないとした指摘の反例を読んで直す。` : '',
   ]
@@ -2794,16 +2803,16 @@ function formalModelerPrompt(stage, label, prior, dirs) {
     .join('\n\n')
 }
 
-function formalTracePrompt(stage, label, fc, dirs) {
+function formalTracePrompt(stage, label, fc) {
   return [
     header('formalTraceCheck', stage, label),
-    placesOf(dirs),
+    placesOf(),
     `照合する違反: ${list(fc.findings.map((f) => f.id))}（${W}/findings/ の <ID の末尾の -NNN を除いた名前>.json）。検査の記録: ${W}/${fc.path}`,
   ].join('\n\n')
 }
 
 // touched は段 8 の diff で writer が変えた項目（文書ごと）。
-async function formalRound(stage, round, phaseTitle, expectDigest, dirs, touched = {}) {
+async function formalRound(stage, round, phaseTitle, expectDigest, touched = {}) {
   const docs = auditDocs()
   const inRound = (t) => docs.includes(t.split(':')[0])
   // 巡が変わったときだけ、前の巡の試行の違反を確定させる。同じ巡のやり直し（next_args）で確定させると、止まった試行の違反が改稿した
@@ -2827,7 +2836,7 @@ async function formalRound(stage, round, phaseTitle, expectDigest, dirs, touched
   let attempt = null
   const step = async (n, defect) => {
     const l = reworkLabel(`formal-modeler:r${round}`, n)
-    const m = await once(l, 'formalModeler', formalModelerPrompt(stage, l, { ...revision, defect }, dirs), FORMAL_MODELER_SCHEMA, phaseTitle)
+    const m = await once(l, 'formalModeler', formalModelerPrompt(stage, l, { ...revision, defect }), FORMAL_MODELER_SCHEMA, phaseTitle)
     if (m.skill !== 'used') return { stop: `${l} が formal-methods スキルを呼べませんでした（${m.note || '理由の申告なし'}）` }
     const cl = reworkLabel(`flow-check:r${round}-formal`, n)
     const cmd = cmdOf()
@@ -2845,7 +2854,7 @@ async function formalRound(stage, round, phaseTitle, expectDigest, dirs, touched
     if (fc.defects > 0 || !fc.findings.length) return { fc, underivable: [] }
     // 照合はモデルを書かない別の役が返す（書いた役に照合させると、自分の違反を「導けない」として消せる）。判定は agent の申告で、機械の確かめではない。
     const tl = reworkLabel(`formal-trace-check:r${round}`, n)
-    const t = await once(tl, 'formalTraceCheck', formalTracePrompt(stage, tl, fc, dirs), FORMAL_TRACE_SCHEMA, phaseTitle)
+    const t = await once(tl, 'formalTraceCheck', formalTracePrompt(stage, tl, fc), FORMAL_TRACE_SCHEMA, phaseTitle)
     const ids = fc.findings.map((f) => f.id)
     const got = t.traces.map((x) => x.finding)
     if (got.length !== ids.length || !ids.every((id) => got.includes(id))) throw Object.assign(new Error(`${tl} が形式検査の指摘 ${list(ids)} の照合を 1 件ずつ返しませんでした（返ったもの: ${list(got)}）`), { rerunStage: true })
@@ -2909,8 +2918,9 @@ async function stage5() {
   const cd = results[results.length - 1]
   if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
   const audited = parseStdout(cd.designated && cd.designated.audited)
-  const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
+  const docCheck = docCheckOf(cd.designated && cd.designated.doc_check)
   if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
+  if (!docCheck) return blocked(`cross-doc が doc_check doc の stdout を返しませんでした。文書の構造検査の件数が分からないまま進めません`, '5')
   const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
   state.audit = { n: round, digest: audited.digest }
@@ -2918,7 +2928,7 @@ async function stage5() {
   noteAudited(audited, base)
   const findings = recordFindings(plan, results)
   // 監査役が全員返った後に起動する（cross-doc の snapshot --sweep が modeler の作業用ディレクトリを消さないため）。
-  const fm = await formalRound('5', round, 'Audit', audited.digest, formalDirsOf(docCheck))
+  const fm = await formalRound('5', round, 'Audit', audited.digest)
   if (fm.error) return formalStop(fm, '5')
   // audit.fm・fa: 監査の版の形式検査の違反の件数と試行。段 9 が読み、next_args に載るので段 9 から再開した run でも効く。
   state.audit = { ...state.audit, fm: fm.fc.findings.length, fa: fm.fc.attempt }
@@ -2933,7 +2943,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const recurring = opt.recurring || {}
   const kept = [...findings, ...carried].filter((f) => f && !drop.has(f.id))
   const all = toDecision(kept, [...(opt.reversed || []), ...kept.filter((f) => recurring[itemKey(f)]).map((f) => f.id)])
-  const refs = (docCheck && docCheck.flow_refs) || {}
+  const refs = docCheck.flow_refs
   // decision の指摘の項目も持つ: 段 6 の指された根拠（pointedGrounds）が、項目の trace が指す要素の検証の裁定を引く。
   const flow = {}
   for (const f of all.filter((x) => (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {
@@ -2948,7 +2958,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
   state.pending = {
     findings: packed,
     flow,
-    doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,
+    doc_blocking: docCheck.blocking,
     carried: uniq(carried.filter((f) => f && f.blocking && !drop.has(f.id)).map((f) => f.id)),
     recurring,
     again: (opt.again || []).map((x) => ({ id: x.id, doc: x.doc, item_id: x.item_id, direction: x.direction, rulings: x.rulings })),
@@ -3089,10 +3099,13 @@ async function stage8() {
   ].join('\n')
   plan[0].designatedText = designatedText
   const designatedOf = (h) => (h.results[0] && h.results[0].designated) || {}
-  const readDesignated = (d) => ({ audited: parseStdout(d.audited), tree: parseStdout(d.tree_digest) })
+  const readDesignated = (d) => {
+    const tree = parseStdout(d.tree_digest)
+    return { audited: parseStdout(d.audited), tree: tree && tree[STDOUT_MODE] === 'tree-digest' ? tree : null, docCheck: docCheckOf(d.doc_check) }
+  }
   const usable = (d) => {
-    const { audited, tree } = readDesignated(d)
-    return !d.diff_error && d.diff && audited && audited.digest && tree && tree.digest
+    const { audited, tree, docCheck } = readDesignated(d)
+    return !d.diff_error && d.diff && audited && audited.digest && tree && tree.digest && docCheck
   }
   // 追加の監査役は指名された監査役の diff だけで決まるので、plan 全体を待たずにその返り値に連ねて起動する。起動はその返り値の後
   // （指名された監査役の snapshot の後）なので、snapshot の --live に挙げなくても stray に出ない。
@@ -3108,7 +3121,7 @@ async function stage8() {
     // 基準の diff が使えない監査は後で blocked になるので、検査しない（その理由が止まり方の理由になる）。
     if (!h.results[0] || !usable(designatedOf(h))) return null
     const d = designatedOf(h)
-    return formalRound('8', round, 'Revise', parseStdout(d.tree_digest).digest, formalDirsOf(parseStdout(d.doc_check)), undeclaredByDoc(d.diff, {}, auditDocs()))
+    return formalRound('8', round, 'Revise', parseStdout(d.tree_digest).digest, undeclaredByDoc(d.diff, {}, auditDocs()))
   })
   const extraRun = copied.then(async (h) => {
     const d = designatedOf(h)
@@ -3134,8 +3147,8 @@ async function stage8() {
   const d = designatedOf(first)
   if (d.diff_error) return blocked(`監査の基準 audited-${n} の digest が一致しません。基準が差し替わっているので、この監査が何と比べたのか分かりません: ${d.diff_error}`, null)
   if (!d.diff) return blocked('指名された監査役が diff の結果を返しませんでした', '8')
-  const { audited, tree } = readDesignated(d)
-  if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
+  const { audited, tree, docCheck } = readDesignated(d)
+  if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest か doc の stdout を返しませんでした${snapshotFault(d)}`, '8')
   const moved = fixedMoved(audited, `audited-${round}`)
   if (moved) return blocked(moved.error, moved.rerun ? '8' : null)
   if (fm.error) return formalStop(fm, '8')
@@ -3150,7 +3163,6 @@ async function stage8() {
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
   const findings = [...recordFindings(allPlan, allResults), ...fm.fc.findings]
-  const docCheck = parseStdout(d.doc_check)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
   const prev = pendingView(state.pending, state.item_routes)
   // 形式検査は毎回全文書を検査し直すので、前の検査の指摘（replaces）は持ち越さない（まだ破れていれば今の検査が新しい ID で出す。持ち越すと二重に数える）。

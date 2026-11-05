@@ -672,10 +672,19 @@ class ToolFaults(FormalCase):
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn("--budget-ms", r.stderr)
 
-    def test_doc_stdout_names_the_model_dir(self):
+    def test_formal_dirs_names_the_doc_and_model_dir(self):
+        r = subprocess.run([NODE, str(DOC_CHECK), "formal-dirs", "--workspace", str(self.ws), "--doc", "specifications/x"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(body(r.stdout)["dirs"], {"specifications/x": {"doc": "specifications-x.md", "dir": "formal/specifications-x"}})
+        for bad in ((), ("--doc", "specifications/nope")):
+            with self.subTest(bad=bad):
+                r = subprocess.run([NODE, str(DOC_CHECK), "formal-dirs", "--workspace", str(self.ws), *bad], capture_output=True, text=True)
+                self.assertNotEqual(r.returncode, 0)
+
+    def test_doc_stdout_has_no_model_dir(self):
         r = subprocess.run([NODE, str(DOC_CHECK), "doc", "--workspace", str(self.ws)], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(body(r.stdout)["formal_dirs"], {"specifications/x": {"doc": "specifications-x.md", "dir": "formal/specifications-x"}})
+        self.assertNotIn("formal_dirs", body(r.stdout))
 
     def test_digest_matches_copy_and_detects_change(self):
         copy = Path(tempfile.mkdtemp(prefix="prd-formal-copy-")) / "x"

@@ -1256,6 +1256,9 @@ function canonicalJson(value) {
 // canonicalText・fnv で計算し直し、合わない写し（壊れた JSON・要素の欠けた一覧）を受け取らない。canonicalText・fnv・STDOUT_FNV は
 // prd-spec.js と同じ（tests が照合する）。
 const STDOUT_FNV = 'stdout_fnv'
+// STDOUT_MODE: stdout を出したモード。digest に含めるので、写しを別のコマンドの欄に入れ違えると script が見分けられる（どの stdout にも digest があり、
+// 形だけでは doc と tree-digest を取り違えても通る）。
+const STDOUT_MODE = 'stdout_mode'
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -1268,9 +1271,9 @@ function fnv(text) {
   return h.toString(16).padStart(8, '0')
 }
 
-function stampStdout(value) {
+function stampStdout(value, mode) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value
-  const body = JSON.parse(JSON.stringify(value))
+  const body = { ...JSON.parse(JSON.stringify(value)), ...(mode ? { [STDOUT_MODE]: mode } : {}) }
   return { ...body, [STDOUT_FNV]: fnv(canonicalText(body)) }
 }
 
@@ -1661,7 +1664,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-check', 'formal-digest', 'formal-tools']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-check', 'formal-dirs', 'formal-digest', 'formal-tools']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -2195,9 +2198,11 @@ function wsRestore(ws, opts) {
 // 回答を読まず、新しいランは RS- を 1 から振り直すので、残った回答の ID は別の問いを指す。--keep に無い文書も消す: 前のランの writer の
 // 文書が meta なしで残ると、index に載り、同じ topic の単位の writer に前の草稿が渡る。固定の文書の meta は S0 の依頼の写し
 // （existing_docs の fixed）なので、消した後に --fixed から書き直す。所有表に無いファイルと tmp/ は触らない（snapshot の stray に出る）。
-// fixedShas: 固定の文書（existing_docs の fixed）の本文と meta のバイトの sha256。reset が段 1 の入口の値を返し、監査の snapshot が同じ値を
-// 返して script が照合する。固定の文書は所有表の誰の書き込みでもないので、変わっていれば承認を迂回した書き込みである。meta も数えるのは、
-// fixed の印を外すと doc の検査がその文書を書き換えてよい文書として扱うから。
+// fixedDigest: 固定の文書（existing_docs の fixed）の本文と meta のバイトの sha256 を 1 つにした digest。reset が段 1 の入口の値を返し、監査の
+// snapshot が同じ値を返して script が照合する。固定の文書は所有表の誰の書き込みでもないので、変わっていれば承認を迂回した書き込みである。
+// meta も数えるのは、fixed の印を外すと doc の検査がその文書を書き換えてよい文書として扱うから。文書ごとの sha256 を stdout に出さないのは、
+// script は等しいかだけを見るのに、写す stdout が固定の文書の数で伸びて写し損ねで run が止まるから。
+const fixedDigest = (ws, keys) => digestOf(fixedShas(ws, keys))
 function fixedShas(ws, keys) {
   return Object.fromEntries(
     [...new Set(keys || [])].sort().map((key) => {
@@ -2238,7 +2243,8 @@ function wsReset(ws, opts) {
     writeAtomic([path.join(ws, ledgerOf('meta').file(key)), ledgerText(meta)])
   }
   const carriedIds = Object.fromEntries(Object.entries(carried).map(([key, tbd]) => [key, tbd.map((t) => t.id).sort()]))
-  return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed) }
+  // keys_fnv: 残した文書と固定の文書の組。script は自分が渡した引数と等しいかだけを見るので、一覧を写させない（写す stdout が文書の数で伸びる）。
+  return { reset: true, removed, keys_fnv: fnv(canonicalText({ kept: keep, fixed })), carried_tbd: carriedIds, fixed_digest: fixedDigest(ws, fixed) }
 }
 
 // place: S0 が既存文書を W に置く。文書と、その隣の開いている TBD の写しを 1 回でまとめて逐語で写す（写しを別の手順にすると置き忘れが起き、
@@ -2628,7 +2634,7 @@ function wsSha(ws, opts) {
 
 // STDOUT_BUDGET: CLI の 1 行の stdout の上限（バイト）。agent は stdout を返り値に写すので、超えると以後の全ターンに載る。
 const STDOUT_BUDGET = 50000
-const stdoutBytes = (value) => Buffer.byteLength(`${JSON.stringify(stampStdout(value))}\n`)
+const stdoutBytes = (value, mode) => Buffer.byteLength(`${JSON.stringify(stampStdout(value, mode))}\n`)
 
 // fieldPicker: --fields の欄だけを残す（キーは常に残す）。欄は台帳の型から選ばせ、打ち間違いを空の結果にしない。
 function fieldPicker(name, fields) {
@@ -2673,7 +2679,7 @@ function wsGet(ws, opts) {
   const out = { ledger: name, path: file, exists: value !== null, sha256: ledgerSha(ws, name, opts.doc[0]), ...Object.fromEntries(Object.keys(spec.lists).map((k) => [k, []])), missing: [], over_budget: [] }
   out.missing = hits.filter((h) => !h.rows.length).map((h) => h.id)
   const found = hits.filter((h) => h.rows.length)
-  let room = STDOUT_BUDGET - stdoutBytes({ ...out, over_budget: found.map((h) => h.id) })
+  let room = STDOUT_BUDGET - stdoutBytes({ ...out, over_budget: found.map((h) => h.id) }, 'get')
   if (room < 0) throw new Error(`get の --ids ${ids.length} 件は、ID の一覧（missing・over_budget）だけで stdout の上限 ${STDOUT_BUDGET} バイトを超える。ID を分けて読み直す`)
   for (const h of found) {
     const size = h.rows.reduce((n, [, el]) => n + Buffer.byteLength(JSON.stringify(el)) + 1, 0)
@@ -3793,8 +3799,9 @@ function wsDoc(ws, opts) {
   const counted = expanded.findings.filter((f) => !fixedKeys.has(f.document) || f.id.startsWith('ST-ORPHAN-REQ-'))
   const degraded = counted.filter((f) => f.severity === 'degraded').length
   // flow_refs: 項目 → trace が指す flow 要素。prd-spec.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
+  // 固定の文書は除く（reset が flow を消すので、その trace はこの run の flow を指さない。載せると写す stdout が固定の文書の数で伸びる）。
   const flowRefs = {}
-  for (const d of docs.filter((x) => selected.includes(x.key))) {
+  for (const d of docs.filter((x) => selected.includes(x.key) && !x.fixed)) {
     for (const { item_id: item, ref } of d.flow_refs) {
       const byItem = (flowRefs[d.key] ||= {})
       byItem[item] = [...new Set([...(byItem[item] || []), ref])].sort()
@@ -3810,9 +3817,6 @@ function wsDoc(ws, opts) {
     digest,
     tree_digest: tree,
     flow_refs: flowRefs,
-    // formal_dirs: 文書 → W の中の文書のファイルと形式モデルの置き場。名前の決め方を知るのはこの script だけにする（prd-spec.js に写すと
-    // 片方だけ変わる）。
-    formal_dirs: Object.fromEntries(docs.filter((x) => selected.includes(x.key)).map((x) => [x.key, { doc: docFileOf(x.key), dir: `${FORMAL_DIR}/${formalDirOf(x.key)}` }])),
     ...(opts.lint ? lintResult(ws, name.replace(/\.json$/, '.lint.json'), docLintCompact(docs.filter((d) => selected.includes(d.key) && !d.fixed))) : {}),
   }
 }
@@ -3996,7 +4000,7 @@ function wsSnapshot(ws, opts) {
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
   const rel = writeCheck(ws, `${label}.snapshot.json`, { label, digest, docs })
-  const fixed = opts.fixed ? { fixed_sha256: fixedShas(ws, opts.fixed) } : {}
+  const fixed = opts.fixed ? { fixed_digest: fixedDigest(ws, opts.fixed) } : {}
   return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, ...found, ...fixed }
 }
 
@@ -5041,6 +5045,15 @@ function parseFormalArg(text) {
   return f
 }
 
+// formal-dirs: 文書のファイルと形式モデルの置き場（W からの相対）。formal-modeler・formal-trace-check が自分で実行して読む。名前の決め方は
+// formalDirOf だけが持ち、prd-spec.js は文書のキーを渡すだけにする（script に写すと片方だけ変わる。agent が写す stdout に載せると、文書の数で
+// 伸びた写しを落として run が止まる）。
+function wsFormalDirs(ws, opts) {
+  if (!opts.doc.length) throw new Error('formal-dirs には --doc <文書のキー> が 1 つ以上要ります')
+  selectDocs(workspaceDocs(ws).map((d) => d.key), opts.doc)
+  return { dirs: Object.fromEntries([...new Set(opts.doc)].map((k) => [k, { doc: docFileOf(k), dir: `${FORMAL_DIR}/${formalDirOf(k)}` }])) }
+}
+
 function wsFormalDigest(opts) {
   if (!opts.dir || !path.isAbsolute(opts.dir)) throw new Error('formal-digest には --dir <形式検証のディレクトリの絶対パス> が要ります')
   if (!fs.existsSync(opts.dir) || !fs.statSync(opts.dir).isDirectory()) throw new Error(`ディレクトリではありません: ${opts.dir}`)
@@ -5127,6 +5140,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
   if (mode === 'formal-check') return wsFormalCheck(ws, opts)
+  if (mode === 'formal-dirs') return wsFormalDirs(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -5145,7 +5159,7 @@ if (invokedDirectly && WS_MODES.includes(process.argv[2])) {
   const mode = process.argv[2]
   try {
     const out = runWorkspace(mode, process.argv.slice(3))
-    process.stdout.write(typeof out === 'string' ? out : `${JSON.stringify(stampStdout(out))}\n`)
+    process.stdout.write(typeof out === 'string' ? out : `${JSON.stringify(stampStdout(out, mode))}\n`)
   } catch (e) {
     process.stderr.write(`doc_check ${mode}: ${e && e.message ? e.message : e}\n`)
     process.exit(e instanceof DigestMismatch ? 3 : 1)
@@ -5188,6 +5202,7 @@ export {
   canonicalText,
   fnv,
   STDOUT_FNV,
+  STDOUT_MODE,
   stampStdout,
   rulingsCompact,
   runChecks,

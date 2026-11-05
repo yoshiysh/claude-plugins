@@ -71,7 +71,7 @@ const H = (x) => (spec.long_digests ? String(x).padEnd(64, '0') : x)
 // spec.world があれば run をまたいで W のように残り、無ければ state から始める（state に載った ID は検証済みとして、about と ruling も state のとおりに置く）。
 const fs = await import('node:fs')
 // stampStdout: doc_check の CLI が stdout に付ける digest（stub の doc_check の stdout にも実物と同じ欄を付ける）。
-const { stampStdout, rulingsCompact } = await import(spec.doc_check_url)
+const { stampStdout, rulingsCompact, fnv, canonicalText } = await import(spec.doc_check_url)
 const saved = spec.world && fs.existsSync(spec.world) ? JSON.parse(fs.readFileSync(spec.world, 'utf8')) : null
 const st0 = spec.args.state || {}
 const aboutOf = (key) => {
@@ -131,8 +131,8 @@ const restoreTx = (token) => {
   persist()
   return JSON.stringify({ token, restored: Object.keys(pre || {}).length, files: [], pruned_by: [], flow_before: String(before), flow_after: String(flowSha) })
 }
-// fixedShas: doc_check の固定の文書の sha256。fixed_moved_at: { <監査の段 r<n>>: [文書キー] } の文書だけ、その段から後の値を変える。
-const fixedShas = (keys, stage) => Object.fromEntries(keys.map((k) => [k, H(`fixed-${k}${stage && Object.entries(spec.fixed_moved_at || {}).some(([s, ks]) => Number(stage.slice(1)) >= Number(s.slice(1)) && ks.includes(k)) ? '-moved' : ''}`)]))
+// fixedDigest: doc_check の固定の文書の digest。fixed_moved_at: { <監査の段 r<n>>: [文書キー] } の文書だけ、その段から後の値を変える。
+const fixedDigest = (keys, stage) => H(JSON.stringify(keys.map((k) => `fixed-${k}${stage && Object.entries(spec.fixed_moved_at || {}).some(([s, ks]) => Number(stage.slice(1)) >= Number(s.slice(1)) && ks.includes(k)) ? '-moved' : ''}`)))
 // reset: doc_check reset と同じく、S0 が書いたもののほか（台帳・控え）を消す。
 const resetWorld = (keep, fixed) => {
   const removed = ['flow', 'els', 'verdicts', 'rs', 'open_ids', 'tx'].filter((k) => disk[k] !== undefined && disk[k] !== null)
@@ -151,7 +151,8 @@ const resetWorld = (keep, fixed) => {
   persist()
   const keys = (x) => (x ? x.split(',').sort() : [])
   const fixedKeys = spec.reset_fixed || keys(fixed)
-  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: fixedKeys, carried_tbd: spec.carried_tbd || {}, ...(spec.reset_no_fixed_sha ? {} : { fixed_sha256: fixedShas(fixedKeys, null) }) })
+  const keysFnv = fnv(canonicalText({ kept: spec.reset_kept || keys(keep), fixed: fixedKeys }))
+  return JSON.stringify({ reset: true, removed, keys_fnv: keysFnv, carried_tbd: spec.carried_tbd || {}, ...(spec.reset_no_fixed_digest ? {} : { fixed_digest: fixedDigest(fixedKeys, null) }) })
 }
 const setFlow = (x) => {
   touch('flow')
@@ -263,7 +264,6 @@ const about = (id) => (spec.about || {})[id] || { open: `O-${id}` }
 if (!saved && st0.flow_digest) disk.open_ids = framerOpens()
 const TX_ROLES = ['intake', 'flow-framer', 'resolver', 'verifier', 'writer']
 // planCovers: doc_check plan の stdout の covers。既定では仕様文書 specifications/<t> が同じ topic の requirements/<t> を実現する。
-const uniqKeys = (xs) => [...new Set(xs)]
 const planCovers = () => spec.covers || Object.fromEntries((spec.units || []).flatMap((u) => u.docs).filter((k) => k.startsWith('specifications/')).map((k) => [k, [`requirements/${k.split('/')[1]}`]]))
 
 function respond(prompt, label) {
@@ -512,10 +512,9 @@ function respond(prompt, label) {
         size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json`, files: listed((spec.size_over_at || {})[stage] || 0, 'size') },
         swept: { count: (spec.swept_at || {})[stage] || 0, path: `checks/audited-${n}.swept.json` },
       }
-      const docKeys = uniqKeys([...(spec.units || [{ docs: ['requirements/x'] }]), ...(((spec.args || {}).state || {}).units || [])].flatMap((u) => u.docs))
-      const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {}, formal_dirs: Object.fromEntries(docKeys.map((k) => [k, { doc: `${k.replace('/', '-')}.md`, dir: `formal/${k.replace('/', '-')}` }])) })
+      const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {} })
       const fixedFlag = /doc_check\.mjs snapshot [^`]* --fixed (\S+?)`/.exec(prompt)
-      if (fixedFlag) found.fixed_sha256 = fixedShas(fixedFlag[1].split(','), stage)
+      if (fixedFlag) found.fixed_digest = fixedDigest(fixedFlag[1].split(','), stage)
       // 実物の snapshot と tree-digest は同じ木に同じ digest を返す。stub は別の値にしているので、段 5（tree-digest を持たない）は snapshot の版を使う。
       lastTree = n === 1 || !/doc_check\.mjs tree-digest/.test(prompt) ? `a${n}` : `t${n}`
       if (n === 1) out.designated = { doc_check: docCheck, audited: JSON.stringify({ digest: H('a1'), ...found }) }
@@ -549,6 +548,7 @@ const prompts = []
 let auditSchema = null
 const optsSeen = {}
 let resolverSchema = null
+let recopySchema = null
 let attempted = 0
 // stubErrors: stub の契約違反（知らない label・model / effort の無い呼び出し・meta.phases に無い phase）。script は agent() の例外を
 // blocked に変えるので、ここに積んで run() が落とす（blocked の結果だけを見ると、違反が「止まるべき所で止まった」に化ける）。
@@ -594,6 +594,7 @@ const stubAgent = async (prompt, opts) => {
   if (spec.hold_until_extra === opts.label) heldTimeout = await Promise.race([extraStarted.then(() => false), new Promise((r) => setTimeout(() => r(true), 1500))])
   if (['implementer', 'grounding', 'crossDoc'].includes(opts.label.split(':')[0])) auditSchema = opts.schema
   if (opts.label.startsWith('resolver:')) resolverSchema = opts.schema
+  if (opts.label.endsWith('-recopy')) recopySchema = opts.schema
   // tamper_before: その label の agent が動く前に、所有表の外の誰かが flow.json を書き換えたことにする。
   if ((spec.tamper_before || {})[opts.label] !== undefined) {
     flowSha = H(spec.tamper_before[opts.label])
@@ -613,33 +614,38 @@ const stubAgent = async (prompt, opts) => {
 }
 // STDOUT_KEYS: 返り値のうち doc_check の stdout を写す欄（designated の中も）。truth は最後に返した写す前の stdout で、取り直し（-recopy）は
 // 同じ W で同じコマンドを実行し直すので、それをそのまま返す（取り直しの間に W を書く役はいない）。
-const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'stash_check', 'unstash_check', 'doc_check', 'audited', 'tree_digest', 'formal_check']
+// 欄 → その stdout を出す doc_check のモード（実物の CLI が stdout に付ける）。
+const STDOUT_MODES = { flow_check: 'flow', conflicts_check: 'conflicts', plan_check: 'plan', questions_check: 'questions', answers_check: 'answers', restore_check: 'restore', reset_check: 'reset', backup_check: 'backup', stash_check: 'stash', unstash_check: 'unstash', doc_check: 'doc', audited: 'snapshot', tree_digest: 'tree-digest', formal_check: 'formal-check' }
+const STDOUT_KEYS = Object.keys(STDOUT_MODES)
 const truth = {}
-const stampText = (text) => {
+const stampText = (text, key) => {
   const line = typeof text === 'string' && text.trim().startsWith('{') ? JSON.parse(text) : null
-  return line && !Array.isArray(line) ? JSON.stringify(stampStdout(line)) : text
+  return line && !Array.isArray(line) ? JSON.stringify(stampStdout(line, STDOUT_MODES[key])) : text
 }
 const stamped = (out) => {
   for (const o of [out, out && out.designated]) {
     if (!o || typeof o !== 'object') continue
-    for (const k of STDOUT_KEYS) if (k in o) truth[k] = o[k] = stampText(o[k])
+    for (const k of STDOUT_KEYS) if (k in o) truth[k] = o[k] = stampText(o[k], k)
   }
   return out
 }
-const recopied = (prompt) => Object.fromEntries([...prompt.matchAll(/stdout を加工せずに (\w+) に入れる/g)].map(([, k]) => {
+const recopied = (prompt) => ({ stdouts: [...prompt.matchAll(/stdout を加工せずに stdouts の (\d+) 番目に入れる（(\w+)）/g)].map(([, n, k], i) => {
+  if (Number(n) !== i + 1) throw new Error(`取り直しの ${k} の順番が ${n} です`)
   if (!(k in truth)) throw new Error(`取り直しの ${k} を返した呼び出しがありません`)
-  return [k, truth[k]]
-}))
-// corrupt: { <label>: { <欄>: 写し損ね } }。写し損ねは { literal: 返す文字列 }（壊れた JSON など）か { drop: <一覧の欄> }（一覧の先頭の要素を
+  return truth[k]
+}) })
+// corrupt: { <label>: { <欄>: 写し損ね } }。取り直し（-recopy）の欄は stdouts の何番目か（"stdouts.0"）で書く。{ reverse: true } は一覧の順番を逆にする。写し損ねは { literal: 返す文字列 }（壊れた JSON など）か { drop: <一覧の欄> }（一覧の先頭の要素を
 // 落とした、JSON としては正しい写し。digest は元のまま）。落とす要素の無い一覧は写し損ねにならないので止める。
 const corrupt = (label, got) => {
   const how = (spec.corrupt || {})[label]
   if (!how || !got) return got
   const out = JSON.parse(JSON.stringify(got))
-  for (const [k, c] of Object.entries(how)) {
-    const holder = k in out ? out : out.designated
+  for (const [name, c] of Object.entries(how)) {
+    const at = /^stdouts\.(\d+)$/.exec(name)
+    const [holder, k] = at ? [out.stdouts, Number(at[1])] : [name in out ? out : out.designated, name]
     if (!holder || !(k in holder)) throw new Error(`${label}: 写し損ねにする ${k} を返していません`)
     if (c.literal !== undefined) holder[k] = c.literal
+    else if (c.reverse) holder[k] = [...holder[k]].reverse()
     else {
       const o = JSON.parse(holder[k])
       if (!Array.isArray(o[c.drop]) || !o[c.drop].length) throw new Error(`${label}: ${k} の ${c.drop} に落とす要素がありません`)
@@ -662,7 +668,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: { ...onDisk(false), resolutions: rulingRowsOnDisk() }, writerDisk, docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, recopySchema, disk: { ...onDisk(false), resolutions: rulingRowsOnDisk() }, writerDisk, docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
 """
 
 
@@ -1513,7 +1519,7 @@ class Stages(unittest.TestCase):
                 r = run({**self._expand(), **extra, "fixed_moved_at": {at: ["requirements/x"]}})
                 res = r["result"]
                 self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
-                self.assertIn("固定の文書 requirements/x が段 1 の入口から変わりました", res["reason"])
+                self.assertIn("固定の文書（requirements/x）のどれかが段 1 の入口から変わりました", res["reason"])
                 self.assertTrue(any(f"--save audited-{at[1:]} --role auditor" in p["prompt"] and "--fixed requirements/x`" in p["prompt"] for p in r["prompts"]))
                 self.assertTrue(any(f"audited-{at[1:]} の snapshot で照合" in line for line in res["integrity"]), res["integrity"])
         self.assertEqual(run(self._expand())["result"]["status"], "done")
@@ -1566,15 +1572,18 @@ class Stages(unittest.TestCase):
                 res = run({"args": a, "units": units, "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
                 self.assertEqual((res["status"], res["gate"]), ("needs_answers", "g1"), res.get("reason"))
 
-    def test_固定の文書のsha256を返さないresetと基準の無い再開は止める(self):
-        r = run({**self._expand(), "reset_no_fixed_sha": True})
+    def test_固定の文書のdigestを返さないresetと基準の無い再開は止める(self):
+        r = run({**self._expand(), "reset_no_fixed_digest": True})
         self.assertFalse(has(r["labels"], "intake"), r["labels"])
         self.assertEqual(r["result"]["next_args"]["from"], "1")
-        a = {**self._expand()["args"], "from": "4", "state": {"units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}], "flow_digest": "f"}}
-        a = args(**{k: v for k, v in a.items() if k not in ("state_hash",)})
-        r = run({"args": a})
-        self.assertIn("args.state.fixed_sha", r["error"] or "")
-        self.assertEqual(r["attempted"], 0)
+        base = {"units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}], "flow_digest": "f"}
+        for name, fixed in (("基準が無い", {}), ("固定の文書の組が existing_docs と違う", {"fixed_keys": ["requirements/other"], "fixed_digest": "d"})):
+            with self.subTest(name):
+                a = {**self._expand()["args"], "from": "4", "state": {**base, **fixed}}
+                a = args(**{k: v for k, v in a.items() if k not in ("state_hash",)})
+                r = run({"args": a})
+                self.assertIn("args.state.fixed_keys・fixed_digest", r["error"] or "")
+                self.assertEqual(r["attempted"], 0)
 
     def test_段1の入口はexisting_docsの文書を残させ固定の文書のmetaをresetに書き直させる(self):
         a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "requirements/a", "fixed": True}, {"key": "specifications/x", "fixed": False}])
@@ -1819,7 +1828,16 @@ class Transcription(unittest.TestCase):
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         i = r["labels"].index("flow-check:3a")
         self.assertEqual(r["labels"][i + 1], "flow-check:3a-recopy")
-        self.assertIn("doc_check.mjs flow --workspace /tmp/prd-w --rulings`。stdout を加工せずに flow_check に入れる。", nth_prompt(r, "flow-check:3a-recopy", 0))
+        self.assertIn("doc_check.mjs flow --workspace /tmp/prd-w --rulings`。stdout を加工せずに stdouts の 1 番目に入れる（flow_check）。", nth_prompt(r, "flow-check:3a-recopy", 0))
+
+    def test_取り直しはstdoutsの順番で返させ欄の名前を写させない(self):
+        # 試走 wf_d3c7a067-468: 取り直しは stdout を逐語で写したのに、指示と違う欄の名前に入れて受け取られなかった。
+        r = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual((set(r["recopySchema"]["properties"]), r["recopySchema"]["required"]), ({"stdouts"}, ["stdouts"]))
+        bad = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}, "flow-check:3a-recopy": {"stdouts": {"literal": "not a list"}}})
+        self.assertEqual(bad["result"]["status"], "blocked")
+        self.assertIn("checksum", bad["result"]["reason"])
 
     def test_open_idsを1件落とした正しいJSONの写しはdigestで見つけて取り直す(self):
         r = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}})
@@ -1827,7 +1845,7 @@ class Transcription(unittest.TestCase):
         self.assertIn("flow-check:3a-recopy", r["labels"], "形の検査だけでは要素を落とした写しが通る")
 
     def test_取り直しも合わなければchecksumの理由とnext_argsで止まり同じ段から続けられる(self):
-        r = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}, "flow-check:3a-recopy": {"flow_check": bad_literal('{"findings": 0 "codes": {}}')}})
+        r = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}, "flow-check:3a-recopy": {"stdouts.0": bad_literal('{"findings": 0 "codes": {}}')}})
         res = r["result"]
         self.assertEqual(res["status"], "blocked")
         self.assertIn("checksum", res["reason"])
@@ -1855,7 +1873,7 @@ class Transcription(unittest.TestCase):
                 again = f"flow-check:{label.replace(':', '-')}-recopy"
                 self.assertEqual(r["labels"].count(label), 1, "判断する役は起動し直さない")
                 self.assertIn(cmd, nth_prompt(r, again, 0))
-                self.assertIn(f"stdout を加工せずに {key} に入れる。", nth_prompt(r, again, 0))
+                self.assertIn(f"stdout を加工せずに stdouts の 1 番目に入れる（{key}）。", nth_prompt(r, again, 0))
 
     def test_引数を持つコマンドは呼び出しの場所が渡したコマンドで取り直す(self):
         r = run({"args": args(), "corrupt": {"flow-check:1-entry": {"reset_check": bad_literal('{"reset": true')}, "flow-check:4-backup": {"backup_check": bad_literal('{"backup": true')}}})
@@ -1883,6 +1901,31 @@ class Transcription(unittest.TestCase):
         extra = [i for i, l in enumerate(labels) if l.endswith(":extra")]
         self.assertTrue(extra, "写し損ねで追加の監査役が黙って飛んだ")
         self.assertLess(labels.index("flow-check:grounding-r2-requirements/x-recopy"), extra[0])
+
+    R2 = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}, "writer_changed": ["PR-X-001"]}
+
+    def test_取り直した2件の順番を入れ違えた写しはモードで見分けて受け取らない(self):
+        both = {"doc_check": bad_literal('{"blocking": 0'), "tree_digest": bad_literal('{"digest": "t2"')}
+        ok = run({**self.R2, "corrupt": {"grounding:r2:requirements/x": both}})
+        self.assertEqual(ok["result"]["status"], "done", ok["result"].get("reason"))
+        again = nth_prompt(ok, "flow-check:grounding-r2-requirements/x-recopy", 0)
+        self.assertLess(again.index("stdouts の 1 番目に入れる（doc_check）"), again.index("stdouts の 2 番目に入れる（tree_digest）"))
+        r = run({**self.R2, "corrupt": {"grounding:r2:requirements/x": both, "flow-check:grounding-r2-requirements/x-recopy": {"stdouts": {"reverse": True}}}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
+        self.assertIn("stdout_mode", res["reason"])
+        self.assertIn("doc_check・tree_digest", res["reason"])
+
+    def test_監査役がdocの検査結果を返さなければ構造検査を0件として進めず段を止める(self):
+        stderr = bad_literal("doc_check doc: ENOENT")
+        for name, spec, stage in (("段 5", {"args": args(), "corrupt": {"crossDoc:r1:all": {"doc_check": stderr}}}, "5"),
+                                  ("段 8", {**self.R2, "corrupt": {"grounding:r2:requirements/x": {"doc_check": stderr}}}, "8")):
+            with self.subTest(name):
+                r = run(spec)
+                res = r["result"]
+                self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", stage), res.get("reason"))
+                self.assertIn("doc の stdout を返しませんでした", res["reason"])
+                self.assertFalse(any(l.endswith("-recopy") for l in r["labels"]), "JSON の行の無い値は写し損ねではない")
 
     def test_snapshotの写し損ねは取り直さずに段からやり直させる(self):
         r = run({"args": args(), "corrupt": {"crossDoc:r1:all": {"audited": bad_literal('{"digest": "a1"')}}})
@@ -5222,10 +5265,20 @@ class FormalLoop(unittest.TestCase):
         self.assertLess(labels.index("crossDoc:r1:all"), labels.index("formal-modeler:r1"))
         first, second = nth_prompt(r, "formal-modeler:r1", 0), nth_prompt(r, "formal-modeler:r2", 0)
         self.assertIn("/agents/formal-modeler.md の Read", first, "スキル呼び出しの指示は役のファイルが持つ")
-        self.assertIn("/tmp/prd-w/requirements-x.md → /tmp/prd-w/formal/requirements-x/", first)
+        self.assertIn("doc_check.mjs formal-dirs --workspace /tmp/prd-w --doc requirements/x` の stdout の dirs", first)
         self.assertNotIn("改稿の後の版", first)
         self.assertIn("/tmp/prd-w/checks/diff-audited-1.json の by_doc", second)
         self.assertIn("/tmp/prd-w/checks/formal-r1-a1.json", second)
+
+    def test_doc_checkの写しに置き場が無くてもmodelerとtrace_checkは自分で置き場を引いて止まらない(self):
+        # 試走 wf_d3c7a067-468: crossDoc が 21 文書分の formal_dirs を写し落とし、置き場を写しから取る script が止まった。
+        r = run({"args": args(), "formal_findings_at": {"r1": [{"item_id": "PR-X-001"}]}})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertNotIn("formal_dirs", next(p["prompt"] for p in r["prompts"] if p["label"] == "crossDoc:r1:all"))
+        for label in ("formal-modeler:r1", "formal-trace-check:r1"):
+            with self.subTest(label):
+                self.assertIn("doc_check.mjs formal-dirs --workspace /tmp/prd-w --doc requirements/x`", nth_prompt(r, label, 0))
+        self.assertNotIn("formal_dirs", PRD.read_text(encoding="utf-8"), "置き場を写しから読む経路を持たない")
 
     def test_形式検査の指摘が残る間はdoneにならない(self):
         # 回ごとに別の項目が破れる（再発にならない）ので、上限まで改稿に回り続ける。

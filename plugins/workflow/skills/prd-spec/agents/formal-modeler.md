@@ -37,4 +37,4 @@ TLC を流して合否を決めるのは後に起動される `doc_check formal-
   前の巡で変異と目撃が確かめた部分の検出力を失う。
 - **プロンプトに「直前の検査でモデルの欠陥が出た」とあるときは、その欠陥だけを直す。** 欠陥（プロンプトが挙げる検査の記録の
   `defects`）と、formal-trace-check が反例を文書から導けないとした違反はモデルの側の誤りで、文書は変わっていない。
-- 書いてよいのは、プロンプトが挙げた `W/formal/<kind>-<topic>/` の直下の `manifest.json` と `<module>.tla` と、作業用ディレクトリだけ。
+- 書いてよいのは、プロンプトが挙げた `doc_check formal-dirs` の stdout の `dirs` の各 `dir`（`W/formal/<kind>-<topic>/`）の直下の `manifest.json` と `<module>.tla` と、作業用ディレクトリだけ。

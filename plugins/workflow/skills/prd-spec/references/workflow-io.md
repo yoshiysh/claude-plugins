@@ -114,10 +114,10 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   `integrity` に 1 行足す。needs_answers の `next_args`・次の段の run には `restore` が付かないので restore しない。
 - **段 1 から始める run は、W を S0 の直後に戻してから始める。** 新しい run も、段 1 からの再実行も、入口の flow-check（`1-entry`）に
   `doc_check reset --keep <existing_docs の全部のキー> --fixed <existing_docs の fixed のキー>` を実行させ、その stdout（残した文書と固定の文書の
-  キーが args と一致し、固定の文書ごとの `fixed_sha256` があるもの）を受け取るまで intake を起動しない。`fixed_sha256` は `state.fixed_sha` に入り、
+  キーの組の `keys_fnv` が args から計算した値と一致し、固定の文書の本文と meta の `fixed_digest` があるもの）を受け取るまで intake を起動しない。`fixed_digest` は固定の文書のキーの組（`state.fixed_keys`）と一緒に `state.fixed_digest` に入り、
   段 5・8 の監査の snapshot（`--fixed`）が返す値と照合する。違えば固定の文書を誰かが書き換えたので（固定の文書の書き手はいない）、`integrity` に
   1 行足して `next_args` を付けずに止まる（どの段からやり直しても W の本文は戻らない。本文を `existing_docs` の `source` から `doc_check place` で置き直して段 1 から）。
-  固定の文書があるのに `state.fixed_sha` が合わない `next_args` は、agent を起動する前に止まる。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
+  `state.fixed_keys` が `existing_docs` の固定の文書の組と違うか、固定の文書があるのに `state.fixed_digest` が無い `next_args` は、agent を起動する前に止まる。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
   所有表の外のファイル・`tmp/` を残して段の書き込みと `--keep` に無い文書を消し（消すものの正本は doc_check の `wsReset`）、固定の文書の
   meta を書き直す。S0 が place で置いた `<kind>-<topic>.tbd.json`（保存した文書の開いている TBD）は、その文書の meta の `tbd` に写し、文書のキーごとの ID を stdout の
   `carried_tbd` に出す。prd-spec.js はそれをすべて `open_tbd` に入れ（writer の返り値だけから数えると、writer を起動しない文書の TBD が保存の
@@ -147,7 +147,12 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   返り値に手で写すので、壊れた JSON や、一覧の要素を 1 件落とした正しい JSON が返る（実測: R16 の run3 で flow-check:3a の haiku が約 3.5KB の
   `flow --rulings` の stdout を壊れた JSON に写した）。形の検査だけでは後者が通り、落ちた O- や未検証の要素が誰にも見えないまま進む。そこで script は
   写しの本体から digest（§6 の `stdout_fnv`）を計算し直し、合わない写しと壊れた JSON を同じ「写し損ね」として受け取らず、同じコマンドを
-  flow-check に `flow-check:<元の label（flow-check でなければ : を - にして前に役の名前）>-recopy` で 1 回だけ実行させる。JSON の行の無い値
+  flow-check に `flow-check:<元の label（flow-check でなければ : を - にして前に役の名前）>-recopy` で 1 回だけ実行させる。取り直しの stdout は
+  プロンプトが挙げた順に `stdouts` の配列で返させ、欄の名前を写させない（実測: wf_d3c7a067-468 で取り直しが逐語の写しを指示と違う欄に入れ、受け取られずに止まった）。
+  取り直した stdout は、その `stdout_mode`（§6）が挙げたコマンドのモードと合わなければ受け取らない（どの stdout にも digest があるので、
+  順番を入れ違えた写しは checksum だけでは見分けられない）。写し損ねを減らすため、写す stdout には文書の数で伸びる一覧を、script が等しいかだけを見る値や agent が自分で引ける値として載せない
+  （同じ run で 21 文書分の `formal_dirs` を写し落とした）。等しいかだけを見る値は digest 1 つ（reset の `keys_fnv`・`fixed_digest`）にし、
+  置き場のように agent が使う値はその agent が `formal-dirs` で引く。JSON の行の無い値
   （失敗したコマンドの stderr）は写し損ねではなく、これまでの経路（差し戻しか blocked）で扱う。取り直しも合わなければ、`reason` に checksum と
   書いて段からの `next_args` で止まる（resume は保存された同じ写しを返すので `resumable` は偽。`next_args` で呼び直す）。判断する役
   （resolver・resolver-verifier・監査役）を起動し直して写しを取らない（判断ごとやり直すことになる）。呼び出しの場所ごとの扱い:
@@ -156,7 +161,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   |---|---|---|
   | flow-check（`<段>`・`<from>-entry`） | `flow --rulings` | する（読むだけ） |
   | flow-check（`<from>-entry`） | `restore --token <state.tx.restore>` | する（控えを消した後の restore は何も戻さず同じ W を返す） |
-  | flow-check（`1-entry`） | `reset` | する（2 回目は何も消さず、残した文書と `fixed_sha256` は同じ） |
+  | flow-check（`1-entry`） | `reset` | する（2 回目は何も消さず、`keys_fnv` と `fixed_digest` は同じ） |
   | flow-check（`<ゲート>-answers`） | `answers` | する（読むだけ） |
   | flow-check（`<段>-backup`） | `backup` | する（同じ token の控えがあれば取り直さない。writer の前なので本文は同じ） |
   | resolver-verifier | 最後の `flow --rulings` | する（verifier の put の後の W をそのまま読む） |
@@ -228,14 +233,14 @@ run が初稿の監査で 4 問目に止まった）。持ち越すのは最初�
 
 本文を読む決定的な検査は `scripts/doc_check.mjs` が正本で、agent が実行して stdout（1 行の JSON）を返す。
 結果は `W/checks/` に書かれ、stdout には件数・digest・パスだけが出る。stdout の JSON には、ほかの欄の digest（`stdout_fnv`。`prd-spec.js` の
-state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しから計算し直す（合わない写しの扱いは §3 の「doc_check の stdout の写しが checksum に合わなければ」の項）。
+state_hash と同じ `fnv(canonicalText(...))`）と、出したモード（`stdout_mode`。digest に含む）が付き、script は写しから計算し直す（合わない写しの扱いは §3 の「doc_check の stdout の写しが checksum に合わなければ」の項）。
 
 | モード | 実行する役 | 何をするか |
 |---|---|---|
 | `plan` | intake | plan.json の `domain` が `references/domain-analysis.md` §2 の観点のキーを 1 回ずつ持ち、判定の根拠の ID が実在し、`irreversible` が `該当` なら `kind: invariant` の決定か未決があるか |
 | `flow [--rulings] [--lint]` / `conflicts` | flow-framer（`flow` は resolver・resolver-verifier・flow-check も。`--rulings` は resolver-verifier の最後の `flow` と flow-check。`--lint` は段 2 と `3b-reframe` の flow-framer だけ） | `--lint` は生成者の自己点検を `lint`・`lint_codes`・`lint_path` に足すだけで、ほかの欄を変えない（見るものは契約 §flow-framer）。流れの形・閉包・出典の検査（stdout に指摘の件数と符号ごとの場所（`codes`。意味は契約「flow.json の形」の直し手）・`open.json` の件数と ID・flow.json の内容の `content_sha256`・`--rulings` のときは裁定と合否の `resolutions`（形は契約 §flow-framer）・ほかの欄の意味は契約 §flow-framer） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
-| `doc [--doc <キー>] [--lint] --open-tbd <ID,…>` | writer（内部ループ。`--lint` は writer だけ）、指名された監査役 | `--lint` は `lint`・`lint_codes`・`lint_path` を足すだけで、`blocking` と `digest` を変えない（見るものは契約 §writer）。構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定。固定の文書に帰属する指摘は `checks/doc.json` に残すが `blocking` に数えず、件数を stdout の `fixed_findings` に出す（ラン内で直せないため。直せる文書がある重複はその文書に帰属させ、`ST-ORPHAN-REQ-` は書いている仕様書で直せるものだけに出すので数える）。固定の仕様書の参照切れ（`ST-DANGLING-REQ-`）は、ラン内の改稿で生じたものかラン前からあるものかを区別できないため数えない（推定で要求文書に帰属させると、直しようのない参照切れが要求の捏造を促す）。stdout の `flow_refs` に項目ごとの trace が指す flow 要素の ID を出す（script が改稿の writer に項目ごとに渡す）。`formal_dirs` に文書ごとの W の中のファイルと形式モデルの置き場を出す（script は名前の決め方を持たず、formal-modeler のプロンプトにこれを渡す） |
-| `snapshot --save <label> [--role auditor] [--live <label,…> [--sweep]] [--fixed <キー,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`--fixed` に挙げた文書の本文と meta の sha256 を stdout の `fixed_sha256` に出す（reset と同じ値）。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと、`--sweep` で消さなかった `tmp/` のものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。`--sweep` は `--live` に無い label の `tmp/<label>/` を空のものも含めて消し、消したファイルとリンクを `checks/<label>.swept.json` に書いて `swept` に件数とパスを出す（`--live` が並行中の label のすべてであるときだけ付ける。script は監査の snapshot にだけ付ける）。台帳と文書のバイト数と、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
+| `doc [--doc <キー>] [--lint] --open-tbd <ID,…>` | writer（内部ループ。`--lint` は writer だけ）、指名された監査役 | `--lint` は `lint`・`lint_codes`・`lint_path` を足すだけで、`blocking` と `digest` を変えない（見るものは契約 §writer）。構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定。固定の文書に帰属する指摘は `checks/doc.json` に残すが `blocking` に数えず、件数を stdout の `fixed_findings` に出す（ラン内で直せないため。直せる文書がある重複はその文書に帰属させ、`ST-ORPHAN-REQ-` は書いている仕様書で直せるものだけに出すので数える）。固定の仕様書の参照切れ（`ST-DANGLING-REQ-`）は、ラン内の改稿で生じたものかラン前からあるものかを区別できないため数えない（推定で要求文書に帰属させると、直しようのない参照切れが要求の捏造を促す）。stdout の `flow_refs` に固定でない文書の項目ごとの trace が指す flow 要素の ID を出す（script が改稿の writer に項目ごとに渡す。固定の文書は改稿しないうえ、その trace は reset が消した前のランの flow を指す）。段 5・8 の指名された監査役がこの stdout を返さなければ、件数を 0 として進めずに段を止める |
+| `snapshot --save <label> [--role auditor] [--live <label,…> [--sweep]] [--fixed <キー,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`--fixed` に挙げた文書の本文と meta の sha256 を 1 つにした digest を stdout の `fixed_digest` に出す（reset と同じ値）。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと、`--sweep` で消さなかった `tmp/` のものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。`--sweep` は `--live` に無い label の `tmp/<label>/` を空のものも含めて消し、消したファイルとリンクを `checks/<label>.swept.json` に書いて `swept` に件数とパスを出す（`--live` が並行中の label のすべてであるときだけ付ける。script は監査の snapshot にだけ付ける）。台帳と文書のバイト数と、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
 | `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray`・`size_over` は snapshot と同じ（一覧は `checks/tree-digest.*.json`） |
 | `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く。固定でない文書ごとに、開いている TBD があれば `checks/<kind>-<topic>.tbd.json` に書いて stdout の `open_tbd_files`（`doc`・`path`）に、無ければ文書のキーを `open_tbd_clear` に出す（写す先は文書の保存先で決まるので、パスは出さない） |
@@ -245,7 +250,7 @@ state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しか
 | `backup --doc <キー> … --token <token>` | flow-check（段 4・7 の writer の前） | 文書の本文の控えを token の下に取る（無い文書は無い印。同じ token の控えがあれば取り直さない）。stdout に `backup: true`・`token`・控えを取った文書のキー（`docs`） |
 | `restore --token <token>` | flow-check（blocked の後の同じ段の再実行の入口） | token の控えを台帳と文書の本文に戻し、token の下で作られた台帳と文書を消して控えを消す（控えを書く途中で落ちた一時名は数えない。§3）。stdout に戻したファイルごとの前後の sha256（無いファイルは null）と flow.json の前後（`flow_before`・`flow_after`）、控えを消した後の段の token（`pruned_by`。あれば何も戻さない） |
 | `place --doc <キー> --source <元の文書のパス>` | 司令塔（S0） | 既存文書を `W/<kind>-<topic>.md` に、その隣の `.tbd.json`（開いている TBD の写し）があれば `W/<kind>-<topic>.tbd.json` に、まとめて逐語で写す。写しが無ければ前に置いた W の写しを消す。写しの形が reset の受け取る形でなければ何も置かずに止まる |
-| `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`）とその本文と meta の sha256（`fixed_sha256`）と、写しから meta に写した TBD の文書のキーごとの ID（`carried_tbd`）。写しの形が違えば何も消さずに止まる |
+| `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と、残した文書と書き直した固定の文書のキーの組の digest（`keys_fnv`。`fnv(canonicalText({ kept, fixed }))`、どちらも整列）と、固定の文書の本文と meta の sha256 を 1 つにした digest（`fixed_digest`）と、写しから meta に写した TBD の文書のキーごとの ID（`carried_tbd`）。写しの形が違えば何も消さずに止まる |
 | `get --ledger <台帳> [--doc <キー>] --ids <ID,…> [--fields <欄,…>]` | 台帳を読む役（読み方は契約の「共通の約束」） | 台帳から ID の要素を加工せずに選んで stdout に出す。無い ID は `missing`、stdout の上限（`STDOUT_BUDGET`）に入らない ID は `over_budget`（ID の一覧だけで上限を超えれば exit 1）。何も書かない |
 | `view --ledger <台帳> [--doc <キー>] [--fields <欄,…>]` | 台帳を全件読む役（読み方は契約の「共通の約束」） | 台帳の全件を、要素ごとの JSON（`{"<配列名>": 要素}`、スカラーは `{"<名前>": 値}`）の欄と配列の要素を 1 行ずつにして `checks/view-<台帳のファイル名>[.<--fields の fnv>].txt` に書き、stdout にパス・要素数・行数・sha256 を出す（Read は 2000 字を超える行を切る）。名前は台帳と `--fields` だけで決まる |
 | `contract --role <役のファイル名> --part <n>` | どの役も（起動の最初。プロンプトが全部の `--part` を挙げる） | 役が読む契約の節（`CONTRACT_SECTIONS`）を契約から逐語で切り出し、`CONTRACT_BUDGET` バイト以下の `n` 番目の断片を出す（断片は節か行の頭で切れ、つなげると全体に戻る。断片が無い `n` は空）。stdout は JSON ではなく節の本文。見出しが 1 つでも無いか、断片が `CONTRACT_PARTS` を超えれば何も出さずに exit 1 |
@@ -255,6 +260,7 @@ state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しか
 | `answers --file answers/<ゲート>.md --ids <RS-…>` | flow-check（`gates_answered` のゲートを越える前と、回答を当てる段がそのゲートの stdout を持っていないとき（`next_args` で 3a・3a' から始めた run を含む）） | 回答のファイルがあるか（`exists`）と、`<ID>:` で始まる行の無い問い（`missing`）と、候補の `label` 1 つだけではない回答の節の逐語（`free`。`{id, from, to, text}`。label の後に自由欄が続くか label と違う回答。節の切り方は answer_holds と同じ doc_check の `answerSections`（頭は台帳にある ID の行）。空の回答は入らない）を stdout に出す。script は `free` を回答を当てる resolver のプロンプトに写す（prd-spec.js の `answerExcerpt`）。何も書かない |
 | `report [--drafts <RS-…>] [--formal <done の formal の JSON>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`answered_by`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない）。形式検査の節は、`--formal` の試行の検査の記録から要約（制約・CONSTANT の定義を含む）と `not_checked` を、`--formal` の `unconfirmed`・`redefined` から「未確認の違反」と「破れた後に定義が変わった性質」を出す（`--formal` が無ければ後の 2 つは渡されていないと書く。checks/ は modeler が消せるので、この 2 つを W から読まない）。run の後なので動いている label は無く、`tmp/<label>/` をすべて消して `checks/report.swept.json` と stdout の `swept` に出す |
 | `formal-check --round <n> --doc <キー> … [--violated <文書:項目:性質:digest> …] [--revised <文書:項目:性質:digest> …]` | flow-check（段 5・8 の formal-modeler の後。label は `flow-check:r<n>-formal`） | 文書ごとの `W/formal/<kind>-<topic>/`（形は契約 §formal-modeler）を、版と sha256 を固定した TLC の jar（在り処・入手元は `formal-tools`）に固定の argv でかける。先に manifest の形と対応表を確かめ、SANY の構文木で定義・性質の段・CONSTANT・性質と Init・Next の閉包の重なりを確かめてから、cfg を manifest から生成し、基のモデル、構文木から作った変異、目撃の順に流す（版・sha256・1 回と全体の上限・変異の件数は doc_check の `TLA_TOOLS`・`TLC_TIMEOUT_MS`・`MUTANT_TIMEOUT_MS`・`FORMAL_BUDGET_MS`・`MUTANT_CAP`。`--budget-ms` は全体の上限を下げるだけ）。試行は回ごとに追記だけで、番号 `<k>` は同じ回の前の試行の次。基で破れた性質（exit 12）は性質の定義と反例を載せたその項目への指摘にして `findings/r<n>-fm-<文書>-a<k>.json` に書き、モデルの欠陥（コードの閉集合は doc_check の `FORMAL_DEFECTS`。上限・timeout・シグナルで走らなかった検査は `unchecked`）は `checks/formal-r<n>-a<k>.json` の `defects` に書く（どちらも上書きしない）。`--violated`（繰り返し可）は script が持つ前の試行と前の巡の違反で、`violated_dropped` と `redefined` はこれと照らす（checks/ の記録は控えで判定に使わない）。`--revised`（繰り返し可）は前の巡で破れ writer がその項目を改稿した違反で、`redefined` はこれとも照らし、性質から外した項目は欠陥にせず stdout の `dropped` に出す。TLC の出力は行頭からの固定の形だけを読み、TLC モジュールの演算子を `TLC_PURE` の外から引く定義は `operator_forbidden` にする（Print などで偽の行を出せる）。stdout に `attempt`・`findings`（ID と経路の欄）・前の試行までの形式検査の指摘の ID（`replaces`）・この試行で破れた違反の token（`violated`）・前に破れた性質の定義が変わったもの（`redefined`）・`--revised` の項目のうち性質から外したもの（`dropped`）・文書ごとの制約と CONSTANT の定義（`pruning`。刈り込みは機械で確かめないので見えるように出す）・欠陥の件数（`defects`）・文書ごとのディレクトリと digest（`models`）・木の digest（`tree_digest`）・機械で確かめていないもの（`not_checked`。正本は doc_check の `FORMAL_NOT_CHECKED`）を出す。jar が無い・sha256 が違う・java が無いときは何も書かずに `status: unavailable` と理由を出す |
+| `formal-dirs --doc <キー> …` | formal-modeler・formal-trace-check（プロンプトが挙げた文書のキーで） | 文書ごとの W の中の文書のファイル（`doc`）と形式モデルの置き場（`dir`）を `dirs` に出す（どちらも W からの相対）。名前の決め方は doc_check の `formalDirOf` だけが持ち、script は文書のキーを渡すだけにする。W に無い文書のキーか `--doc` が無ければ止まる。何も書かない |
 | `formal-digest --dir <絶対パス>` | 司令塔（保存の後） | ディレクトリ直下のファイルの名前と sha256 の組の digest（formal-check の `models` と同じ計算）。何も書かない |
 | `formal-tools` | 司令塔・CI（jar を整えるとき） | TLC の jar の在り処（環境変数 `env` の指定、無ければ既定の置き場）・入手元（`url`）・版・sha256 と、検査できない理由（`fault`。整っていれば null）。jar の固定値の正本は doc_check の `TLA_TOOLS` だけで、ここにも SKILL.md にも写さない。何も書かない |
 

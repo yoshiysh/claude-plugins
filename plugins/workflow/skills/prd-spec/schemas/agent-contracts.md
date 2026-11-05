@@ -591,7 +591,7 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 `backup` を実行し、writer が Edit で書く文書の本文の控えを段の token で取る（扱いはどれも references/workflow-io.md §3）。
 resume の args の `gates_answered` のゲートを越える前は、`flow-check:<ゲート>-answers` で `answers` を実行し、回答のファイルが問いのすべてに答えているかを返す。
 ほかの役か flow-check が返した doc_check の stdout の写しが checksum に合わなければ、`flow-check:<…>-recopy` でプロンプトの挙げたコマンドを実行し直し、
-プロンプトが名指しした欄に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
+それぞれの stdout をプロンプトが挙げた順に `stdouts` の配列に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
 段 2・`3b-reframe` の flow-framer の lint の差し戻しの前後は、`flow-check:<…>-lint-stash` で `stash` を、`flow-check:<…>-lint-unstash` で `unstash` と `flow --lint` を実行する（§flow-framer）。
 段 5・8 の監査の後は、formal-modeler の後に `flow-check:r<n>-formal`（起こし直しの後は `-<k>`）で `formal-check` だけを実行する（[§formal-modeler](#formal-modeler)）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
@@ -599,7 +599,7 @@ prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-ch
 入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` と `-lint-stash`・`-lint-unstash` ではプロンプトが挙げたものだけ、`-formal` では `formal-check` だけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が書く）。
 
 ```json
-{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）", "stash_check": "stash を挙げたときだけ（同上）", "unstash_check": "unstash を挙げたときだけ（同上）", "formal_check": "formal-check を挙げたときだけ（同上）" }
+{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）", "stash_check": "stash を挙げたときだけ（同上）", "unstash_check": "unstash を挙げたときだけ（同上）", "formal_check": "formal-check を挙げたときだけ（同上）", "stdouts": ["取り直し（-recopy）のときだけ。プロンプトが挙げたコマンドの stdout をその順に（加工しない。失敗したコマンドは stderr）"] }
 ```
 
 resolver はどの呼び出しでも台帳を書く。台帳の `kind`・`supersedes`・`hold` は flow.json を変えずに指摘と `stale_refs` を変えるので、
@@ -857,7 +857,7 @@ formal-modeler を `formal-modeler:r<n>-<k>` で起こし直す（止まり方�
   |---|---|---|---|
   | formal-modeler | 読まない | 読まない | — |
 
-入力: プロンプトの「文書とモデルの置き場」（文書のファイル → `W/formal/<kind>-<topic>/`。名前は doc_check の `doc` の stdout の `formal_dirs`）。
+入力: プロンプトの「文書とモデルの置き場」（文書のファイル → `W/formal/<kind>-<topic>/`。プロンプトが挙げる `doc_check formal-dirs` を自分で実行し、その stdout の `dirs` から読む）。
 段 8 では `checks/diff-audited-<n>.json` の `by_doc` と、前の巡の最後の検査の記録 `checks/formal-r<k>-a<j>.json`。起こし直しでは、プロンプトが挙げる
 同じ巡の検査の記録の `defects` と、導けないとされた違反の `findings/r<n>-fm-*.json`。
 書くもの: 置き場の直下の `manifest.json` と `<module>.tla` だけ（ほかのファイルは `file_extra`。別のファイルを置けると、EXTENDS・INSTANCE で
@@ -925,7 +925,7 @@ formal-check の欠陥が 0 件で基のモデルが破れたとき（`formal-tr
   |---|---|---|---|
   | formal-trace-check | 読まない | 読まない | — |
 
-入力: プロンプトの「文書とモデルの置き場」と、違反の ID（`findings/r<n>-fm-<文書>-a<k>.json` の `quote` が性質の定義、`repro` が反例）と、その試行の
+入力: プロンプトの「文書とモデルの置き場」（挙げられた `doc_check formal-dirs` を自分で実行し、その stdout の `dirs` から読む）と、違反の ID（`findings/r<n>-fm-<文書>-a<k>.json` の `quote` が性質の定義、`repro` が反例）と、その試行の
 検査の記録 `checks/formal-r<n>-a<k>.json`。
 
 ```json
