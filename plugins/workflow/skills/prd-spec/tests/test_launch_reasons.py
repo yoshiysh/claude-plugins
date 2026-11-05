@@ -60,13 +60,19 @@ LABEL_FAMILIES = [
     ("framer-lint", "lint の差し戻し（flow-framer の自己点検。1 回きり）", r"flow-framer(?::.+)?:lint", ["redo(`${label}:lint`)"]),
     ("lint-stash", "lint の差し戻しの前の控えと、閉じなくなったときの戻し", r"flow-check:.+-lint-(?:stash|unstash)", ["`flow-check:${tag}-${suffix}`", "`${label.replace(/:/g, '-')}-lint`"]),
     ("left-verifier", "検証し残しの拾い直し（settle の前と後・再実行の入口）", rf"verifier:.+v-(?:left{N}|entry)", ["`verifier:${stage}v-${tag}`", "reworkLabel('left', n + 1)", "verifyLeft(from, 'entry'"]),
-    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy|stash|unstash)$).+", ["`flow-check:${tag}`"]),
+    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy|stash|unstash|formal(?:-\d+)?)$).+", ["`flow-check:${tag}`"]),
     ("recopy", "写しの取り直し（doc_check の stdout が checksum に合わない）", r"flow-check:.+-recopy", ["label.startsWith('flow-check:') ? `${label}-recopy` : `flow-check:${label.replace(/:/g, '-')}-recopy`"]),
     ("rehold", "保持規則の書き直し", r"resolver:.+-rehold", ["`resolver:${owner}-rehold`"]),
     ("rehold-verifier", "保持規則の書き直し", r"verifier:.+-reholdv", ["`verifier:${owner}-reholdv`"]),
     ("hold-left", "依頼者に聞かない問いの保持規則への変換（聞ける回数の上限・回答済みの論点の再発）", r"resolver:.+-hold", ["`resolver:${stage}-hold`"]),
     ("reframe", "段 3b の組み直し", r"flow-framer:3b-reframe", ["'flow-framer:3b-reframe'"]),
     ("crossdoc-reaudit", "crossDoc の再監査", r"crossDoc:r(?:[2-9]|\d{2,}):all(?::extra)?", []),
+    ("formal-modeler", "base", r"formal-modeler:r\d+", ["reworkLabel(`formal-modeler:r${round}`, n)"]),
+    ("formal-check", "base", r"flow-check:r\d+-formal", ["reworkLabel(`flow-check:r${round}-formal`, n)"]),
+    ("formal-rework", "形式モデルの欠陥の起こし直し", r"formal-modeler:r\d+-\d+", ["reworkLabel(`formal-modeler:r${round}`, n)"]),
+    ("formal-check-rework", "形式モデルの欠陥の起こし直し", r"flow-check:r\d+-formal-\d+", ["reworkLabel(`flow-check:r${round}-formal`, n)"]),
+    ("formal-trace-check", "形式検査の違反の照合（欠陥 0 件で違反があるとき）", r"formal-trace-check:r\d+", ["reworkLabel(`formal-trace-check:r${round}`, n)"]),
+    ("formal-trace-check-rework", "形式モデルの欠陥の起こし直しの後の照合", r"formal-trace-check:r\d+-\d+", ["reworkLabel(`formal-trace-check:r${round}`, n)"]),
 ]
 
 # AMBIGUOUS: label だけでは分かれない組と、分けるプロンプトの行。journal の started は label だけなので、組があると体数を理由ごとに数えられない。
@@ -114,6 +120,8 @@ COVERING_TESTS = [
     "DecidedNotHeld.test_揃えても受け取れないdecidableは同じverifierに1回だけ聞き直す",
     "FramerLint.test_lintが残ったflow_framerは1回だけ差し戻し_それ以外の起動と止まり方は変わらない",
     "FramerLint.test_lintの差し戻しでflowが閉じなくなれば差し戻しの前の版に戻して進む",
+    "FormalLoop.test_モデルの欠陥は同じ回でmodelerに直させwriterに渡さない",
+    "FormalLoop.test_反例が文書から導けない指摘はモデルの欠陥として同じ回でmodelerに直させる",
 ]
 
 
@@ -213,6 +221,13 @@ class Clues(unittest.TestCase):
             "crossDoc:r1:all": ("audit-first",),
             "crossDoc:r2:all": ("crossdoc-reaudit",),
             "grounding:r3:requirements/x:extra": ("audit-scoped",),
+            "formal-modeler:r2": ("formal-modeler",),
+            "formal-modeler:r2-3": ("formal-rework",),
+            "flow-check:r2-formal": ("formal-check",),
+            "flow-check:r2-formal-3": ("formal-check-rework",),
+            "flow-check:r2-formal-recopy": ("recopy",),
+            "formal-trace-check:r2": ("formal-trace-check",),
+            "formal-trace-check:r2-3": ("formal-trace-check-rework",),
         }
         for label, want in samples.items():
             with self.subTest(label=label):

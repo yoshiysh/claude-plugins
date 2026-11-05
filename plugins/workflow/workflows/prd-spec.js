@@ -8,9 +8,9 @@ export const meta = {
     { title: 'Resolve', detail: '段 3・3v: 未決と組を裁定し、独立に検証する（差し戻しは 1 回）' },
     { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、最初のゲートの後は回答で flow を組み直す' },
     { title: 'Draft', detail: '段 4: writer の単位ごとに初稿を書く（依存の向きに順番、独立な単位は並列）' },
-    { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当てる' },
+    { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当て、formal-modeler のモデルを TLC で検査する' },
     { title: 'Decide', detail: '段 6: 決定が要る指摘と新しい TBD を裁定する' },
-    { title: 'Revise', detail: '段 7・8: 改稿し、変えた範囲だけを監査する（収束の条件と上限の定数で回す）' },
+    { title: 'Revise', detail: '段 7・8: 改稿し、変えた範囲だけを監査し、モデルを直して TLC で検査し直す（収束の条件と上限の定数で回す）' },
     { title: 'Report', detail: '段 9: 収束せずに止まったときは残った論点を保持規則にする（事後報告は司令塔が doc_check report で導出する）' },
   ],
 }
@@ -23,7 +23,9 @@ export const meta = {
 // ROLE_OPTS: 全役に既定を置く。省略するとセッションの設定を継承し、全呼び出しが最重量で走って利用上限に達する。
 // intake〜writer は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。implementer・grounding の見落としはそのまま
 // 欠陥（着手不能・捏造）になる。crossDoc は項目の間の関係を見るだけで、1 文ずつの深い判断は要らない。flowCheck は判断を要しないが、
-// 数 KB の stdout を逐語で写す。値は既定であって、E2 の実測で較正する。
+// 数 KB の stdout を逐語で写す。formalModeler は抽象化・変異・目撃を選ぶ判断を要するが、合否は doc_check が決めるので、誤りは
+// 欠陥として数えられて modeler に戻る（監査役ほどの重さは要らない）。formalTraceCheck は反例の遷移を文書の文と照らすだけで、モデルを書かない。
+// 値は既定であって、E2 の実測で較正する。
 const ROLE_OPTS = {
   intake: { model: 'opus', effort: 'medium' },
   flowFramer: { model: 'opus', effort: 'medium' },
@@ -34,6 +36,8 @@ const ROLE_OPTS = {
   grounding: { model: 'opus', effort: 'high' },
   crossDoc: { model: 'sonnet', effort: 'medium' },
   flowCheck: { model: 'sonnet', effort: 'low' },
+  formalModeler: { model: 'sonnet', effort: 'high' },
+  formalTraceCheck: { model: 'sonnet', effort: 'medium' },
 }
 
 // ROLE_FILES: 役の名前から agents/ のファイル名（拡張子なし）。読む契約の節の表は doc_check の CONTRACT_SECTIONS が持ち、contract --role に
@@ -48,6 +52,8 @@ const ROLE_FILES = {
   grounding: 'grounding',
   crossDoc: 'cross-doc',
   flowCheck: 'flow-check',
+  formalModeler: 'formal-modeler',
+  formalTraceCheck: 'formal-trace-check',
 }
 
 // 上限は暴走を止めるためだけに置く。止まる条件は収束（残りが 0 か、減らなくなった）で、回数で打ち切ると連鎖が途中で止まるだけで項目は直らない。
@@ -639,7 +645,7 @@ const REQUIRES = {
   "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'gates', 'questions'],
   7: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
   8: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'revised'],
-  9: ['units', 'tree_digest'],
+  9: ['units', 'tree_digest', 'audit'],
 }
 function stateErrors(from, state) {
   if (!Object.prototype.hasOwnProperty.call(REQUIRES, from)) return [`from "${from}" は段の境界ではありません（${Object.keys(REQUIRES).join(' / ')}）`]
@@ -662,7 +668,8 @@ const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段から�
 
 // STOP_REASONS: 返り値の stop_reason の閉集合（references/workflow-io.md §3。tests が照合する）。budget は token の目標（budget.total）に
 // 達して agent を起動できなくなったとき。upstream_gap は仕様書だけを書く run（specOnly）で、初稿の監査の裁定（段 6）までに価値の問いが出たとき。
-const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
+// formal_unchecked は形式検査を合否の出る形で通せなかったとき（条件の正本は workflow-io.md の stop_reason）。
+const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap', 'formal_unchecked']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
@@ -723,6 +730,17 @@ function callDefect(prompt, opts, known) {
 // ownsFlowOf: verifier を外した cycle の後の flow の食い違いを段のやり直しにしてよいのは、最後に起動した resolver が回答を当てた
 // その段の呼び出し（flow.json を書ける）のときだけ。問いの形の修正のような後続の resolver は flow.json を書けない。
 const ownsFlowOf = (unchecked, stage) => Boolean(unchecked) && unchecked.tag === stage
+// pyJsonChars: json.dumps の既定の区切り（', ' と ': '）と、code point で数える Python の len に合わせた字数。
+function pyJsonChars(v) {
+  if (Array.isArray(v)) return 2 + v.reduce((n, x) => n + pyJsonChars(x), 0) + 2 * Math.max(0, v.length - 1)
+  if (v && typeof v === 'object') {
+    const ks = Object.keys(v).filter((k) => v[k] !== undefined)
+    return 2 + ks.reduce((n, k) => n + pyJsonChars(k) + 2 + pyJsonChars(v[k]), 0) + 2 * Math.max(0, ks.length - 1)
+  }
+  if (typeof v === 'string') return 2 + [...v].reduce((n, c) => n + ('"\\\n\r\t\b\f'.includes(c) ? 2 : c < ' ' ? 6 : 1), 0)
+  return String(v ?? null).length
+}
+
 // PURE_END
 
 const STR = { type: 'string' }
@@ -750,6 +768,16 @@ const INTAKE_SCHEMA = {
 const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
 const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, required: ['restore_check'] }
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
+const FORMAL_CHECK_SCHEMA = { type: 'object', properties: { formal_check: STR }, required: ['formal_check'] }
+// skill: formal-methods スキルをスキル呼び出しで使えたか。unavailable のときは何も書かずに返させる（手順を知らないままモデルを即興で書くと、
+// 検出力の確かめを欠いたモデルが合格する）。合否の欄は持たせない（決めるのは doc_check formal-check）。
+const FORMAL_MODELER_SCHEMA = { type: 'object', properties: { skill: { type: 'string', enum: ['used', 'unavailable'] }, dirs: STRS, note: STR }, required: ['skill', 'dirs'] }
+// traces: formal-trace-check の反例の照合。基で破れた反例がモデルの書き損じなら、writer に渡すと直せない指摘になる。
+const FORMAL_TRACE_SCHEMA = {
+  type: 'object',
+  properties: { traces: { type: 'array', items: { type: 'object', properties: { finding: STR, derivable: { type: 'boolean' }, why: STR }, required: ['finding', 'derivable', 'why'] } } },
+  required: ['traces'],
+}
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
 const STASH_SCHEMA = { type: 'object', properties: { stash_check: STR, unstash_check: STR, flow_check: STR } }
@@ -880,7 +908,7 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, STASH_SCHEMA, RECOPY_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, STASH_SCHEMA, RECOPY_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA, FORMAL_CHECK_SCHEMA, FORMAL_MODELER_SCHEMA, FORMAL_TRACE_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
@@ -960,7 +988,7 @@ function finish(status, extra) {
     ...extra,
   }
   const retry = Boolean(out.next_args) && (failedCalls > 0 || out.stop_reason === 'budget')
-  return { ...out, resumable: out.resumable ?? (status === 'needs_answers' || (status === 'blocked' && retry)) }
+  return { ...out, resumable: out.resumable ?? (status === 'needs_answers' || (status === 'blocked' && retry)), next_args_chars: out.next_args ? pyJsonChars(out.next_args) : null }
 }
 // blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す（W は再実行の入口の restore で段に入った時点に戻る）。
 // tx.flow は止まった run が最後に照合を通した flow の版で、段に入った時点の版と同じなら載せない（next_args の上限）。
@@ -973,8 +1001,13 @@ const rerunTx = () => {
   const flow = rerunFlow()
   return { ...entryState.tx, try: txTry + 1, restore: restorePending ? RESUME_TX.restore : txToken(), ...(flow !== undefined ? { flow } : {}) }
 }
+// 止まった試行の違反を段の入口の state で上書きすると、再実行で modeler が同じ違反を消しても誰も気づかない。
+const withFormal = (st) => {
+  const { formal, ...rest } = st
+  return state.formal ? { ...rest, formal: state.formal } : rest
+}
 // 段 1 からの再実行は state を持たない。段 1 の入口の reset が W を S0 の直後に戻すので、止まった run の state を運ぶと W と食い違う。
-const rerunArgs = (from) => (from === '1' ? argsFrom('1', {}) : argsFrom(from, from === running ? { ...entryState, tx: rerunTx() } : state))
+const rerunArgs = (from) => (from === '1' ? argsFrom('1', {}) : argsFrom(from, from === running ? withFormal({ ...entryState, tx: rerunTx() }) : state))
 const blocked = (reason, rerunFrom, extra) => finish('blocked', { reason, next_args: rerunFrom ? rerunArgs(rerunFrom) : null, ...extra })
 
 const noteIntegrity = (line) => {
@@ -2604,6 +2637,9 @@ const designatedCmds = () => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(s
 const snapshotFault = (d) => (d && copyFault(d.audited) ? `（snapshot の stdout の写しが checksum（${STDOUT_FNV}）に合いません。snapshot は基準を書き直すので取り直しません）` : '')
 
 async function stage4() {
+  // 初稿を書き直すと前の違反の項目は別物になる（照合の前の違反を持ち越すと、直した文書の違反が消えたと数える）。未確認・定義の変更・外した
+  // 項目はこの run で起きた事実で、書き直しで無かったことにすると done が確かめていない違反を報告しない。
+  for (const k of ['at', 'open', 'tried']) setFormal(k, [])
   const waves = unitWaves(state.units)
   await backupDocs('4', auditDocs())
   for (const wave of waves) {
@@ -2639,6 +2675,7 @@ function auditorPrompt(role, doc, round, opt) {
 }
 const ROLE_TAG = { implementer: 'im', grounding: 'gr', crossDoc: 'cd' }
 // 追加の監査役は役の印に x を付ける（文書の側に付けると、キーが -extra で終わる文書の 1 体目と名前が重なる）。
+const AUDITOR_ID = new RegExp(`^r\\d+-(${Object.values(ROLE_TAG).join('|')})x?-`)
 const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}${extra ? 'x' : ''}-${doc === 'all' ? 'all' : fileKey(doc)}`
 const auditorLabel = (p, round) => `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`
 
@@ -2690,6 +2727,157 @@ function recordFindings(plan, results) {
   return all
 }
 
+const isStrs = (xs) => Array.isArray(xs) && xs.every((x) => typeof x === 'string')
+
+// formalRound: 文書の版ごとに formal-modeler がモデルを書き（改稿の後は変わった項目に触れる分だけ直し）、合否は doc_check formal-check
+// だけが決める（modeler に合否を言わせると生成者の自己判定になる）。性質の違反は文書の欠陥なので、監査役の指摘と同じ経路で writer に回す。
+// モデルの欠陥（検出力不足・空振り・対応表の漏れ・評価の誤り）は文書の欠陥ではないので writer に回さず、同じ段で modeler に直させる。
+// 欠陥が減らなくなるか MAX_CHECK_REWORK に達したら止める（欠陥のあるモデルで出た合格は、何も確かめていない）。
+// 検査の版が監査の版と違えば止める（modeler が文書を書き換えると、監査した版と形式検査した版が別物になる）。
+const formalCheckOf = (text) => {
+  const o = parseStdout(text)
+  if (!o || !Number.isInteger(o.round)) return null
+  if (o.status === 'unavailable') return typeof o.reason === 'string' ? o : null
+  const ok = o.status === 'checked' && Array.isArray(o.findings) && o.findings.every((f) => f && typeof f.id === 'string' && typeof f.doc === 'string' && typeof f.item_id === 'string')
+  const marks =
+    isStrs(o.violated) && o.violated.every((t) => FORMAL_TOKEN.test(t)) && Array.isArray(o.redefined) && o.redefined.every((x) => x && typeof x.doc === 'string' && typeof x.property === 'string') &&
+    Array.isArray(o.dropped) && o.dropped.every((x) => x && typeof x.doc === 'string' && typeof x.item === 'string' && typeof x.property === 'string') && isMap(o.pruning)
+  return ok && marks && Number.isInteger(o.attempt) && o.attempt >= 1 && Number.isInteger(o.defects) && typeof o.path === 'string' && typeof o.tree_digest === 'string' && isMap(o.models) && isStrs(o.replaces) && isStrs(o.not_checked) ? o : null
+}
+// state.formal: 違反の和集合の正本（checks/ は modeler が消せるので控えにとどめる）。値は ID だけにする（next_args に載る）。
+// tried は巡 at の試行で破れた違反、open はそれより前の巡で確定した違反（writer が指摘として受け取った違反）で、どちらも doc_check の violated の
+// token（文書:項目:性質:定義の digest）。unconfirmed は writer が確かめないまま消えた違反（文書:項目:性質）、redefined は破れた後に定義が
+// 変わった性質（文書:性質）、dropped は改稿の後に性質から外した項目（文書:項目:性質）。
+const FORMAL_TOKEN = /^[^:\s]+:[^:\s]+:[A-Za-z_][A-Za-z0-9_]*:[0-9a-f]{12}$/
+const formalKey = (token) => token.split(':').slice(0, 3).join(':')
+const formalOf = (field) => (state.formal && state.formal[field]) || []
+function setFormal(field, xs) {
+  const f = { ...(state.formal || {}), [field]: uniq(xs) }
+  if (!f[field].length) delete f[field]
+  if (Object.keys(f).length) state.formal = f
+  else delete state.formal
+}
+// formalDone: done の返り値の formal。report は doc_check report --formal がこれから作る（not_checked は doc_check の定数から report に載る）。
+function formalDone(n, fa) {
+  const byItem = {}
+  for (const k of formalOf('unconfirmed')) {
+    const [doc, item, property] = k.split(':')
+    const at = `${doc}:${item}`
+    byItem[at] = byItem[at] || { doc, item, properties: [] }
+    byItem[at].properties.push(property)
+  }
+  const redefined = formalOf('redefined').map((k) => ({ doc: k.split(':')[0], property: k.split(':')[1] }))
+  const dropped = formalOf('dropped').map((k) => ({ doc: k.split(':')[0], item: k.split(':')[1], property: k.split(':')[2] }))
+  return { round: n, attempt: fa, report: `${W}/checks/formal-r${n}-a${fa}.json`, unconfirmed: Object.values(byItem), redefined, dropped }
+}
+
+// formalDirsOf: 文書のファイルとモデルの置き場は doc_check doc の stdout から取る（名前の決め方を script に写すと、片方だけ変わる）。
+function formalDirsOf(docCheck) {
+  const fd = docCheck && docCheck.formal_dirs
+  const docs = auditDocs()
+  if (!isMap(fd) || !docs.every((k) => isMap(fd[k]) && typeof fd[k].doc === 'string' && typeof fd[k].dir === 'string')) {
+    throw Object.assign(new Error(`doc_check doc の stdout に文書 ${docs.join(', ')} の formal_dirs がありません`), { rerunStage: true })
+  }
+  return fd
+}
+
+const placesOf = (dirs) => `文書とモデルの置き場: ${auditDocs().map((k) => `${W}/${dirs[k].doc} → ${W}/${dirs[k].dir}/`).join('、')}`
+
+function formalModelerPrompt(stage, label, prior, dirs) {
+  return [
+    header('formalModeler', stage, label),
+    placesOf(dirs),
+    prior.revision ? `改稿の後の版である。変わった項目: ${W}/checks/diff-audited-${prior.revision.n}.json の by_doc。前の検査の結果: ${W}/checks/formal-r${prior.revision.n}-a${prior.revision.fa}.json` : '',
+    prior.defect ? `直前の検査でモデルの欠陥が出た: ${prior.defect.text}。${W}/${prior.defect.path} の defects と、反例が導けないとした指摘の反例を読んで直す。` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function formalTracePrompt(stage, label, fc, dirs) {
+  return [
+    header('formalTraceCheck', stage, label),
+    placesOf(dirs),
+    `照合する違反: ${list(fc.findings.map((f) => f.id))}（${W}/findings/ の <ID の末尾の -NNN を除いた名前>.json）。検査の記録: ${W}/${fc.path}`,
+  ].join('\n\n')
+}
+
+// touched は段 8 の diff で writer が変えた項目（文書ごと）。
+async function formalRound(stage, round, phaseTitle, expectDigest, dirs, touched = {}) {
+  const docs = auditDocs()
+  const inRound = (t) => docs.includes(t.split(':')[0])
+  // 巡が変わったときだけ、前の巡の試行の違反を確定させる。同じ巡のやり直し（next_args）で確定させると、止まった試行の違反が改稿した
+  // 違反として扱われ、消えても誰も気づかない。
+  if (!state.formal || state.formal.at !== round) {
+    setFormal('open', [...formalOf('open').filter((t) => !inRound(t)), ...formalOf('tried')])
+    setFormal('tried', [])
+    state.formal = { ...(state.formal || {}), at: round }
+  }
+  const revisedDoc = (doc) => (touched[doc] || []).length > 0
+  // 前の巡で確定し writer がその項目を改稿した違反は、この巡の試行で破れても --revised で渡す（改稿の出自は試行で変わらない。--violated に
+  // 落とすと、後の試行で正当に外したときに欠陥になり、同じ引数のやり直しも止まり続ける）。消えれば tried から未確認に入る。
+  const revisedOf = (t) => formalOf('open').includes(t) && (touched[t.split(':')[0]] || []).includes(t.split(':')[1])
+  const cmdOf = () => {
+    const all = uniq([...formalOf('open'), ...formalOf('tried')]).filter(inRound)
+    const flags = [...all.filter((t) => !revisedOf(t)).map((t) => ` --violated ${t}`), ...all.filter(revisedOf).map((t) => ` --revised ${t}`)]
+    return cli('formal-check', `--round ${round} ${docs.map((k) => `--doc ${k}`).join(' ')}${flags.join('')}`)
+  }
+  const revision = stage === '8' ? { revision: state.audit } : {}
+  if (stage === '8' && !Number.isInteger(state.audit.fa)) throw new Error('state.audit.fa（前の監査の版の形式検査の試行）がありません（返った next_args を変えずに渡してください）')
+  let attempt = null
+  const step = async (n, defect) => {
+    const l = reworkLabel(`formal-modeler:r${round}`, n)
+    const m = await once(l, 'formalModeler', formalModelerPrompt(stage, l, { ...revision, defect }, dirs), FORMAL_MODELER_SCHEMA, phaseTitle)
+    if (m.skill !== 'used') return { stop: `${l} が formal-methods スキルを呼べませんでした（${m.note || '理由の申告なし'}）` }
+    const cl = reworkLabel(`flow-check:r${round}-formal`, n)
+    const cmd = cmdOf()
+    const x = await once(cl, 'flowCheck', [header('flowCheck', stage, cl), `実行する: \`${cmd}\`（TLC を何度も回すので Bash の timeout は 600000 にする）。stdout を加工せずに formal_check に入れて返す。`].join('\n\n'), FORMAL_CHECK_SCHEMA, phaseTitle, { formal_check: cmd })
+    const fc = formalCheckOf(x.formal_check)
+    if (!fc || fc.round !== round) throw Object.assign(new Error(`${cl} が r${round} の doc_check formal-check の stdout を返しませんでした`), { rerunStage: true })
+    if (fc.status === 'unavailable') return { stop: `TLC で検査できません（${fc.reason}）` }
+    // 試行は追記だけで番号が 1 ずつ増える。飛んだ・戻った stdout は、この run が流した検査のものではない（別の検査を挟むと、違反の試行を誰も見ない）。
+    if (attempt !== null && fc.attempt !== attempt + 1) throw Object.assign(new Error(`${cl} の形式検査の試行 a${fc.attempt} が直前の試行 a${attempt} の次ではありません`), { rerunStage: true })
+    attempt = fc.attempt
+    setFormal('tried', [...formalOf('tried'), ...fc.violated])
+    setFormal('redefined', [...formalOf('redefined'), ...fc.redefined.map((x) => `${x.doc}:${x.property}`)])
+    setFormal('dropped', [...formalOf('dropped'), ...fc.dropped.map((x) => `${x.doc}:${x.item}:${x.property}`)])
+    if (fc.tree_digest !== expectDigest) return { stop: `形式検査の版（${fc.tree_digest}）が監査の版（${expectDigest}）と違います（formal-modeler は文書を書かない）` }
+    if (fc.defects > 0 || !fc.findings.length) return { fc, underivable: [] }
+    // 照合はモデルを書かない別の役が返す（書いた役に照合させると、自分の違反を「導けない」として消せる）。判定は agent の申告で、機械の確かめではない。
+    const tl = reworkLabel(`formal-trace-check:r${round}`, n)
+    const t = await once(tl, 'formalTraceCheck', formalTracePrompt(stage, tl, fc, dirs), FORMAL_TRACE_SCHEMA, phaseTitle)
+    const ids = fc.findings.map((f) => f.id)
+    const got = t.traces.map((x) => x.finding)
+    if (got.length !== ids.length || !ids.every((id) => got.includes(id))) throw Object.assign(new Error(`${tl} が形式検査の指摘 ${list(ids)} の照合を 1 件ずつ返しませんでした（返ったもの: ${list(got)}）`), { rerunStage: true })
+    const underivable = t.traces.filter((x) => !x.derivable)
+    if (underivable.length) log(`形式検査 r${round} a${fc.attempt}: ${tl} が反例を文書の文から導けないとした違反（writer に渡さず formal-modeler に作り直させた）: ${list(underivable.map((u) => u.finding))}`)
+    return { fc, underivable }
+  }
+  const defectOf = (g) => {
+    if (g.stop) return { count: Infinity, stop: true, text: g.stop }
+    const n = g.fc.defects + g.underivable.length
+    if (!n) return null
+    const parts = [g.fc.defects ? `モデルの欠陥が ${g.fc.defects} 件` : '', g.underivable.length ? `反例が文書の文から導けない指摘: ${g.underivable.map((x) => `${x.finding}（${x.why}）`).join(' / ')}` : '']
+    return { count: n, text: parts.filter(Boolean).join('。'), path: g.fc.path }
+  }
+  const done = await rework(await step(1, null), defectOf, (_, d, n) => step(n + 1, d), MAX_CHECK_REWORK)
+  if (done.defect) return { error: done.defect.stop ? done.defect.text : `形式モデルの欠陥が直りませんでした（${done.defect.text}。${W}/${done.got.fc.path}）` }
+  const fc = done.got.fc
+  // 消えた違反のうち writer が確かめたと言えるのは、前の巡で確定し、writer がその文書を改稿したものだけ（反例は文書の他の項目が許す振る舞い
+  // なので、正直な直しは違反の項目の外に入りうる。項目の単位で見ると正直な改稿を未確認にする）。この巡の試行で破れて消えた違反は、
+  // 改稿の有無にかかわらず未確認にする（文書は同じ巡の試行の間に変わらないので、消したのはモデルの作り直し。done で完成と言わせない）。
+  const now = new Set(fc.violated.map(formalKey))
+  const vanished = uniq(
+    [...formalOf('open').filter((t) => inRound(t) && !revisedDoc(t.split(':')[0])), ...formalOf('tried').filter(inRound)].map(formalKey).filter((k) => !now.has(k)),
+  )
+  if (vanished.length) log(`形式検査 r${round} a${fc.attempt}: 確かめられないまま消えた違反: ${list(vanished)}`)
+  setFormal('unconfirmed', [...formalOf('unconfirmed'), ...vanished])
+  // 判定を済ませた試行の違反は、最後の試行のものだけを残す（同じ巡のやり直しで、それが消えれば未確認に入る）。
+  setFormal('tried', [...formalOf('tried').filter((t) => !inRound(t)), ...fc.violated])
+  return { fc }
+}
+const formalStop = (fm, stage) => blocked(`形式検査を通せませんでした: ${fm.error}`, stage, { stop_reason: 'formal_unchecked' })
+
 async function stage5() {
   state.pass = 1
   // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路と項目の役を引き継がない（項目は書き直しで別物になる）。
@@ -2729,7 +2917,12 @@ async function stage5() {
   state.tree_digest = audited.digest
   noteAudited(audited, base)
   const findings = recordFindings(plan, results)
-  setPending(findings, docCheck, [])
+  // 監査役が全員返った後に起動する（cross-doc の snapshot --sweep が modeler の作業用ディレクトリを消さないため）。
+  const fm = await formalRound('5', round, 'Audit', audited.digest, formalDirsOf(docCheck))
+  if (fm.error) return formalStop(fm, '5')
+  // audit.fm・fa: 監査の版の形式検査の違反の件数と試行。段 9 が読み、next_args に載るので段 9 から再開した run でも効く。
+  state.audit = { ...state.audit, fm: fm.fc.findings.length, fa: fm.fc.attempt }
+  setPending([...findings, ...fm.fc.findings], docCheck, [])
   return '6'
 }
 
@@ -2844,6 +3037,8 @@ async function stage7() {
   if (!targets.length) {
     // blocking が残ったまま 9 へ進むと、止まる条件を通らずに done になる（尽きた項目・段 6 が裁定しなかった指摘）。
     if (p.blocking.length) return finalHold(p.blocking.length, [], 'no_progress', '改稿に回せる指摘も裁定も無いまま blocking が残った', '7')
+    // 裁定は TLC の反例を消さないので、形式検査の違反を裁定で閉じても段 9 へは進めない。
+    if (!(state.audit && state.audit.fm === 0)) return formalGate()
     log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')
     return '9'
   }
@@ -2904,8 +3099,18 @@ async function stage8() {
   const extraOf = (d) => undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
   const head = runAuditors([plan[0]], round, '8')
   const rest = runAuditors(plan.slice(1), round, '8')
-  const extraRun = head.then(async (h) => {
+  const copied = head.then(async (h) => {
     if (h.results[0] && h.results[0].designated) h.results[0].designated = await recopy(auditorLabel(plan[0], round), h.results[0].designated, designatedCmds(), 'Revise')
+    return h
+  })
+  // modeler は指名された監査役の diff（変わった項目）を読むので、その返り値に連ねる。期待する版は改稿の後の版（監査役は文書を書かない）。
+  const formal = copied.then((h) => {
+    // 基準の diff が使えない監査は後で blocked になるので、検査しない（その理由が止まり方の理由になる）。
+    if (!h.results[0] || !usable(designatedOf(h))) return null
+    const d = designatedOf(h)
+    return formalRound('8', round, 'Revise', parseStdout(d.tree_digest).digest, formalDirsOf(parseStdout(d.doc_check)), undeclaredByDoc(d.diff, {}, auditDocs()))
+  })
+  const extraRun = copied.then(async (h) => {
     const d = designatedOf(h)
     if (!h.results[0] || !usable(d)) return null
     const extra = extraOf(d)
@@ -2920,10 +3125,10 @@ async function stage8() {
     return runAuditors(extraPlan, round, '8').then((more) => ({ extraPlan, more }))
   })
   // 1 つの枝が throw しても残りの監査役を待ってから止める（待たずに返ると、run の後に監査役が W に指摘を書く）。
-  const settled = await Promise.allSettled([head, rest, extraRun])
+  const settled = await Promise.allSettled([head, rest, extraRun, formal])
   const thrown = settled.find((x) => x.status === 'rejected')
   if (thrown) throw thrown.reason
-  const [first, others, added] = settled.map((x) => x.value)
+  const [first, others, added, fm] = settled.map((x) => x.value)
   const missing = [...first.missing, ...others.missing, ...(added ? added.more.missing : [])]
   if (missing.length) throw notRun(missing.join(', '))
   const d = designatedOf(first)
@@ -2933,6 +3138,7 @@ async function stage8() {
   if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
   const moved = fixedMoved(audited, `audited-${round}`)
   if (moved) return blocked(moved.error, moved.rerun ? '8' : null)
+  if (fm.error) return formalStop(fm, '8')
   const extra = extraOf(d)
   const extraDocs = Object.keys(extra)
   const allPlan = [...plan, ...(added ? added.extraPlan : [])]
@@ -2940,17 +3146,25 @@ async function stage8() {
   const undeclared = { ...(state.undeclared || {}) }
   for (const doc of extraDocs) undeclared[doc] = uniq([...(undeclared[doc] || []), ...extra[doc]])
   state.undeclared = undeclared
-  state.audit = { n: round, digest: audited.digest }
+  state.audit = { n: round, digest: audited.digest, fm: fm.fc.findings.length, fa: fm.fc.attempt }
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
-  const findings = recordFindings(allPlan, allResults)
+  const findings = [...recordFindings(allPlan, allResults), ...fm.fc.findings]
   const docCheck = parseStdout(d.doc_check)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
   const prev = pendingView(state.pending, state.item_routes)
-  const carried = prev.findings.filter((f) => state.revised.unapplied.includes(f.id))
+  // 形式検査は毎回全文書を検査し直すので、前の検査の指摘（replaces）は持ち越さない（まだ破れていれば今の検査が新しい ID で出す。持ち越すと二重に数える）。
+  // replaces は flow-check が写す stdout なので、pending にある監査役の形でない指摘に限る（監査役の指摘の ID が混じると、当て損ねた指摘が
+  // 持ち越されずに消える。audit.fm に ID を持つと pending と同じ値を next_args に 2 度載せる）。
+  const priorFormal = new Set(prev.findings.map((f) => f.id).filter((id) => !AUDITOR_ID.test(id)))
+  const rechecked = new Set(fm.fc.replaces.filter((id) => priorFormal.has(id)))
+  const carried = prev.findings.filter((f) => state.revised.unapplied.includes(f.id) && !rechecked.has(f.id))
   const changed = { ...changes }
   for (const doc of extraDocs) changed[doc] = uniq([...(changed[doc] || []), ...extra[doc]])
-  const again = reRaised(prev.findings, prev.again, findings, state, changed)
+  // 形式検査の違反は既裁定の再出として免除しない。裁定は TLC の反例を消さないので、免除すると違反が残ったまま done になる。
+  const formalIds = new Set([...fm.fc.findings.map((f) => f.id), ...rechecked])
+  const notFormal = (fs) => fs.filter((f) => !formalIds.has(f.id))
+  const again = reRaised(notFormal(prev.findings), prev.again, notFormal(findings), state, changed)
   if (again.length) {
     const line = `監査 r${round}: 既裁定の再出（再発に数えない）: ${again.map((x) => `${x.id} ← ${x.rulings.join(', ')}`).join(' / ')}`
     state.notices = [...(state.notices || []), line]
@@ -2958,7 +3172,7 @@ async function stage8() {
   }
   // 指摘ごとの役は持たず roles_by_item で代える（next_args の上限に収めるため）。
   const reaudited = (f) => (state.roles_by_item[f.item_id] || []).every((role) => allPlan.some((p) => p.role === role && (p.doc === 'all' || p.doc === f.doc) && (p.items || []).includes(f.item_id)))
-  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reaudited(f))
+  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reaudited(f) && !rechecked.has(f.id))
   const recurring = recurringItems(prev.findings, [...findings, ...carried], again)
   state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring, state) }
   const recurPrev = {}
@@ -3032,9 +3246,17 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
   return blocked(`${why}。blocking が ${blocking} 件残りました（尽きた項目: ${byRoute('exhausted')} / 経路を変えた項目: ${byRoute('rerouted')}）${flowLeft}${noDrafts}`, null, report)
 }
 
+// formalGate: 最後の監査の版の形式検査が違反 0 件で通っていなければ done にしない。段 9 の中に置くのは、段 9 から再開した run が
+// 段の出口の確かめ（exitViolation）を通らずに done を返すから。
+const formalGate = () =>
+  blocked(`最後の監査の版（r${state.audit ? state.audit.n : '?'}）の形式検査が違反 0 件・欠陥 0 件で通っていません（違反 ${state.audit && Number.isInteger(state.audit.fm) ? state.audit.fm : '記録なし'}）`, null, { stop_reason: 'formal_unchecked' })
+
 // stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。
+// 形式検査は監査と同じ回の番号で、監査の版を検査した後でなければ段 5・8 を出ないので、最後の検査は formal-r<audit.n>-a<audit.fa>.json にある。
 async function stage9() {
-  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })
+  if (!(state.audit && state.audit.fm === 0 && Number.isInteger(state.audit.fa))) return formalGate()
+  const { n, fa } = state.audit
+  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS, formal: formalDone(n, fa) })
 }
 
 const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 'Answers', 4: 'Draft', 5: 'Audit', 6: 'Decide', "3a'": 'Answers', 7: 'Revise', 8: 'Revise', 9: 'Report' }

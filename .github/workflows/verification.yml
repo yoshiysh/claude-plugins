@@ -29,7 +29,7 @@ jobs:
           if [ "$EVENT_NAME" = pull_request ]; then
             git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
             run=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
-              tests/formal/bp-prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
+              tests/formal/bp-prd/ .github/workflows/verification.yml plugins/workflow/skills/prd-spec/scripts/doc_check.mjs < "$RUNNER_TEMP/changed-files")
           else
             run=true
           fi
@@ -41,6 +41,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.12.0'
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
           distribution: temurin
@@ -52,8 +55,9 @@ jobs:
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
         run: |
-          curl --fail --location --retry 3 --output "$TLA2TOOLS" \
-            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+          set -euo pipefail
+          url=$(node plugins/workflow/skills/prd-spec/scripts/doc_check.mjs formal-tools | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d }).on("end", () => process.stdout.write(JSON.parse(s).url))')
+          curl --fail --location --retry 3 --output "$TLA2TOOLS" "$url"
       - name: Check BP requirements model
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
@@ -70,6 +74,20 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '26.12.0'
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: '11'
+      # prd-spec の formal-check の判定テストは実 TLC で走る。入手元と sha256 の正本は doc_check の formal-tools（ここに写さない）。
+      - name: Download pinned TLC for prd-spec formal-check
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+        run: |
+          set -euo pipefail
+          tools() { node plugins/workflow/skills/prd-spec/scripts/doc_check.mjs formal-tools; }
+          curl --fail --location --retry 3 --output "$TLA2TOOLS" "$(node -e 'console.log(JSON.parse(process.argv[1]).url)' "$(tools)")"
+          node -e 'const t = JSON.parse(process.argv[1]); if (t.fault) { console.error(t.fault); process.exit(1) }' "$(tools)"
+          echo "TLA2TOOLS=$TLA2TOOLS" >> "$GITHUB_ENV"
       - name: Verify repository
         run: make check
       - name: Preserve verification reports

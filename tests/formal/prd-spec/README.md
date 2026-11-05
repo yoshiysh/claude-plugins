@@ -49,7 +49,7 @@ stateDiagram-v2
 
 ## 手動実行（TLC）
 
-TLC (`tla2tools.jar` v1.7.4) を用いて手動でモデル検査を行う場合:
+TLC（`tla2tools.jar`。版と入手元は `node plugins/workflow/skills/prd-spec/scripts/doc_check.mjs formal-tools` の stdout）を用いて手動でモデル検査を行う場合:
 
 ```bash
 java -cp /path/to/tla2tools.jar tlc2.TLC PrdSpec.tla -config PrdSpec.cfg

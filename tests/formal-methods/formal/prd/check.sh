@@ -11,7 +11,7 @@ sh "$cases" jobs > /dev/null
 jar=${TLA2TOOLS:?Set TLA2TOOLS to the pinned tla2tools.jar}
 JAVA=${JAVA:-java}
 export JAVA TLA2TOOLS
-expected_jar=$(sed -n 's/^expected_jar=//p' "$shared/check.sh")
+expected_jar=$(node "$root/plugins/workflow/skills/prd-spec/scripts/doc_check.mjs" formal-tools | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d }).on("end", () => process.stdout.write(JSON.parse(s).sha256))')
 actual_jar=$(shasum -a 256 "$jar" | cut -d ' ' -f 1)
 [ "$actual_jar" = "$expected_jar" ] || { echo "Unexpected TLC jar SHA-256" >&2; exit 1; }
 sh "$shared/prd_sections.sh" check "$root" "$base/PRD.sections"

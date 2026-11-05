@@ -1,6 +1,6 @@
 # formal-methods 仕様の形式モデル
 
-この形式モデルは `specifications/formal-methods` から `doc_check.mjs formal-model` により自動導出された TLA+ 状態機械モデルである。
+この形式モデルは `specifications/formal-methods` の状態遷移を写した TLA+ 状態機械モデルである。
 
 ## 状態遷移
 
