@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -163,7 +163,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-023, PR-DEVELOPIMPLEMENT-025, PR-DEVELOPREVIEW-032, PR-DEVELOPREVIEW-069
+ I_Ret_g(e) == IRun("review", e, "ret")
+ I_Ret_n(e) == SI("running", "decide", "none", sk.res,
+-                 [im EXCEPT !.recalled = FALSE, !.rets = @ + 1, !.last = [id |-> im.rets + 1, conf |-> e.b, unv |-> e.x]])
++                 [im EXCEPT !.recalled = FALSE, !.rets = @ + 1, !.last = [id |-> im.rets + 1, conf |-> FALSE, unv |-> e.x]])
+ I_Ret(e) == Sys(I_Ret_g(e), I_Ret_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-024, PR-DEVELOPREVIEW-066

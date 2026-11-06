@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -602,7 +602,7 @@
+ \* req: PR-DEVELOPADDRESSREVIEW-019, PR-DEVELOPADDRESSREVIEW-048, PR-DEVELOPADDRESSREVIEW-059, PR-DEVELOPADDRESSREVIEW-061, PR-DEVELOPADDRESSREVIEW-062
+ \* decided: 5, 6
+ A_Decide_g(e) == A /\ Stopped /\ sk.kind \in {"needs_input", "mismatch"} /\ e.n \in {"decideFix", "decideDecline", "decideOos"}
+-A_Decide_n(e) == SA("running", sk.stage, "none", [ad EXCEPT !.hasFix = (e.n = "decideFix")])
++A_Decide_n(e) == SA("running", sk.stage, "none", [ad EXCEPT !.hasFix = TRUE])
+ A_Decide(e) == Sys(A_Decide_g(e), A_Decide_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-032

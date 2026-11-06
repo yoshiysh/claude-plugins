@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -185,7 +185,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-029, PR-DEVELOPIMPLEMENT-027, PR-DEVELOPIMPLEMENT-019
+ I_DecideFix_g(e) == IRun("decide", e, "tick") /\ CountUnv(im.last) = {} /\ NeedFix /\ im.fixRound < im.fixLim
+-I_DecideFix_n(e) == SI("running", "impl", "none", sk.res, [im EXCEPT !.fixRound = @ + 1])
++I_DecideFix_n(e) == SI("running", "check", "none", sk.res, [im EXCEPT !.fixRound = @ + 1])
+ I_DecideFix(e) == Sys(I_DecideFix_g(e), I_DecideFix_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-021, PR-DEVELOPIMPLEMENT-022, PR-DEVELOPIMPLEMENT-029, PR-DEVELOPIMPLEMENT-055, PR-DEVELOPIMPLEMENT-068, PR-DEVELOPIMPLEMENT-019

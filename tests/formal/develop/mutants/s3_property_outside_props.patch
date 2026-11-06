@@ -1,0 +1,11 @@
+--- MC.tla
++++ MC.tla
+@@ -6,6 +6,8 @@
+ 
+ INSTANCE DevelopProps WITH out <- [st |-> sk.st, stage |-> sk.stage, kind |-> sk.kind, res |-> sk.res]
+ 
++ImplGoal == sk.st # "bogus"
++
+ ASSUME PrintT(<<"ACTIONS", S!AllActs>>)
+ 
+ =============================================================================

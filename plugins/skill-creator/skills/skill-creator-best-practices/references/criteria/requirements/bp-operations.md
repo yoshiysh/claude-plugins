@@ -24,12 +24,12 @@
 | 現行の prompt-audit | 現行の best-practices スキルが持つ監査の観点の基準（`plugins/skill-creator/skills/skill-creator-best-practices/references/prompt-audit.md`） |
 | 資産・指摘・カバレッジ・skip 一覧 | 設計方針文書の「資産台帳」の節が定める意味で使う |
 | 形・探索グラフ型 | 設計方針文書の「用語」の節が定める意味で使う（選び方は同文書の「形の判定」の節） |
-| needs_input・BLOCKED | 設計方針文書の「用語」の節が定める停止の種類。needs_input は人間の入力を待って止まったこと、BLOCKED は失敗して続けられずに止まったことを指す |
+| needs_input・BLOCKED | 設計方針文書の「用語」の節が定める停止の種類 |
 | run | スキルが依頼の処理を始めてから完了又は停止するまでの 1 回の実行。Workflow の場合は Workflow の 1 回の実行を指す。止まった run から続けるときは、新しい run を起動する（設計方針文書の「停止・再開と人間の入力」の節） |
 | context | agent が 1 回の実行の中で持つ入力と作業の内容。「生成と別の context」は、生成した agent の context を持たない別の agent を指す |
 | fan-out | 1 つの段で、項目（ファイル・観点・意図など）ごとに agent を起動して処理すること |
 | 設計の説明 | 対象スキルに書き残す、形を選んだ条件などの設計の記述（設計方針文書の「形の判定」の節が「スキルの設計の説明」と呼ぶもの） |
-| 作業記録 | run の担当が、自分の実行内容と結果、その根拠及び未確認を後から辿るために残す記録 |
+| 作業記録 | run の担当が、自分の作業を後から辿るために残す記録。欄は `docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028 が定める |
 | 記録台帳 | run の作業記録と証拠への参照をまとめる台帳。資産と指摘の対応を管理する資産台帳とは役割が異なる |
 | 文書の一般規約 | [文書のガイドライン](https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/documentation.md)。作業記録を含む文書の書き方の正本 |
 
@@ -101,6 +101,11 @@ best-practices は、create・review・update・audit の 4 機能を提供し�
 #### PR-BPOPERATIONS-051 best-practices の run の記録
 best-practices は、4 機能の各 run について、作業記録、記録台帳、保持及び保存の失敗を `docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028〜036・038〜040・042 と同じように扱わなければならない。
 
+### 回答待ちの返り値
+
+#### PR-BPOPERATIONS-052 needs_input の返り値
+best-practices が needs_input を返して止まるとき、best-practices は、返り値に理由と判断材料（決めること・ここまでの検証結果・影響の範囲・残った作業）の欄を含め、まだ無い材料はその欄で無いと示さなければならない。受け取った入力を確かめる時点で、目標の固定に入る前に止まったときは、検証結果と残った作業が無いと示さなければならない。目標の固定で止まったとき（PR-BPOPERATIONS-005）は、残った作業と、それまでの検証結果があればそれを欄に載せなければならない。
+
 ### create
 
 #### PR-BPOPERATIONS-003 目標の固定
@@ -110,7 +115,7 @@ create は、スキルを書く前に、依頼文から、PR-BPDESIGNEDSKILL-006
 create は、依頼文に無い目標・制約を対象スキルに加えてはならない（頼まれていない成果物に費用を払い、その完了を報告することになる）。
 
 #### PR-BPOPERATIONS-005 待たれる入力の不足
-目標を固定するのに要る人間の入力（承認・回答）が足りないならば、create は needs_input と理由を返して止まらなければならない（run の中では入力を待って続けられない）。
+目標を固定するのに要る人間の入力（承認・回答）が足りないならば、create は needs_input を返して止まらなければならない（run の中では入力を待って続けられない。返り値は PR-BPOPERATIONS-052 が定める）。
 
 #### PR-BPOPERATIONS-006 run の中で入力を待たない
 create は、PR-BPDESIGNEDSKILL-007 と同じ原則に従い、自身の run の途中で人間の承認・回答を待つ手順を持ってはならない（Workflow の実行中は入力を受け取れない）。
@@ -131,7 +136,7 @@ create は、書いたスキルを、書いた agent と別の context で検証
 create は、書いたスキルが検証を通るまで、そのスキルを完了として報告してはならない（代わりに返すものは PR-BPOPERATIONS-012 が定める）。
 
 #### PR-BPOPERATIONS-011 書き直しの許容
-検証を通らなかったとき、create はスキルを書き直して再び検証してもよい。
+形式検証以外の検証を通らなかったとき、create はスキルを書き直して再び検証してもよい（形式検証を実行できないか形式検証に失敗したときは PR-BPDESIGNEDSKILL-027 に従う）。
 
 #### PR-BPOPERATIONS-012 検証を通らずに止まるとき
 書いたスキルが検証を通らないまま止まるならば、create は、通らなかったことと理由を返さなければならない。
@@ -197,7 +202,7 @@ create と update が完了したとき、create と update は skip 一覧を�
 review は、対象スキルのフローが適切かを、`docs/requirements/bp-designed-skill.md` の要求に照らして評価しなければならない（create・update が満たす性質と同じ基準で評価するため）。
 
 #### PR-BPOPERATIONS-025 仕様の観点
-review は、対象スキルが仕様から逸れていないかを、best-practices の仕様書に照らして評価しなければならない（設計方針文書が暫定とした値と規則は、その仕様書が定める）。
+review は、対象スキルが仕様から逸れていないかを、best-practices の仕様書に照らして評価しなければならない（設計方針文書が暫定とした値と規則は、役ごとのモデルと effort の値を除き、その仕様書が定める。役ごとのモデルと effort は `docs/requirements/bp-designed-skill.md` PR-BPDESIGNEDSKILL-009 に従って照らす）。
 
 #### PR-BPOPERATIONS-026 仕様書が無いとき
 best-practices の仕様書が無い間、review は仕様の観点を未検査として結果に示さなければならない（無いまま「問題なし」と返すと、照らしていない観点が照らしたと読まれる）。仕様書の一部だけが存在するときは、この定めは照らすべき観点ごと・範囲ごとに当たり、対応する仕様書が無い観点は未検査として結果に示さなければならず、仕様書の一部が存在することだけを理由に対応する仕様書が無い観点を検査済みにしてはならない。
@@ -222,7 +227,7 @@ audit は、監査の流れを、現行の best-practices スキルが行う監�
 review と audit は、対象スキルを書き換えてはならない（修正は update が行う）。
 
 #### PR-BPOPERATIONS-031 指摘の反証
-review と audit は、指摘の候補を、生成と別の context で反証してから結果に含めなければならない（生成した本人には自分の誤りが見えない）。
+review と audit は、指摘の候補を、生成と別の context で反証してから結果に含めなければならない（生成した本人には自分の誤りが見えない）。ただし review は、`docs/requirements/bp-designed-skill.md` PR-BPDESIGNEDSKILL-051 の機械の照合だけで決まる指摘を、反証を経ずに結果に含めなければならない（決定的な照合は反証しても結果が変わらず、反証の段の費用だけがかかる）。
 
 #### PR-BPOPERATIONS-032 指摘の状態
 review と audit は、指摘の状態を open と dismissed のどちらかとして返さなければならない（対象が書き換わらない run では resolved / regressed が決まらない）。

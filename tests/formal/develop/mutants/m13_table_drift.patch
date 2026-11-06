@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -637,7 +637,7 @@
+   "I_FinalCommit", "I_FinalDone", "I_CommitPush", "I_CommitDone",
+   "I_PushOk", "I_Resume", "I_ResumeWtChanged", "I_RefuseResume", "I_EditWt",
+   "I_RaiseFix", "I_RaisePlan", "I_Decide", "I_Answer", "I_TouchWt", "I_Reinvoke",
+-  "I_HintStopped", "I_HintRefused", "H_Abort"}
++  "I_HintStopped", "H_Abort"}
+ RActs == {"R_PlanOk", "R_ReadListBad", "R_Failed", "R_ItemDone", "R_LimitStop",
+   "R_FinishPost", "R_FinishDone", "R_PostDone", "R_PostFail", "R_PostConfirmed",
+   "R_PostMismatch", "R_Resume", "R_RefuseResume", "R_Reinvoke", "R_BreakPin", "H_Abort"}

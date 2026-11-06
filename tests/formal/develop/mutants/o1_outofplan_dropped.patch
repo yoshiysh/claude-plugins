@@ -1,0 +1,11 @@
+--- DevelopEnv.tla
++++ DevelopEnv.tla
+@@ -67,7 +67,7 @@
+   THEN CASE g = "plan" -> e.n \in {"planOk", "planReject", "planHuman", "agentFail", "token", "write", "hint"}
+          [] g = "baseline" -> e.n \in {"checkOk", "checkErr", "token", "hint"}
+          [] g = "impl" -> e.n \in {"change", "noChange", "agentFail", "token", "hint"}
+-                                  \cup (IF hist.rets > 0 /\ Confirmed(hist.ret) THEN {"outOfPlan"} ELSE {})
++                                  \cup {}
+          [] g = "check" -> e.n \in {"checkErr", "hint"}
+                               \cup CASE hist.check = "pass" -> {"checkPass"}
+                                      [] hist.check = "fail" -> {"checkFailChange"}

@@ -1,0 +1,23 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -33,7 +33,7 @@
+ ad == sk.ad
+ 
+ \* req: PR-DEVELOPIMPLEMENT-063, PR-DEVELOPIMPLEMENT-064
+-CountUnv(r) == r.unv \ {d.c : d \in {dd \in im.decisions : dd.r = r.id}}
++CountUnv(r) == r.unv
+ \* req: PR-DEVELOPIMPLEMENT-063, PR-DEVELOPIMPLEMENT-027
+ CountConf(r) == r.conf \/ \E d \in im.decisions : d.r = r.id /\ d.v = "confirm"
+ HasRet == im.last.id > 0
+@@ -43,9 +43,10 @@
+ \* req: PR-DEVELOPIMPLEMENT-057
+ FinalOk == HasRet /\ ~im.checkFail /\ ~CountConf(im.last) /\ CountUnv(im.last) = {}
+ 
++r_unv(r) == r.unv \ {d.c : d \in {dd \in im.decisions : dd.r = r.id}}
+ ValidDec(e) == /\ e.x \cap e.y = {}
+                /\ e.x \cup e.y # {}
+-               /\ e.x \cup e.y \subseteq CountUnv(im.last)
++               /\ e.x \cup e.y \subseteq r_unv(im.last)
+ 
+ NeedsCommit == NeedsCommitOf(args)
+ WaitsChecks == args.pr /\ args.stopAt \in {"none", "reply", "resolve"}

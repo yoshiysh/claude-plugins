@@ -1,0 +1,12 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -60,7 +60,7 @@
+ IStop(e, n) == I /\ Stopped /\ e.n = n
+ 
+ \* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」
+-IResumeStage == IF im.unread > 0 THEN "plan" ELSE sk.stage
++IResumeStage == sk.stage
+ 
+ (* --- develop:implement --- *)
+
+ 

@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -356,7 +356,7 @@
+ 
+ \* req: PR-DEVELOPREVIEW-030, PR-DEVELOPREVIEW-031, PR-DEVELOPREVIEW-032, PR-DEVELOPREVIEW-033, PR-DEVELOPREVIEW-069, PR-DEVELOPREVIEW-074
+ R_FinishDone_g(e) == RRun("items") /\ rv.pending = 0 /\ e.n \in {"finishClean", "finishPartial"} /\ ~args.postReq
+-R_FinishDone_n(e) == SR("done", sk.stage, "none", IF e.n = "finishClean" THEN "success" ELSE "degraded", rv)
++R_FinishDone_n(e) == SR("done", sk.stage, "none", "success", rv)
+ R_FinishDone(e) == Sys(R_FinishDone_g(e), R_FinishDone_n(e))
+ 
+ \* req: PR-DEVELOPREVIEW-047, PR-DEVELOPREVIEW-075

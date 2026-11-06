@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -196,7 +196,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-029, PR-DEVELOPIMPLEMENT-072
+ \* decided: D19 C and additional decision 2 (that plan is implemented even when 029 finds nothing)
+ I_DecideNext_g(e) == IRun("decide", e, "tick") /\ CountUnv(im.last) = {} /\ ~NeedFix
+-I_DecideNext_n(e) == SI("running", IF im.planned THEN "impl" ELSE "final", "none", sk.res, im)
++I_DecideNext_n(e) == SI("running", "final", "none", sk.res, im)
+ I_DecideNext(e) == Sys(I_DecideNext_g(e), I_DecideNext_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-071

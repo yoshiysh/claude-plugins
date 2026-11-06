@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -377,7 +377,7 @@
+ \* req: PR-DEVELOPREVIEW-051, PR-DEVELOPREVIEW-072
+ \* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」
+ R_PostMismatch_g(e) == RRun("postCheck") /\ e.n = "postMismatch"
+-R_PostMismatch_n(e) == SR("stopped", "postCheck", "blocked", sk.res, rv)
++R_PostMismatch_n(e) == SR("stopped", "post", "blocked", sk.res, rv)
+ R_PostMismatch(e) == Sys(R_PostMismatch_g(e), R_PostMismatch_n(e))
+ 
+ \* req: PR-DEVELOPREVIEW-073, PR-DEVELOPREVIEW-076

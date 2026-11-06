@@ -1,0 +1,20 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -240,7 +240,7 @@
+ I_Resume_g(e) == IStop(e, "resume") /\
+   (\/ sk.kind \in {"blocked", "limit_run"}
+    \/ sk.kind = "plan_stop" /\ ~im.wtChanged
+-   \/ sk.kind = "limit_fix" /\ im.edited
++   \/ FALSE
+    \/ sk.kind \in {"abandon", "needs_input"} /\ im.unread > 0)
+ I_Resume_n(e) == SI("running", IResumeStage, "none", sk.res,
+                     [im EXCEPT !.edited = FALSE, !.recalled = FALSE,
+@@ -258,7 +258,7 @@
+ \* decided: 4
+ I_RefuseResume_g(e) == IStop(e, "resume") /\
+   (\/ sk.kind \in {"limit_plan", "no_check", "wt_changed"}
+-   \/ sk.kind = "limit_fix" /\ ~im.edited
++   \/ sk.kind = "limit_fix"
+    \/ sk.kind \in {"abandon", "needs_input"} /\ im.unread = 0)
+ I_RefuseResume_n(e) == sk
+ I_RefuseResume(e) == Sys(I_RefuseResume_g(e), I_RefuseResume_n(e))

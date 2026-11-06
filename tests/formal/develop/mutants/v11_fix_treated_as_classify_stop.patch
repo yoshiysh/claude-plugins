@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -428,7 +428,7 @@
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-020
+ A_Classified_g(e) == A /\ Running /\ sk.stage = "classify" /\ e.n \in {"agreeFix", "agreeNoFix"}
+-A_Classified_n(e) == SA("running", "route", "none", [ad EXCEPT !.hasFix = (e.n = "agreeFix")])
++A_Classified_n(e) == IF e.n = "agreeFix" THEN SA("done", "route", "none", ad) ELSE SA("running", "route", "none", [ad EXCEPT !.hasFix = FALSE])
+ A_Classified(e) == Sys(A_Classified_g(e), A_Classified_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-019, PR-DEVELOPPLUGIN-037, PR-DEVELOPADDRESSREVIEW-058

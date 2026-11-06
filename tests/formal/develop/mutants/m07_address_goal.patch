@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -458,12 +458,12 @@
+ A_RouteClassifyOnly(e) == Sys(A_RouteClassifyOnly_g(e), A_RouteClassifyOnly_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-021, PR-DEVELOPADDRESSREVIEW-023, PR-DEVELOPADDRESSREVIEW-060
+-A_RouteNoFixStop_g(e) == ARun("route", e, "tick") /\ args.stopAt # "classify" /\ ~ad.hasFix /\ ~WaitsChecks
++A_RouteNoFixStop_g(e) == ARun("route", e, "tick") /\ args.stopAt # "classify" /\ ~ad.hasFix /\ ~WaitsChecks /\ ~(args.pr /\ args.stopAt = "push")
+ A_RouteNoFixStop_n(e) == SA("done", sk.stage, "none", ad)
+ A_RouteNoFixStop(e) == Sys(A_RouteNoFixStop_g(e), A_RouteNoFixStop_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-021, PR-DEVELOPADDRESSREVIEW-023, PR-DEVELOPADDRESSREVIEW-027, PR-DEVELOPADDRESSREVIEW-047
+-A_RouteNoFixWait_g(e) == ARun("route", e, "tick") /\ args.stopAt # "classify" /\ ~ad.hasFix /\ WaitsChecks
++A_RouteNoFixWait_g(e) == ARun("route", e, "tick") /\ args.stopAt # "classify" /\ ~ad.hasFix /\ (WaitsChecks \/ (args.pr /\ args.stopAt = "push"))
+ A_RouteNoFixWait_n(e) == SA("running", "wait", "none", ad)
+ A_RouteNoFixWait(e) == Sys(A_RouteNoFixWait_g(e), A_RouteNoFixWait_n(e))
+ 

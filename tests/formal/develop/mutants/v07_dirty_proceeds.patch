@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -423,7 +423,7 @@
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-004, PR-DEVELOPADDRESSREVIEW-058
+ A_EntryDirty_g(e) == ARun("entry", e, "dirty")
+-A_EntryDirty_n(e) == SA("stopped", "entry", "refused", ad)
++A_EntryDirty_n(e) == SA("running", "classify", "none", ad)
+ A_EntryDirty(e) == Sys(A_EntryDirty_g(e), A_EntryDirty_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-020

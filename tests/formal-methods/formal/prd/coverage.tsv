@@ -1,0 +1,255 @@
+PR-FORMALMETHODS-001	入れない	run の状態を書き換える遷移ではない（入出力の形・書き換えてよい範囲の関係の制約で、軽い検査の組の照合が受け持つ）
+PR-FORMALMETHODS-002	入れない	run の状態を書き換える遷移ではない（入出力の形・書き換えてよい範囲の関係の制約で、軽い検査の組の照合が受け持つ）
+PR-FORMALMETHODS-003	入れない	run の状態を書き換える遷移ではない（入出力の形・書き換えてよい範囲の関係の制約で、軽い検査の組の照合が受け持つ）
+PR-FORMALMETHODS-004	入れない	作業場所を起動の同一性で引く形（ws[content]）で写したが、それだけを壊す変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-005	入れない	run の状態を書き換える遷移ではない（入出力の形・書き換えてよい範囲の関係の制約で、軽い検査の組の照合が受け持つ）
+PR-FORMALMETHODS-006	入れる	Defects: NoDownstreamForUpstreamGap（246 の順で 143・142 を 140 より先に当てる）
+PR-FORMALMETHODS-007	入れない	機能の 2 値は StopTable・Defects の分岐に使うが、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-008	入れない	機能の決め方と確かめの正本の置き場で、状態遷移を持たない
+PR-FORMALMETHODS-009	入れない	機能の決め方と確かめの正本の置き場で、状態遷移を持たない
+PR-FORMALMETHODS-011	入れない	停止の行の閉集合に needs_input を置かないことで写したが、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-012	入れない	停止の行の閉集合に needs_input を置かないことで写したが、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-013	入れない	判断が要るものを欠けとして返す規則で、検査の中身
+PR-FORMALMETHODS-014	入れない	既定値の表の使い方
+PR-FORMALMETHODS-016	入れない	入力の指定の優先
+PR-FORMALMETHODS-017	入れない	人の入力の経路の規則（ヒントだけ）。ヒントの追記は Launch の AddHint で持つが、経路の閉集合は写していない
+PR-FORMALMETHODS-018	入れる	Launch: StepEnd と続きからの起動で未読のヒントを既読にし、NoUnreadHintAtComplete（欠け F11 = lc J-008）
+PR-FORMALMETHODS-019	入れない	ヒントの効く範囲
+PR-FORMALMETHODS-020	入れない	Launch の AddHint は停止を起こさない形で写したが、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-021	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-022	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-023	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-024	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-025	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-026	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-027	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-028	入れない	写しと参照の規則で、run の状態を持たない
+PR-FORMALMETHODS-029	入れない	設計方針文書への委譲で、状態遷移を持たない
+PR-FORMALMETHODS-030	入れない	取り込みの表への委譲。停止と再開の中身は 032・175・193 の行で写した
+PR-FORMALMETHODS-031	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-236	入れない	入力を変えた起動が別の起動の同一性になる形で写したが、それだけを壊す変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-032	入れない	停止の行の閉集合は rows.tsv で文書と機械で照らすが、モデルの変異で落ちる性質ではない（形だけ写した）
+PR-FORMALMETHODS-033	入れない	区分は停止の行の列の値であり、行の選択に帰着する（区分の値そのものは写していない）
+PR-FORMALMETHODS-034	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-035	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-036	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-037	入れない	起動数の上限 L は Budget の定数で、037 そのものを壊す変異で落ちる性質を持たない（形だけ写した。予約分は前提の行と F8）
+PR-FORMALMETHODS-038	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-039	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-040	入れない	取り込みの表への委譲か、役の分担・記録の形の規則で、状態遷移を持たない
+PR-FORMALMETHODS-041	入れない	全ての起動が Launch を通る形で写したが、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-195	入れる	Launch: 続きからの起動の入口で、121 の印があれば step の始めから、無ければ未着手から続ける（RedoStoppedStep）
+PR-FORMALMETHODS-042	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-043	入れる	Launch: next_args の拒否 2 行。Lock: 同時の起動の拒否と走っていない起動のロック。reject.tsv で 18 行を文書と機械で照らし、残りの 15 行は対象外
+PR-FORMALMETHODS-044	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-045	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-046	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-237	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-228	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-223	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-227	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-224	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-225	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-226	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-048	入れない	入力の形と文書の層ごとに回す検査の表で、状態を書き換えない
+PR-FORMALMETHODS-050	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-051	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-196	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-052	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-053	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-054	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-055	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-056	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-235	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-057	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-058	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-059	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-060	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-061	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-062	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-197	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-063	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-064	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-198	入れない	組の作り方と照らす型の規則で、検査の中身。run の状態を書き換えない
+PR-FORMALMETHODS-066	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-067	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-199	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-068	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-069	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-070	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-200	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-071	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-072	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-201	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-073	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-239	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-074	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-075	入れない	検査対象を単位に区切る規則で、検査の中身
+PR-FORMALMETHODS-076	入れない	検査対象の並列の確かめ方で、検査の中身
+PR-FORMALMETHODS-077	入れない	検査対象の並列の確かめ方で、検査の中身
+PR-FORMALMETHODS-202	入れない	検査対象の並列の確かめ方で、検査の中身
+PR-FORMALMETHODS-078	入れない	検査対象の並列の確かめ方で、検査の中身
+PR-FORMALMETHODS-203	入れない	検査対象の並列の確かめ方で、検査の中身
+PR-FORMALMETHODS-079	入れない	単位の階層の作り方で、検査の中身
+PR-FORMALMETHODS-080	入れない	単位の階層の作り方で、検査の中身
+PR-FORMALMETHODS-081	入れない	単位の階層の作り方で、検査の中身
+PR-FORMALMETHODS-204	入れない	単位の階層の作り方で、検査の中身
+PR-FORMALMETHODS-255	入れない	単位の階層の作り方で、検査の中身
+PR-FORMALMETHODS-082	入れない	横と縦の確かめ方で、検査の中身
+PR-FORMALMETHODS-205	入れない	横と縦の確かめ方で、検査の中身
+PR-FORMALMETHODS-083	入れない	横と縦の確かめ方で、検査の中身
+PR-FORMALMETHODS-084	入れない	横と縦の確かめ方で、検査の中身
+PR-FORMALMETHODS-206	入れない	横と縦の確かめ方で、検査の中身
+PR-FORMALMETHODS-085	入れない	横と縦の確かめ方で、検査の中身
+PR-FORMALMETHODS-086	入れない	継ぎ目の拾い方と確かめ方で、検査の中身
+PR-FORMALMETHODS-087	入れない	継ぎ目の拾い方と確かめ方で、検査の中身
+PR-FORMALMETHODS-088	入れない	継ぎ目の拾い方と確かめ方で、検査の中身
+PR-FORMALMETHODS-089	入れない	継ぎ目の拾い方と確かめ方で、検査の中身
+PR-FORMALMETHODS-090	入れない	継ぎ目の拾い方と確かめ方で、検査の中身
+PR-FORMALMETHODS-091	入れない	継ぎ目の拾い方と確かめ方で、検査の中身
+PR-FORMALMETHODS-092	入れない	循環の確かめ方で、検査の中身
+PR-FORMALMETHODS-093	入れない	循環の確かめ方で、検査の中身
+PR-FORMALMETHODS-094	入れない	循環の確かめ方で、検査の中身
+PR-FORMALMETHODS-095	入れない	循環の確かめ方で、検査の中身
+PR-FORMALMETHODS-096	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-240	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-097	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-098	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-241	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-099	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-100	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-101	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-102	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-103	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-104	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-242	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-207	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-243	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-244	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-105	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-188	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-245	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-189	入れない	重い検査の要否と範囲の決め方で、判定の材料。停止と続きからの起動の状態を書き換えない
+PR-FORMALMETHODS-106	入れない	手法の選び方と道具の版の規則で、状態遷移を持たない
+PR-FORMALMETHODS-208	入れない	手法の選び方と道具の版の規則で、状態遷移を持たない
+PR-FORMALMETHODS-107	入れない	手法の選び方と道具の版の規則で、状態遷移を持たない
+PR-FORMALMETHODS-108	入れない	手法の選び方と道具の版の規則で、状態遷移を持たない
+PR-FORMALMETHODS-109	入れない	手法の選び方と道具の版の規則で、状態遷移を持たない
+PR-FORMALMETHODS-110	入れない	手法の選び方と道具の版の規則で、状態遷移を持たない
+PR-FORMALMETHODS-111	入れる	StopTable: trialCap（道具の取得・照合の失敗の試行の上限）→ 失敗の行。156 の除外を含む
+PR-FORMALMETHODS-112	入れない	許可が無いことを取得の失敗（trialCap）に丸めたので、111 と区別する性質を持たない（形だけ写した）
+PR-FORMALMETHODS-113	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-114	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-115	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-116	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-209	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-117	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-118	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-119	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-210	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-120	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-121	入れる	Launch: InputChangeStopsAtStepEnd（m121_ignore）・ResultsOnIdentity（欠け F3・m264_skip_item_check）。StopTable: InputChangeIsFailure（m259）。Defects: fail121 の停止（欠け K2）
+PR-FORMALMETHODS-264	入れる	Launch: 指紋の照合を step の終わりに置く（InputChangeStopsAtStepEnd・欠け F3）
+PR-FORMALMETHODS-256	入れる	Launch: RedoStoppedStep。Convergence: 修正の回の結果をやり直しでどう扱うか（欠け F7）
+PR-FORMALMETHODS-122	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-123	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-124	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-211	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-125	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-126	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-190	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-257	入れない	作る機能が作るモデルへの義務で、本モデル自身はこれに従って作った（README）。run の状態遷移ではない
+PR-FORMALMETHODS-127	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-128	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-129	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-130	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-212	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-131	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-132	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-213	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-133	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-214	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-215	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-134	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-216	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-135	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-217	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-136	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-137	入れない	audit の確かめの中身で、run の状態遷移ではない
+PR-FORMALMETHODS-138	入れる	Defects: ReturnedDefectsAttributed（欠け K2）・NoUnattributedPrevResult（m262）。StopTable: EveryUnsavedScopeReturned（m263）
+PR-FORMALMETHODS-139	入れない	欠けに添える反例と差し戻し先の中身
+PR-FORMALMETHODS-140	入れない	位置による帰属は RuleLayer に写したが、位置の規則だけを確かめる性質を持たない（形だけ写した。143・142 との順は 246 で確かめる）
+PR-FORMALMETHODS-246	入れる	Defects: RuleLayer の当てる順（NoDownstreamForUpstreamGap）
+PR-FORMALMETHODS-141	入れない	モデルの欠けは Defects で別の集合（modelFound・modelOpen）に持ち、帰属の値を持たない
+PR-FORMALMETHODS-142	入れる	Defects: RuleLayer の spans
+PR-FORMALMETHODS-143	入れる	Defects: RuleLayer の undefUp
+PR-FORMALMETHODS-261	入れない	欠けの位置の中身（file:line）を持たない
+PR-FORMALMETHODS-144	入れる	Defects: Judge の 2 回目（AmbiguousOnlyAfterTwo）
+PR-FORMALMETHODS-218	入れる	Defects: AmbiguousOnlyAfterTwo（m144）。2 回目が決まれば採る読み方は足した制約で、外すと SecondDecidedAdopted が落ちる（lc K3）
+PR-FORMALMETHODS-262	入れる	Defects: あいまいな欠けを根拠の層に帰属させる（AttributionStepAttributesAll）
+PR-FORMALMETHODS-233	入れない	性質の違反を Found に丸めたので、233 を確かめる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-145	入れない	範囲と限界の記録の中身。RangeCol に丸めたので、lc J-002・J-003（108・115・125 と 150 の両立）が現れない
+PR-FORMALMETHODS-146	入れない	範囲と限界の記録の中身
+PR-FORMALMETHODS-147	入れない	記録の置き場の規則。RangeCol に丸めたので、lc J-002・J-003 が現れない
+PR-FORMALMETHODS-148	入れる	StopTable: RangeCol（保存の失敗の行に従う範囲と限界の記録の列）
+PR-FORMALMETHODS-149	入れない	返り値の中身（軽い検査の未実施の印）を持たない
+PR-FORMALMETHODS-150	入れない	RangeCol = none として写したが、範囲と限界の記録を書く時点を持たないので、108・115・125 との両立（lc J-002・J-003）が現れない
+PR-FORMALMETHODS-151	入れない	性質の走査元の規則で、状態遷移を持たない
+PR-FORMALMETHODS-152	入れる	StopTable: T152・R152・DefectRow（欠け F1）。Defects: 作る機能は欠けを見つけた step の終わりで止まる
+PR-FORMALMETHODS-153	入れる	StopTable: T153・R153・DefectRow。Defects: audit は最後の step まで進む
+PR-FORMALMETHODS-154	入れる	StopTable: LimitWhenBudget（m154・m156）。Defects: limit154 の停止（欠け K2）
+PR-FORMALMETHODS-155	入れる	Budget: EntryWritesOnlyWithinLimit（欠け F8）。Launch: 177 の順で 192・231 の後に当てる
+PR-FORMALMETHODS-156	入れる	StopTable: 試行の上限と起動数の上限が同時に当たると反復の上限（LimitWhenBudget）
+PR-FORMALMETHODS-157	入れる	Defects: FixFind・FixRepair。Convergence: Round
+PR-FORMALMETHODS-158	入れる	StopTable: trialCap → 失敗の行。Convergence: TryFail
+PR-FORMALMETHODS-159	入れる	Convergence: TrialCountCarried
+PR-FORMALMETHODS-258	入れる	Convergence: TrialCapCumulative
+PR-FORMALMETHODS-160	入れる	Convergence: NoCappedAfterResume（m160_keep_capped）
+PR-FORMALMETHODS-247	入れる	Convergence: TriedAfterReset
+PR-FORMALMETHODS-161	入れない	判定が修正の回の結果だけを見る形で写したが、文書の修正を判定に混ぜる遷移を持たないので、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-162	入れる	Convergence: W < C（定数の組）と WidthReached
+PR-FORMALMETHODS-265	入れる	Convergence: seq（回の順の結果）を状態に持つ（CountIsCumulative）
+PR-FORMALMETHODS-266	入れる	Convergence: 判定の窓を状態の並び全体にする（WidthReached）
+PR-FORMALMETHODS-163	入れる	Convergence: blocked163。StopTable: T163s・T163n と NextArgsOnlyIfContinuable（欠け F2）。Launch: fail163（欠け F2）
+PR-FORMALMETHODS-164	入れない	数えた箇所の数を scatter2 の 2 値に丸めた。数え方の単位の無さ（lc J-001）が現れない
+PR-FORMALMETHODS-219	入れる	StopTable: scatter2 → 対象の欠けの行
+PR-FORMALMETHODS-165	入れる	Convergence: iter165。StopTable: T165
+PR-FORMALMETHODS-166	入れる	Convergence: CountIsCumulative
+PR-FORMALMETHODS-167	入れる	Convergence: ExtraRoundAfterCap
+PR-FORMALMETHODS-168	入れる	Launch: ContinueKeepsProgress（m193_restart）。Defects: 見つけた欠けを状態に書く（K1）
+PR-FORMALMETHODS-170	入れる	Launch: ContinueKeepsProgress（m193_restart）。Convergence: CountIsCumulative（m173_drop_carry）
+PR-FORMALMETHODS-248	入れない	軽い検査を回したことに数える規則で、軽い検査の step を持たない
+PR-FORMALMETHODS-172	入れない	別の run の欠けを結び付ける遷移を持たないことで写したが、変異で落ちる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-173	入れる	Convergence: CountIsCumulative（m173_drop_carry で落ちる）
+PR-FORMALMETHODS-191	入れない	検査対象の修正は run の外の主体が行い、run の中に修正と再検証の遷移を持たない（Launch で入力の変化は別の起動の同一性になる）
+PR-FORMALMETHODS-192	入れる	Launch: CompletedReturnsCompleted（m192_skip_complete で落ちる）
+PR-FORMALMETHODS-193	入れる	Launch: ContinueKeepsProgress（m193_restart）・PrevResultReturned（m177 の 2 変異）
+PR-FORMALMETHODS-229	入れる	Launch: 状態が無ければ新しい状態（NewStateIsFresh）
+PR-FORMALMETHODS-249	入れる	Launch: NewStateIsFresh（m249_inherit で落ちる）
+PR-FORMALMETHODS-230	入れない	続きからの起動で既読にする遷移として写したが、既読の付け方の義務が要求に無く（lc J-007）、それを確かめる性質を持たない
+PR-FORMALMETHODS-250	入れる	Launch: ContinueKeepsProgress（m250_rewind_on_hint）
+PR-FORMALMETHODS-231	入れる	Launch: PrevResultReturned・PrevResultClosed・NextArgsContinue（欠け F2）
+PR-FORMALMETHODS-234	入れる	Launch: AddHint を前の結果を返す状態で拒む（PrevResultClosed）
+PR-FORMALMETHODS-174	入れない	書いてよい先に書けないことを miscFail に丸めたので、174 だけを確かめる性質を持たない（形だけ写した）
+PR-FORMALMETHODS-175	入れる	StopTable: 行の列（RangeColOf・NextArgsOf・ScopeOf）と NextArgsOnlyIfContinuable（欠け F2・m175）。当たるときの ID は RowIds と文書を機械で照らす
+PR-FORMALMETHODS-176	入れない	返り値と next_args の形は仕様書へ委ねる規則で、形を持たない（next_args の有無だけを持つ）
+PR-FORMALMETHODS-177	入れる	Launch: Launch の CASE の順（PrevResultReturned・m177 の 2 変異）
+PR-FORMALMETHODS-232	入れる	StopTable: StopRecFirst
+PR-FORMALMETHODS-251	入れる	StopTable: DefectFirst
+PR-FORMALMETHODS-259	入れる	StopTable: InputChangeIsFailure
+PR-FORMALMETHODS-252	入れる	StopTable: ExactlyOneRow（m252_drop）
+PR-FORMALMETHODS-253	入れる	StopTable: NoUnsavedRecordClaimed（m253_drop）
+PR-FORMALMETHODS-263	入れる	StopTable: EveryUnsavedScopeReturned（m263_only_selected）
+PR-FORMALMETHODS-260	入れる	StopTable: FailureBeforeSave
+PR-FORMALMETHODS-254	入れる	StopTable: CompleteOnlyClean
+PR-FORMALMETHODS-178	入れる	StopTable: CompleteCond。Defects: done の条件（欠け F6）
+PR-FORMALMETHODS-179	入れない	重い検査の結果を「対象なし」と書く記録の中身で、状態遷移を持たない
+PR-FORMALMETHODS-180	入れる	StopTable: CompleteCond（audit）
+PR-FORMALMETHODS-181	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-182	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-183	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-184	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-185	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-186	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-222	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）
+PR-FORMALMETHODS-187	入れない	開発時の義務で、run の状態を持たない（本モデルが 182・183 の履行）

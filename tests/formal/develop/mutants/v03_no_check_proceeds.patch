@@ -1,0 +1,20 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -65,7 +65,7 @@
+ (* --- develop:implement --- *)
+ 
+ \* req: PR-DEVELOPIMPLEMENT-010, PR-DEVELOPIMPLEMENT-068
+-I_PlanOkNoCheck_g(e) == IRun("plan", e, "planOk") /\ ~args.checkDecl
++I_PlanOkNoCheck_g(e) == FALSE
+ I_PlanOkNoCheck_n(e) == SI("stopped", "plan", "no_check", sk.res, [im EXCEPT !.unread = 0])
+ I_PlanOkNoCheck(e) == Sys(I_PlanOkNoCheck_g(e), I_PlanOkNoCheck_n(e))
+ 
+@@ -76,7 +76,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-006, PR-DEVELOPIMPLEMENT-040, PR-DEVELOPIMPLEMENT-065, PR-DEVELOPIMPLEMENT-067, PR-DEVELOPIMPLEMENT-058, PR-DEVELOPIMPLEMENT-059, PR-DEVELOPIMPLEMENT-072
+ \* decided: D19 C and additional decision 2 (a plan rebuilt after resuming from the fix-round limit goes to check and review first)
+-I_PlanOkGo_g(e) == IRun("plan", e, "planOk") /\ args.checkDecl /\ ~(args.planStop /\ ~im.planStopUsed)
++I_PlanOkGo_g(e) == IRun("plan", e, "planOk") /\ ~(args.checkDecl /\ args.planStop /\ ~im.planStopUsed)
+ I_PlanOkGo_n(e) == SI("running",
+                       CASE im.fromLimit -> "check"
+                         [] im.baseline -> "impl"

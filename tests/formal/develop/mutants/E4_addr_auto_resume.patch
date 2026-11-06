@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -582,7 +582,7 @@
+ \* req: PR-DEVELOPADDRESSREVIEW-031, PR-DEVELOPADDRESSREVIEW-033, PR-DEVELOPADDRESSREVIEW-059
+ \* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」「再開をまたいで残す値（run ごとに数える回数を再開した run では 0 から数える）」, PR-DEVELOPPLUGIN-041
+ \* decided: 8
+-A_Resume_g(e) == AStop(e, "resume") /\
++A_Resume_g(e) == (AStop(e, "resume") \/ AStop(e, "none")) /\
+   (\/ sk.kind \in {"blocked", "impl_stopped", "push_denied"}
+    \/ sk.kind = "limit_run" /\ ~(sk.stage = "wait" /\ ad.headMoved))
+ A_Resume_n(e) == SA("running", sk.stage, "none", [ad EXCEPT !.waitCnt = 0])

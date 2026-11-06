@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { SKILL_DIR, TRIAL_DIR, WORKFLOW_STATUSES, checkWorktree, prepareIn, sourceProblems, criteriaBody, evidenceProblems, expectedSource, fingerprint, launchesOf, runnerTimeouts, sameFingerprint, workflowEvidence, writeRecord } from '../tools/bp-trial.mjs';
-import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
+import { ACCOMPANIED_NOTE, EXPECTED_FILE, confirmedKeys, readRecords, renderRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
 import { REPO_ROOT, inspectArgs, inspectDefaults, payloadPath, runInspect, setupInspect, tmp, viewOf } from './helpers/bp-harness.mjs';
@@ -14,8 +14,12 @@ async function skillCopy(t) {
   const skill = path.join(plugin, 'skills', 's');
   await fs.mkdir(path.dirname(skill), { recursive: true });
   await fs.cp(SKILL_DIR, skill, { recursive: true, filter: (src) => !src.includes(`${path.sep}eval-viewer`) });
-  return { plugin, skill, conformance: path.join(skill, CRITERIA_DIR, 'specifications', 'bp-conformance.md') };
+  const conformance = path.join(skill, CRITERIA_DIR, 'specifications', 'bp-conformance.md');
+  return { plugin, skill, conformance, conformanceTbd: conformance.replace(/\.md$/, '.tbd.json') };
 }
+
+// 正本の bp-conformance は TBD を持たないので、隣の .tbd.json は写しに置いて試す。
+const TBD_STUB = '{\n "tbd": [\n  {\n   "blocking": false,\n   "id": "TBD-SBPCONFORMANCE-005",\n   "text": "x"\n  }\n ]\n}\n';
 
 async function edit(file, from, to) {
   const text = await fs.readFile(file, 'utf8');
@@ -43,7 +47,7 @@ test('検証方法: 判定基準の写しの全てのファイルの、トレー
   const changes = [
     (c) => edit(c.conformance, '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 |', '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-007 |'),
     (c) => edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:'),
-    (c) => edit(c.conformance.replace(/\.md$/, '.tbd.json'), '"TBD-SBPCONFORMANCE-005"', '"TBD-SBPCONFORMANCE-006"'),
+    (c) => fs.writeFile(c.conformanceTbd, TBD_STUB),
     (c) => edit(c.conformance, '3 体以下でなければならない', '4 体以下でなければならない'),
     (c) => edit(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-run.md'), '#### SP-BPRUN-037', '#### SP-BPRUN-037 x'),
     (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-findings.md'), '\n判定する者は全て適合としてよい\n'),
@@ -60,6 +64,11 @@ test('検証方法: 判定基準の写しの全てのファイルの、トレー
     await change(c);
     assert.ok(!sameFingerprint(fingerprint(c.skill), before), change.toString());
   }
+  const c = await skillCopy(t);
+  await fs.writeFile(c.conformanceTbd, TBD_STUB);
+  const before = fingerprint(c.skill);
+  await edit(c.conformanceTbd, '"TBD-SBPCONFORMANCE-005"', '"TBD-SBPCONFORMANCE-006"');
+  assert.ok(!sameFingerprint(fingerprint(c.skill), before), '隣の .tbd.json の TBD ID を変えても指紋が変わらない');
   assert.equal(criteriaBody('# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | 完了 |\n## 次\n| a | b | c | d |\n'),
     '# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | |\n## 次\n| a | b | c | d |\n');
 });
@@ -178,6 +187,29 @@ test('検証方法: R2 の行は基準の run の記録が無ければ、仕込�
   assert.ok(rows.length > 0);
   assert.ok(rows.every((r) => r.status === '作成中'));
   assert.ok(rows.some((r) => r.notes.some((n) => /R1 の記録が無い/.test(n))));
+});
+
+test('検証方法（bp-conformance）: 完了を決める記録の読み取りも、仕込みの伴う単位として吸収した指摘を R2 の行ごとに宣言する', async (t) => {
+  const current = fingerprint();
+  const expected = JSON.parse(readFileSync(EXPECTED_FILE, 'utf8'));
+  const asFinding = (i, unit = i.unit) => ({ viewpoint: i.viewpoint, kind: unit, state: 'open', assets: [{ id: 'A', path: i.file, loc: i.section === null ? { k: 'file' } : { k: 'sec', h: i.section.map((x, n) => [n + 1, x]), n: 1 } }] });
+  const declaring = expected.injections.find((i) => i.accompanies);
+  const row = { row: expected.row };
+  const baseline = { stopKind: 'complete', findings: [], applicability: row };
+  const injected = (findings) => ({ stopKind: 'complete', findings, applicability: row, uncheckedViewpoints: expected.forced.map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason })) });
+  const all = expected.injections.map((i) => asFinding(i));
+  const r2Rows = async (findings) => readRecords({ recordsDir: await records(t, {
+    R1: forged('R1', 'review', sourceFor('R1'), baseline, current),
+    R2: forged('R2', 'review', sourceFor('R2'), injected(findings), current),
+  }), current }).filter((r) => r.run === 'R2' && r.file === 'bp-conformance.md');
+  const plain = await r2Rows(all);
+  assert.ok(plain.length > 0);
+  assert.ok(plain.every((r) => !r.notes.some((n) => n.startsWith(ACCOMPANIED_NOTE))));
+  const absorbed = await r2Rows([...all, asFinding(declaring, declaring.accompanies[0])]);
+  assert.deepEqual(absorbed.map((r) => r.status), plain.map((r) => r.status));
+  for (const r of absorbed) assert.ok(r.notes.some((n) => n.startsWith(ACCOMPANIED_NOTE) && n.includes(declaring.accompanies[0]) && n.includes(declaring.file)), r.req);
+  const table = renderRecords(absorbed);
+  assert.ok(table.includes(`${ACCOMPANIED_NOTE}`) && table.includes(declaring.accompanies[0]));
 });
 
 test('検証方法: 試走の道具は本物の checkout では走らず、worktree でだけ走る', () => {

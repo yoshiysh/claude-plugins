@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -505,7 +505,7 @@
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-024, PR-DEVELOPADDRESSREVIEW-058
+ A_ImplStopped_g(e) == ARun("implement", e, "implStopped")
+-A_ImplStopped_n(e) == SA("stopped", "implement", "impl_stopped", ad)
++A_ImplStopped_n(e) == SA("done", "implement", "none", ad)
+ A_ImplStopped(e) == Sys(A_ImplStopped_g(e), A_ImplStopped_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-025, PR-DEVELOPADDRESSREVIEW-021, PR-DEVELOPADDRESSREVIEW-056, PR-DEVELOPADDRESSREVIEW-060

@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -545,12 +545,12 @@
+ A_CiWaitLimit(e) == Sys(A_CiWaitLimit_g(e), A_CiWaitLimit_n(e))
+ 
+ \* req: PR-DEVELOPPLUGIN-048
+-A_ReplyPost_g(e) == ARun("reply", e, "replyPost")
++A_ReplyPost_g(e) == A /\ Running /\ sk.stage = "reply" /\ e.n \in {"replyPost", "headStale"}
+ A_ReplyPost_n(e) == SA("running", "replyCheck", "none", ad)
+ A_ReplyPost(e) == Sys(A_ReplyPost_g(e), A_ReplyPost_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-036, PR-DEVELOPADDRESSREVIEW-050, PR-DEVELOPADDRESSREVIEW-058
+-A_ReplyStale_g(e) == ARun("reply", e, "headStale")
++A_ReplyStale_g(e) == FALSE
+ A_ReplyStale_n(e) == SA("stopped", "reply", "stale", ad)
+ A_ReplyStale(e) == Sys(A_ReplyStale_g(e), A_ReplyStale_n(e))
+ 

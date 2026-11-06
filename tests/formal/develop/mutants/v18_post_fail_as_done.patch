@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -366,7 +366,7 @@
+ 
+ \* req: PR-DEVELOPREVIEW-067, PR-DEVELOPREVIEW-072
+ R_PostFail_g(e) == RRun("post") /\ e.n = "postFail"
+-R_PostFail_n(e) == SR("stopped", "post", "blocked", sk.res, rv)
++R_PostFail_n(e) == SR("done", "post", "none", sk.res, rv)
+ R_PostFail(e) == Sys(R_PostFail_g(e), R_PostFail_n(e))
+ 
+ \* req: PR-DEVELOPREVIEW-050, PR-DEVELOPREVIEW-074

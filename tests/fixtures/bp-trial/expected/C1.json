@@ -202,7 +202,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPOPERATIONS-046",
       "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（完了の返り値に観点ごとの skip 一覧が載る）",
+      "method": "fixture の run（完了の返り値の `verification.ledger` に観点ごとの skip 一覧が載り、`verification.ledger` に指摘の一覧が無く、最上位に `skip` が無い）",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -239,7 +239,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPDESIGNEDSKILL-001",
       "spec": "SP-BPAUTHORING-012",
-      "method": "fixture の run（設計の説明に A・Q1・Q2・Q3 の答えが順に、到達した形まで載る）",
+      "method": "fixture の run（設計の説明に A・W・Q1・Q2・Q3 の答えが順に、到達した形まで載る。問い W で run を分けた題材では、run の並びと分けた各 run のそれぞれに Q1・Q2・Q3 の答えが載る）",
       "checks": [
         {
           "clause": "fixture の run（",

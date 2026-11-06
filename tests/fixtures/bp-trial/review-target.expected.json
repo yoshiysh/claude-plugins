@@ -7,10 +7,6 @@
       "reason": "SP-BPCONFORMANCE-019"
     },
     {
-      "unit": "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8",
-      "reason": "SP-BPCONFORMANCE-034"
-    },
-    {
       "unit": "SP-BPCONFORMANCE-019",
       "reason": "SP-BPCONFORMANCE-019"
     }
@@ -59,11 +55,11 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r16",
+      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
       "file": "scripts/trace.js",
       "section": null,
       "from": "    if (!p) throw new Stop('blocked', '計画役が結果を返さなかった')",
-      "to": "    if (!p) p = { kind: 'intents', intents: [], rerank: [] }",
+      "to": "    if (!p) { await cli(u, [['plan', { round, intents: [], rerank: [], hintsRead: s.hints }]]); throw new Stop('blocked', '計画役が結果を返さなかった') }",
       "unseen": [
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r1",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r2",
@@ -71,7 +67,6 @@
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r4",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r5",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6",
-        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r8",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r10",
@@ -79,7 +74,12 @@
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r12",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r13",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r14",
-        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r15"
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r15",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r16",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r17"
+      ],
+      "accompanies": [
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6"
       ]
     },
     {
@@ -406,10 +406,8 @@
           "by": "injection"
         },
         "SP-BPCONFORMANCE-034": {
-          "by": "forced",
-          "units": [
-            "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8"
-          ]
+          "by": "none",
+          "reason": "探索グラフ型の題材は上限を満たし、review の試走は題材を走らせない"
         }
       },
       "unmeasured": [
@@ -463,7 +461,7 @@
     },
     {
       "req": "PR-BPOPERATIONS-025",
-      "spec": "SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036",
+      "spec": "SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036",
       "measures": {
         "SP-BPCONFORMANCE-028": {
           "by": "none",
@@ -483,9 +481,6 @@
           "by": "injection"
         },
         "SP-BPCONFORMANCE-033": {
-          "by": "injection"
-        },
-        "SP-BPCONFORMANCE-035": {
           "by": "injection"
         },
         "SP-BPCONFORMANCE-027": {

@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -480,7 +480,7 @@
+ \* req: PR-DEVELOPADDRESSREVIEW-011, PR-DEVELOPPLUGIN-038, PR-DEVELOPADDRESSREVIEW-058
+ \* decided: 8
+ A_RoutePushDenied_g(e) == ARun("route", e, "pushDenied")
+-A_RoutePushDenied_n(e) == SA("stopped", "route", "push_denied", ad)
++A_RoutePushDenied_n(e) == SA("stopped", "entry", "push_denied", ad)
+ A_RoutePushDenied(e) == Sys(A_RoutePushDenied_g(e), A_RoutePushDenied_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-049

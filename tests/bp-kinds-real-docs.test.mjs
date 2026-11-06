@@ -34,7 +34,7 @@ test('SP-BPFINDINGS-010: 原則の表の行を判定の単位にする仕様項�
 
 test('SP-BPFINDINGS-010: 実際の docs/ から仕様・目標・契約・監査の観点の閉集合を作れる', () => {
   const kinds = buildKinds(DOCS, 'update');
-  assert.deepEqual(kinds.spec.map((k) => k.value), Array.from({ length: 10 }, (_, i) => `SP-BPCONFORMANCE-0${27 + i}`));
+  assert.deepEqual(kinds.spec.map((k) => k.value), [27, 28, 29, 30, 31, 32, 33, 35, 36].map((n) => `SP-BPCONFORMANCE-0${n}`));
   assert.ok(kinds.goal.some((k) => k.value === '目標:修正の根拠の未反映'));
   assert.ok(!buildKinds(DOCS, 'create').goal.some((k) => k.value === '目標:修正の根拠の未反映'));
   assert.equal(kinds.contract.length, 5);

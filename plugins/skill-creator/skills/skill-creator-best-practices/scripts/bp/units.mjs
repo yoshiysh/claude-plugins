@@ -5,14 +5,13 @@ import { conformanceUnits, hasChapter, kindsFor, parseDoc, read, specUnits } fro
 
 const PR = 'PR-BPDESIGNEDSKILL-';
 const SP = /^SP-BPCONFORMANCE-\d{3}$/;
-const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*) はどの行でも当たる/;
+const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*)[^。]*はどの行でも当たる/;
 const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
-const EXECUTOR_TIME_ROW = '実行役の時間に上限を置く';
 // 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
-const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`], turnForm: [`${PR}002`] });
+const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`] });
 // Claude Code で確かめない制限（SP-BPCONFORMANCE-019）は、PR-BPDESIGNEDSKILL-014 の単位と「権限」の表の最後の行の 2 つの出所を持つ。
 const CLAUDE_CODE_UNCHECKED = 'SP-BPCONFORMANCE-019';
-const FORCED_BY = Object.freeze({ always: CLAUDE_CODE_UNCHECKED, permission: CLAUDE_CODE_UNCHECKED, executorTime: 'SP-BPCONFORMANCE-034', turnForm: 'SP-BPCONFORMANCE-006' });
+const FORCED_BY = Object.freeze({ always: CLAUDE_CODE_UNCHECKED, permission: CLAUDE_CODE_UNCHECKED });
 
 function numbers(text) {
   const out = [];
@@ -83,35 +82,30 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
 
 // 理由の選び方を CLI と読み取りの tool で割らないため、SP-BPINSPECTION-025 の規則をここ 1 箇所で当てる。
 export function forcedReason(sources, unit) {
-  return sources.turnForm.get(unit) ?? sources.always.get(unit);
+  return sources.always.get(unit);
 }
 
-// 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも、turnForm はターンごとの指揮だけ）。
+// 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも）。
 export function forcedSources(criteriaDir, options) {
   const { bySpec, unitsOf } = sources(criteriaDir, options);
   const always = new Map();
-  const turnForm = new Map();
   for (const req of FORCED_REQUIREMENTS.always) unitsOf(req).forEach((u) => always.set(u.value, FORCED_BY.always));
-  for (const req of FORCED_REQUIREMENTS.turnForm) unitsOf(req).forEach((u) => turnForm.set(u.value, FORCED_BY.turnForm));
   const permission = bySpec.get(PERMISSION_SP) ?? [];
   const lastPermission = permission.filter((u) => /\/t1\/r\d+$/.test(u.value)).at(-1);
   if (lastPermission) always.set(lastPermission.value, FORCED_BY.permission);
-  for (const list of bySpec.values()) for (const u of list) if (u.meaning?.startsWith(EXECUTOR_TIME_ROW)) always.set(u.value, FORCED_BY.executorTime);
-  return { always, turnForm };
+  return { always };
 }
 
 export function applicability(criteriaDir, options) {
   const { table, always, unitsOf } = sources(criteriaDir, options);
-  const forcedSet = forcedSources(criteriaDir, options);
-  const forcedAlways = forcedSet.always;
-  const forcedTurn = forcedSet.turnForm;
+  const forcedAlways = forcedSources(criteriaDir, options).always;
   const alwaysReqs = always[1].split('・').map((n) => `${PR}${n}`);
   return table.rows.map(([form, ledger, fanout, result], i) => {
     const reqs = [...new Set([...alwaysReqs, ...numbers(result.split('が当た')[0])])].sort();
     const seen = new Map();
     for (const u of reqs.flatMap(unitsOf)) if (!seen.has(u.value)) seen.set(u.value, u);
     const units = [...seen.values()];
-    const forced = units.filter((u) => forcedAlways.has(u.value) || (form === SHAPES.turn && forcedTurn.has(u.value))).map((u) => u.value);
+    const forced = units.filter((u) => forcedAlways.has(u.value)).map((u) => u.value);
     return { row: i + 1, form, ledger, fanout, requirements: reqs, units: units.map((u) => ({ value: u.value, meaning: u.meaning })), forced };
   });
 }

@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -335,12 +335,12 @@
+ \* req: PR-DEVELOPREVIEW-030, PR-DEVELOPREVIEW-034, PR-DEVELOPREVIEW-074
+ \* decided: 3
+ R_Failed_g(e) == \/ RRun("plan") /\ e.n = "write"
+-                 \/ RRun("items") /\ rv.pending > 0 /\ e.n \in {"write", "transportFail", "pinChanged"}
++                 \/ RRun("items") /\ rv.pending > 0 /\ e.n \in {"write", "transportFail"}
+ R_Failed_n(e) == SR("done", sk.stage, "none", "failed", rv)
+ R_Failed(e) == Sys(R_Failed_g(e), R_Failed_n(e))
+ 
+ \* req: PR-DEVELOPREVIEW-024, PR-DEVELOPREVIEW-028
+-R_ItemDone_g(e) == RRun("items") /\ rv.pending > 0 /\ e.n = "itemDone"
++R_ItemDone_g(e) == RRun("items") /\ rv.pending > 0 /\ e.n \in {"itemDone", "pinChanged"}
+ R_ItemDone_n(e) == SR("running", "items", "none", sk.res, [rv EXCEPT !.pending = @ - 1])
+ R_ItemDone(e) == Sys(R_ItemDone_g(e), R_ItemDone_n(e))
+ 

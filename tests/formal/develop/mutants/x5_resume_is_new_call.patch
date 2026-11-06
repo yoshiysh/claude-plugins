@@ -1,0 +1,13 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -242,9 +242,7 @@
+    \/ sk.kind = "plan_stop" /\ ~im.wtChanged
+    \/ sk.kind = "limit_fix" /\ im.edited
+    \/ sk.kind \in {"abandon", "needs_input"} /\ im.unread > 0)
+-I_Resume_n(e) == SI("running", IResumeStage, "none", sk.res,
+-                    [im EXCEPT !.edited = FALSE, !.recalled = FALSE,
+-                               !.fromLimit = @ \/ (sk.kind = "limit_fix" /\ im.unread > 0)])
++I_Resume_n(e) == [sk EXCEPT !.st = "running", !.stage = "plan", !.kind = "none", !.im = IInit]
+ I_Resume(e) == Sys(I_Resume_g(e), I_Resume_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-014, PR-DEVELOPIMPLEMENT-068, PR-DEVELOPIMPLEMENT-069

@@ -20,10 +20,12 @@ export const OPS = Object.freeze({
   reviewJudge: 'review-judge',
   vanishMatch: 'vanish-match',
   report: 'report',
+  record: 'record',
   kinds: 'kinds',
   key: 'key',
   paths: 'paths',
   pathsRetake: 'paths-retake',
+  placement: 'placement',
   snapshot: 'snapshot',
   goalCheck: 'goal-check',
   filesScan: 'files-scan',
@@ -94,6 +96,7 @@ export const STAGE = Object.freeze({
   vanish: 'vanish',
   rejudge: 'rejudge',
   gate: 'gate',
+  formal: 'formal',
   close: 'close',
 });
 export const STAGES = Object.freeze({
@@ -112,6 +115,7 @@ export const STAGES = Object.freeze({
   [STAGE.vanish]: '消えた資産の照合',
   [STAGE.rejudge]: '見直し',
   [STAGE.gate]: '合否',
+  [STAGE.formal]: '形式検証',
   [STAGE.close]: '照合と停止',
 });
 export const VERIFY_STAGES = new Set([STAGE.verify, STAGE.verifyExtra]);
@@ -186,6 +190,7 @@ export const INPUT_KEYS = Object.freeze({
   maxLaunches: 'maxLaunches',
   skillDir: 'skillDir',
   key: 'key',
+  host: 'host',
 });
 
 export const RESULT_KEYS = Object.freeze({
@@ -201,7 +206,6 @@ export const RESULT_KEYS = Object.freeze({
   designNote: 'designNote',
   verification: 'verification',
   findings: 'findings',
-  skip: 'skip',
   residualRisks: 'residualRisks',
   receivedGrounds: 'receivedGrounds',
   excludedCallsites: 'excludedCallsites',
@@ -212,6 +216,8 @@ export const RESULT_KEYS = Object.freeze({
   uncheckedViewpoints: 'uncheckedViewpoints',
   target: 'target',
   ledger: 'ledger',
+  performance: 'performance',
+  unsavedRecords: 'unsavedRecords',
 });
 export const VERIFICATION_KEYS = Object.freeze({
   decision: 'decision',
@@ -221,6 +227,7 @@ export const VERIFICATION_KEYS = Object.freeze({
   basisConstraints: 'basisConstraints',
   contract: 'contract',
   ledger: 'ledger',
+  formalVerification: 'formalVerification',
 });
 
 export const GOAL_KEYS = Object.freeze({

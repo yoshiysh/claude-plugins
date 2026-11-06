@@ -197,8 +197,8 @@ test('SP-BPINSPECTION-012・SP-BPINSPECTION-009: script は監査の観点の識
 
 test('SP-BPINSPECTION-025: 強いられた未検査の単位に付ける理由の仕様項目 ID の集合が、SP-BPINSPECTION-025 の表の検証役の未検査の行が名指す ID と一致する', () => {
   const row = tableAfter(INSPECTION, '| 場合 | 観点 | 範囲 | 理由 |').find((r) => r[0].includes('検証役が判定の単位を未検査とした'));
-  const { always, turnForm } = forcedSources(DOCS);
-  assert.deepEqual([...new Set([...always.values(), ...turnForm.values()])].sort(), [...new Set(spList(row[3]))].sort());
+  const { always } = forcedSources(DOCS);
+  assert.deepEqual([...new Set(always.values())].sort(), [...new Set(spList(row[3]))].sort());
 });
 
 test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-008: script は照らす先の章・節の名前を書き写さず照らす先の決定の出力から得て、適用の判定の prompt の仕様項目 ID が SP-BPINSPECTION-006 の表の判定基準と一致する', async (t) => {

@@ -181,12 +181,13 @@ Source URL: url
 Tags: multi_select
 Related Topics: multi_select
 Published At: date
+Registered At: date
 ```
 
 Recommended table view order:
 
 ```text
-Title, Summary, Notion Page, Domain, Topic, Subtopic, Type, Source Type, Source URL, Tags, Related Topics, Published At
+Title, Summary, Notion Page, Domain, Topic, Subtopic, Type, Source Type, Source URL, Tags, Related Topics, Published At, Registered At
 ```
 
 Recommended `Type` values:
@@ -223,7 +224,9 @@ Use `Source Type` for the actual source, not the capture mechanism. A normal web
 
 Use `Published At` for the date the source information was originally published or released. Prefer dates extracted from URL metadata, reader output, visible page text, video metadata, repository release/tag metadata, or the user's own note when explicitly stated. Do not fill `Published At` from Notion page created time or last edited time. If the published date is unknown, leave it empty rather than inventing recency.
 
-Do not create or rely on `Created`, `Updated`, `Created at`, `Updated at`, `Ingested At`, or `Source Checked At` properties for this workflow. These are operational bookkeeping fields and the user does not need them in the knowledge index. Use `Published At` only for the source's public date when available.
+Use `Registered At` for the date the row was registered in the Topic Index. Set it on every row at registration time, to the local date on which the registration is applied. It is the one bookkeeping date the index carries: it gives every row a date anchor and a recency order even when `Published At` is unknown. It is not a source date, so never present it as the publication date, and do not use it as a substitute that changes the meaning of `Published At`. For rows registered before this property existed, the row page's own creation date is the registration date and may be used to backfill it.
+
+Do not create or rely on `Created`, `Updated`, `Created at`, `Updated at`, `Ingested At`, or `Source Checked At` properties for this workflow. Other than `Registered At`, operational bookkeeping fields do not belong in the knowledge index. Use `Published At` only for the source's public date when available, and `Registered At` only for the registration date.
 
 A Topic Index row is a page whose parent is the Topic Index data source (`collection://...`). Create rows with `notion-create-pages` using a `data_source_id` parent. A page created under a Topic page or next to the canonical page is not a row, does not appear in database queries, and must not be reported as a registration.
 
@@ -411,6 +414,7 @@ A page is ready for future Markdown or RAG export when:
 - `Summary` states the conclusion or page role.
 - `Source URL` is set for external material.
 - `Published At` is set when the source provides a reliable publication date; otherwise it is empty.
+- `Registered At` is set to the date the row was registered in the Topic Index.
 - `Source Type` describes what kind of source the page came from.
 - `Decision` is separated from external source notes.
 - Related pages are linked in `Links`.

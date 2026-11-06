@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -273,7 +273,7 @@
+ \* decided: 4, D19 C
+ I_RaiseFix_g(e) == IStop(e, "raise") /\ sk.kind = "limit_fix"
+ I_RaiseFix_n(e) == SI("running", IResumeStage, "none", sk.res,
+-                      [im EXCEPT !.fixLim = @ + 1, !.edited = FALSE, !.fromLimit = @ \/ (im.unread > 0)])
++                      [im EXCEPT !.edited = FALSE, !.fromLimit = @ \/ (im.unread > 0)])
+ I_RaiseFix(e) == Sys(I_RaiseFix_g(e), I_RaiseFix_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-007, PR-DEVELOPIMPLEMENT-069
