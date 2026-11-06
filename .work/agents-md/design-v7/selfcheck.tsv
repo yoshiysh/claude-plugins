@@ -1,0 +1,69 @@
+check	target	result	method
+AGENTS.md: 書き換える既存の文が実在する	途中で止めず完了まで実行する。人間ゲート（マージ・公開）以外では止めない。	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	検証は決定的テスト + 生成者と別の fresh 監査 +PR レビュー（人間）	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	（観点を分けるかは差分の大きさと種類で呼び出し側が決め、分けるときは検証役を観点	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	公開前にはそこを設計レビューで見る	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	からも呼ばれる。	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	は編集のたびに `make test` を実行する。	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	- 検証は単一視点にしない。	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	- 解決は常に根本原因の除去を目指す。	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	- fan-out する workflow は agent ごとにモデルと ef	ある	改行と行頭の空白を除いた部分文字列
+AGENTS.md: 書き換える既存の文が実在する	コード・テスト・文書の変更では [ガイドライン](docs/guidelines	ある	改行と行頭の空白を除いた部分文字列
+decisions-map: 利用者の決定が載っている	D1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	D2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	D3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	D4	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q4	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q5	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q6	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q7	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q8	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q9	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Q10	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	V1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	V2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	V3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	V4	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	V5	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	W1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	W3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	W4	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	W5	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	X1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	X2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	X3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Y1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Y2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Y3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Y4	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Z1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Z2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	Z3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	AA1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	AA2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	AA3	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	AA4	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	BB1	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 利用者の決定が載っている	BB2	ある	answers.txt の行頭の ID と map の行頭の ID
+decisions-map: 次の PR（運用）に回した決定の数	decisions-map.tsv	8	note の列
+足す文の句点の数	A1	1	C1 は 1 文の決定
+足す文の句点の数	B1	2	C1 は 1 文の決定
+足す文の句点の数	B2	4	C1 は 1 文の決定
+足す文の句点の数	C1	1	C1 は 1 文の決定
+足す文の句点の数	STOP	4	C1 は 1 文の決定
+足す文の句点の数	FAN	2	C1 は 1 文の決定
+AGENTS.md の行数の見込み	AGENTS.md	main 235 + 足す 4 行 − fan-out 20 行を 1 行に − hook の 2 行 = 約 218 行（足す句は既存の行に入るものとして数えた）	現行の行数から差分を数える
+create の対象がまだ無い	docs/guidelines/review-lenses.md	無い	パスの有無
+create の対象がまだ無い	tests/review-lenses-agents.test.mjs	無い	パスの有無
+create の対象がまだ無い	.claude/agents/severity-assigner.md	無い	パスの有無
+create の対象がまだ無い	.claude/agents/decision-verifier.md	無い	パスの有無
+指す対象が実在する	.codex/hooks.json	実在する	パスの有無
+指す対象が実在する	REVIEW.md	実在する	パスの有無
+指す対象が実在する	docs/guidelines/README.md	実在する	パスの有無
+指す対象が実在する	.claude/agents/diff-verifier.md	実在する	パスの有無
+指す対象が実在する	.work/agents-md/design-v6/rules.tsv	実在する	パスの有無
+指す対象が実在する	.work/agents-md/flow-model-4/Flow.tla	実在する	パスの有無
+指す対象が実在する	.work/agents-md/design-v5/main-lines.tsv	実在する	パスの有無

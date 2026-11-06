@@ -1,0 +1,45 @@
+decision	where	note
+D1 流れを徹底し、欠陥は直接直さず設計に戻る	AGENTS.md 作業ルール「流れ」「欠陥の扱い」の行	
+D2 設計と設計レビューは根本原因の除去を規範とする	AGENTS.md 作業ルールの根本原因の行に足す 1 文	
+D3 形式検証を要求・仕様・実装の全てに	AGENTS.md 作業ルール「形式検証」の行・1 役割 1 責務の行の検証の列挙	
+D4 AGENTS.md には規範と理由だけ	files.tsv の全ての AGENTS.md の行（手順を書かない）	
+Q1 規範が先、スキルは別 PR	out-of-scope.tsv	次の PR
+Q2 形式検証の手順は formal-methods スキルを参照	AGENTS.md 作業ルール「形式検証」の行の指し先	
+Q3 段と形式検証は AGENTS.md に 1 文	AGENTS.md 作業ルール「形式検証」の行（理由の括弧を除き 1 文）	
+Q4 AGENTS.md の「設計レビュー」の 1 行だけ揃える	AGENTS.md 検証の節の SKIP: の行	ツールの語は次の PR
+Q5 作り手の検査の欠陥も設計に戻る	AGENTS.md 作業ルール「欠陥の扱い」の行	
+Q6 往復の原因は検査の時機	out-of-scope.tsv（検査の時機）	後で見直す
+Q7 hook の順序	Q8 が置き換えた	
+Q8 Codex の hooks を消す	.codex/hooks.json の削除・AGENTS.md の hook の 2 行	
+Q9 除けない失敗は報告して止める	AGENTS.md 作業ルールの止まってよい場所の行	
+Q10 除ける環境はやり直す（設計に戻らない）	AGENTS.md 作業ルールの止まってよい場所の行	
+V1 目的を確定	review-lenses.md（段と観点を 1 か所に）・AGENTS.md の 4 行	地図化は次の PR（BB1・AA1 で目的を狭めた）
+V2 節名を残す	AGENTS.md の見出しを変えない	
+V3 diff-verifier を残し ready 後の差分の役に	review-lenses.md の表・AGENTS.md 検証の節の段落	
+V4 Codex の agent の扱い	review-lenses.md の Codex の節	生成は次の PR（W1）
+V5 目的・生成後のレビュー・形式検証を AGENTS.md に。観点の中身は別ファイル	AGENTS.md 作業ルールの 4 行・review-lenses.md	
+W1 Codex の生成は組み込みの PR	review-lenses.md の Codex の節・out-of-scope.tsv	次の PR
+W3 best-practices §13 との食い違いを扱わない	out-of-scope.tsv	
+W4 MEDIUM 以上は設計へ、LOW は PR 本文で追わない、上限なし	AGENTS.md 作業ルール「欠陥の扱い」の行・limits.tsv（上限なし）	
+W5 免除せず規模に比例	AGENTS.md 作業ルール「流れ」の行	typo 級の具体は次の PR
+X1 置き場は規模で分ける	-	次の PR（運用）
+X2 マージが公開	AGENTS.md 作業ルールの止まってよい場所の行	
+X3 人の指摘は重大度を問わず直す	AGENTS.md 作業ルール「欠陥の扱い」の行	
+Y1 目的の固定で draft PR・出すは ready	-	次の PR（運用）
+Y2 重大度を付ける専用の agent	AGENTS.md 作業ルール「欠陥の扱い」の行・.claude/agents/severity-assigner.md・review-lenses.md・REVIEW.md の重大度の表	
+Y3 環境の判定の記録を次のレビューが見る	AGENTS.md 作業ルールの生成と検証の分離の行（既存）	記録の形は次の PR
+Y4 bot の重大度をそのまま使う	-	次の PR（運用）
+Z1 付け間違いをリスクとして受け入れる	limits.tsv	
+Z2 上限を置かず仮定とリスクを記録	limits.tsv	
+Z3 draft の間の指摘	-	次の PR（運用）
+導いた答え: ready の後に戻るとき draft に戻さない	-	次の PR（運用）
+導いた答え: 作り手の検査の失敗に重大度を付けない	AGENTS.md 作業ルール「欠陥の扱い」の行	
+導いた答え: 人の指摘に重大度を付けない	AGENTS.md 作業ルール「欠陥の扱い」の行	
+導いた答え: 目的と設計を書くのは builder 役の agent	AGENTS.md 作業ルールの 1 役割 1 責務の行（既存）	
+AA1 流れの規範に絞る	BB1 が置き換えた（地図化は次の PR）	
+AA2 ready のまま戻り bot を手で起こす	-	次の PR（運用）
+AA3 fan-out の正本は review-lenses.md	review-lenses.md「fan-out」・AGENTS.md 作業ルールの fan-out の 1 行	
+AA4 ready の後の戻りの間の指摘	-	次の PR（運用）
+導いた答え: 指摘は来た時点を問わず次の振り分けに	-	次の PR（運用）
+BB1 規範の水準に戻す	files.tsv 全体・out-of-scope.tsv	
+BB2 観点は目的に応じて選ぶ・規範の水準の設計レビューは norm と decision の 2 体	review-lenses.md「選び方」・AGENTS.md 作業ルールの単一視点の行	

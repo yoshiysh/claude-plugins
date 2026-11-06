@@ -1,0 +1,8 @@
+agent	lenses	input	excluded_input	output	model	tools
+purpose-auditor	目的への必要性	目的・対象（設計の決定の文か差分）	設計の理由・過去のレビュー（設計の前提に引き寄せられる）	要素ごとに keep / cut / shrink と対応する目的の文。末尾に「指摘」の節（review-lenses.md「返り値の形」）	opus・high	Read, Grep, Glob
+alternatives-auditor	変更自体の必要性	目的・対象・既存の仕組みを探す範囲	設計の理由	無変更・削除・再利用・より小さい変更との比較と探した範囲。末尾に「指摘」の節（review-lenses.md「返り値の形」）	opus・high	Read, Grep, Glob
+decision-verifier	decision（利用者の決定と目的への適合・検証可能性・形式検証）	利用者の決定・目的・対象・テストと形式検証の結果（模型を書かない理由を含む）	目的への必要性の判断（purpose-auditor の担当）	決定ごとに満たす / 満たさない / 検証不能、模型の忠実さと結果。末尾に「指摘」の節（review-lenses.md「返り値の形」）	opus・high	Read, Grep, Glob
+reader	初見の読み手での適用	本文・利用場面	規範の束・設計の理由・目的	場面ごとの行動・迷う箇所・複数の解釈。末尾に「指摘」の節（review-lenses.md「返り値の形」）	sonnet・medium	Read, Grep, Glob
+diff-verifier（既存。定義は変えない）	norm（REVIEW.md の観点の全般・規範どうしの矛盾・根本原因・不在と網羅の断定）。ready の後の差分も持つ	差分・テストの結果・追加の観点	修正案	file:line・誤り・重大度の並び（この並びを「指摘」の節として扱い、重大度の欄は振り分けに使わない）	opus・high	Read, Grep, Glob, WebFetch
+severity-assigner（新規）	重大度の付与	「指摘」の節の file:line と何が誤りか・REVIEW.md「重大度」	指摘した側の重大度・指摘した agent の名前・設計の理由	受けた指摘と同じ数・順で 4 値の 1 つと当てた行	sonnet・medium（閉集合からの選択）	Read, Grep, Glob
+make test（agent にしない）	書式・参照・観点の表と定義の照合	作業ツリー	-	合否	none（script）	-

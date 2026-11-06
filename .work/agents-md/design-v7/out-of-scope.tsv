@@ -1,0 +1,13 @@
+kind	item	source	reason	where_next
+out-of-scope	運用の手順: v6 の rules.tsv の WF-01〜22（目的の固定の時点の draft PR・置き場の分け方・規模の判定の基準と確かめ・分類の基準と記録・受け箱と指摘の時点ごとの扱い・ready と bot の起こし方・数の照合・LOW の全件の記録・再開の扱い・trace の照合）	BB1・v6	規範の水準に戻す決定。入力として design-v6/rules.tsv・files.tsv・agents.tsv を指す	流れを実行するスキル（repo-implement・address-review など）を改修する次の PR
+out-of-scope	流れの模型（flow-model-4 の Flow.tla・table.tsv・結果）と tests/formal/ への置き場・規則と模型の対応の照合のテスト	BB1	運用の規則と組で次の PR の入力にする。flow-model-4/ を指す	流れを実行するスキル（repo-implement・address-review など）を改修する次の PR
+out-of-scope	builder の agent 定義・docs/guidelines/workflow.md・抜粋の照合のテスト	BB1	files.tsv の判断の行のとおり規範の水準では要らない	流れを実行するスキル（repo-implement・address-review など）を改修する次の PR
+out-of-scope	既存スキルの上限つきの修正ループ・開始時の停止・prd-spec の Issue を新しい流れに揃えること、観点の agent と severity-assigner の組み込み	Q1・BB1	規範を先に入れ、スキルは次の PR	流れを実行するスキル（repo-implement・address-review など）を改修する次の PR
+out-of-scope	quick_validate.py・evals.json の「設計レビュー」の語の揃え	Q4	スキルの改修と同じ PR	流れを実行するスキル（repo-implement・address-review など）を改修する次の PR
+out-of-scope	AGENTS.md の約 100 行の地図化・節の移動・参照の付け替え・README と testing.md と manage-marketplace-plugin への移し替え	AA1	入力として design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv を指す	AGENTS.md の地図化の PR
+out-of-scope	置き場の基準（placement.md）と placement-auditor・risk-auditor・claim の担い手	BB2・AA1	目的に要る観点だけを置く。置き場の物差しは地図化と組	AGENTS.md の地図化の PR
+out-of-scope	Codex 用の agent 定義の生成	W1	呼ぶ側を組み込む PR	流れを実行するスキル（repo-implement・address-review など）を改修する次の PR
+out-of-scope	best-practices.md §13 との食い違い	W3	best-practices を更新する	best-practices の更新
+out-of-scope	formal-methods スキルの未決の解消	Q2	手順の正本として参照するだけ	design-v2h/later.tsv
+out-of-scope	Codex の hook の再導入と検査の時機の設計	Q6・Q8	削除だけを行う	後で見直す
+out-of-scope	develop-skills-redesign.md の「止めない」の旧文の引用の照合	later.tsv	3 スキルの再設計で照らす	design-v2h/later.tsv
