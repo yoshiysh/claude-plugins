@@ -21,7 +21,7 @@ B-019	holds	-	-	-	consumer.md の #### 見出しは 001〜013・015・017〜031�
 B-020	holds	-	-	-	flow.md:439 の確定情報の回答待ち → 文書生成中は 1 本で問い直しの遷移が無く、SP-FLOW-024（292-298）は作り直しの周回だけを数える。elicitation.md:206 と requester.md:186-188 はこの上限を flow に求めている。	-	-
 B-021	holds	-	-	-	doc_check.mjs:2252 の throw と prd-spec.js:2321 の blocked を確認。6 文書と tbd.json を「読み取れ|読めな」で grep して、elicitation.md:267・285-286・299・400 だけで、示した後の続行・停止の規定は無い。	-	-
 B-022	holds	-	-	-	authoring.tbd.json:80-81 の TBD-SAUTHORING-020（blocking）は検査の結果を INDEX に置くかを未決とし、doc_check.mjs:4152・4154 は両方の種別で「## 検査結果」を常に書く。	-	-
-B-023	holds	-	-	-	authoring.md:184-186 は集合を本文の表に列挙すると定め、値は blocking の TBD-SAUTHORING-001。doc_check.mjs:3135 以降に AMBIGUOUS_JA/EN の閉集合があり、1606 の AMBIGUOUS は severity を持たず blocking に数えられる。	-	-
+B-023	holds	-	-	-	authoring.md:184-186 は集合を本文の表に列挙すると定め、値は blocking の TBD-SAUTHORING-001。doc_check.mjs:3135 以降に AMBIGUOUS_JA/EN の閉集合があり、1606 の AMBIGUOUS は severity を持たず blocking に数わる。	-	-
 B-024	holds	-	-	-	doc_check.mjs:1184-1198 は meta.trace に無い ID を全て NO_EVIDENCE にし、trace が配列でなければ NC_TRACE。authoring.md:223-225 と verification.md:198-200 は要求文の本文への併記を対象にする。	-	-
 B-025	holds	-	-	-	consumer.md:184-186 の PR-CONSUMER-013 は生成文書の記述への要求。verification.md:418-421・445・456・459・461-462 は検査の異常系をこれに紐付けている。	-	-
 B-026	holds	-	-	-	verification.md:346-347 は主フローを表に載せないとするが、図 337・338・340 の遷移が表 361・363・381 にも行として現れる（381 の指摘なし→終了も同じ形）。SP-AUTHORING-074（authoring.md:453-455）に反する。	-	-
