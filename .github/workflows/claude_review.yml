@@ -25,4 +25,4 @@ jobs:
       exclude-paths: '["**/*.lock","**/package-lock.json","**/pnpm-lock.yaml"]'
       review-policy-path: REVIEW.md
     secrets:
-      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
