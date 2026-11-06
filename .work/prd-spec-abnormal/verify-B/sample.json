@@ -1,0 +1,156 @@
+{
+ "seed": 20261106,
+ "grep_pattern": "blocked|hold|status:|throw |process\\.exit|exit\\(|finalHold|next_args",
+ "inventory_sample": [
+  {
+   "id": "ID-002",
+   "file:line": "doc_check.mjs:454-458 (flowGraphCompact)",
+   "kind": "check-fail"
+  },
+  {
+   "id": "ID-106",
+   "file:line": "doc_check.mjs:1749-1780 (LEDGERS.resolutions)",
+   "kind": "check-fail"
+  },
+  {
+   "id": "ID-358",
+   "file:line": "doc_check.mjs:4515-4521 (main: 入力 JSON モード)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-139",
+   "file:line": "doc_check.mjs:2088 (txToken)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-357",
+   "file:line": "doc_check.mjs:4509-4514 (main: 入力 JSON モード)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-353",
+   "file:line": "doc_check.mjs:4462 (runWorkspace)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-249",
+   "file:line": "doc_check.mjs:3274-3275 (flowSourceCompact)",
+   "kind": "fail-open"
+  },
+  {
+   "id": "ID-232",
+   "file:line": "doc_check.mjs:3111 (deriveDocs)",
+   "kind": "fail-open"
+  },
+  {
+   "id": "ID-233",
+   "file:line": "doc_check.mjs:3121 (deriveDocs)",
+   "kind": "fallback"
+  },
+  {
+   "id": "ID-197",
+   "file:line": "doc_check.mjs:2790 (wsPut)",
+   "kind": "fallback"
+  },
+  {
+   "id": "ID-087",
+   "file:line": "doc_check.mjs:1665 (WS_MODES)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-189",
+   "file:line": "doc_check.mjs:2677-2685 (wsGet)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-212",
+   "file:line": "doc_check.mjs:2862 (QUESTION_OPTIONS)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-308",
+   "file:line": "doc_check.mjs:3845-3846 (CONTRACT_BUDGET/CONTRACT_PARTS)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-328",
+   "file:line": "doc_check.mjs:4037 (wsTreeDigest)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-151",
+   "file:line": "doc_check.mjs:2171-2172 (wsRestore)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-214",
+   "file:line": "doc_check.mjs:2876-2892 (wsAnswers)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-326",
+   "file:line": "doc_check.mjs:4010-4028 (wsDiff)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-096",
+   "file:line": "doc_check.mjs:1875 (checkShape)",
+   "kind": "throw"
+  },
+  {
+   "id": "ID-323",
+   "file:line": "doc_check.mjs:3999 (wsDiff)",
+   "kind": "throw"
+  },
+  {
+   "id": "ID-195",
+   "file:line": "doc_check.mjs:2767-2773 (putInput)",
+   "kind": "throw"
+  },
+  {
+   "id": "DX-096",
+   "doc:line": "docs/specifications/verification.md:319",
+   "req_id": "SP-VERIFICATION-044"
+  },
+  {
+   "id": "DX-097",
+   "doc:line": "docs/specifications/verification.md:323",
+   "req_id": "SP-VERIFICATION-041"
+  },
+  {
+   "id": "DX-102",
+   "doc:line": "docs/specifications/elicitation.md:139",
+   "req_id": "SP-ELICITATION-009"
+  },
+  {
+   "id": "DX-134",
+   "doc:line": "docs/specifications/authoring.md:202",
+   "req_id": "SP-AUTHORING-024"
+  },
+  {
+   "id": "DX-106",
+   "doc:line": "docs/specifications/elicitation.md:222",
+   "req_id": "SP-ELICITATION-025"
+  },
+  {
+   "id": "DX-095",
+   "doc:line": "docs/specifications/verification.md:313",
+   "req_id": "SP-VERIFICATION-039"
+  },
+  {
+   "id": "DX-100",
+   "doc:line": "docs/specifications/verification.md:376",
+   "req_id": ""
+  },
+  {
+   "id": "DX-141",
+   "doc:line": "docs/specifications/authoring.md:127",
+   "req_id": "SP-AUTHORING-009"
+  }
+ ],
+ "grep_sample": [
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:1696:    throw new Error(`${path.basename(file)} を JSON として読めません: ${e.message}`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2246:  if (opts.doc.length !== 1 || !opts.source) throw new Error('place には --doc <requirements|specifications>/<topic> と --source <元の文書のパス> が要ります')",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3982:  if (opts.sweep && !opts.live) throw new Error('--sweep には --live <今動いている label,…> が要ります（挙げなかった label の作業用ディレクトリを消すため）')"
+ ]
+}
