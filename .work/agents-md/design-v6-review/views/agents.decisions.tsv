@@ -1,0 +1,10 @@
+agent	lenses	input	excluded_input	output	model	tools
+builder（新規）	-（生成）	段・目的・承認済みの設計（実装段）・前の振り分けの記録・作業の置き場のパス	レビューの返り値の重大度（直すのは指摘の原因で、重大度に合わせない）	その段の成果物・records/<段>-<回>.md・検査と模型の結果。レビューと採点をしない	opus・high（生成）	Read, Grep, Glob, Edit, Write, Bash
+purpose-auditor	目的への必要性	目的・decisions.md（実装段は差分）	reasons.md・前の回の reviews/	要素ごとに keep / cut / shrink と対応する目的の文。返り値は review-lenses.md「返り値の形」に従う（定義に形を写さない）	opus・high	Read, Grep, Glob
+alternatives-auditor	変更自体の必要性	目的・decisions.md（実装段は差分）・既存の仕組みを探す範囲	reasons.md	無変更・削除・再利用・より小さい変更との比較と探した範囲。返り値は review-lenses.md「返り値の形」に従う（定義に形を写さない）	opus・high	Read, Grep, Glob
+risk-auditor	費用対効果・設計段の失敗時の振る舞い	decisions.md・目的の「達成すること」（比べる相手）。実装段は差分とテストの結果	reasons.md	悪化する性質と程度、達成することとの比較、fail-open の経路と数え方。返り値は review-lenses.md「返り値の形」に従う（定義に形を写さない）	opus・high	Read, Grep, Glob
+decision-verifier	決定への適合・検証可能性・形式検証・作り手の記録・規模の判定・前の振り分け	照らす正本（設計段は目的と利用者の決定、実装段は decisions.md）・対象・検査と模型の結果（tests/formal/<name>/ の README と trace.tsv）・その回の records/・前の回の振り分けの記録	目的への必要性の判断	決定ごとの満たす / 満たさない / 検証不能、模型の忠実さと宣言、前の振り分けが抜粋 B の規則どおりか。返り値は review-lenses.md「返り値の形」に従う（定義に形を写さない）。別の節に「作り手の検査の指摘」と「規模の判定の誤り」を置く（どちらも重大度を付けない）	opus・high	Read, Grep, Glob
+reader	初見の読み手での適用	本文・scenes.md	規範の束・reasons.md・目的	場面ごとの行動・迷う箇所・複数の解釈。返り値は review-lenses.md「返り値の形」に従う（定義に形を写さない）	sonnet・medium	Read, Grep, Glob
+diff-verifier（既存。定義は変えない）	REVIEW.md の観点の全般と原因が除かれたか（両段。ready の後の差分を含む）	差分・テストの結果・追加の観点	修正案	file:line・誤り・重大度の並び（この並びを「指摘」の節として扱い、重大度の欄は振り分けに使わない）	opus・high	Read, Grep, Glob, WebFetch
+severity-assigner（新規）	重大度の付与	返り値の「指摘」の節の file:line と何が誤りか（呼ぶ側は節と列を選ぶだけ）・REVIEW.md「重大度」	指摘した側の重大度・指摘した agent の名前・reasons.md	受けた指摘と同じ数・同じ順で CRITICAL / HIGH / MEDIUM / LOW の 1 つと当てた行。指摘を足さず消さず言い換えない	sonnet・medium（閉集合からの選択）	Read, Grep, Glob
+make test（agent にしない）	書式・参照・抜粋と模型の対応の照合	作業ツリー	-	合否	none（script）	-

@@ -1,0 +1,7 @@
+check	target	how
+抜粋の 3 行が両文書で逐語一致し、C が 1 文か	AGENTS.md・workflow.md	テストの実行と目視
+書き換える既存の行が設計の引用と逐語で一致する位置にあり、ほかの行が変わっていないか	AGENTS.md	git diff を読む
+本文に作業用の参照が無いか（模型の注釈を含む）	全ての create・modify	grep
+新しい docs/guidelines/ の文書の規則に「検査:」の行と 1 行の理由があるか	workflow.md・review-lenses.md	diff-verifier・reader
+workflow.md の WF の見出しと trace.tsv が一致するか	workflow.md・tests/formal/workflow/trace.tsv	tests/workflow-flow-trace.test.mjs
+記号（WF 以外の番号・束の名前）が本文に残っていないか	全ての create・modify	grep

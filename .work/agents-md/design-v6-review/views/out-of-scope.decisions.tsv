@@ -1,0 +1,18 @@
+kind	item	source	where_next
+out-of-scope	AGENTS.md の約 100 行の地図化・節の移動と削除（インストール・注意点・Claude Code 固有・Codex 固有）・規範の置き場の節	AA1	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	外の参照の付け替え（REVIEW.md の読むものの表・tests/repo-review-workflow.test.mjs の期待値・develop-plugin.md・docs/specifications の参照）	AA1・束 G12・G14	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	README.md・docs/guidelines/testing.md・manage-marketplace-plugin への移し替え（Codex の install・Worktree の設定・個別スキルの検証コマンド・SKIP:・テストの置き場）	AA1・束 G13	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	置き場の基準（docs/guidelines/placement.md）と placement-auditor	AA1	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	配布の規則の正本の 1 本化・正本と写しの向きの表どうしの照合（公開済み script の例外と §13、テストの置き場、REVIEW.md:3）	束 G8・G9	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	規範の書き方の低自由度の例外・L2 の検査の限界の持ち主	束 G13	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	既存スキル（repo-implement・address-review・build_skill.js・pr-review-fix・prd-spec.js・review-document）の修正ループと開始時の停止・prd-spec の Issue を新しい流れに接続すること	Q1・AA1・束 G16	次の PR
+out-of-scope	観点の agent と severity-assigner を既存のスキルや Workflow に組み込むこと・Codex 用の agent 定義の生成	AA1・W1	次の PR
+out-of-scope	best-practices.md §13 のスコープの梯子との食い違い	W3	best-practices の更新
+out-of-scope	formal-methods スキルの未決の解消	Q2	design-v2h/later.tsv
+out-of-scope	quick_validate.py・evals.json の語の揃え	Q4	次の PR
+out-of-scope	Codex の hook の再導入と検査の時機の設計	Q8	後で見直す
+out-of-scope	develop-skills-redesign.md の「止めない」の旧文の引用の照合	later.tsv	design-v2h/later.tsv
+out-of-scope	この変更自身の目的・設計を docs/design/changes/ へ移すこと（模型は tests/formal/workflow/ に置く）	この設計	利用者（作業用ディレクトリの扱いを含む）
+cut	norm-auditor・evidence-packer・claim-checker	v4・v5 の束	-
+cut	作り手の検査の指摘・人の指摘・規模の判定の誤りへの重大度の付与	流れの模型の検証・束 G15	-
+cut	ready の後に戻るとき draft に戻すこと	AA2	-
