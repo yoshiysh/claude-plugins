@@ -1,0 +1,75 @@
+lens	ref	severity	layer	origin	bundle
+purpose	files.tsv:AGENTS.md 節「作業ルール」(12)	低	design	introduced	V3
+alternatives	agents.tsv norm-auditor・files.tsv .claude/agents/norm-auditor.md	中	design	recur:B1	V15
+alternatives	files.tsv .claude/agents/diff-verifier.md（modify）	低	design	new-find	V15
+alternatives	files.tsv .codex/hooks.json（delete）・out-of-scope.tsv の Stop の通知の limit	中	design	recur:B9	V19
+placement	files.tsv AGENTS.md 節「作業ルール」(12)・main-lines.tsv L108-117・L118-127・canon-inventory.tsv best-practices.md §3・§13「体数は測れる値から段階的に決める」	中	design	introduced	V3
+placement	files.tsv docs/guidelines/review-lenses.md（抽出を 1 回にする規則の指し先）	低	design	introduced	V3
+placement	files.tsv AGENTS.md 節「現在の実体」(3)・main-lines.tsv L19 後半	中	design	introduced	V12
+placement	files.tsv AGENTS.md 節「現在の実体」(5)・main-lines.tsv L29-31	中	design	recur:B2	V11
+placement	files.tsv docs/guidelines/README.md (3)	中	design	recur:B2	V11
+placement	files.tsv docs/guidelines/placement.md（P11 の移し）	中	design	new-find	V12
+placement	main-lines.tsv L205・files.tsv REVIEW.md (2)	中	design	recur:B6	V11
+risk	agents.tsv（purpose-auditor・alternatives-auditor・placement-auditor・risk-auditor・decision-verifier・reader の output）× files.tsv:12 workflow.md (4)	高	design	introduced	V1
+risk	agents.tsv（各体の input と excluded_input）	中	design	introduced	V5
+risk	agents.tsv（risk-auditor の input・excluded_input・output）	中	design	introduced	V5
+risk	agents.tsv（列）・files.tsv:23-29（.claude/agents/*.md create）	中	design	new-find	V6
+risk	files.tsv:21 tests/agents-md-excerpts.test.mjs	中	design	introduced	V4
+risk	files.tsv:7 (B)・files.tsv:12 (4)（環境の原因は除いてやり直す）	中	design	new-find	V7
+risk	files.tsv:7 (7)（止まってよい場所）× W4（回数の上限を置かない）	中	design	introduced	V19
+risk	agents.tsv（model 列）・out-of-scope.tsv:12（evidence pack にしない limit）	中	design	introduced	V2
+risk	files.tsv:19 REVIEW.md (2)	低	fact	introduced	V18
+decision	files.tsv docs/guidelines/workflow.md (1)(2)	中	design	new-find	V7
+decision	files.tsv docs/guidelines/workflow.md (3)(4)・AGENTS.md 節「作業ルール」(13)	中	design	introduced	V4
+decision	files.tsv docs/guidelines/review-lenses.md（decision-verifier の行）・workflow.md (2)(5)	中	design	introduced	V8
+decision	files.tsv（全行）	中	design	new-find	V13
+decision	files.tsv AGENTS.md 節「作業ルール」(C)	低	text	introduced	V4
+decision	files.tsv docs/guidelines/workflow.md (4)	中	design	new-find	V7
+decision	files.tsv AGENTS.md 抜粋 (B)・docs/guidelines/workflow.md (4)	中	design	new-find	V7
+decision	files.tsv tests/agents-md-excerpts.test.mjs	中	design	introduced	V4
+decision	files.tsv docs/guidelines/workflow.md (4)	中	design	introduced	V1
+norm	agents.tsv 全 auditor の input（「この体が自分で読む」）と out-of-scope.tsv の limit（抽出を 1 回にして配る形にはまだしない）	高	design	introduced	V2
+norm	files.tsv workflow.md (4) と AGENTS.md 作業ルール抜粋 (B)「MEDIUM 以上は設計に戻り、LOW は直さず PR 本文に載せる」／agents.tsv の output 列	高	design	introduced	V1
+norm	files.tsv AGENTS.md 作業ルール (7)「止まってよいのは人間ゲート（マージ・公開）と、作り手が除けない失敗を理由とともに利用者へ報告するときだけ」	中	design	introduced	V10
+norm	files.tsv AGENTS.md 作業ルール (12)「正本は best-practices.md §3・§13「体数は測れる値から段階的に決める」」と review-lenses.md「抽出を 1 回にする規則は AGENTS.md の作業ルールと best-practices.md §13 を指し」	中	design	introduced	V3
+norm	files.tsv AGENTS.md 作業ルール（「抜粋の理由の 1 行も workflow.md の文から抜く」と抜粋 (A)(B)(C) の文面）／workflow.md の content_gist	中	design	introduced	V4
+norm	files.tsv tests/agents-md-excerpts.test.mjs（印のある行を取り出して照らす・印のある行が 3 つ以上）／bundles-resolution.tsv B3	中	design	introduced	V4
+norm	files.tsv REVIEW.md の行（29 行目と 54 行目を変えない）と AGENTS.md 作業ルール (14)「写しが要るときは、機械で一致を照らす」	中	design	introduced	V4
+norm	files.tsv workflow.md (5) 形式検証と AGENTS.md 抜粋 (C)／agents.tsv decision-verifier の output	中	design	introduced	V13
+norm	files.tsv docs/guidelines/workflow.md・review-lenses.md・placement.md（docs/guidelines/README.md の文書表に足す 3 つ）	中	design	new-find	V12
+norm	agents.tsv（tools の列が無い）と files.tsv .claude/agents/*.md の 7 行	中	design	new-find	V6
+norm	files.tsv workflow.md (2)「typo なら目的 1 行・設計 1 行・fresh なレビュー 1 体」と review-lenses.md「typo なら設計レビュー・実装レビューとも fresh な 1 体」	中	design	recur:B2	V9
+norm	refs.tsv REVIEW.md:3「変更なし」	低	design	recur:B2	V11
+norm	files.tsv REVIEW.md (2)（14 行目の指し先を manage-marketplace-plugin の SKILL.md と verify_install.py に改める）	低	design	recur:B6	V11
+reader	場面1 typo / AGENTS.md 作業ルール(10) と review-lenses.md	中	design	introduced	V9
+reader	場面1 typo / review-lenses.md 体数の決め方	中	design	introduced	V9
+reader	場面1 typo / 作業ルール(11) 司令塔	中	design	introduced	V8
+reader	場面1・3・4 / 目的の置き場	中	design	introduced	V7
+reader	場面1・3・6 / 検証 節	中	design	recur:B12	V19
+reader	場面1・5 / 形式検証 (C)	低	design	introduced	V7
+reader	場面2 新規スキル / 作業ルール(4) 公開は人間ゲート	中	design	recur:B13	V16
+reader	場面2 新規スキル / 現在の実体 (2)	低	text	introduced	V17
+reader	場面2・3 / 地図 (d) と (g) と流れ (B)	中	design	introduced	V8
+reader	場面2・4・5 / 設計を書く役	中	design	recur:B7	V8
+reader	場面2・5 / 設計の置き場	中	design	recur:B7	V7
+reader	場面3 SKILL.md の修正 / 公開済みスキルの再公開	中	design	recur:B6	V16
+reader	場面4 レビュー対応 / 重大度の付け手	高	design	introduced	V1
+reader	場面4 レビュー対応 / LOW を直さない規則	中	design	introduced	V1
+reader	場面4 レビュー対応 / 地図に入口が無い	中	text	recur:B10	V17
+reader	場面4 / 設計へ戻る範囲	中	design	recur:B4	V8
+reader	場面5 要求・仕様 / 流れと prd-spec	中	design	introduced	V8
+reader	場面5 / 形式検証の『その段』	中	design	introduced	V8
+reader	場面5 / 質問してよいか	中	design	introduced	V10
+reader	場面6 Codex / 検証役の立て方	中	design	introduced	V14
+reader	場面6 Codex / runner の入口	中	text	introduced	V17
+reader	場面全般 / スキル名の解決	低	text	new-find	V17
+claim	files.tsv: .agents/skills/manage-marketplace-plugin/SKILL.md（実体は plugins/ 側）／canon-inventory.tsv: plugins/*/skills/manage-marketplace-plugin/SKILL.md	中	fact	introduced	V11
+claim	main-lines.tsv L23-27: 見出し「実体が plugins/ 側にある理由」を名指す参照が 4 件（AGENTS.md:25 を含む）	低	fact	introduced	V18
+claim	canon-inventory.tsv 1 行目 / main-lines.tsv L85-94: 再検証の強制は best-practices に無い	低	fact	introduced	V3
+claim	main-lines.tsv L59 / out-of-scope.tsv: plugins/ 配下の symlink は make test では止まらない	低	fact	introduced	V18
+claim	main-lines.tsv L205: REVIEW.md:14 の指し先を manage-marketplace-plugin の SKILL.md へ付け替える（機械と正本が既にある）	低	fact	recur:B6	V11
+claim	main-lines.tsv L207: 消す（L186-196 と同じ正本）／重複	低	fact	recur:B6	V11
+claim	refs.tsv: 作業ルール L108〜127 などの移動先 docs/guidelines/multi-agent.md・distribution.md（6 行）	中	fact	introduced	V18
+claim	files.tsv: review-lenses.md の Codex 1 行「frontmatter の model と effort を spawn のときに渡す」	中	design	introduced	V14
+claim	files.tsv: AGENTS.md「作業ルール」約 42 行・全体約 100〜105 行	低	text	introduced	V18
+claim	files.tsv: tests/repo-review-workflow.test.mjs の直す箇所は 591〜592 行	低	fact	new-find	V18
