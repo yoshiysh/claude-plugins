@@ -1,0 +1,2 @@
+q	options	recommend
+review-lenses.md の Codex での立て方の 1 行に、model をどう書くか（Claude の model 名は Codex に対応表が無い）	(a) effort だけを spawn で渡し、model は親を継承すると書く／(b) model の対応を未確認と 1 行で書く／(c) 対応表を #207 で決める	(a)（W1 が変換表を問わないと決めており、確認できた事実だけを書ける）

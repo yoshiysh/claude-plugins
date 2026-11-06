@@ -1,1 +1,2 @@
 事故（v4 reader）: 共有 scratchpad の gen.py を取り違えて実行。.work/prd-spec-abnormal/questions/questions.json は git diff で差分なし（上書きされていない）。以後の brief では script も役ごとの出力先に置かせる。
+事故 2（v4 claim）: 共有の /private/tmp/claude-501/scratch/mk.py を取り違えて実行し、design-v3-full-review/claim/findings.tsv を再生成。git の差分なし（内容同一）。
