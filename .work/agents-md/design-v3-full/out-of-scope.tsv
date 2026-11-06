@@ -1,0 +1,18 @@
+item	source	reason	where_next
+スキルの修正ループを「設計に戻る」に揃える（repo-implement・address-review・build_skill.js・pr-review-fix・prd-spec.js・review-document）	purpose.txt（Q1）	規範を先に入れ、スキルは直後の別 PR で直す（利用者の決定）	design-v2h/later.tsv の Q1 の行
+formal-methods スキルの未決の解消（実行形態・契約の書式・取り込みの採否・忠実さの検証）	purpose.txt（Q2）	#207 では手順の正本として参照するだけにする	design-v2h/later.tsv の Q2 の行
+quick_validate.py・address-review の evals.json の「設計レビュー」の語の揃え	purpose.txt（Q4）	スキルの改修と同じ別 PR で行う。AGENTS.md 側の 1 文は workflow.md へ移すときに語が揃う	design-v2h/later.tsv の Q4 の行
+Codex の hook の再導入と、検査の時機の設計	purpose.txt（Q8）	#207 では削除だけを行う。.codex/hooks.json と一緒に Stop の通知の hook も消えるので、要るなら見直しのときに戻す	design-v2h/later.tsv の hook の行
+develop-skills-redesign.md の AGENTS.md の引用（止めない・model の規則）の照合	purpose.txt（later.tsv）。refs.tsv の develop-skills-redesign.md の行	3 スキルの再設計に入るときに照らす。指し先は AGENTS.md の地図から辿れる	design-v2h/later.tsv の develop-skills-redesign.md の行
+観点の agent を既存のスキル（repo-review・pr-review・skill-creator の reviewer）や Workflow へ組み込むこと	purpose.txt	#207 は agent の定義と、段の対応表を置くまで	別 PR（Q1 のスキル改修と合わせて決める）
+規則を機械の検査へ昇格させること（plugins/ 配下の symlink の検査を make test に入れる・節名の参照の実在を check_references.py に入れる）	purpose.txt	候補を挙げるだけにする	別 PR
+docs/ の鮮度を定期的に検査する仕組み（文書整備の agent・CI）	purpose.txt	記事の推奨だが、#207 の目的（入口を地図にする・流れ・観点）に要らない	未定
+docs/specifications/ とその写し（skill-creator の references/criteria/）の AGENTS.md への参照の付け替え（bp-inspection.md:268・bp-entry.md:179・244）	設計で切った（refs.tsv）	参照はファイル単位で、AGENTS.md の地図から移動先へ 1 段で辿れる。写しを変えると skill-creator plugin の再配布（version bump）が要り、目的に要らない費用になる	同じ文書を次に改稿するときに付け替える
+.agents/skills/ の develop 系スキルのコメントの指し先（plan.js:12・review.js:16・triage.js:12）	設計で切った（refs.tsv）	「作業ルール」の節は残り、そこから multi-agent.md へ辿れる。develop-plugin.md:374 が既に、この根拠を設計方針文書へ移す計画を持つ	Q1 のスキル改修の PR
+docs/design/develop-plugin.md の、移した規則を「作業ルール」の名前で指す行（140・395・425）	設計で切った（refs.tsv）	節は残り、指し先で辿れる。消える節を名指す 201 行目だけを #207 で直す	develop 系の設計案の改稿のとき
+「実体が plugins/ 側にある理由」の節の docs への移動	設計で切った（files.tsv）	下位の節を 2〜3 行で残せば、spec の写しを含む参照 4 件を保てる。移すと写しの再配布が要る	-（移さない）
+Codex の custom agent での読み取り専用の担保	設計で切った（codex.txt）	Codex の agent ファイルでは sandbox を上書きできず、指示に頼るしかない。#207 では差を review-lenses.md に 1 行で書くまでにする	Codex の仕組みが変わったとき
+Codex の model の変換表の性能の対応の検証	設計で切った（codex.txt）	初期値は案で、利用者が確定する。実測による比べ方は #207 の目的に要らない	利用者の確定。必要なら別 PR で実測する
+端の場面ごとの個別の条項（作業中の検査・環境の原因・除けない失敗を、場面ごとに例外として列挙すること）	設計で切った（規範「端の場面を条項で閉じない」）	workflow.md は「欠陥はどこで出ても設計に戻る・除ける環境の原因は除いてやり直す・除けなければ報告して止まる」の原則 3 文に留める。design-v2〜v2h で膨らんだ形を繰り返さない	-
+design-v2h の N 項目のうち、#207 の新しい形に入らない細則（N5 の模型の忠実さの判定の詳細・X1〜X3 の置かない判断の説明文）	設計で切った	形式検証の手順と判定の尺度は formal-methods と REVIEW.md が正本。置かない判断の説明は PR 本文に置く	PR 本文
+performance plugin の opt-in の記述（main L198〜199・L209）と runner の拒否の記述（L208）の移し先	設計で切った（files.tsv）	正本（native-hooks.md・claude-workflow-compatibility.md）が既にあり、写しを消すだけでよい	-

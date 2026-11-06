@@ -1,0 +1,101 @@
+referrer	ref	old_target	new_target
+REVIEW.md:3	配布と作業の規則は AGENTS.md「作業ルール」	AGENTS.md「作業ルール」	AGENTS.md「作業ルール」（入口）と docs/guidelines/（詳細の正本）
+REVIEW.md:11	SKILL.md 等の行が読む AGENTS.md「現在の実体」	AGENTS.md「現在の実体」	変更なし（節は残る）
+REVIEW.md:13	スクリプトとテストの行が読む AGENTS.md「注意点」	AGENTS.md「注意点」（find -L）	AGENTS.md「現在の実体」
+REVIEW.md:14	plugin.json・marketplace.json の行が読む AGENTS.md「注意点」	AGENTS.md「注意点」（2 つの plugin.json・marketplace 名）	docs/guidelines/distribution.md
+REVIEW.md:15	plugins/ 配下の配置の行が読む AGENTS.md「現在の実体」「作業ルール」	AGENTS.md「作業ルール」の symlink 禁止・置き場	AGENTS.md「現在の実体」と docs/guidelines/distribution.md
+REVIEW.md:19	すべての行が読む AGENTS.md「作業ルール」	AGENTS.md「作業ルール」	AGENTS.md「作業ルール」と docs/guidelines/workflow.md（足す）
+REVIEW.md:21	symlink を辿る検索の根拠 AGENTS.md「現在の実体」「注意点」	AGENTS.md「注意点」	AGENTS.md「現在の実体」
+REVIEW.md:23	CLAUDE.md は AGENTS.md の symlink	AGENTS.md（ファイル）	変更なし
+REVIEW.md:35	後方互換の対象外の範囲は AGENTS.md「作業ルール」	AGENTS.md「作業ルール」の後方互換の行	変更なし（version bump の除外を同じ行に残す）
+tests/repo-review-workflow.test.mjs:591	表から得る文書の集合の期待値	REVIEW.md の今の表	新しい表の文書の集合（docs/guidelines/ の新しい文書を足す）
+tests/repo-review-workflow.test.mjs:592	AGENTS.md の節名の集合の期待値 ['作業ルール','注意点','現在の実体']	AGENTS.md「注意点」	['作業ルール','現在の実体']
+.claude/agents/diff-verifier.md:11	観点の分け方は AGENTS.md の規則に従い呼び出し側が決める	AGENTS.md「検証」L176 の括弧書き	docs/guidelines/review-lenses.md
+docs/design/develop-plugin.md:201	AGENTS.md「plugin 間でスキルは共有できない」	AGENTS.md の同名の節（消える）	docs/guidelines/distribution.md
+docs/design/develop-plugin.md:49	AGENTS.md「実体が plugins/ 側にある理由」	AGENTS.md の同名の下位の節	変更なし（下位の節を見出しごと残す）
+docs/specifications/bp-run.md:487	AGENTS.md「実体が plugins/ 側にある理由」	同上	変更なし（同上。写しの検査 tests/bp-criteria-copy.test.mjs にも触れない）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:487	同上（bp-run.md の逐語の写し）	同上	変更なし
+AGENTS.md:25	作業ルールの「plugins/ 配下に symlink を作らない」	AGENTS.md「作業ルール」L59	AGENTS.md「現在の実体」の symlink の規則（同じ節の中の参照になる）
+AGENTS.md:33	Codex での扱いは AGENTS.md	AGENTS.md「Codex 固有」	docs/guidelines/distribution.md へ移る文の中で README.md「インストール」を指す
+AGENTS.md:50	install 手順は README.md の「インストール」	README.md	README.md（L50 ごと README.md へ移るので、文は消える）
+AGENTS.md:174	make test は .codex/hooks.json の hook から呼ばれる	.codex/hooks.json	消す（Q8）
+AGENTS.md:235	.codex/hooks.json の hook は make test を実行する	.codex/hooks.json	消す（Q8）
+.agents/skills/repo-implement/scripts/implement-core.mjs:12	必須 check は AGENTS.md「検証」の合否ゲート	AGENTS.md「検証」	変更なし（節は残る）
+docs/design/skill-design-patterns.md:521	AGENTS.md の「検証」（非機能の目標値が無いことの検索範囲）	AGENTS.md「検証」	変更なし
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/design/skill-design-patterns.md:521	同上（逐語の写し）	AGENTS.md「検証」	変更なし
+.agents/skills/repo-review/scripts/review-core.mjs:7	スキルの実体の置き場は AGENTS.md「現在の実体」	AGENTS.md「現在の実体」	変更なし
+docs/design/develop-plugin.md:71	plugin の外を読むテストは配布物に置けない（AGENTS.md「現在の実体」）	AGENTS.md「現在の実体」	変更なし
+.agents/skills/repo-implement/scripts/plan.js:12	計画は上位の model にする（AGENTS.md「作業ルール」）	作業ルール L108〜127（docs/guidelines/multi-agent.md へ移る）	変更なし（作業ルールの (5) から multi-agent.md へ辿れる。コメントの指し先の付け替えは develop 系スキルの改修でまとめる。out-of-scope.tsv）
+.agents/skills/repo-review/scripts/review.js:16	運搬役は小さい model に固定する（AGENTS.md「作業ルール」）	同上	変更なし（同上）
+.agents/skills/address-review/scripts/triage.js:12	分類は上位の model にする（AGENTS.md「作業ルール」）	同上	変更なし（同上）
+.agents/skills/address-review/scripts/address-core.mjs:48	commit したら push する: AGENTS.md「作業ルール」	作業ルール L135〜138	変更なし（規則は作業ルールに残る）
+.agents/skills/repo-implement/agents/implementer.md:12	規則は AGENTS.md「作業ルール」と REVIEW.md「読むもの」の文書で読む	AGENTS.md「作業ルール」	変更なし（移した規範は REVIEW.md の表から届く）
+.agents/skills/repo-implement/agents/planner.md:13	同上	同上	変更なし（同上）
+.agents/skills/address-review/agents/comment-triager.md:14	同上	同上	変更なし（同上）
+.agents/skills/address-review/agents/triage-verifier.md:13	方針の版の AGENTS.md・REVIEW.md と表の文書を読む	AGENTS.md	変更なし（同上）
+.agents/skills/repo-implement/scripts/plan.js:200	AGENTS.md・REVIEW.md・docs/guidelines/ を方針として読む	AGENTS.md・docs/guidelines/	変更なし（新しい文書は docs/guidelines/ の中に置くので届く）
+.agents/skills/repo-implement/scripts/implement.js:139	同上	同上	変更なし（同上）
+.agents/skills/address-review/scripts/triage.js:120	同上	同上	変更なし（同上）
+.agents/skills/address-review/scripts/address-core.mjs:9	方針（AGENTS.md・REVIEW.md・docs/guidelines）	同上	変更なし（同上）
+.agents/skills/repo-review/SKILL.md:6	docs/guidelines・AGENTS.md を規則として	同上	変更なし（同上）
+.agents/skills/repo-review/evals/trigger-evals.json:19	AGENTS.md の作業ルールに照らしてレビュー（eval の依頼文）	AGENTS.md「作業ルール」	変更なし（発火の題材で、節の中身に依らない）
+.agents/skills/repo-review/scripts/review-core.test.mjs:569	方針の束の索引の例 P4 AGENTS.md:52-139	テストの固定値	変更なし（実ファイルを読まない fixture の文字列）
+.agents/skills/repo-review/scripts/review-core.test.mjs:641	symlinkMap CLAUDE.md → AGENTS.md	AGENTS.md（ファイル）	変更なし
+.agents/skills/repo-review/scripts/review-core.test.mjs:676	同上	AGENTS.md（ファイル）	変更なし
+.agents/skills/repo-implement/SKILL.md:197	push を流す（AGENTS.md「作業ルール」）	作業ルール L135〜138	変更なし（規則は作業ルールに残る）
+README.md:35	構成・作業ルール・検証は AGENTS.md	AGENTS.md（ファイル）	変更なし
+plugins/git/skills/commit/SKILL.md:56	project の指示（CLAUDE.md・AGENTS.md）	AGENTS.md（一般名）	変更なし（このリポジトリに限らない記述）
+plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_author.js:464	写しの中のリポジトリの相対パス（AGENTS.md を含む）の読み方	AGENTS.md（ファイル）	変更なし
+plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_inspect.js:369	同上	AGENTS.md（ファイル）	変更なし
+docs/specifications/bp-run.md:56	公開済みのスキルは .agents/skills/ の symlink 越しに編集される：AGENTS.md	AGENTS.md「現在の実体」	変更なし
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:56	同上（写し）	同上	変更なし
+docs/specifications/bp-run.md:184	未 push の成果が /tmp の清掃で失われた実測がある：AGENTS.md	作業ルール L135〜138 の実測	変更なし（作業ルール (10) の理由の 1 行に /tmp の清掃が残る。実測の詳細は workflow.md）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:184	同上（写し）	同上	変更なし
+docs/specifications/bp-run.md:507	写しの中の docs/X の読み替え（AGENTS.md を含むパスの扱い）	AGENTS.md（ファイル）	変更なし
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:507	同上（写し）	同上	変更なし
+docs/specifications/bp-authoring.md:57	未公開のスキルの実体の置き場：AGENTS.md	AGENTS.md「現在の実体」	変更なし
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-authoring.md:57	同上（写し）	同上	変更なし
+docs/specifications/bp-authoring.md:64	plugins/ への移動は登録の仕事：AGENTS.md	AGENTS.md「作業ルール」L58（「現在の実体」へ移る）	変更なし（ファイル単位の参照で、規則は AGENTS.md に残る）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-authoring.md:64	同上（写し）	同上	変更なし
+docs/specifications/bp-authoring.md:511	公開済みのスキルは symlink：AGENTS.md	AGENTS.md「現在の実体」	変更なし
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-authoring.md:511	同上（写し）	同上	変更なし
+docs/specifications/bp-inspection.md:268	prompt の先頭を揃えて cache を効かせる：AGENTS.md の作業ルール	作業ルール L108〜127（multi-agent.md へ移る）	変更なし（作業ルールの (5) から multi-agent.md へ辿れる。写しの付け替えは skill-creator plugin の再配布を伴うので切る。out-of-scope.tsv）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-inspection.md:268	同上（写し）	同上	変更なし
+docs/specifications/bp-entry.md:179	native-first の経路の契約：AGENTS.md	AGENTS.md「注意点」L207・「インストール」L186〜196（distribution.md へ移る）	変更なし（規範の置き場から distribution.md へ辿れる。理由は bp-inspection.md:268 と同じ）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-entry.md:179	同上（写し）	同上	変更なし
+docs/specifications/bp-entry.md:244	Codex は plugin の依存を自動で入れない：AGENTS.md	AGENTS.md「Codex 固有」L228〜233（README.md へ移る）	変更なし（規範の置き場から README.md へ辿れる。理由は同上）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-entry.md:244	同上（写し）	同上	変更なし
+docs/guidelines/README.md:5	AGENTS.md の作業ルールと配布の制約はここに写さない	正本の向き（AGENTS.md が正本）	「AGENTS.md は入口、ここの文書が詳細の正本」に改める
+docs/guidelines/README.md:26	plugin 間の境界は AGENTS.md の規則に従う	AGENTS.md「plugin 間でスキルは共有できない」	docs/guidelines/distribution.md
+docs/guidelines/README.md:27	DRY の正本規則は AGENTS.md に従う	AGENTS.md「作業ルール」L82〜84	変更なし（規則は作業ルールに残る）
+docs/guidelines/documentation.md:12	コードコメントの要否と変更経緯の置き場は AGENTS.md に従う	AGENTS.md「作業ルール」L64〜66	この文書の中に移した規則（自己参照に改める）
+docs/guidelines/javascript.md:34	source の配置と役割分担は AGENTS.md と best-practices に従う	AGENTS.md「現在の実体」「作業ルール」	変更なし（置き場は現在の実体、役割分担の核は作業ルールに残る）
+docs/design/develop-plugin.md:140	段の選択は司令塔の仕事（AGENTS.md「作業ルール」の段の選択の項）	作業ルール L85〜94（multi-agent.md へ移る）	変更なし（作業ルールの (5) から辿れる。develop-plugin.md は develop 系の設計案で、付け替えはその改修でまとめる）
+docs/design/develop-plugin.md:344	Issue 化で完了を先送りしない（AGENTS.md「作業ルール」）	作業ルール L70〜71	変更なし（規則は残る）
+docs/design/develop-plugin.md:372	commit と push の規則を AGENTS.md に結合（指摘の記録）	作業ルール L135〜138	変更なし（過去の指摘の記録）
+docs/design/develop-plugin.md:374	model・effort の根拠が AGENTS.md を指す（指摘の記録）	作業ルール L108〜127	変更なし（過去の指摘の記録）
+docs/design/develop-plugin.md:395	「守らないと何が壊れるか」を添える（AGENTS.md「作業ルール」の規範の書き方）	作業ルール L128〜134（documentation.md へ移る）	変更なし（develop-plugin.md:140 と同じ理由）
+docs/design/develop-plugin.md:425	名前で起動すると旧版が走る（AGENTS.md「作業ルール」）	作業ルール L57（distribution.md へ移る）	変更なし（同上）
+docs/design/develop-skills-redesign.md:3	適用（スキル・AGENTS.md・設計方針文書の変更）は人が決める	AGENTS.md（ファイル）	変更なし
+docs/design/develop-skills-redesign.md:21	目次「AGENTS.md の規則の変更案」	同文書の節	変更なし
+docs/design/develop-skills-redesign.md:165	AGENTS.md の実測（model を省いた監査がレート制限を使い切った）	作業ルール L108〜127（multi-agent.md へ移る）	変更なし（この文書との照合は later.tsv の行で、#207 の外。out-of-scope.tsv）
+docs/design/develop-skills-redesign.md:175	閉集合からの選択は小さい model に任せる AGENTS.md の規則	同上	変更なし（同上）
+docs/design/develop-skills-redesign.md:195	抽出役 1 体が束を配る AGENTS.md の規則	同上	変更なし（同上）
+docs/design/develop-skills-redesign.md:209	上位 model へ渡すものを絞る AGENTS.md の規則	同上	変更なし（同上）
+docs/design/develop-skills-redesign.md:282	生成と検証を分ける規則（AGENTS.md）	作業ルール L76〜78	変更なし（規則は残る）
+docs/design/develop-skills-redesign.md:297	AGENTS.md の「止めない」の旧文の引用	作業ルール L70〜71（Q9 で文が変わる）	変更なし（later.tsv の「develop-skills-redesign.md の AGENTS.md 引用」の行で照らす。out-of-scope.tsv）
+docs/design/develop-skills-redesign.md:318	AGENTS.md の「止めない」が勝つ	同上	変更なし（同上）
+docs/design/develop-skills-redesign.md:321	AGENTS.md の変更案（ゲートの行）	同上	変更なし（同上）
+docs/design/develop-skills-redesign.md:327	上位 model へ渡すものを絞る AGENTS.md の規則	作業ルール L108〜127	変更なし（develop-skills-redesign.md:165 と同じ）
+docs/design/develop-skills-redesign.md:336	節「AGENTS.md の規則の変更案」	同文書の節	変更なし
+docs/design/develop-skills-redesign.md:338	この文書では AGENTS.md を変えない	AGENTS.md（ファイル）	変更なし
+docs/design/develop-skills-redesign.md:340	表の見出し「今の規則（AGENTS.md「作業ルール」）」	作業ルール	変更なし（develop-skills-redesign.md:297 と同じ）
+docs/design/develop-skills-redesign.md:342	ゲートの行の変更案	作業ルール L70〜71	変更なし（同上）
+docs/design/develop-skills-redesign.md:348	B4 の趣旨の正本はこの AGENTS.md の案	同文書	変更なし
+docs/design/develop-skills-redesign.md:371	同じ値を 2 箇所に書かない AGENTS.md の規則	作業ルール L82〜84	変更なし（規則は残る）
+docs/design/develop-skills-redesign.md:384	趣旨の正本は「AGENTS.md の規則の変更案」の B4	同文書の節	変更なし
+docs/design/develop-skills-redesign.md:432	AGENTS.md の変更案と「止めない」	作業ルール L70〜71	変更なし（develop-skills-redesign.md:297 と同じ）
+docs/design/develop-skills-redesign.md:449	AGENTS.md のゲートの行の変更は人が決める	同上	変更なし（同上）
+skills-audit.md:574	.codex/hooks.json に make test hook がある（過去の監査の記録）	.codex/hooks.json（消える）	変更なし（過去の記録。時点の記述）
+skills-audit.md:586	.codex/hooks.json は PostToolUse で make test を呼ぶ（同上）	.codex/hooks.json（消える）	変更なし（同上）
+検索語（閉集合の作り方）	grep -rnIE 'AGENTS\.md' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.work . で 94 件（パスの前置きが ./ でないため除外が効かず、AGENTS.md 自身の 2 件を含む。外部は 92 件で、全てを上の行に起こした）。AGENTS.md の中は grep -nE 'AGENTS|作業ルール|注意点|Codex 固有|インストール」' AGENTS.md。hook は grep -rnIE 'hooks\.json|\.codex/hooks' 同じ除外 . から plugins/ 配下の plugin 同梱の hooks/hooks.json（別物）を除いたもの。節名は grep -rnoIE 'AGENTS\.md[^。]{0,3}「(検証|plugin 間|実体が|注意点|インストール|Claude Code 固有|Codex 固有|収録スキル|言語|リポジトリ概要)'。grep -r は symlink を辿らないので、公開済みスキルは plugins/ の実体で数えた（.agents/skills/ の公開済みの symlink は重複になるので数えない）	判定の規則: 消える節・改名する節を名指す参照は直す。機械の読み手（REVIEW.md の表とそのテスト）は指し先を辿らないので直す。節が残り、その節から移動先へ指し先がある generic な参照は変えない（AGENTS.md の地図から 1 段で辿れる）	土台の structure.txt の「検証」29 件は数え方の誤りで、この検索では 3 件（implement-core.mjs:12・skill-design-patterns.md:521 とその写し）

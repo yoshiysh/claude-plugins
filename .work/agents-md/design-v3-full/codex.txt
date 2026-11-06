@@ -1,0 +1,35 @@
+Codex の agent 定義の仕組み（2026-11-06 に WebFetch で確認）
+
+## 確かめた URL
+- https://developers.openai.com/codex/subagents（308 で https://learn.chatgpt.com/docs/agent-configuration/subagents へ転送）
+- https://developers.openai.com/codex/models（308 で https://learn.chatgpt.com/docs/models へ転送）
+
+## 確かめられたこと
+- ローカルの Codex クライアントは、custom agent を 1 ファイル 1 体の TOML で定義できる。置き場は、個人用が ~/.codex/agents/、project 用が .codex/agents/ である。
+- 必須のフィールドは name・description・developer_instructions の 3 つ。正本は name で、ファイル名は name に揃えるのが慣例。
+- model・model_reasoning_effort・model_reasoning_summary・model_verbosity を設定できる。未設定なら親の model と effort を継承する。ファイルの設定は、spawn 時の指定・[agents] の既定・親の値より優先する。
+- features.shell_tool・apps・plugins・memories・request_permissions_tool を false にして能力を減らせる。skills.config でスキルを個別に無効にできる。
+- sandbox_mode・approval_policy・model_provider・mcp_servers は agent ファイルから上書きできず、親のものを継承する。
+- 読み取り専用は保証できない。ページは、指示で編集を避けさせることはできても、別の読み取り専用の sandbox にはならないと書いている。
+- 起動は、親への自然文の依頼で agent の名前を挙げる形。ファイルを指定して起動する API は書かれていない。
+- built-in の agent（explorer 等）と同名なら custom が優先する。
+- 現在の推奨 model id は gpt-6-astra（最も高性能）・gpt-6.1-sol・gpt-6.1-terra（速く効率的）・gpt-6-luna（最も効率的）。
+
+## 確かめられなかったこと
+- custom agent が ChatGPT デスクトップ（Codex Desktop）で読まれるか。ページは「ローカルの Codex クライアント」とだけ書き、クライアント名を挙げていない。subagent の活動がデスクトップ・CLI・IDE 拡張に表示されることは書いてある。
+- Claude の opus・sonnet に当たる Codex の model。対応表はページに無い。
+- tools の制限（Claude の agent 定義の tools: Read, Grep, Glob, WebFetch）を Codex で再現する方法。features.shell_tool を false にするとファイルも読めなくなるおそれがあり、未検証。
+
+## V4 に従って選んだ形
+- 仕組みがあるので、.claude/agents/*.md を正本にする。tools/sync-codex-agents.mjs が、そこから .codex/agents/<name>.toml を生成する。
+  - frontmatter の name・description は同名のフィールドへ写す。
+  - 本文は developer_instructions へ逐語で写す。
+  - model と effort は、生成 script の定数 1 か所の変換表で変換する。
+- 生成物との一致は tests/codex-agents-sync.test.mjs が make test で照らす。前例は tools/sync-bp-criteria.mjs と tests/bp-criteria-copy.test.mjs。
+- 変換表の初期値の案:
+  - opus → gpt-6.1-sol
+  - sonnet → gpt-6.1-terra
+  - effort（low・medium・high）→ 同名の model_reasoning_effort
+  - 判断役に最上位（gpt-6-astra）を当てないのは、Claude 側でも判断役を最上位（Fable）でなく opus に留めている対応に合わせるため。model の性能の対応は未検証で、利用者が確定する。
+- 読み取り専用の担保は Codex では指示に頼るしかない。Claude 側の tools: の制限は Codex 側に移らない。この差は生成物に書かず、docs/guidelines/review-lenses.md の Codex の行に 1 行で書く（生成物は正本の逐語の写しに保つ）。
+- Codex Desktop で custom agent が読まれない場合でも、呼び出し側が .claude/agents/<name>.md の本文を読んで渡す経路が残る。正本は同じなので、2 つ目の写しは生まれない。
