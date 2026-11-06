@@ -1,0 +1,82 @@
+unit	state	event	guard	next_state	output	source
+Run	S0	司令塔が workspace を用意する	所在を示された文書を読める	intake	Workflow を起動	impl:SKILL.md:69
+Run	S0	所在を示された文書を読めない	-	blocked（next_args なし）	読めなかった文書の所在	decision:Q10
+Run	S0	作成に入る前の判定に迷う	OPT_DOUBT=ask_end	blocked（next_args なし）	迷った点と問い	open:QM-06
+Run	S0	作成に入る前の判定に迷う	OPT_DOUBT=defer	intake（迷った点を問いにして持ち越す）	-	open:QM-06
+Run	S0	作成に入る前の判定に迷う	OPT_DOUBT=pregate	needs_answers（作成前の中断点）	questions.json	open:QM-06
+Run	intake	段 1〜3 が終わる	問いがあり ~specOnly	draft（deferred: 問いを持ち越す）	-	impl:prd-spec.js:2210
+Run	intake	段 1〜3 が終わる	問いが無いか specOnly	draft	-	impl:prd-spec.js:2210
+Run	draft	writer が初稿を書く	-	audit	-	impl:prd-spec.js:2606
+Run	audit	監査役が全員返す	v=proceed または zero	decide（pass=1）	指摘・doc_blocking	impl:prd-spec.js:2694
+Run	audit	監査役の結果が無い	v=rerun	blocked（next_args あり）	-	impl:prd-spec.js:2694
+Run	decide	resolver が段 6 の裁定をする（両立しない指摘は裁定役が決め、価値の判断なら問い）	-	decide2	-	decision:Q12
+Run	decide2	回答待ちの問いがある	canAsk かつ ~specOnly	needs_answers（gates+1、next_args あり）	questions.json	impl:prd-spec.js:2784
+Run	decide2	回答待ちの問いがある	canAsk かつ specOnly	blocked（upstream_gap、next_args なし）	questions.md	impl:prd-spec.js:2249
+Run	decide2	回答待ちの問いが無いか ~canAsk	-	revise（~canAsk なら問いを保持規則に）	-	impl:prd-spec.js:2785
+Run	apply	回答をすべて当て終える	-	apply2	-	impl:prd-spec.js:2488
+Run	apply	回答を当てた flow が doc_check flow の検査に落ちる	rework<MAX_CHECK_REWORK	apply（resolver に直させる、rework+1）	-	impl:prd-spec.js:2149
+Run	apply	差し戻しが上限に達しても flow が閉じない	直し手の表にある符号	blocked（next_args あり）	-	impl:prd-spec.js:2152
+Run	apply	回答を当てた flow に直し手の表に無い符号がある	-	blocked（next_args なし。reason は §5 の「prd-spec.js を直す」に回る形）	-	decision:Q10
+Run	apply2	反映で問いが残る	canAsk	needs_answers（gates+1）	questions.json	impl:prd-spec.js:2492
+Run	apply2	反映で問いが残らないか ~canAsk	-	draft（redraft）/ revise	-	impl:prd-spec.js:2497
+Run	revise	改稿する指摘か裁定がある	-	reaudit	-	impl:prd-spec.js:2851
+Run	revise	改稿の対象が無い	Blocking=0	report	-	impl:prd-spec.js:2847
+Run	revise	改稿の対象が無い	Blocking>0	blocked（no_progress、next_args なし）	report_path・hold_drafts	impl:prd-spec.js:2846
+Run	revise・judge（finalHold の中）	保持規則への変換の flow の照合か独立の flow-check が落ちる	-	blocked（next_args あり。段 7 から、段 8 で止めたときは範囲を絞った再監査から。stop_reason は no_progress・pass_limit）	report_path	impl:prd-spec.js:3021
+Run	reaudit	範囲を絞った監査が返る	v=proceed または zero	judge	指摘・doc_blocking	impl:prd-spec.js:2947
+Run	reaudit	監査役の結果が無い	v=rerun	blocked（next_args あり）	-	impl:prd-spec.js:2947
+Run	judge	blocking が 0（低重大度の指摘と not_checked は数えず検査記録へ。帰結: consumer の完了条件「機械検査が全部通る」（D-023）を「改稿を必須とする指摘が 0 件」に改める要求の改訂が要る）	-	report	-	decision:Q11
+Run	judge	blocking が残り進展が無い	-	blocked（no_progress、next_args なし）	report_path	impl:prd-spec.js:2979
+Run	judge	blocking が残り pass が上限	-	blocked（pass_limit、next_args なし）	report_path	impl:prd-spec.js:2981
+Run	judge	blocking が残り pass が上限未満	-	decide（pass+1）	-	impl:prd-spec.js:2982
+Run	report	段 9（固定の文書に開いた TBD があっても done。「完成しました」と言わず件数と ID を示す）	-	save（status=done、next_args なし）	report_path・open_tbd	decision:Q2
+Run	save	tree digest が一致し保存先が git で戻せる	-	end（承認を待たずに saved。not_checked は検査記録に載せる）	事後報告	decision:Q5・Q11
+Run	save	tree digest が一致し不変条件・git 管理外・上書き	-	save_wait	差分と問い	impl:SKILL.md:157
+Run	save	tree digest が一致しない	OPT_DIGEST=restart / undef / existing	end（保存しない）	食い違い	open:QM-04
+Run	save	tree digest が一致しない	OPT_DIGEST=rerun8	blocked（next_args: 段 8）	食い違い	open:QM-04
+Run	save_wait	依頼者が保存を承認する	-	end（saved）	-	impl:SKILL.md:169
+Run	save_wait	依頼者が保存を拒む	-	end（保存しない）	-	impl:SKILL.md:169
+Run	needs_answers	依頼者が回答を書いて next_args で呼び直す	W がある	apply（3a・3a'）	-	impl:SKILL.md:111
+Run	needs_answers・blocked（next_args あり）	呼び直す	W が無い（plugin の更新）	例外（W が無い。S0 から）	-	decision:Q10
+Run	needs_answers・blocked（next_args あり）	返った next_args と違う args（existing_docs の打ち間違いを含む）・tx.try が不正	-	例外（返った next_args を変えずに渡す）	例外の文	impl:prd-spec.js:911
+Run	needs_answers・blocked（next_args あり）	旧版の next_args（state.gates が無い）で呼び直す	-	例外（S0 から。§5 の「渡した args を確かめる」は当たらない）	例外の文	decision:Q10
+Run	needs_answers・blocked（next_args あり）	hash は合うが state.fixed_sha のキーが existing_docs と合わない	-	例外（段 1 から。「next_args を変えずに渡す」は当たらない）	例外の文	decision:Q10
+Run	needs_answers	回答の記録が失われて呼び直す	OPT_LOSTCOUNT=nocount	needs_answers（同じゲート、stops+1）	同じ問い	impl:prd-spec.js:2281
+Run	needs_answers	回答の記録が失われて呼び直す	OPT_LOSTCOUNT=count かつ canAsk	needs_answers（gates+1）	同じ問い	open:QM-03
+Run	needs_answers	回答の記録が失われて呼び直す	OPT_LOSTCOUNT=count かつ ~canAsk	apply（その問いは保持規則）	-	open:QM-03
+Run	blocked（next_args あり）	原因を除いて next_args で呼び直す	W がある	止まった段	-	impl:SKILL.md:114
+Run	needs_answers・blocked	plugin を更新する	OPT_W=skilldir	W が消える	-	impl:SKILL.md:70
+Run	段の途中	agent が null か例外	-	blocked（next_args あり）	-	impl:prd-spec.js:3157
+Run	段の途中	script の不変条件に反する・callDefect	-	blocked（next_args なし、reason が「script の不変条件に反しました」）	-	decision:Q10
+Run	段の途中	所有表の外の書き込み（固定の文書の変化・消えた控え）	-	blocked（next_args なし）	-	impl:prd-spec.js:3088
+Run	段の途中・段の境界	token の目標に達する	-	blocked（budget、next_args あり）	-	impl:prd-spec.js:3156
+Run	apply	保持規則・裁定が直しても検証に落ちる（rerun を偽にしない）	-	blocked（next_args あり）	-	impl:prd-spec.js:2104
+Run	apply・decide	domain assessment の独立検証が修正後も失敗・問いへの変換後の独立検証が合格しない（rerun: false）	-	blocked（next_args なし）	-	impl:prd-spec.js:1779
+Issue	none	resolver が論点を見つけて裁定する	canAsk	confirmed / question	-	impl:prd-spec.js:2413
+Issue	none	resolver が論点を見つけて裁定する	~canAsk	confirmed / hold	保持規則と Issue の文案	impl:prd-spec.js:2413
+Issue	none	迷った判定を問いにする（D-006 の defer・pregate）	-	question / asked	-	open:QM-06
+Issue	question	ゲートを開く	-	asked（同じ版なら sameAsk+1、回答を受け取った版なら reaskAns+1）	questions.json	impl:prd-spec.js:2221
+Issue	asked	依頼者が回答する（中身あり・空・決まっていない・確定値と異なる・対応づけられない・なお着手できない）	-	a_*	answers/gN.md	impl:SKILL.md:110
+Issue	asked	回答の記録が失われる	canAsk か 数えない	asked（同じ版で再び聞く。記録の消失の例外）	needs_answers（resumable: false）	impl:prd-spec.js:2282
+Issue	asked	回答の記録が失われる	~canAsk かつ 数える	hold	保持規則と Issue の文案	open:QM-03
+Issue	a_content	回答を当て verifier が合格	-	confirmed	-	impl:prd-spec.js:2475
+Issue	a_content	verifier が不合格（差し戻し 1 回）	vfail<MAX_VERIFY_REWORK	a_content（vfail+1）	-	decision:Q8
+Issue	a_content	差し戻し後も不合格	canAsk	question（版を変える）、~canAsk なら hold	-	decision:Q8
+Issue	a_empty	回答を当てる（空の回答行。当てる回答が無い）	canAsk	question（同じ版のまま、回答待ちとして次のゲートで聞く）、~canAsk なら hold	-	decision:Q8・Q2
+Issue	a_undecided	回答を当てる（決まっていない）	-	hold	保持規則と Issue の文案	decision:Q2
+Issue	a_conflict	回答を当てる（確定値と異なる）	canAsk	question（版を変える: どちらを採るかの確認）、~canAsk なら hold	-	decision:Q7・Q2
+Issue	a_unmapped	回答を当てる（対応づけられない・保留の事項への回答）	canAsk	question（版を変える）、~canAsk なら hold	-	decision:Q7・Q8・Q2
+Issue	a_insufficient	回答を当てる（なお着手できない）	canAsk	question（回答で絞れた範囲の版に変える）、~canAsk なら hold	-	decision:Q6・Q8・Q2
+Issue	question	聞かずに段を出る（上限の後・改稿の輪の出口）	-	hold	保持規則と Issue の文案	impl:prd-spec.js:2127
+Issue	hold（filing=na）	依頼者が Issue の文案を承認する	保存の後	approved	-	impl:SKILL.md:179
+Issue	approved	起票に成功する	-	filed	Issue 番号	impl:SKILL.md:179
+Issue	approved	起票に失敗する（権限・ネットワーク・gh が無い）	-	manual（OPT_FILE=manual）/ failed（retry）	文案	open:QM-14
+Issue	failed	起票をやり直す	OPT_FILE=retry	approved	-	open:QM-14
+Seam	idle	段 5・8 で監査役を起動する	-	wait	-	impl:prd-spec.js:2670
+Seam	wait	監査役が返す	-	ok（doc_check の stdout: present / absent / malformed、not_checked の有無）	-	impl:prd-spec.js:2679
+Seam	wait	監査役が返さない（null・例外）	-	none	-	impl:prd-spec.js:2679
+Seam	ok・malformed	写しの取り直し（1 回）	-	present / fault	-	impl:prd-spec.js:1271
+Seam	ok・absent	司令塔が doc_blocking を読む	IMPL_A024	zero（doc_blocking=0 として進む）	-	impl:prd-spec.js:2758
+Seam	ok・absent	司令塔が doc_blocking を読む	~IMPL_A024	rerun（段で止める）	blocked + next_args	decision:Q4
+Seam	none・fault	司令塔が結果を読む	-	rerun	blocked + next_args	impl:prd-spec.js:2758
+Seam	na	司令塔が保存の直前に tree-digest を取る	-	match / mismatch	-	impl:SKILL.md:157

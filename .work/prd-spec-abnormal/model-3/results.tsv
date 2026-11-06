@@ -1,0 +1,312 @@
+check	cfg	states	result	counterexample_file	note
+TypeOK	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 型。決定に対応しない
+Q1	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	base-2issues.cfg	1772264	pass	-	基礎を論点 2 件で（不変式だけ。2 分に収めるため MAX_RERUN=0・MAX_AUDIT_PASSES=1・MAX_GATES=3 にし活性を外す） ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+TypeOK	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 型。決定に対応しない
+Q1	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	base.cfg	420054	pass	-	決定に合わせた基礎（残った問いは推奨側） ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+Term	impl-term.cfg	588880	pass	-	実装のままの活性（not_checked は活性に効かないので VARY={} にして 2 分に収める） ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 型。決定に対応しない
+Q1	impl.cfg	5566	violated	cex/impl-Q1.txt	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	impl.cfg	5210	violated	cex/impl-Q1nc.txt	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	impl.cfg	210545	violated	cex/impl-Q3b.txt	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	impl.cfg	208	violated	cex/impl-Q4.txt	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	impl.cfg	50	violated	cex/impl-Q7W.txt	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	impl.cfg	1387688	pass	-	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	impl.cfg	42	violated	cex/impl-Q10.txt	実装のまま（A-024 の fail-open・not_checked を記録しない・記録消失を数えない・照合落ちの後が未定義・907・911 の例外の文が 2 つの行動を示す・直し手の表に無い符号の停止に接頭辞が無い・W が無いと enterFromDisk が next_args ありの blocked を繰り返す・W は skill の install 先）。作成前の迷い・起票の失敗は実装に無いので基礎と同じ推奨側 ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Q10	mutants/mut-ARGS.cfg	42	violated	cex/mut-ARGS-Q10.txt	変異（期待: Q10 が破れる）: 実装の欠陥: 907・911 の例外の文が 2 つの行動を示す ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Q10	mutants/mut-FIXER.cfg	1786	violated	cex/mut-FIXER-Q10.txt	変異（期待: Q10 が破れる）: 実装の欠陥: 直し手の表に無い符号の停止が §5 に回らない ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Q1	mutants/mut-Q1.cfg	2948	violated	cex/mut-Q1-Q1.txt	変異（期待: Q1 が破れる）: blocking が残っても段 7 から段 9 へ進む ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q10	mutants/mut-Q10.cfg	355	violated	cex/mut-Q10-Q10.txt	変異（期待: Q10 が破れる）: budget の停止に next_args を付けない ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Q1nc	mutants/mut-Q1nc.cfg	6043	violated	cex/mut-Q1nc-Q1nc.txt	変異（期待: Q1nc が破れる）: not_checked を検査記録に載せない（B-012 の実装） ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	mutants/mut-Q2.cfg	135899	violated	cex/mut-Q2-Q2.txt	変異（期待: Q2 が破れる）: 聞けない段でも問いのまま残し、保持規則にしないまま段 9 へ進む ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3b	mutants/mut-Q3b.cfg	88397	violated	cex/mut-Q3b-Q3b.txt	変異（期待: Q3b が破れる）: 記録消失の聞き直しをゲートに数えない（実装） ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q3a	mutants/mut-Q3gates.cfg	88078	violated	cex/mut-Q3gates-Q3a.txt	変異（期待: Q3a が破れる）: canAsk の境界を 1 つずらす（gates <= MAX_GATES） ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3a	mutants/mut-Q3pass.cfg	67381	violated	cex/mut-Q3pass-Q3a.txt	変異（期待: Q3a が破れる）: pass の上限の境界を 1 つずらす ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3a	mutants/mut-Q3rework.cfg	3074	violated	cex/mut-Q3rework-Q3a.txt	変異（期待: Q3a が破れる）: MAX_CHECK_REWORK の境界を 1 つずらす ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q4	mutants/mut-Q4.cfg	219	violated	cex/mut-Q4-Q4.txt	変異（期待: Q4 が破れる）: A-024: 指名された監査役が doc_check の出力を返さないと doc_blocking を 0 とする ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	mutants/mut-Q5.cfg	2804	violated	cex/mut-Q5-Q5.txt	変異（期待: Q5 が破れる）: git で戻せる保存先でも承認を待つ ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	mutants/mut-Q6.cfg	18	violated	cex/mut-Q6-Q6.txt	変異（期待: Q6 が破れる）: 段 3 の問いを持ち越さず、初稿の前にゲートを開く ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	mutants/mut-Q7.cfg	906	violated	cex/mut-Q7-Q7.txt	変異（期待: Q7 が破れる）: needs_answers に next_args を付けない ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	mutants/mut-Q7W.cfg	50	violated	cex/mut-Q7W-Q7W.txt	変異（期待: Q7W が破れる）: W を skill の install 先に置く（plugin の更新で消える） ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	mutants/mut-Q8.cfg	4956	violated	cex/mut-Q8-Q8.txt	変異（期待: Q8 が破れる）: なお着手できない回答の論点を同じ中身の問いのまま聞き直す ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	mutants/mut-Q9.cfg	659	violated	cex/mut-Q9-Q9.txt	変異（期待: Q9 が破れる）: 仕様書だけの run でもゲートを開く ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Term	mutants/mut-TERM.cfg	18827	violated	cex/mut-TERM-Term.txt	変異（期待: Term が破れる）: 段 8 から段 6 へ戻るときに pass を増やさない ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+Q10	mutants/mut-WLOST.cfg	84	violated	cex/mut-WLOST-Q10.txt	変異（期待: Q10 が破れる）: 実装の欠陥: W が無いと next_args ありの blocked を繰り返す ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+TypeOK	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 型。決定に対応しない
+Q1	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-03-count.cfg	420054	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="count" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 型。決定に対応しない
+Q1	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-03-nocount.cfg	88053	violated	cex/QM-03-nocount-Q3b.txt	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-03-nocount.cfg	579034	pass	-	QM-03 の選択肢 OPT_LOSTCOUNT="nocount" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 型。決定に対応しない
+Q1	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-04-existing.cfg	2933	violated	cex/QM-04-existing-Q10.txt	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-04-existing.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="existing" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 型。決定に対応しない
+Q1	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-04-rerun8.cfg	432866	pass	-	QM-04 の選択肢 OPT_DIGEST="rerun8" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 型。決定に対応しない
+Q1	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-04-restart.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="restart" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 型。決定に対応しない
+Q1	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-04-undef.cfg	2807	violated	cex/QM-04-undef-Q10.txt	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-04-undef.cfg	420054	pass	-	QM-04 の選択肢 OPT_DIGEST="undef" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 型。決定に対応しない
+Q1	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-05-ask.cfg	31556	violated	cex/QM-05-ask-Q3b.txt	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-05-ask.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="ask" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 型。決定に対応しない
+Q1	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-05-home.cfg	420054	pass	-	QM-05 の選択肢 OPT_W="home" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 型。決定に対応しない
+Q1	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-05-skilldir.cfg	50	violated	cex/QM-05-skilldir-Q7W.txt	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-05-skilldir.cfg	292172	pass	-	QM-05 の選択肢 OPT_W="skilldir" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 型。決定に対応しない
+Q1	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-06-ask_end.cfg	420054	pass	-	QM-06 の選択肢 OPT_DOUBT="ask_end" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 型。決定に対応しない
+Q1	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-06-defer.cfg	420096	pass	-	QM-06 の選択肢 OPT_DOUBT="defer" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 型。決定に対応しない
+Q1	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-06-pregate.cfg	8	violated	cex/QM-06-pregate-Q6.txt	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-06-pregate.cfg	12	violated	cex/QM-06-pregate-Q9.txt	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+Term	options/QM-06-pregate.cfg	641338	pass	-	QM-06 の選択肢 OPT_DOUBT="pregate" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+TypeOK	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 型。決定に対応しない
+Q1	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+IssueTracked	options/QM-14-manual.cfg	31740	violated	cex/QM-14-manual-IssueTracked.txt	QM-14 の選択肢 OPT_FILE="manual" ／ 問い QM-14 の選択肢を見る性質（決定に無い）
+Term	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+FilingLive	options/QM-14-manual.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="manual" ／ 問い QM-14 の選択肢を見る性質（決定に無い）
+TypeOK	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 型。決定に対応しない
+Q1	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q1nc	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q11: 実施しなかった検査（not_checked）を残して保存するなら検査記録に載っている
+Q2	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q2: done のとき論点はすべて確定か保持規則（固定の文書の TBD は「完成しました」と言わない語の規則で、状態の性質にしない）
+Q3a	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q3b	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q3: 依頼者を止める回数（stops）≤ MAX_GATES（prd-spec.js:57 の注記の読み）
+Q4	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q5	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q5: 承認待ちは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q7: needs_answers は next_args を持つ
+Q7W	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q7（next_args でいつでも続けられる）の前提: next_args を持つ返り値の間は W がある
+Q8	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+Q9	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+IssueTracked	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 問い QM-14 の選択肢を見る性質（決定に無い）
+Term	options/QM-14-retry.cfg	420054	pass	-	QM-14 の選択肢 OPT_FILE="retry" ／ 決定 Q3（上限と進展なしで止まる）・brief: 非終端から終端へ必ず至る
+FilingLive	options/QM-14-retry.cfg	43144	violated	cex/QM-14-retry-FilingLive.txt	QM-14 の選択肢 OPT_FILE="retry" ／ 問い QM-14 の選択肢を見る性質（決定に無い）
+ReachSaved	reach.cfg	5246	violated	cex/reach-ReachSaved.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachDone	reach.cfg	3064	violated	cex/reach-ReachDone.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachUpstream	reach.cfg	1380	violated	cex/reach-ReachUpstream.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachPassLimit	reach.cfg	143247	violated	cex/reach-ReachPassLimit.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachNoProgress	reach.cfg	1834	violated	cex/reach-ReachNoProgress.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachGateMax	reach.cfg	66939	violated	cex/reach-ReachGateMax.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachPassMax	reach.cfg	14764	violated	cex/reach-ReachPassMax.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachRedraft	reach.cfg	10359	violated	cex/reach-ReachRedraft.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachException	reach.cfg	40	violated	cex/reach-ReachException.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachVerifyHard	reach.cfg	899	violated	cex/reach-ReachVerifyHard.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachHold	reach.cfg	3409	violated	cex/reach-ReachHold.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachReask	reach.cfg	1850	violated	cex/reach-ReachReask.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachEmptyReask	reach.cfg	8996	violated	cex/reach-ReachEmptyReask.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ReachFiled	reach.cfg	66461	violated	cex/reach-ReachFiled.txt	到達の確認: どれも破れれば、その状態に到達できる（空振りでない）
+ITypeOK	unit-Issue.cfg	461	pass	-	Issue 単位: canAsk と依頼者を非決定的に置く
+Q8	unit-Issue.cfg	461	pass	-	Issue 単位: canAsk と依頼者を非決定的に置く ／ 決定 Q8・A-018・PR-REQUESTER-007: 既に回答した論点の同じ中身の再質問は記録の消失のときだけ（model-2 で狭めた。空の回答行は回答に数えない）
+IssueTracked	unit-Issue.cfg	21	violated	cex/unit-Issue-IssueTracked.txt	Issue 単位: canAsk と依頼者を非決定的に置く ／ 問い QM-14 の選択肢を見る性質（決定に無い）
+RTypeOK	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある）
+Q1	unit-Run.cfg	2618	violated	cex/unit-Run-Q1.txt	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q1: 直せていない指摘（blk・docBlk）か検査できなかった箇所（unchecked）が残る稿は保存しない
+Q3a	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q3: gates・pass・rework（MAX_CHECK_REWORK）・vfail が実装の定数を超えない
+Q4	unit-Run.cfg	41	violated	cex/unit-Run-Q4.txt	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q4: 結果の無い doc_check を 0 件として進まない
+Q6	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q6: 最初のゲートは初稿の監査の後
+Q7	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q7: needs_answers は next_args を持つ
+Q9	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q9: 仕様書だけの run はゲートを開かず、upstream_gap は監査の後で next_args なし
+Q10	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある） ／ 決定 Q10・workflow-io.md §3・§5・SKILL.md「中継」: 返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、止めた原因を除く行動（Remedy）と一致する
+RTerm	unit-Run.cfg	45036	pass	-	Run 単位: 論点と継ぎ目を非決定的な引数で置く。Q1・Q4 の反例は設計どおり（Run は継ぎ目の zero を環境から受け取り、止める仕組みは Seam にある）
+STypeOK	unit-Seam-fixed.cfg	33	pass	-	Seam 単位（IMPL_A024 = FALSE）
+SeamQ4	unit-Seam-fixed.cfg	33	pass	-	Seam 単位（IMPL_A024 = FALSE）
+STypeOK	unit-Seam-impl.cfg	33	pass	-	Seam 単位（IMPL_A024 = TRUE）
+SeamQ4	unit-Seam-impl.cfg	12	violated	cex/unit-Seam-impl-SeamQ4.txt	Seam 単位（IMPL_A024 = TRUE）
+Q1strict	-	-	dropped	-	問いの選択肢（QM-02 strict）の性質で、決定 Q11 が record を選んだので外した（QM-02 は導出済み）
+Q2fixed	-	-	dropped	-	決定 Q2 の本文（固定の文書の開いた TBD があっても done を返し件数を示す）が退けた読みなので外した（QM-12 は導出済み）。実装の欠陥の証拠でもない
+Q10set	-	-	dropped	-	model-1 が置いた 4 つの閉集合は決定に無いので外し、Q10 を文書の閉集合で立て直した
+ConsumerAllZero	-	-	dropped	-	決定 Q11 が退けた読み（全件 0 件）なので外した。consumer の完了条件（D-023）の改訂が要るという帰結は QM-13 の答えとして table.tsv の JudgeReport の行に残す
