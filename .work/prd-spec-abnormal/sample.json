@@ -1,0 +1,354 @@
+{
+ "seed": 20261106,
+ "grep_pattern": "blocked|hold|status:|throw |process\\.exit|exit\\(|finalHold|next_args",
+ "grep_total": 390,
+ "inventory_sample": [
+  {
+   "id": "IW-227",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:3092 (restored)",
+   "kind": "fail-open"
+  },
+  {
+   "id": "IW-065",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1252 (designatedHold)",
+   "kind": "fail-open"
+  },
+  {
+   "id": "IW-121",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1917 (lintOnce)",
+   "kind": "fallback"
+  },
+  {
+   "id": "IW-147",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2214 (needsAnswers)",
+   "kind": "fallback"
+  },
+  {
+   "id": "IW-171",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2466 (stageApply)",
+   "kind": "gate-check"
+  },
+  {
+   "id": "IW-017",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:536 (parseStdout)",
+   "kind": "gate-check"
+  },
+  {
+   "id": "IW-133",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2103 (reholdFailed)",
+   "kind": "limit"
+  },
+  {
+   "id": "IW-051",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1160 (call)",
+   "kind": "limit"
+  },
+  {
+   "id": "IW-016",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:441 (rework)",
+   "kind": "limit"
+  },
+  {
+   "id": "IW-283",
+   "file:line (関数)": "plugins/workflow/skills/prd-spec/references/workflow-io.md:193 (workflow-io.md §4 段 8)",
+   "kind": "limit"
+  },
+  {
+   "id": "IW-044",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:974 (rerunTx)",
+   "kind": "retry"
+  },
+  {
+   "id": "IW-291",
+   "file:line (関数)": "plugins/workflow/skills/prd-spec/references/workflow-io.md:219 (workflow-io.md §5 表)",
+   "kind": "retry"
+  },
+  {
+   "id": "IW-095",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1603 (ruleAndVerify)",
+   "kind": "return-blocked"
+  },
+  {
+   "id": "IW-117",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1879 (frameFlow)",
+   "kind": "return-blocked"
+  },
+  {
+   "id": "IW-174",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2492 (stageApply)",
+   "kind": "return-needs_answers"
+  },
+  {
+   "id": "IW-149",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2224 (needsAnswers)",
+   "kind": "return-needs_answers"
+  },
+  {
+   "id": "IW-042",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:962 (finish)",
+   "kind": "return-other"
+  },
+  {
+   "id": "IW-083",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1404 (decidableDefect)",
+   "kind": "return-other"
+  },
+  {
+   "id": "IW-194",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2847 (stage7)",
+   "kind": "skip"
+  },
+  {
+   "id": "IW-088",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:1547 (ruleAndVerify)",
+   "kind": "skip"
+  },
+  {
+   "id": "IW-035",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:899 (モジュール最上位)",
+   "kind": "throw"
+  },
+  {
+   "id": "IW-264",
+   "file:line (関数)": "plugins/workflow/skills/prd-spec/references/workflow-io.md:78 (workflow-io.md §3)",
+   "kind": "throw"
+  },
+  {
+   "id": "IW-154",
+   "file:line (関数)": "plugins/workflow/workflows/prd-spec.js:2274 (answersUnchecked)",
+   "kind": "throw"
+  },
+  {
+   "id": "ID-002",
+   "file:line": "doc_check.mjs:454-458 (flowGraphCompact)",
+   "kind": "check-fail"
+  },
+  {
+   "id": "ID-106",
+   "file:line": "doc_check.mjs:1749-1780 (LEDGERS.resolutions)",
+   "kind": "check-fail"
+  },
+  {
+   "id": "ID-358",
+   "file:line": "doc_check.mjs:4515-4521 (main: 入力 JSON モード)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-139",
+   "file:line": "doc_check.mjs:2088 (txToken)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-357",
+   "file:line": "doc_check.mjs:4509-4514 (main: 入力 JSON モード)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-353",
+   "file:line": "doc_check.mjs:4462 (runWorkspace)",
+   "kind": "exit-error"
+  },
+  {
+   "id": "ID-249",
+   "file:line": "doc_check.mjs:3274-3275 (flowSourceCompact)",
+   "kind": "fail-open"
+  },
+  {
+   "id": "ID-232",
+   "file:line": "doc_check.mjs:3111 (deriveDocs)",
+   "kind": "fail-open"
+  },
+  {
+   "id": "ID-233",
+   "file:line": "doc_check.mjs:3121 (deriveDocs)",
+   "kind": "fallback"
+  },
+  {
+   "id": "ID-197",
+   "file:line": "doc_check.mjs:2790 (wsPut)",
+   "kind": "fallback"
+  },
+  {
+   "id": "ID-087",
+   "file:line": "doc_check.mjs:1665 (WS_MODES)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-189",
+   "file:line": "doc_check.mjs:2677-2685 (wsGet)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-212",
+   "file:line": "doc_check.mjs:2862 (QUESTION_OPTIONS)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-308",
+   "file:line": "doc_check.mjs:3845-3846 (CONTRACT_BUDGET/CONTRACT_PARTS)",
+   "kind": "limit"
+  },
+  {
+   "id": "ID-328",
+   "file:line": "doc_check.mjs:4037 (wsTreeDigest)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-151",
+   "file:line": "doc_check.mjs:2171-2172 (wsRestore)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-214",
+   "file:line": "doc_check.mjs:2876-2892 (wsAnswers)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-326",
+   "file:line": "doc_check.mjs:4010-4028 (wsDiff)",
+   "kind": "state-check"
+  },
+  {
+   "id": "ID-096",
+   "file:line": "doc_check.mjs:1875 (checkShape)",
+   "kind": "throw"
+  },
+  {
+   "id": "ID-323",
+   "file:line": "doc_check.mjs:3999 (wsDiff)",
+   "kind": "throw"
+  },
+  {
+   "id": "ID-195",
+   "file:line": "doc_check.mjs:2767-2773 (putInput)",
+   "kind": "throw"
+  },
+  {
+   "id": "DX-033",
+   "doc:line": "docs/specifications/flow.md:157",
+   "req_id": "SP-FLOW-004"
+  },
+  {
+   "id": "DX-056",
+   "doc:line": "docs/specifications/flow.md:336",
+   "req_id": "SP-FLOW-042"
+  },
+  {
+   "id": "DX-096",
+   "doc:line": "docs/specifications/verification.md:319",
+   "req_id": "SP-VERIFICATION-044"
+  },
+  {
+   "id": "DX-097",
+   "doc:line": "docs/specifications/verification.md:323",
+   "req_id": "SP-VERIFICATION-041"
+  },
+  {
+   "id": "DX-042",
+   "doc:line": "docs/specifications/flow.md:236",
+   "req_id": "SP-FLOW-017"
+  },
+  {
+   "id": "DX-102",
+   "doc:line": "docs/specifications/elicitation.md:139",
+   "req_id": "SP-ELICITATION-009"
+  },
+  {
+   "id": "DX-020",
+   "doc:line": "docs/requirements/requester.md:336",
+   "req_id": "PR-REQUESTER-034"
+  },
+  {
+   "id": "DX-026",
+   "doc:line": "docs/requirements/consumer.md:145",
+   "req_id": "PR-CONSUMER-007"
+  },
+  {
+   "id": "DX-010",
+   "doc:line": "docs/requirements/requester.md:247",
+   "req_id": "PR-REQUESTER-014"
+  },
+  {
+   "id": "DX-134",
+   "doc:line": "docs/specifications/authoring.md:202",
+   "req_id": "SP-AUTHORING-024"
+  },
+  {
+   "id": "DX-045",
+   "doc:line": "docs/specifications/flow.md:248",
+   "req_id": "SP-FLOW-019"
+  },
+  {
+   "id": "DX-046",
+   "doc:line": "docs/specifications/flow.md:253",
+   "req_id": "SP-FLOW-020"
+  },
+  {
+   "id": "DX-106",
+   "doc:line": "docs/specifications/elicitation.md:222",
+   "req_id": "SP-ELICITATION-025"
+  },
+  {
+   "id": "DX-095",
+   "doc:line": "docs/specifications/verification.md:313",
+   "req_id": "SP-VERIFICATION-039"
+  },
+  {
+   "id": "DX-039",
+   "doc:line": "docs/specifications/flow.md:223",
+   "req_id": "SP-FLOW-015"
+  },
+  {
+   "id": "DX-001",
+   "doc:line": "docs/requirements/requester.md:156",
+   "req_id": "PR-REQUESTER-001"
+  },
+  {
+   "id": "DX-164",
+   "doc:line": "docs/specifications/flow.tbd.json:5",
+   "req_id": "TBD-SFLOW-010"
+  },
+  {
+   "id": "DX-168",
+   "doc:line": "docs/specifications/flow.tbd.json:30",
+   "req_id": "TBD-SFLOW-020"
+  },
+  {
+   "id": "DX-100",
+   "doc:line": "docs/specifications/verification.md:376",
+   "req_id": ""
+  },
+  {
+   "id": "DX-141",
+   "doc:line": "docs/specifications/authoring.md:127",
+   "req_id": "SP-AUTHORING-009"
+  }
+ ],
+ "grep_sample": [
+  "plugins/workflow/workflows/prd-spec.js:2814:      toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',",
+  "plugins/workflow/workflows/prd-spec.js:963:  return { ...out, resumable: out.resumable ?? (status === 'needs_answers' || (status === 'blocked' && retry)) }",
+  "plugins/workflow/workflows/prd-spec.js:3025:  if (now.error) return blocked(now.error, now.rerun ? stage : null, report)",
+  "plugins/workflow/workflows/prd-spec.js:1729:  orderHolds(todo.filter((f) => to(f) === 'hold').map((f) => f.id))",
+  "plugins/workflow/workflows/prd-spec.js:1296:  if (!r) throw notRun(label)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:1696:    throw new Error(`${path.basename(file)} を JSON として読めません: ${e.message}`)",
+  "plugins/workflow/workflows/prd-spec.js:237:// 再発した項目の行で別に渡る）。route が hold の項目はその行に載らないので外さない。",
+  "plugins/workflow/workflows/prd-spec.js:2614:    if (missing.length) throw notRun(missing.join(', '))",
+  "plugins/workflow/workflows/prd-spec.js:389:// ENV_ARGS: 司令塔が next_args で変えてよい欄（run のデータではない環境。どれを変えてよいかは references/workflow-io.md §3）。",
+  "plugins/workflow/workflows/prd-spec.js:902:  throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')",
+  "plugins/workflow/workflows/prd-spec.js:2374:  if (lost.length) return blocked(`既存文書がどの writer の単位にも入っていません（topic を変えると改稿が別名の新規執筆に化ける）: ${lost.join(', ')}`, '1')",
+  "plugins/workflow/workflows/prd-spec.js:2981:  if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit', `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した`, '8')",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2246:  if (opts.doc.length !== 1 || !opts.source) throw new Error('place には --doc <requirements|specifications>/<topic> と --source <元の文書のパス> が要ります')",
+  "plugins/workflow/workflows/prd-spec.js:266:// unconverted: 検証に落ちたまま question にも hold にもなっていない裁定。根拠にも保持規則にもならないまま台帳に残る。",
+  "plugins/workflow/workflows/prd-spec.js:1246:  for (const k of abouts) holdOrders.abouts.add(k)",
+  "plugins/workflow/workflows/prd-spec.js:866:if (typeof args === 'string') throw new Error('args は JSON の値（オブジェクト）で渡してください。JSON を文字列にした args は受け付けません（references/workflow-io.md §1）')",
+  "plugins/workflow/workflows/prd-spec.js:3032:  return blocked(`${why}。blocking が ${blocking} 件残りました（尽きた項目: ${byRoute('exhausted')} / 経路を変えた項目: ${byRoute('rerouted')}）${flowLeft}${noDrafts}`, null, report)",
+  "plugins/workflow/workflows/prd-spec.js:1242:// 聞ける段の hold は、聞けば答えの出る論点を依頼者に届けずに保持規則にする。段の入口で空にする。",
+  "plugins/workflow/workflows/prd-spec.js:2098:// reholdFailed: hold のまま検証に落ちた保持規則を、同じ ID のまま書き直させて検証し直す（resolver.md の「保持規則の書き直し」）。",
+  "plugins/workflow/workflows/prd-spec.js:161:  const items = [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].filter((x) => x && x.id)",
+  "plugins/workflow/workflows/prd-spec.js:3079:// restored: restore の stdout を確かめる。控えが後の段の token の書き込みで消えていれば（pruned_by）、W を段の入口に戻せず、同じ next_args で",
+  "plugins/workflow/workflows/prd-spec.js:3157:    else if (e && e.rerunStage) r = blocked(e.message, running)",
+  "plugins/workflow/workflows/prd-spec.js:1720:// 出典がその回答の節なら回答は実際の選択で、差し戻しで当てさせても hold のままなので、これまでどおり問いにする（hold のままだと依頼者の回答が保持規則に化ける）。",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3982:  if (opts.sweep && !opts.live) throw new Error('--sweep には --live <今動いている label,…> が要ります（挙げなかった label の作業用ディレクトリを消すため）')",
+  "plugins/workflow/workflows/prd-spec.js:2131:  return flowKept(`${stage}-hold`, r) || settle(`${stage}-hold`, null, phaseTitle, usableResolutions(state), false)"
+ ]
+}
