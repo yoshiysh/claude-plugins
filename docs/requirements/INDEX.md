@@ -10,6 +10,7 @@
 | `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／4 機能に共通する run の記録／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜051／51 件） |
 | `docs/requirements/cleanup.md` | 要求文書: cleanup-branches | 守るもの／取り込み済みの判定／状態の取得／取り込み済みの削除／判断が要る対象の問い／承認された対象の削除／作業状態／作業場所の同期／後処理／退避した変更の復帰／完了報告（PR-CLEANUP-001〜081、欠番は 031・034・035・038・039・072・079／74 件） |
 | `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方（PR-CONSUMER-001〜031、欠番は 014・016／29 件） |
+| `docs/requirements/formal-method.md` | 要求文書: 形式手法による検証 | 依頼と対象／性質とモデル／依存関係に基づく分割／検証と結果／並列実行と性能／記録と再開（PR-FORMALMETHOD-001〜015／15 件） |
 | `docs/requirements/requester.md` | 要求文書: 依頼者から見た振る舞い | 判定に迷う場合の共通の扱い／起動と対象の見極め／問いかけと回答／提示と承認／保存と持ち帰り／根拠として読み取る範囲／実行環境と中断（PR-REQUESTER-001〜041、欠番は 002・004・006・016・019・027・028・030／33 件） |
 
 ## 要求一覧
@@ -212,6 +213,21 @@
 | PR-CONSUMER-029 | 改稿の経緯の不記載 | `docs/requirements/consumer.md` |
 | PR-CONSUMER-030 | 要求文書の分量 | `docs/requirements/consumer.md` |
 | PR-CONSUMER-031 | 仕様書の分量 | `docs/requirements/consumer.md` |
+| PR-FORMALMETHOD-001 | 依頼範囲を確定して受け付ける | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-002 | 検証すべき性質を網羅する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-003 | 状態遷移の欠落と到達可能性を調べる | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-004 | 要求とモデルの対応を確かめる | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-005 | 適した検証方法と保証の範囲を定める | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-006 | モデルに対応する図を提供する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-007 | 依存関係から分割候補を導出する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-008 | 境界を保って部分の結果を合成する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-009 | 要求の不足を切り分けて依頼元に確認する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-010 | 適用可能な性質を検証して結果を返す | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-011 | 検証結果と検出能力を独立に確認する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-012 | 検証を計画して並列に実行する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-013 | 条件が一致する結果を再利用する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-014 | 保証を保って性能を測定し改善する | `docs/requirements/formal-method.md` |
+| PR-FORMALMETHOD-015 | 記録を保持して停止と再開を扱う | `docs/requirements/formal-method.md` |
 | PR-REQUESTER-037 | 判定に迷う場合に結論を定めない | `docs/requirements/requester.md` |
 | PR-REQUESTER-040 | 判定に迷う場合に依頼者へ確認する | `docs/requirements/requester.md` |
 | PR-REQUESTER-001 | 対象外の依頼で作成に入らない | `docs/requirements/requester.md` |
@@ -254,6 +270,7 @@
 | `docs/requirements/bp-operations.md` | `docs/specifications/bp-authoring.md` / `docs/specifications/bp-conformance.md` / `docs/specifications/bp-entry.md` / `docs/specifications/bp-findings.md` / `docs/specifications/bp-inspection.md` / `docs/specifications/bp-run.md` |
 | `docs/requirements/cleanup.md` | （対応する仕様文書なし） |
 | `docs/requirements/consumer.md` | `docs/specifications/authoring.md` / `docs/specifications/elicitation.md` / `docs/specifications/flow.md` / `docs/specifications/verification.md` |
+| `docs/requirements/formal-method.md` | （対応する仕様文書なし） |
 | `docs/requirements/requester.md` | `docs/specifications/authoring.md` / `docs/specifications/elicitation.md` / `docs/specifications/flow.md` / `docs/specifications/verification.md` |
 
 ## 未解決（着手を止める未確定事項）
@@ -269,4 +286,4 @@
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 97 件
+- 実現する仕様項目が無い要求: 112 件
