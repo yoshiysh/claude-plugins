@@ -1,1 +1,22 @@
 decided_all	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass	
+v6_all	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass	
+decided_I1	I1	73077	fail	Invariant I1 is violated
+decided_I2	I2	500	fail	Action property I2 is violated
+decided_I4	I4	60227	fail	Invariant I4 is violated
+decidedNoSevErr_I1	I1	625474	pass	
+decidedNoMis_I2	I2	513054	pass	
+decidedBadSev_P11	P11	1651	fail	Invariant P11 is violated
+assume_F1off_P14	P14	243875	fail	Temporal properties were violated
+assume_F2off_P14	P14	230573	fail	Temporal properties were violated
+assume_F5off_P14	P14	249062	fail	Temporal properties were violated
+assume_F8off_P14	P14	245670	fail	Temporal properties were violated
+assume_F6off_P8	P8,P8a	122424	fail	Invariant P8 is violated
+v6_I1	I1	97633	fail	Invariant I1 is violated
+v6_I2	I2	460	fail	Action property I2 is violated
+v6_I4	I4	84595	fail	Invariant I4 is violated
+v6NoWF19_P16	P16,P16a	543230	fail	Action property P16a is violated
+v6_assume_F9off_P14	P14	233913	fail	Temporal properties were violated
+mut_InboxIgnored_P16	P16,P16a	1633	fail	Action property P16a is violated
+mut_SelfLowLog_P8	P8,P8a	652	fail	Action property P8a is violated
+mut_StuckAfterReview_P11	P11	1718	fail	Invariant P11 is violated
+own_F6off_P15	P15	11572	fail	Invariant P15 is violated
