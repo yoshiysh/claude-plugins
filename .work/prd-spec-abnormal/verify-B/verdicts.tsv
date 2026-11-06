@@ -1,0 +1,28 @@
+id	verdict	new_class	new_severity	new_decision	reason	evidence_ref	evidence_quote
+B-001	holds	-	-	-	elicitation.md:328-346 を全行読み、❌ は 329・332・333・336・337・339・340・341・343・346 の 10 行、✅ 7 行、発生しない 2 行で cells.tsv と一致。TBD-003・017・019 は elicitation.tbd.json で blocking:true。	-	-
+B-002	holds	-	-	-	SP-ELICITATION-029（244）・027（236）は条件を「未確定の事項」に限り、SP-025（222）は「既に回答を得た事項」に限る。確定×E2（334）と、入力から確定した事項（SP-049）の確定×E3（335）は引用先の条件に入らない。	-	-
+B-003	holds	-	-	-	elicitation.tbd.json の TBD-003 本文は「問いを出していない事項」と「どの論点にも対応づけられない回答」だけを挙げ、保留の事項を挙げないが、表 340・341 と異常系表 293 は保留の事項への回答を TBD-003 に当てる。用語定義 71 との矛盾というより TBD の論点と引用側の範囲のずれとして成立。	-	-
+B-004	holds	-	-	-	flow.md を「検査不能|残った指摘|検査記録」で grep して 0 件、「残件」は 300・443 の SP-FLOW-045（着手不能 TBD）だけ。flow.md:80 は改稿の判断を verification へ戻しており、反復を終えた稿の受け取り側の項目は無い。prd-spec.js:2981 の引用も一致。	-	-
+B-005	holds	-	-	-	flow.md の「確認」12 件（grep）は起動判定・問いの同一・決まっていない旨・承認・終了意思の確認で、検査の同一性の確認を受ける項目は無い。flow.md:512・517 は文書生成中に応答を待たないと定める。	-	-
+B-006	resev	-	中	-	flow.md:384-386 は検査のやり直しを SP-FLOW-047 の上限に数えないと明示しており、SP-FLOW-033 の発動条件（046 か 047 の上限超過）から検査の形式違反を外す読みが自然に立つ。両立不能と断定はできず、どちらの読みかを推測で補う「中」が妥当。	docs/specifications/flow.md:386	SP-FLOW-047 の上限に数えない。
+B-007	holds	-	-	-	prd-spec.js:2679 で返り値の無い監査役を missing に集め、2720・2928 で missing が 1 件でもあれば notRun を throw して段を止める。SP-VERIFICATION-002（111）の「他の検査を実施」して記録を残し進む経路は無い。	-	-
+B-008	holds	-	-	-	prd-spec.js:1151-1168 は agent() の例外（schema 検証の失敗を含む）を rerunStage の Error にし、script 側に 1 回の呼び直しは無い。runtime 側の出し直しは未確認で、confidence medium のままが妥当。	-	-
+B-009	holds	-	-	-	verification.md:268-272・287-290 は 2 往復で 2 回目の改稿後に検査しない。prd-spec.js:54 は MAX_AUDIT_PASSES = 4、2973-2981 は改稿後に必ず監査して no_progress か pass_limit で finalHold → blocked。上限値・終了点・終了後の状態の 3 点が食い違う。	-	-
+B-010	holds	-	-	-	doc_check.mjs:211-235 で NOUNIT・MODAL・IDHEADING・TBD_NORESOLVE は severity degraded、3790・3801 で blocking から除かれ、prd-spec.js:2972-2973 は blocking 0 で段 9 へ進む。SP-VERIFICATION-036（299）の「全ての検査の指摘 0 件」と食い違う。	-	-
+B-011	holds	-	-	-	doc_check.mjs:1117 で語尾の検査は requirements の文書に限られ、1155-1156 は MODAL_INTENT に一致する文だけを起票する。SP-VERIFICATION-014（191）は要求文と仕様項目の全てを対象にする。仕様書が対象外である点も同じ行に含まれる。	-	-
+B-012	holds	-	-	-	prd-spec.js を not_checked|notChecked で grep して 0 件。doc_check.mjs:3804 は件数を返すが受け手が無い。	-	-
+B-013	holds	-	-	-	doc_check.mjs:633（表が無ければ return）、746（初期状態がある図だけ到達・出口を判定）、866（固定・markdown 無しを skip）、877（flow が undefined なら検査しない）、4200（図が無ければ continue）を原文で確認。いずれも not_checked に載らない。	-	-
+B-014	holds	-	-	-	doc_check.mjs:2862・2908-2911 の問いの形の検査と prd-spec.js:2168-2188 の MAX_CHECK_REWORK 後の error を確認。6 文書と tbd.json を「候補|選択肢|問いの形」で grep して、問いの形の規定は無い（候補は authoring.md:367・603 の未確定事項の欄だけ）。	-	-
+B-015	holds	-	-	-	doc_check.mjs:1952 は verdict を 該当/非該当 に限り、3745 は PLAN_INVARIANT_MISSING を出す。workflow-io.md:184 に引用の文がある。6 文書と tbd.json を「不変条件|判定を更新」で grep し、本文 0 件・TBD-SELICITATION-010 本文のみ。	-	-
+B-016	holds	-	-	-	elicitation.md:127 は 不明、authoring.md:127・160・511 と TBD-SAUTHORING-018 は 未判定、domain-analysis.md:18 と doc_check.mjs:3699 は 未評価。なお authoring.md:77 が elicitation に置くのは観点の集合の値（SP-ELICITATION-002）で判定値ではないが、判定値の生成元は SP-ELICITATION-003・008 なので derived は成り立つ。	-	-
+B-017	holds	-	-	-	authoring.md:479-481 は根拠の無い事項を未確定事項として起票し、SP-AUTHORING-054 は進行可能を残せる。SKILL.md:23-24・50 と prd-spec.js:2414・3002 は上限後・輪の出口で回答の無い論点や新しい TBD を hold にし、完成を開いた TBD 0 件とする。	-	-
+B-018	holds	-	-	-	6 文書と tbd.json を「Issue」で grep して 0 件、「起票」は未確定事項の起票だけ（verification.md:162-168・flow.md:105・109・275・486）。SKILL.md:11・24・179 と prd-spec.js:2987-3002 に Issue の文案と承認後の起票がある。	-	-
+B-019	holds	-	-	-	consumer.md の #### 見出しは 001〜013・015・017〜031（grep）。requirements/INDEX.md:12 も欠番 014・016。authoring.md:547・592 は PR-CONSUMER-014、verification.md:432 は PR-CONSUMER-032 を参照。	-	-
+B-020	holds	-	-	-	flow.md:439 の確定情報の回答待ち → 文書生成中は 1 本で問い直しの遷移が無く、SP-FLOW-024（292-298）は作り直しの周回だけを数える。elicitation.md:206 と requester.md:186-188 はこの上限を flow に求めている。	-	-
+B-021	holds	-	-	-	doc_check.mjs:2252 の throw と prd-spec.js:2321 の blocked を確認。6 文書と tbd.json を「読み取れ|読めな」で grep して、elicitation.md:267・285-286・299・400 だけで、示した後の続行・停止の規定は無い。	-	-
+B-022	holds	-	-	-	authoring.tbd.json:80-81 の TBD-SAUTHORING-020（blocking）は検査の結果を INDEX に置くかを未決とし、doc_check.mjs:4152・4154 は両方の種別で「## 検査結果」を常に書く。	-	-
+B-023	holds	-	-	-	authoring.md:184-186 は集合を本文の表に列挙すると定め、値は blocking の TBD-SAUTHORING-001。doc_check.mjs:3135 以降に AMBIGUOUS_JA/EN の閉集合があり、1606 の AMBIGUOUS は severity を持たず blocking に数えられる。	-	-
+B-024	holds	-	-	-	doc_check.mjs:1184-1198 は meta.trace に無い ID を全て NO_EVIDENCE にし、trace が配列でなければ NC_TRACE。authoring.md:223-225 と verification.md:198-200 は要求文の本文への併記を対象にする。	-	-
+B-025	holds	-	-	-	consumer.md:184-186 の PR-CONSUMER-013 は生成文書の記述への要求。verification.md:418-421・445・456・459・461-462 は検査の異常系をこれに紐付けている。	-	-
+B-026	holds	-	-	-	verification.md:346-347 は主フローを表に載せないとするが、図 337・338・340 の遷移が表 361・363・381 にも行として現れる（381 の指摘なし→終了も同じ形）。SP-AUTHORING-074（authoring.md:453-455）に反する。	-	-
+B-027	holds	-	-	-	SKILL.md:135-137 と doc_check.mjs:2876-2892 の missing を確認。elicitation.md:235-245 は回答を受け取れば確定・保留にするだけで、一部無回答・反映の検証落ちを扱う項目は無い（grep: 未回答|答えなかった|一部の問い、該当は verification.md:262・451 と requester.md:209 の推測禁止だけ）。	-	-

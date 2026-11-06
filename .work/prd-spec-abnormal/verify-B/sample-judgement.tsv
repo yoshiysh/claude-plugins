@@ -1,0 +1,45 @@
+item	judgement	note
+ID-002	not-abnormal:flow の内部モデル（中間成果物）の形の検査で、外から観測できる振る舞いを定める 3 文書の対象外	doc_check.mjs:454-458
+ID-106	not-abnormal:決定の台帳の欄の形（内部の受け渡し形式）	doc_check.mjs:1749-1780
+ID-358	not-abnormal:doc_check の入力 JSON モードの起動エラー（内部の処理単位の失敗は flow の E4 側）	doc_check.mjs:4515-4521
+ID-139	not-abnormal:台帳の書き込みの --token 欠落（司令塔の呼び出し規約）	doc_check.mjs:2088
+ID-357	not-abnormal:CLI の usage エラー	doc_check.mjs:4509-4514
+ID-353	not-abnormal:workspace の引数エラー（内部）	doc_check.mjs:4462
+ID-249	not-abnormal:flow 内部モデルの decision の cases 欠落。cases が配列でない要素は 3343-3345 の FLOW_NO_TABLE で別に指摘される	doc_check.mjs:3274-3275
+ID-232	covered:B-024	meta 無し → NC_TRACE、trace が配列でない → 全項目 NO_EVIDENCE。B-024 が NO_EVIDENCE と NC_TRACE の経路を扱う
+ID-233	doc-ok:SP-VERIFICATION-022 docs/specifications/verification.md:223-225	本文中の未定義 ID は REF_UNDEFINED で検査され、SP-022 と一致
+ID-197	not-abnormal:台帳の script が埋める欄を捨てる内部の正規化	doc_check.mjs:2790
+ID-087	not-abnormal:CLI モードの閉集合	doc_check.mjs:1665
+ID-189	not-abnormal:get の stdout 予算（内部の読み出し）。over_budget に挙げて黙って落とさない	doc_check.mjs:2677-2685
+ID-212	covered:B-014	問いの候補数 2〜4
+ID-308	not-abnormal:契約の stdout 予算（agent への配達の内部制約）	doc_check.mjs:3845-3846
+ID-328	not-abnormal:digest 計算（内部の照合）	doc_check.mjs:4037
+ID-151	not-abnormal:blocked 後の再実行での控えの戻し（内部の再開機構）	doc_check.mjs:2171-2172
+ID-214	covered:B-027	回答のファイルの missing → needs_answers の出し直し
+ID-326	missed	wsDiff が出す申告外の変更は prd-spec.js:497-514 で追加監査と undeclared の報告になる。verification の SP-VERIFICATION-032 は禁止だけで、違反を見つけたときの扱いもイベントも無い → M-001
+ID-096	not-abnormal:台帳のキーの形（内部）	doc_check.mjs:1875
+ID-323	not-abnormal:diff の引数エラー（内部）	doc_check.mjs:3999
+ID-195	not-abnormal:put の --input の置き場の制約（内部）	doc_check.mjs:2767-2773
+DX-096	covered:B-006	SP-VERIFICATION-044。B-006（flow との帰結の衝突）と B-007（実装は未実施として進まない）
+DX-097	covered:B-007	SP-VERIFICATION-041。B-007 と B-012
+DX-102	covered:B-016	SP-ELICITATION-009 の 不明。実装の verdict は 該当/非該当（1952）・未評価（3699）で、B-016 が扱う
+DX-134	not-abnormal:SP-AUTHORING-024 は生成文書に書かせる内容の規約で、prd-spec 自身の準正常系・異常系ではない	authoring.md:202
+DX-106	covered:B-002	SP-ELICITATION-025 の条件が確定・未確定の E3 セルを覆わない
+DX-095	covered:B-008	SP-VERIFICATION-039
+DX-100	missed	verification.md:376 の 指摘あり × 両立しない書き換え が ❌ 未定義（TBD-SVERIFICATION-014、blocking:false）。findings は elicitation の未定義セル（B-001）と 366 の確認（B-005）を挙げるが、verification の表の 376（と 374 の TBD-006、こちらは B-009 が no_progress として一部触れる）を挙げていない → M-002
+DX-141	covered:B-016	authoring.md:127 の 未判定（TBD-SAUTHORING-018）
+grep:doc_check.mjs:1696	not-abnormal:JSON の読み取り失敗（内部ファイル）	-
+grep:doc_check.mjs:2246	not-abnormal:place の引数エラー（司令塔の呼び出し）。同じ関数の 2252（文書が無い）は B-021	-
+grep:doc_check.mjs:3982	not-abnormal:snapshot の --sweep の引数制約（内部）	-
+grep:doc_check.mjs:2943	not-abnormal:事後報告の導出を述べたコメントで、停止・失敗の条件ではない	-
+grep:doc_check.mjs:3539	not-abnormal:検証の合否を持ち越す内部規則のコメント	-
+grep:doc_check.mjs:2676	not-abnormal:get の stdout 予算の throw（内部）	-
+grep:doc_check.mjs:2794	not-abnormal:台帳の欄の検査（内部）	-
+grep:doc_check.mjs:3980	not-abnormal:監査の基準のラベルを監査役だけに許す役割の制約（内部）	-
+grep:doc_check.mjs:1705	not-abnormal:台帳の ruling ごとの欄の閉集合（内部）	-
+grep:doc_check.mjs:1895	not-abnormal:台帳の形の throw（内部）	-
+grep:doc_check.mjs:3854	not-abnormal:契約ファイルの見出し欠落（skill 同梱物の欠陥）	-
+grep:doc_check.mjs:2968	not-abnormal:事後報告の保持規則ブロックの出力（正常経路）	-
+grep:doc_check.mjs:2284	covered:B-021	既存文書に付いた tbd の写しの形が違えば reset が止まる。所在を示された文書を読めないときに止まる経路が文書に無い、という B-021 と同じ欠陥の別の入口
+grep:doc_check.mjs:2155	not-abnormal:unstash の控え欠落（内部の再開機構）	-
+grep:doc_check.mjs:2117	not-abnormal:blocked 後の再実行の控えを述べたコメント（内部）	-
