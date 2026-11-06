@@ -3,7 +3,7 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent
 ROOT = OUT.parents[2]
-TABLE = OUT.parent / "flow-model-3" / "table.tsv"
+TABLE = OUT.parent / "flow-model-4" / "table.tsv"
 res = []
 
 

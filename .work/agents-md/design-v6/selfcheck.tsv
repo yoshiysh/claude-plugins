@@ -1,8 +1,8 @@
 check	target	result	method
 rules: model_transition が table.tsv の行と逐語で一致	L2 WF-01 目的の固定: 作り手が防ぐ失	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L2 WF-02 規模の判定: typo 級は	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L12 WF-02 規模の判定: typo 級は	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L15 WF-02 規模の判定: typo 級は	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L13 WF-02 規模の判定: typo 級は	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L16 WF-02 規模の判定: typo 級は	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L3 WF-03 設計の作業: 作り手が決定・	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L4 WF-04 実装の作業: 作り手が設計レ	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L5 WF-05 作り手の検査: 作業中に走ら	一致	L の後が state・event・guard で始まるか
@@ -10,42 +10,44 @@ rules: model_transition が table.tsv の行と逐語で一致	L6 WF-06 分類�
 rules: model_transition が table.tsv の行と逐語で一致	L7 WF-07 欠陥: 重大度を付けずに設計	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L8 WF-08 除ける環境: 作り手が原因を	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L9 WF-09 除けない環境: 司令塔が記録	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L10 WF-10 draft の間に来た人・b	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L11 WF-10 draft の間に来た人・b	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L12 WF-11 設計レビュー: 作り手と別の	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L13 WF-12 実装レビュー: 承認済みの設	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L14 WF-13 重大度: 返り値の「指摘」の	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L15 WF-14 振り分け: 抜粋 B の規則	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L13 WF-11 設計レビュー: 作り手と別の	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L14 WF-12 実装レビュー: 承認済みの設	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L15 WF-13 重大度: 返り値の「指摘」の	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L16 WF-14 振り分け: 抜粋 B の規則	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L17 WF-15 bot: 最初に ready	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L18 WF-16 bot の指摘の振り分け: 	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L19 WF-17 人間ゲート: 人は PR 本	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L20 WF-17 人間ゲート: 人は PR 本	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L21 WF-18 人の指摘: 重大度を付けずに	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L22 WF-19 ready の後に設計へ戻っ	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L23 WF-20 終わり: マージか除けない環	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L15 WF-21 LOW と範囲と限界の記録:	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L18 WF-21 LOW と範囲と限界の記録:	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L17 WF-14 振り分け: 抜粋 B の規則	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L18 WF-15 bot: 最初に ready	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L19 WF-15 bot: 最初に ready	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L20 WF-16 bot の指摘の振り分け: 	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L21 WF-17 人間ゲート: 人は PR 本	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L22 WF-17 人間ゲート: 人は PR 本	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L23 WF-18 人の指摘: 重大度を付けずに	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L10 WF-19 人・bot の指摘: 来た時	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L11 WF-19 人・bot の指摘: 来た時	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L12 WF-19 人・bot の指摘: 来た時	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L24 WF-19 人・bot の指摘: 来た時	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L25 WF-20 終わり: マージか除けない環	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L16 WF-21 LOW と範囲と限界の記録:	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L20 WF-21 LOW と範囲と限界の記録:	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L5 WF-22 形式検証の契約: 模型は t	一致	L の後が state・event・guard で始まるか
 rules: 模型の外と書かれている	観点の選び方と返り値の形と fan-out の細	書かれている	先頭の文字列
 rules: model_transition が table.tsv の行と逐語で一致	L9 止まってよい場所（既存の行を書き換える）	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L20 止まってよい場所（既存の行を書き換える）	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L23 止まってよい場所（既存の行を書き換える）	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L22 止まってよい場所（既存の行を書き換える）	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L25 止まってよい場所（既存の行を書き換える）	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L7 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L9 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L15 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L16 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L18 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L21 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L12 生成と検証の分離（既存の行のまま）	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L17 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L20 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L23 司令塔の役（既存の行のまま）: 段の選択	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L13 生成と検証の分離（既存の行のまま）	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L14 生成と検証の分離（既存の行のまま）	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L15 生成と検証の分離（既存の行のまま）	一致	L の後が state・event・guard で始まるか
 rules: 模型の外と書かれている	根本原因（既存の行に 1 句足す）: 設計と設計	書かれている	先頭の文字列
 rules: 模型の外と書かれている	同じ値を 2 箇所に書かない（既存の行に 1 句	書かれている	先頭の文字列
 rules: 模型の外と書かれている	抜粋の一致を make test で照らす	書かれている	先頭の文字列
 rules: 模型の外と書かれている	fan-out の規則（既存の行を 1 行に縮め	書かれている	先頭の文字列
-rules: model_transition が table.tsv の行と逐語で一致	L12 検証は単一視点にしない（既存の行を書き換	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L13 検証は単一視点にしない（既存の行を書き換	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L14 検証は単一視点にしない（既存の行を書き換	一致	L の後が state・event・guard で始まるか
 rules: 模型の外と書かれている	Codex の hook を消す	書かれている	先頭の文字列
 table: 行が rules.tsv に現れる	L2 FixPurpose	現れる	L 番号の集合
 table: 行が rules.tsv に現れる	L3 Work	現れる	L 番号の集合
@@ -57,19 +59,21 @@ table: 行が rules.tsv に現れる	L8 HandleEnvR	現れる	L 番号の集合
 table: 行が rules.tsv に現れる	L9 HandleEnvU	現れる	L 番号の集合
 table: 行が rules.tsv に現れる	L10 DraftHuman	現れる	L 番号の集合
 table: 行が rules.tsv に現れる	L11 DraftBot	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L12 Review	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L12 ReworkHuman	現れる	L 番号の集合
 table: 行が rules.tsv に現れる	L13 Review	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L14 AssignSev	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L15 Triage	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L14 Review	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L15 AssignSev	現れる	L 番号の集合
 table: 行が rules.tsv に現れる	L16 Triage	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L17 BotReview	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L18 Triage	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L19 HumanComment	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L20 HumanMerge	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L21 Triage	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L22 人・bot の指摘	現れる	L 番号の集合
-table: 行が rules.tsv に現れる	L23 Done	現れる	L 番号の集合
-rules: WF の番号	rules.tsv	01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,17,18,19,20,21,22	rule の先頭の WF-nn
+table: 行が rules.tsv に現れる	L17 Triage	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L18 Wake	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L19 BotReview	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L20 Triage	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L21 HumanComment	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L22 HumanMerge	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L23 Triage	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L24 人の指摘	現れる	L 番号の集合
+table: 行が rules.tsv に現れる	L25 Done	現れる	L 番号の集合
+rules: WF の番号	rules.tsv	01,02,03,04,05,06,07,08,09,11,12,13,14,15,16,17,18,19,20,21,22	rule の先頭の WF-nn
 rules: actor が担い手の集合にある	WF-01 目的の固定: 作り手が防ぐ失敗・達成	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-02 規模の判定: typo 級は「差分が	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-03 設計の作業: 作り手が決定・理由・利	ある	英字の語の照合
@@ -79,7 +83,6 @@ rules: actor が担い手の集合にある	WF-06 分類と記録: 成果物を�
 rules: actor が担い手の集合にある	WF-07 欠陥: 重大度を付けずに設計へ戻す	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-08 除ける環境: 作り手が原因を除いて同	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-09 除けない環境: 司令塔が記録した分類	ある	英字の語の照合
-rules: actor が担い手の集合にある	WF-10 draft の間に来た人・bot の	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-11 設計レビュー: 作り手と別の観点の 	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-12 実装レビュー: 承認済みの設計からの	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-13 重大度: 返り値の「指摘」の節にだけ	ある	英字の語の照合
@@ -88,7 +91,7 @@ rules: actor が担い手の集合にある	WF-15 bot: 最初に ready にした
 rules: actor が担い手の集合にある	WF-16 bot の指摘の振り分け: 抜粋 B	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-17 人間ゲート: 人は PR 本文が指す	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-18 人の指摘: 重大度を付けずに設計へ戻	ある	英字の語の照合
-rules: actor が担い手の集合にある	WF-19 ready の後に設計へ戻って作り直	ある	英字の語の照合
+rules: actor が担い手の集合にある	WF-19 人・bot の指摘: 来た時点（PR	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-20 終わり: マージか除けない環境の報告	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-21 LOW と範囲と限界の記録: age	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-22 形式検証の契約: 模型は tests	ある	英字の語の照合
