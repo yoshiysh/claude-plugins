@@ -1,0 +1,3 @@
+q	options	recommend
+.codex/hooks.json の削除で、Stop の通知（macOS の通知音）も消してよいか。Q8 の根本原因は make test の検査の時機で、通知は無関係	(a) PostToolUse の make test だけを消し Stop を残す / (b) ファイルごと消す（今の設計）	(a)。原因に関わらない動作を消さずに済み、limits の「個人設定に置く」の後始末が要らない。反対側: Codex の hook の見直しのときに残った Stop も含めて扱い直す必要がある
+review-lenses.md の fan-out の節に、best-practices.md §3・§13 に既にある規則（model と effort の明示・evidence pack・prefix の cache）を書き起こすか	(a) best-practices に無いもの（Workflow の外の fan-out・実測・Codex）だけを置き、残りは §3・§13 を指す / (b) 全てを review-lenses.md に書く（今の設計）	(a)。同じ規則の正本が 2 つにならず、一致を照らす仕組みも要らない。反対側: best-practices はスキル作成向けの文書なので、スキル以外の fan-out の読み手が 1 段多く辿る

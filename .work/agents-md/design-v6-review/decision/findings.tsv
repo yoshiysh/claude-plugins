@@ -1,0 +1,44 @@
+ref	verdict	severity	reason	evidence_ref	evidence_quote
+rules.tsv WF-22・files.tsv docs/guidelines/workflow.md・files.tsv AGENTS.md 抜粋 C	ng	中	Q2（formal-methods スキルを参照し先に入れる）を満たさない。設計の全ファイルで formal-methods の語は out-of-scope.tsv の「参照するだけ」の 1 行だけで、workflow.md・AGENTS.md・agent 定義のどれにも手順の正本としての参照が無い（grep -n formal-methods design-v6/*.tsv の範囲）。参照が無いので、模型の書き方・置き場の手順を作り手がどこで引くかが割れる。検証の手段: grep で有無を確かめられる	design-review-1/answers.txt Q2・design-v6/out-of-scope.tsv:11	形式検証の手順: 今の formal-methods スキルを参照し先に入れる
+files.tsv AGENTS.md（変える行 (1)〜(9)）	ng	中	Q4（AGENTS.md の「設計レビュー」の 1 行だけ揃える）を満たさない。現行の AGENTS.md:200 は公開前の SKIP: の確認を「設計レビュー」と呼ぶが、files.tsv の (1)〜(9) にこの行が無く、out-of-scope.tsv にも無い（AA1 は Q4 を取り消していない）。新しい流れの段名と同じ語が別の意味で残り、読み手が段のレビューと取り違える。検証の手段: git diff で行の有無を確かめられる	design-review-1/answers.txt Q4・AGENTS.md:200	公開前にはそこを設計レビューで見る
+rules.tsv WF-19（L24 の行）・flow-model-4/results.tsv v6_P16	ng	中	導けた答え（bot の run を待つ間の人の指摘を bot の指摘の振り分けに加える）は WF-19 の文では満たすが、模型 4 では検証されていない。人の指摘を受け箱に入れる行動は DraftHuman（pr=draft）と ReworkHuman（stage∈ReworkStages）だけで wake・prbot・ptriage では起きず、受け箱を空ける Absorbs も dtriage・itriage だけ。v6_P16 の pass はこの経路を含まないので、results.tsv の「v6_P16 が通る」は導けた答えの証拠にならない。files.tsv 9 行目で模型に足す予定はあるが、ptriage が受け箱を吸うと P16 等が保たれるかは今は検証不能	flow-model-4/Flow.tla:249・Flow.tla:284・flow-model-4/table.tsv L24	Absorbs == stage \in {"dtriage", "itriage"}
+rules.tsv（WF-10 の欠番と WF-19 の model_transition）と flow-model-4/trace.tsv	ng	中	規則と模型の対応が食い違う。設計は WF-10 を欠番にし DraftHuman・DraftBot を WF-19 に寄せたが、模型 4 の trace.tsv と Flow.tla の注釈は DraftHuman・DraftBot を WF-10 に、WF-19 を ReworkHuman だけに当てる。このまま tests/formal/workflow/ に移すと tests/workflow-flow-trace.test.mjs の (2)（trace.tsv の WF の見出しが全て workflow.md にある）が落ちる。検証の手段: そのテストが機械で検出する（手段はある）	design-v6/files.tsv:4・flow-model-4/trace.tsv	WF-10 は欠番。draft の間の指摘は WF-19 の 1 つの規則に含める
+flow-model-4/trace.tsv WF-10 行	ng	中	上の行の模型側の証拠	flow-model-4/trace.tsv	WF-10 draft の間に来た人・bot の指摘
+rules.tsv WF-13 の model_transition	ng	低	WF-13 の数の照合（Recount）は模型 4 の NonDone と trace.tsv にあるが、table.tsv に行が無く、rules.tsv も L15 AssignSev だけを引く。表どうしの対応で照合の遷移が落ちている（v6_P11 の pass は Recount があって成り立つ）	flow-model-4/trace.tsv・table.tsv L15	AssignSev,Recount
+rules.tsv WF-02 の model_transition・questions.tsv（注記）	ng	低	「模型への追加が要る」「模型 3 の決定どおりの版にこの遷移は無く」は古い。模型 4 は規模の判定の誤り（SjBudget、src=scale を重大度なしで戻す IsBack、P15、mut_ScaleSev_P15）を既に持ち、table.tsv L13・L16 も規模の指摘を扱う。注記どおりに読むと検証済みの遷移を未検証と扱う	flow-model-4/results.tsv・design-v6/rules.tsv:3	模型への追加が要る: questions.tsv の注記
+limits.tsv assumption 行・files.tsv tests/formal/workflow/（README の仮定）	ng	中	Z2（仮定とリスクを範囲と限界に記録する）に対し、模型 4 の仮定 F9（重大度の返り値の破損は有限回）が limits.tsv と README の仮定の列挙から落ちている。v6_assume_F9off_P14 は fail（合うまで振り分けない WF-13 のやり直しが終わらない）なので、v6 で新たに入った残るリスクが PR 本文に載らない。F7（弱公平性）も列挙に無い	flow-model-4/results.tsv v6_assume_F9off_P14・design-v6/limits.tsv:5	重大度の返り値が壊れ続けると WF-13 のやり直しが終わらない
+rules.tsv WF-21・limits.tsv risk 1 行	ng	中	W4・Z1（LOW は PR 本文に載せ、人がマージの前に読んで拾う）に対し、WF-21 は「agent と bot の LOW は reviews/ に全件を残し」とするが、limits.tsv は bot の LOW を件数しか読めないと書く。全件を残す規則が bot については満たせず、Z1 で受容したリスクの拾い手（人が LOW を読む）が bot の LOW には働かない。全件が残ったかを確かめる手段も無い	design-v6/limits.tsv:2・rules.tsv:22	bot の LOW は bot の出力が件数しか出さない分を読めない
+rules.tsv WF-21（範囲と限界の記録）	ng	低	Z2 の記録（模型の仮定と残るリスクを PR 本文の範囲と限界に書く）が守られたかを確かめる手段が無い。PR 本文は decision-verifier・diff-verifier の入力に無く、checks-for-impl.tsv にも無い。人間ゲートだけが読む	design-v6/agents.tsv:6・checks-for-impl.tsv	PR 本文の範囲と限界に、模型の仮定と残るリスクと見なかったものを書く
+files.tsv docs/guidelines/review-lenses.md (5) Codex	ng	低	W1 は review-lenses.md に Codex での立て方を 1 行だけとしたが、(5) は 3 文（立て方・model と effort の継承と例外・読み取り専用の担保）を持つ	design-review-1/answers.txt W1	review-lenses.md に Codex での立て方を 1 行だけ
+files.tsv docs/guidelines/workflow.md（置き場）・rules.tsv WF-03	ng	低	W5 の typo 級の比例（目的 1 行・設計 1 行）が書かれていない。WF-03 は規模を問わず decisions・reasons・scenes を別に書くとし、typo 級は置き場が PR 本文の節になるだけ。typo 級で何行書けばよいかが割れる	design-review-1/answers.txt W5	typo なら目的 1 行・設計 1 行・fresh なレビュー 1 体
+out-of-scope.tsv:15	ng	低	X1 では typo 級でない変更の成果物は commit に置く。この PR の設計は .work/ に commit されているが（git ls-files で確認）、扱いを「利用者」に回したまま questions.tsv に問いが無い。行き先が決まらないまま残る	design-v6/out-of-scope.tsv:15	利用者（作業用ディレクトリの扱いを含む）
+rules.tsv の model_transition の行番号（全行）	ok	-	L2〜L25 の引用は table.tsv の行（header を L1 とする）の state・event・guard と全て一致した（WF-13・WF-10 の欠落は別の行）	flow-model-4/table.tsv	HandleEnvU
+D1	ok	-	抜粋 B・WF-07・WF-14・WF-18 が段の順と「直接直さず設計へ戻す」を持つ。手段: 模型 P1・P3・P4・P8a と変異（mut_SkipDR_P3 等）、抜粋の一致テスト	design-v6/files.tsv:3	成果物を直接直さずに設計へ戻し
+D2	ok	-	根本原因の行に設計と設計レビューを足し、レビューは原因が除かれたかを見る。手段: diff-verifier の観点（模型の外と明記）	design-v6/rules.tsv:28	設計と設計レビューもこの規範に従い
+D3	ok	-	抜粋 C が要求・仕様・実装の全てに掛け、WF-04 が要求・仕様を実装段に置き、WF-05 がその段の模型の実行を作り手の検査に含める。手段: decision-verifier が模型の結果を読む・trace のテスト	design-v6/files.tsv:3	形式検証は要求・仕様・実装の全てに掛け
+D4	ok	-	AGENTS.md に足すのは理由つきの規範の抜粋 3 行と数句で、手順は workflow.md・review-lenses.md へ置く	design-v6/files.tsv:4	置かないもの
+Q1	ok	-	スキルの接続を次の PR に回し、食い違いを limits に載せる	design-v6/limits.tsv:12	優先の規則を書かない
+Q3	ok	-	抜粋 C の 1 文。手段: checks-for-impl の「C が 1 文か」	design-v6/checks-for-impl.tsv:2	C が 1 文か
+Q5	ok	-	作り手の検査の欠陥は重大度なしで設計へ戻す（WF-05〜07）。手段: P8・P8a・mut_SelfLowLog_P8	design-v6/rules.tsv:8	重大度を付けずに設計へ戻す
+Q6・Q8（Q7 を置き換え）	ok	-	.codex/hooks.json を消し、AGENTS.md の hook の 2 行を消す。手段: git diff と grep	design-v6/files.tsv:18	ファイルごと消す
+Q9	ok	-	止まってよい場所に除けない環境の報告を足す（WF-09・AGENTS.md (2)）。手段: P10・P11・C3 と変異	design-v6/rules.tsv:25	人間ゲート（マージ）と、除けない環境の報告だけ
+Q10	ok	-	WF-08 で同じ検査をその場でやり直す。手段: P9・mut_EnvRToDesign_P9	design-v6/rules.tsv:9	作り手が原因を除いて同じ検査をその場でやり直す
+V2	ok	-	見出しを変えない（既存の行だけを書き換える）	design-v6/files.tsv:3	ほかの行は変えない
+V3	ok	-	diff-verifier の定義を変えず、review-lenses.md の表に両段で載せ、ready 後の差分を WF-12 で見る	design-v6/rules.tsv:13	ready の後に足した差分も diff-verifier がこの段で見る
+V5	ok	-	目的の固定（A）・生成後のレビュー（B）・形式検証の必須（C）を AGENTS.md に置き、観点は review-lenses.md を指す	design-v6/files.tsv:3	設計などの文書も実装も段のレビューを通す
+W3	ok	-	§13 との食い違いを扱わず、優先の 1 行も書かない（out-of-scope）	design-v6/out-of-scope.tsv:10	best-practices を更新する
+W4	ok	-	MEDIUM 以上を戻し、LOW は直さず記録して追わず、回数の上限を置かない。手段: P5・P6 と変異。bot の LOW の記録は別の行で ng	design-v6/limits.tsv:5	回数の上限を置かない
+X1	ok	-	置き場を規模で分ける（WF-01）。手段: P15・mut_PlaceAny_P15	design-v6/rules.tsv:2	置き場は規模で決める
+X2	ok	-	マージを公開と定める（AGENTS.md (2)・WF-17）	design-v6/rules.tsv:18	マージが公開
+X3	ok	-	人の指摘は重大度を問わず設計へ戻し、LOW を追わないのは agent と bot に限る。手段: P7・mut_HumanLowNotFixed_P7	design-v6/rules.tsv:19	WF-18 人の指摘: 重大度を付けずに設計へ戻す
+Y1	ok	-	目的を固定した時点で draft PR を作り、出す = ready にする（WF-01・WF-14）。手段: C1	design-v6/rules.tsv:15	PR を出すとは ready にすること
+Y2	ok	-	severity-assigner を 1 体置き、司令塔は数を照らすだけ。手段: P2・P13・mut_OrchSev_P2	design-v6/agents.tsv:9	指摘を足さず消さず言い換えない
+Y3	ok	-	作り手が分類と理由を records/ に書き、decision-verifier が読む。手段: P8・P10・mut_NoRecord_P8	design-v6/rules.tsv:12	decision-verifier はその回の records/ と前の振り分けの記録を読む
+Y4	ok	-	bot の重大度を REVIEW.md の語彙のまま使う	design-v6/rules.tsv:16	bot の重大度は REVIEW.md の語彙をそのまま使う
+Z1	ok	-	付け間違いのリスクを limits に載せる。手段: decided_I1・v6_I1 が残るリスクを実測（bot の LOW は別の行で ng）	design-v6/limits.tsv:2	付け間違い: 真に MEDIUM の指摘が LOW と付くと直されずにマージに届きうる
+Z3・AA4	ok	-	WF-19 が draft の間と ready の後の戻りの間の指摘を次の振り分けに加える。手段: P16・P16a・mut_InboxIgnored_P16・v6NoWF19_P16（対応の食い違いは別の行で ng）	design-v6/rules.tsv:20	時点ごとの条項を置かない
+AA1	ok	-	地図化・参照の付け替え・既存スキルとの接続を out-of-scope に回し、流れの規範・agent・模型・hook の削除に絞る	design-v6/out-of-scope.tsv:2	流れの規範だけに絞る
+AA2	ok	-	draft に戻さず、close と reopen で bot を起こし run の完了を待つ。手段: P17・mut_NoWake_P17・mut_NoWait_P17	design-v6/rules.tsv:16	起こした run の完了を待ってから振り分ける
+AA3	ok	-	fan-out の正本を review-lenses.md (4) に置き、AGENTS.md は規則 1 行・実測の理由・指し先	design-v6/files.tsv:3	細則と理由は docs/guidelines/review-lenses.md「fan-out」
+導けた答え FQ5（目的と設計の担い手は builder）	ok	-	WF-01・WF-03 の actor が builder で、builder.md を作る	design-v6/files.tsv:11	流れの担い手 builder の定義が無いと、誰が目的と設計を書くかが割れる
+導けた答え（ready 後に draft に戻さない・自己検査と人の指摘と規模の誤りに重大度を付けない）	ok	-	WF-14・WF-07・WF-18・WF-02 と out-of-scope の cut 行が持つ。手段: mut_SevOnHuman_P1・mut_ScaleSev_P15・mut_SelfLowLog_P8	design-v6/out-of-scope.tsv:17	作り手の検査の指摘・人の指摘・規模の判定の誤りへの重大度の付与

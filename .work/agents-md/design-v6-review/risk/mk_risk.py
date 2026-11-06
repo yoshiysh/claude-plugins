@@ -1,0 +1,69 @@
+import re, pathlib
+R = pathlib.Path('/Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616')
+D = R/'.work/agents-md'
+OUT = D/'design-v6-review/risk'
+rows = [
+("files.tsv AGENTS.md (2)", "ng", "中",
+ "止まってよい場所を「マージ」と「除けない環境の報告」の 2 つ「だけ」に閉じたため、権限の境界で誤る。利用者にしか決められない価値判断（レビュー役が出す問い・目的の確定）を利用者へ聞くことが、許された停止に入るのか入らないのかが決まらない。この PR の設計自体は利用者への問い（D1〜AA4）で進んでいるのに、模型（table.tsv）にも rules.tsv にも、利用者へ問う状態や遷移が無い。そのため一方の担い手は聞いて止まり（規則に違反する）、もう一方は作り手が推測で決めて設計へ戻す。後者は、利用者の決定を要る論点が誰の承認も無く成果物に入る fail-open になる",
+ "design-v6/files.tsv AGENTS.md (2)・flow-model-4/table.tsv・answers.txt",
+ "止まってよいのは人間ゲート（マージ。マージが公開に当たる）と、作り手の検査の失敗のうち作り手には除けないものを、記録した分類と理由とともに利用者へ報告するときだけ。"),
+("rules.tsv WF-01", "ng", "中",
+ "目的は流れ全体の正本になる。decision-verifier は設計段で目的を照らす正本にし、purpose-auditor は要素を目的と比べる。ところがその目的を書くのは作り手（builder）だけで、目的が依頼や利用者の意図と合っているかを見る担い手がいない。目的を取り違えても、後の全段が誤った目的と整合して通る。気づける場所は最後の人間ゲートだけになる（生成と検証の分離が根で外れる fail-open）。#207 では利用者が目的を確定した（V1）が、新しい流れにはこの確認に当たる段が無い",
+ "design-v6/rules.tsv WF-01・design-v6/agents.tsv decision-verifier",
+ "WF-01 目的の固定: 作り手が防ぐ失敗・達成すること・やらないことを書き、その時点で draft PR を作る"),
+("rules.tsv WF-11（WF-03 の変更の種類の宣言）", "ng", "中",
+ "立てる観点は、作り手が宣言した変更の種類から機械的に引く。その宣言が正しいかを確かめる担い手がいない（decision-verifier が見るのは typo 級かどうかの規模の判定だけ）。作り手が「文言だけ」と過少に宣言すると alternatives-auditor・risk-auditor・reader が立たず、立てなかった理由も表どおりとして記録されて通る。生成者が自分の検証者を選べる fail-open になる。宣言の誤りを見つけたときの経路（規模の判定の誤りと同じに重大度なしで戻すのか）も無い",
+ "design-v6/rules.tsv WF-03・WF-11・design-v6/agents.tsv decision-verifier",
+ "立てる観点は宣言された変更の種類から review-lenses.md の表で機械的に引き"),
+("rules.tsv WF-13・files.tsv docs/guidelines/review-lenses.md (2)", "ng", "中",
+ "返り値が壊れたときは同じ入力でやり直し、合うまで進めない（fail-closed）。これ自体は妥当だが、終わるかどうかは「返り値の破損は有限回」という仮定に依る。模型ではこの仮定（F9）を外すと終わらない（v6_assume_F9off_P14 が fail）。それなのに limits.tsv の仮定の行にも、tests/formal/workflow/ の README に書く仮定の列挙にも F9 が無い。観点の agent の「指摘」の節が壊れたときのやり直しは模型にも無い。入力が大きくて毎回形が崩れるような系統的な破損では、止まってよい場所のどれにも当たらないため、報告もできずに回り続ける",
+ "design-v6/limits.tsv assumption 行・design-v6/files.tsv tests/formal/workflow/・flow-model-4/results.tsv v6_assume_F9off_P14",
+ "合わなければ同じ入力でやり直す（合うまで振り分けない）"),
+("rules.tsv WF-15", "ng", "中",
+ "bot の run が完了しなかったときと、完了したのに結果を振り分けられないときの扱いが無い。前者は job の失敗・secret の期限切れ・if 条件で skip されたとき（sender.type が User でない、fork）。後者は重大度の付かない summary だけが出たとき。司令塔は「完了を待つ」ので、待ち続けるか、失敗を「指摘 0 件」として gate へ進めるか（fail-open）で振る舞いが割れる。これは作り手の検査の失敗ではないので、止まってよい場所にも当たらない。bot の出力については WF-13 のような数の照合も無い",
+ "design-v6/rules.tsv WF-15・WF-16・.github/workflows/claude_review.yml",
+ "起こした run の完了を待ってから振り分ける"),
+("rules.tsv WF-09", "ng", "中",
+ "除けない環境（TLC が入っていない、gh の権限が無い など）を報告した後の再開を「新しい作業として目的の固定から」とした。WF-01 は目的の固定のときに draft PR を作るので、環境を 1 つ直すたびに目的・PR・置き場を作り直すのか、既存の PR と設計を引き継ぐのかが決まらない。作り直すなら、環境の修正だけのために承認済みの設計とレビューの記録を捨てる費用が出る。費用の重さと、決めない場合に割れる振る舞いの両方が、Q9（報告して止める）からは導けない",
+ "design-v6/rules.tsv WF-09・WF-01・answers.txt Q9",
+ "再開は利用者の答えを受けた新しい作業として目的の固定から始める"),
+("files.tsv AGENTS.md (3)・files.tsv docs/guidelines/review-lenses.md (1)", "ng", "中",
+ "AGENTS.md は観点と体数を「規模に比例させる」と言う。しかし表の条件は変更の種類だけで、規模の段は typo 級とそれ以外の 2 つしかない。1 行の規則の修正も大きな作り替えも、opus・high の観点 3 体以上と severity-assigner を両段に立てる。docs/design/changes/<slug>/ の 4 ファイル以上も同じだけ作る。比例と書かれているので、司令塔が規模を見て体数を減らしてよいのか、表どおりに立てるのかで振る舞いが割れる。表どおりに立てると、小さな変更の費用が目的の「膨らみを防ぐ」と釣り合わない",
+ "design-v6/files.tsv AGENTS.md (3)・review-lenses.md (1)・design-v6/agents.tsv model 列・answers.txt W5",
+ "どの段にどの観点を何体当てるかは変更の規模に比例させ、docs/guidelines/review-lenses.md で選ぶ。"),
+("files.tsv tests/agents-md-excerpts.test.mjs", "ok", "-",
+ "写しの照合は fail-closed（両方ちょうど 3 行・逐語・両方向）。make check を通して CI でも走る。抜粋を複数行に折り返すと落ちるが、それは安全側の失敗",
+ "design-v6/files.tsv tests/agents-md-excerpts.test.mjs・.github/workflows/verification.yml:74",
+ "両方ちょうど 3 行で、文の集合が完全に一致する（両方向）"),
+("files.tsv tests/workflow-flow-trace.test.mjs・limits.tsv limit（TLC）", "ok", "-",
+ "make test は TLC を走らせず、名前の対応だけを照らす。この fail-open は limits.tsv で宣言済み。模型を走らせ直すことは WF-22 が設計段の作り手の検査として課し、decision-verifier が README を見る",
+ "design-v6/limits.tsv・design-v6/rules.tsv WF-22",
+ "make test は TLC を走らせず、規則と action の対応だけを照らす"),
+("files.tsv .codex/hooks.json", "ok", "-",
+ "自動の make test と Stop の通知が無くなるのは Q8 の決定どおり。通知が消えることも limits.tsv に載っている。CI の make check が合否ゲートとして残る",
+ "design-v6/limits.tsv・.github/workflows/verification.yml:74",
+ ".codex/hooks.json を消すと Stop の通知（macOS の通知音）も消える"),
+("rules.tsv WF-02", "ok", "-",
+ "typo 級の基準は差分から観測でき、誤りは重大度なしで戻る。1 体で済ませる費用の削減は W5 の決定どおり",
+ "design-v6/rules.tsv WF-02",
+ "差分が文言の誤り（誤字・脱字・リンク切れ）の訂正だけで、規則・挙動・構造を変えない変更"),
+("limits.tsv limit（close と reopen）", "ok", "-",
+ "PR を close・reopen して bot を起こすのは AA2 の決定どおり。利用者として操作が要ることと、閉じて見える間があることも宣言済み",
+ "design-v6/limits.tsv",
+ "close の間は PR が閉じて見える"),
+("agents.tsv severity-assigner", "ok", "-",
+ "閉集合からの選択なので sonnet・medium は fan-out の規則に合う。数が合っていても対応がずれうる付け間違いは Z1 で受け入れたリスクに入る",
+ "design-v6/agents.tsv severity-assigner",
+ "受けた指摘と同じ数・同じ順で CRITICAL / HIGH / MEDIUM / LOW の 1 つと当てた行"),
+]
+srcs = {p.name: re.sub(r'\s','',p.read_text()) for p in (D/'design-v6').glob('*.tsv')}
+srcs['results'] = re.sub(r'\s','',(D/'flow-model-4/results.tsv').read_text())
+for r in rows:
+    q = re.sub(r'\s','',r[5])
+    hit = [k for k,v in srcs.items() if q in v]
+    assert hit, r[0]
+hdr = "ref\tverdict\tseverity\treason\tevidence_ref\tevidence_quote\n"
+(OUT/'findings.tsv').write_text(hdr + ''.join('\t'.join(r)+'\n' for r in rows))
+qs = "q\toptions\trecommend\n" + "流れの途中で利用者にしか決められない論点（レビュー役の問い・目的の確定）が出たとき、利用者に問うのは止まってよい場所に入るか\t(a) 入る。止まってよい場所に「利用者の決定が要る論点を問うとき」を足し、模型に問う遷移を足す / (b) 入らない。作り手が決めて記録し、人間ゲートで利用者が見る\t(a)。この PR の設計自体が問いで進んでおり、(b) では利用者の決定を要る論点が承認無しで成果物に入る。反対側: 止まる場所が増え、問いを口実に止まる経路ができる\n"
+(OUT/'questions.tsv').write_text(qs)
+print(len(rows))

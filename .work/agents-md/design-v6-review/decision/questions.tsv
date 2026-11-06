@@ -1,0 +1,2 @@
+q	options	recommend
+#207 自身の目的・設計・模型の検証の記録（.work/agents-md/ に commit 済み）を、マージ後にどう扱うか（X1 は typo 級でない変更の成果物を commit に置くと決めたが、置き場の場所と残すかは設計が利用者に回したまま問いが無い）	(a) .work/ のまま残す / (b) docs/design/changes/<slug>/ へ移す / (c) マージ前に消す（tests/formal/workflow/ の模型だけ残す）	(a)。目的が流れの規範化で、移す作業は目的に要らない。新しい置き場の規則は次の変更から当てる
