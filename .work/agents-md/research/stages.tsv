@@ -1,0 +1,13 @@
+lens	design_review	implementation_review	why
+purpose-necessity	yes	yes	設計では要素ごとに目的への寄与を問う。実装では設計に無い要素の混入（実装中の漂流・細部の積み増し）を問う。両段で問わないと、設計後に足された要素が無審査で残る
+change-necessity	yes	conditional	変更の要否は書く前に決める（書いた後では埋没費用で問われにくい）。実装段では、実装が設計より大きくなったか、設計に無い新しい変更が加わったときだけ当てる
+placement	yes	yes	設計ではどの層に置くかを決める。実装では実際のファイル配置・重複記述・入口文書の行数増を確かめる（設計どおりに置いても写しが生まれることがある）
+decision-fit	yes	yes	設計は要求に、実装は承認済み設計に照らす。照らす相手が段で変わるので、input に正本を明示して渡す
+root-cause	yes	yes	原因の除去方法は設計で決まる。実装では構造の対策が実際に構造（script・hook・schema）になっているか、注意書きに戻っていないかを見る
+norm-consistency	yes	yes	設計では規範との矛盾を、実装では変更していないファイルに残った古い写しも含めて見る
+applicability	yes	yes	規範・指示の文書では、設計の意図が実装の文面で読み手に届くかは実装段でしか分からない。設計段では規則に「何が壊れるか」が設計されているかを見る
+verifiability	yes	yes	設計では検証手段（テスト・lint・観測）が決まっているかを、実装ではそのテストが壊れたら落ちるかを見る
+tradeoff	yes	yes	設計では費用を見積もり、実装では実測（行数・体数・トークン・複雑さ）で確かめる
+failure-behavior	conditional	yes	設計では fail-closed/fail-open の方針だけを見る（コードが無いので境界値は見られない）。実装ではコード・script の挙動を見る
+evidence	yes	yes	設計文書・実装の文書・PR 本文のどれにも事実主張が入る
+format	no	yes	形式は書かれた成果物にしか無く、機械（make test）で判定する

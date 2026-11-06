@@ -1,0 +1,60 @@
+origin	existing_item	kind	maps_to_lens	note
+今回の検証役（依頼文の記述）	決定を満たすか	artifact-lens	decision-fit	4 つを全員に同じく渡していた
+今回の検証役（依頼文の記述）	根本原因	artifact-lens	root-cause	同上
+今回の検証役（依頼文の記述）	既存規範との矛盾	artifact-lens	norm-consistency	同上
+今回の検証役（依頼文の記述）	場面への適用	artifact-lens	applicability	同上
+REVIEW.md	役割分担と正本の一意性	artifact-lens	norm-consistency,placement	実体の置き場・二重記述は placement、司令塔の役割は norm-consistency
+REVIEW.md	文書とコードの挙動の一致	artifact-lens	norm-consistency	写しの側が文書の場合。写さず正本を指せるかは placement
+REVIEW.md	生成と検証の分離	artifact-lens	norm-consistency	-
+REVIEW.md	根本解決と対症療法	artifact-lens	root-cause	-
+REVIEW.md	不在・網羅の断定	artifact-lens	evidence	-
+REVIEW.md	スキル構造	artifact-lens	norm-consistency,format	機械判定できる部分は format
+REVIEW.md	コメントと後方互換	artifact-lens	norm-consistency	-
+REVIEW.md	検証の意味と範囲	artifact-lens	verifiability	-
+REVIEW.md	構造と testability	artifact-lens	verifiability	-
+REVIEW.md	スクリプト	artifact-lens	failure-behavior	-
+diff-verifier.md	（観点を持たない。REVIEW.md を読む）	derived	REVIEW.md と同じ	手順 2。追加の観点は呼び出し側が渡す
+repo-review	（観点を REVIEW.md から選んで立てる。SKILL.md 58 行）	derived	REVIEW.md と同じ	skill-design だけが固有（best-practices.md を規則に読む）
+repo-review	skill-design	artifact-lens	norm-consistency	-
+claim-gate claim-judge	主張の型と裏付けの対応	artifact-lens	evidence	入力は Stop hook が flag した応答だけ
+skill-creator FINDERS	why-driven（理由の無い命令）	artifact-lens	applicability	-
+skill-creator FINDERS	script-vs-prose（散文に残った確定的処理）	artifact-lens	placement	-
+skill-creator FINDERS	duplicate-claims（二重定義）	artifact-lens	placement	-
+skill-creator FINDERS	loopholes（経路の無い依頼・抜け道）	artifact-lens	decision-fit	-
+skill-creator FINDERS	description-alignment（description と本文の乖離）	artifact-lens	norm-consistency	-
+skill-creator FINDERS	best-practices（ベストプラクティス準拠）	artifact-lens	norm-consistency	-
+skill-creator FINDERS	prompt-audit（古いプロンプトの書き方・食い違う指示）	artifact-lens	norm-consistency,applicability	-
+skill-creator PERSPECTIVES	materiality	refutation-lens	（対応なし）	指摘を反証するための観点で、成果物を読む観点ではない。指摘の実害を問い、変更の費用は問わない
+skill-creator PERSPECTIVES	existence	refutation-lens	（対応なし）	同上。指摘の引用の実在を問う
+skill-creator PERSPECTIVES	alternative	refutation-lens	（対応なし）	同上。別の合理的な読み方を問う
+skill-creator structure-reviewer	A 要件との整合性	artifact-lens	decision-fit	-
+skill-creator structure-reviewer	B 実現可能性	artifact-lens	decision-fit	-
+skill-creator structure-reviewer	C 情報の流れ	artifact-lens	applicability	-
+workflow:pr-review 共通	目的・要求との整合	artifact-lens	decision-fit	整合（満たすか）を問う。要るかは問わないので purpose-necessity は部分
+workflow:pr-review 共通	仕様・実装・説明の矛盾	artifact-lens	norm-consistency	-
+workflow:pr-review 共通	入力境界、欠損、異常系	artifact-lens	failure-behavior	-
+workflow:pr-review 共通	失敗時の挙動と回復可能性	artifact-lens	failure-behavior	-
+workflow:pr-review 共通	変更による互換性・回帰	artifact-lens	tradeoff,failure-behavior	-
+workflow:pr-review 共通	テスト、検証、観測可能性	artifact-lens	verifiability	-
+workflow:pr-review 共通	セキュリティ・権限・秘密情報	artifact-lens	failure-behavior	-
+workflow:pr-review 共通	根拠不足、未定義、未検証の主張	artifact-lens	evidence	-
+workflow:pr-review skill	trigger / description の発火条件	artifact-lens	norm-consistency	-
+workflow:pr-review skill	SKILL.md と references / scripts / schemas の整合	artifact-lens	norm-consistency	-
+workflow:pr-review skill	役割分担と agent 契約	artifact-lens	norm-consistency	-
+workflow:pr-review skill	生成者以外の検証経路	artifact-lens	norm-consistency	-
+workflow:pr-review skill	script のゲート、算術、fan-out、早期終了の有無	artifact-lens	failure-behavior	-
+workflow:pr-review skill	実行環境ごとの fail-closed	artifact-lens	failure-behavior	-
+workflow:pr-review code	正常系、境界値、例外、リソース解放／型・状態遷移・並行性／API 契約、互換性、データ損失	artifact-lens	failure-behavior	-
+workflow:pr-review code	テストの実効性と未テスト経路	artifact-lens	verifiability	-
+workflow:pr-review spec/prd	用語と対象ユーザーの定義／曖昧な表現と複数解釈	artifact-lens	applicability	-
+workflow:pr-review spec/prd	要求、制約、受入条件、成功指標／実装・検証が一意に決まるか	artifact-lens	decision-fit,verifiability	-
+workflow:pr-review spec/prd	状態遷移、例外、依存、非機能要件	artifact-lens	failure-behavior	-
+workflow:pr-review document	読者、目的、構成、参照先／欠落、矛盾、誤解を招く表現	artifact-lens	applicability,norm-consistency	-
+workflow:pr-review document	主張と根拠の対応	artifact-lens	evidence	-
+workflow:pr-review document	更新時の正本と重複記述	artifact-lens	placement	重複のみ。層（AGENTS.md か docs/ か）は問わない
+（欠落）	—	gap	purpose-necessity	読んだ範囲と、語を変えた grep（要るか|必要性|置き場|置くべき|費用|トレードオフ|trade-off|necess|YAGNI|過剰 を plugins/workflow/skills/pr-review・review-document、skill-creator の agents と review_skill.js に対して）で「この要素は目的に要るか」を問う項目なし（pr-review の目的整合は部分）
+（欠落）	—	gap	change-necessity	読んだ範囲と、語を変えた grep（要るか|必要性|置き場|置くべき|費用|トレードオフ|trade-off|necess|YAGNI|過剰 を plugins/workflow/skills/pr-review・review-document、skill-creator の agents と review_skill.js に対して）で「変更自体が要るか・無変更や削除と比べたか」を問う項目なし
+（欠落）	—	gap	placement	重複・散文 vs script、review-document rubric の「置き場の移動」（文書内で根拠句を末尾表へ移す等）、skill-creator agents/reviewer.md:101（定型文は assets/・references/ に置くべき）はあるが、読んだ範囲と、語を変えた grep（要るか|必要性|置き場|置くべき|費用|トレードオフ|trade-off|necess|YAGNI|過剰 を plugins/workflow/skills/pr-review・review-document、skill-creator の agents と review_skill.js に対して）で「AGENTS.md に置くべきか」という層の問いは無し
+（欠落）	—	gap	tradeoff	読んだ範囲と、語を変えた grep（要るか|必要性|置き場|置くべき|費用|トレードオフ|trade-off|necess|YAGNI|過剰 を plugins/workflow/skills/pr-review・review-document、skill-creator の agents と review_skill.js に対して）で変更の費用（文脈長・体数・複雑さ）と得るものの比較を問う項目なし（互換性・回帰のみ部分）
+workflow:review-document rubric	削除より置き場の移動を優先	artifact-lens	placement	文書内の配置。層（AGENTS.md か docs/ か lint か）は問わない
+skill-creator agents/reviewer.md	定型文の置き場（101 行）	artifact-lens	placement	スキル内の配置に限る

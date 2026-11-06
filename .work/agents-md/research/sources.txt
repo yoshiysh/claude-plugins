@@ -1,0 +1,66 @@
+調べた情報源と、そこから取ったこと（確認の状態つき。逐語の引用は無し）
+
+[確認済み・一次] Google Engineering Practices「What to look for in a code review」
+https://google.github.io/eng-practices/review/reviewer/looking-for.html
+- 観点を Design / Functionality / Complexity / Tests / Naming / Comments / Style / Consistency / Documentation / Every Line / Context / Good Things に分けて読む。
+- Design 節は、変更がこの codebase に属するか library に属するか、今入れる時期かを問う（置き場と変更の必要性の根拠）。判定の規則は書いていない。
+- Complexity 節は over-engineering（必要以上の一般化、今は要らない機能）を警戒し、将来の推測ではなく今の問題を解くよう促す（目的への必要性の根拠）。
+
+[NTRS の書誌頁のみ取得（本文と要旨の詳細は未取得）] Basili, Green, Laitenberger, Lanubile, Shull, Sørumgård, Zelkowitz「The Empirical Investigation of Perspective-Based Reading」Empirical Software Engineering 1(2), 1996
+https://ntrs.nasa.gov/citations/19990018557 （NTRS の書誌。本文は取得できず）
+https://doi.org/10.1007/BF00368702
+- PBR は要求文書の読み方で、読み手ごとに視点（例: tester・developer・user）と操作シナリオを与える。
+- 前提は、異なる視点の組み合わせが同数の読み手の通常の読み方より文書を広く覆うこと。
+- 視点どうしを重ならないよう設計するかは、読めた範囲に書かれていない（未確認）。実験の詳細は未読。
+
+[検索結果の要旨のみ（ページ未取得）] Shull, Rus, Basili「How perspective-based reading can improve requirements inspections」IEEE Computer 33(7), 2000, DOI 10.1109/2.869376
+https://doi.org/10.1109/2.869376
+- PBR の読み手は文書の特定の利害関係者の代わりに読む。要旨は、不慣れな領域で個人・チームの欠陥検出率が上がると報告する。本文は未読。
+
+[検索結果の要旨のみ（ページ未取得）] Regnell, Runeson, Thelin「Are the Perspectives Really Different? Further Experimentation on Scenario-Based Reading of Requirements」Empirical Software Engineering 5(4), 2000, DOI 10.1023/A:1009848320066
+https://core.ac.uk/download/83782514.pdf
+https://dblp.uni-trier.de/rec/journals/ese/RegnellRT00.html
+- PBR の前提（視点ごとに違う欠陥を見つけ、組み合わせると単一視点より多く見つかる）を追試した。
+- 要旨の結論は、複数視点の組み合わせが単一視点より欠陥の網羅を上げないかもしれない、というもの。視点の差の理解にはさらに研究が要るとしている。
+- 含意: 観点に別の名前を付けるだけでは効かない。観点ごとに問い・入力・読み方（シナリオ）が実際に違うこと、指摘の重なりを数えて差を確かめることが要る。このリポジトリの「体は増えたが視点は 1 つ」と同じ形の失敗が、研究の上でも起こり得ることを示す。
+
+[二次情報] Fagan inspection（Wikipedia）
+https://en.wikipedia.org/wiki/Fagan_inspection
+原典: Fagan「Design and code inspections to reduce errors in program development」IBM Systems Journal 15(3):182-211, 1976, DOI 10.1147/sj.153.0182（未読）
+- 役割: author/designer/coder・reader（文書を言い換えて読み上げる）・reviewers・moderator（司会と rework の確認）・recorder。
+- 段階: planning・overview・preparation・inspection meeting・rework・follow-up。上位文書が定める exit criteria に照らして下位文書を判定する（decision-fit の根拠）。
+- 検索結果の二次情報（Springer の章）は、1976 年の元の役割を moderator・designer・coder・tester としている。版によって役割の名前が違い、原典で確かめていない（未確認）。moderator が作者でないこと（生成と検証の分離）も二次情報のみ。
+
+[二次情報] ATAM（Wikipedia。CMU/SEI-2000-TR-004 と Bass ほか『Software Architecture in Practice』2nd ed. を引用）
+https://en.wikipedia.org/wiki/Architecture_tradeoff_analysis_method
+https://www.sei.cmu.edu/library/atam-method-for-architecture-evaluation/ （SEI の頁。読めたのは要旨と書誌: Kazman, Klein, Clements, 2000-08）
+- 9 段階: 手法の説明・business drivers の提示・アーキテクチャの提示・アプローチの特定・quality attribute utility tree の生成・分析・シナリオの洗い出しと優先付け・再分析・結果の提示。
+- Wikipedia は trade-off・sensitivity point・risk・non-risk を分析の出力として挙げるが定義していない。定義（sensitivity point は品質特性に効く決定、tradeoff point は一方を上げると他方が下がる決定、risk theme は business driver を脅かす risk のまとまり）は検索結果に出た講義資料からで、SEI の報告本文は未確認（tradeoff 観点の根拠）。
+
+[未確認・本文] ISO/IEC/IEEE 29148:2018
+https://standards.iteh.ai/catalog/standards/iso/8cf2bc2b-8b5e-4907-a82a-d1c5676c9e85/iso-iec-ieee-29148-2018
+- 確認できたのは目次だけ: 5.2.5「個々の要求の特性」・5.2.6「要求の集合の特性」・5.2.7「要求の言語の基準」が別の節であること（検索結果の DIN・iTeh の目次）。
+- 特性の名前と定義は本文で確かめていない。iTeh のサンプル PDF は暗号化されて読めず、ANSI のプレビューは 403、VDE は 404 だった。lenses.tsv で触れた necessary・unambiguous・verifiable・consistent などの語は記憶に基づく候補で、未確認。
+
+[二次情報] INCOSE Guide to Writing Requirements（V4, 2023）
+https://www.se-trends.de/en/review-incose-guide-for-writing-requirements/
+- 個々の要求と集合に C1-C14 の特性を定める。C1 は Necessary。公式の要約シート（incose.org の PDF）は 403 で読めず、他の特性の定義は未確認。
+
+[二次情報] Parnas, Weiss「Active Design Reviews: Principles and Practices」ICSE 1985（JSS 7(4), 1987 とする書誌もある）
+https://dblp.uni-trier.de/rec/conf/icse/ParnasW85.html
+- 二次情報によれば、読み手ごとに別の責務と専用の質問票を与え、一般的な質問だけの review は答え方の戦略が無いため体系的でないと批判した。本文は未読（未確認）。観点を「1 つの問い」で表す lenses.tsv の形はこの考え方に沿う。
+
+[リポジトリ内・要約経由] OpenAI「ハーネスエンジニアリング：エージェントファーストの世界における Codex の活用」(2026-02-11, Ryan Lopopolo)
+https://openai.com/ja-JP/index/harness-engineering/
+根拠: .work/agents-md/research/harness-engineering.notes.md.txt（司令塔の要約。記事本文は自動取得で 403。末尾の「このリポジトリへの含意」節は司令塔のメモなので記事の主張として扱っていない）
+- 規範の置き場について: 大きな 1 つの AGENTS.md は失敗した（文脈の圧迫・全てが重要で何も重要でない・古い規則の墓場・機械検査に向かない）。AGENTS.md は目次（約 100 行の地図）にし、深い正本は構造化した docs/ に置いて段階的に開示する。docs の鮮度と相互参照は lint と CI で検査する。
+- 規範の強制について: 文書だけでは一貫性を保てない。不変条件は独自の lint と構造テストで強制し、誤りの文に直し方を書く。文書で足りなければ規則をコードへ昇格させる。
+- レビューについて: 作業をデザイン・コード・レビュー・テストの小さな構成要素に分ける。PR はエージェントのレビュアーが全員満足するまで反復し、判断が要るときだけ人に上げる。レビューの指摘（人の好み）は文書の更新か道具へ記録する。
+- 含意: placement 観点（AGENTS.md に置くべきか、docs/ か lint か）と tradeoff 観点（入口の肥大で重要制約が埋もれる）の根拠。記事はレビューの観点の分け方そのものは述べていない（notes の範囲では）。
+
+[リポジトリ内] 既存の観点（読んだファイル）
+- REVIEW.md（全文 65 行）、.claude/agents/diff-verifier.md（全文。観点を持たず REVIEW.md を読む）、plugins/claim-gate/agents/claim-judge.md（1-60 行）
+- plugins/workflow/skills/pr-review/references/review-lenses.md（全文）
+- .agents/skills/repo-review/SKILL.md（「観点と担当」の行を grep。観点は REVIEW.md から導く、58 行）、agents/reviewer.md（全文）
+- plugins/skill-creator/workflows/review_skill.js の FINDERS（397 行〜）と PERSPECTIVES（505 行〜）、agents/structure-reviewer.md の観点節
+- 対応表は existing-lenses.tsv
