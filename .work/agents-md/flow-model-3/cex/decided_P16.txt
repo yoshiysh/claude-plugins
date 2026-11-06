@@ -1,0 +1,7 @@
+Exception in thread "main" util.Assert$TLCRuntimeException: TLC writes its files to a directory whose name is generated from the current time.
+This directory should be /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-3/states/26-11-06-22-07-38, but that directory already exists.
+Trying to run TLC again will probably fix this problem.
+	at util.Assert.check(Assert.java:91)
+	at util.FileUtil.makeMetaDir(FileUtil.java:252)
+	at tlc2.TLC.handleParameters(TLC.java:958)
+	at tlc2.TLC.main(TLC.java:246)

@@ -1,0 +1,3 @@
+q	options	recommend
+L128-134（規範の書き方）の後半（命令形が適する低自由度領域では正確な手順を具体に書く）は documentation.md に無い。どこへ持つか	(a) documentation.md:11 の下に 1 規則として足す（設計は documentation.md への追記を cut している） / (b) 作業ルールの 1 行に残す / (c) 消す（正本を持たないまま失う）	(a)。規範の書き方の正本を 1 か所にしたまま、低自由度領域の例外が残る
+L205 の「L2 の合格は Codex の表示スキーマに対する検証を含まない」と Codex 仕様の URL はどこへ持つか	(a) manage-marketplace-plugin の不変条件に 1 行足す / (b) REVIEW.md:14 の新しい指し先の 1 句に含める / (c) 消す	(a)。L2 の限界は verify_install.py と同じスキルが持つのが正本として自然

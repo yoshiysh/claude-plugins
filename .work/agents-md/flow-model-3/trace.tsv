@@ -1,0 +1,27 @@
+action	source	quote
+Work,Review,Triage	D1 design-review-1/answers.txt:2	検証で欠陥が出たら、指摘を直接直さず設計に戻ってから実装する
+FixPurpose	X1 design-review-1/answers.txt:29	規模で分ける（typo 級は PR 本文、それ以外は commit。docs/design/ など）
+FixPurpose	Y1 design-review-1/answers.txt:33	目的を固定した時点で draft PR を作り、その本文に置く
+Triage	Y1 design-review-1/answers.txt:33	「実装レビューを通ってから PR を出す」の「出す」は ready にすることと定義する
+FixPurpose,Work	design-review-1/answers.txt:37	FQ5 目的と設計を書く担い手は builder 役の agent
+FixPurpose,Work	AGENTS.md:99	生成は builder 役の agent へ dispatch し
+SelfCheckFail,HandleDefect	Q5 design-review-1/answers.txt:11	作り手が作業中に走らせる検査（hook の make test・作業段階の中の形式検証）で出た、まだレビューに出していないものの欠陥も「設計に戻る」に含める
+HandleDefect,SelfCheckFail	design-review-1/answers.txt:42	自己検査の失敗には重大度を付けず、全て設計に戻す（LOW として載せると合否ゲートで同じ欠陥が再び落ちて往復が終わらない。Q5）
+Classify,Review	Y3 design-review-1/answers.txt:35	作り手が分類と理由を成果物の置き場に記録し、次のレビュー（作り手と別の者）が見る
+HandleEnvR	Q10 design-review-1/answers.txt:16	作り手が原因を除いて同じ検査をその場でやり直す（設計に戻らない）
+HandleEnvU	Q9 design-review-1/answers.txt:15	報告して止める（失敗と理由を利用者に報告して止める。人間ゲート以外では止めないの止まってよい場所にこの場合を含める）
+Review,AssignSev	AGENTS.md:76	自分が書いた成果物・修正に自分で合格判定を出さず
+AssignSev	Y2 design-review-1/answers.txt:34	重大度を付ける専用の agent を 1 体置く（推奨のレビュー役ではない）
+AssignSev,HumanComment	design-review-1/answers.txt:42	人の指摘には重大度を付けない（X3 で経路に効かない）
+BotReview,DraftBot	Y4 design-review-1/answers.txt:36	bot が付けた重大度をそのまま使う（順序は bot の振り分けの後に人間ゲート）
+DraftHuman,DraftBot,Triage	Z3 design-review-1/answers.txt:41	その段のレビューの後の振り分けに加え、同じ規則で扱う
+Triage	W4 design-review-1/answers.txt:26	MEDIUM 以上は設計に戻し、LOW は直さず PR 本文に載せて追わない。回数の上限は置かない
+Triage,HumanComment	X3 design-review-1/answers.txt:31	人の指摘は重大度を問わず直す（LOW を追わないのは agent と bot の指摘に限る）
+Triage	design-review-1/answers.txt:42	FQ1 ready の後に設計へ戻るとき PR を draft に戻さない
+Triage	AGENTS.md:90	どの段を次に走らせるか（段の選択）は司令塔の仕事に含む（内容の生成・修正・採点ではない）
+HumanMerge,Done	X2 design-review-1/answers.txt:30	マージが公開（登録まで進めて PR を出し、マージを人間が行う）
+Done	AGENTS.md:70	人間ゲート（マージ・公開）以外では止めない。
+HumanComment	Z1 design-review-1/answers.txt:39	PR 本文の LOW をマージの前に人が読むことで拾う。読み落とせば届く
+Work,Review	Z2 design-review-1/answers.txt:40	回数の上限を置かず、仮定とリスクを PR 本文の範囲と限界に記録する（W4 を維持）
+FixPurpose[v5],Review[v5]	design-v5/rules.tsv:3	作り手の判定は、設計レビューで decision-verifier が当たるかを確かめ、外れていれば指摘として出す
+AssignSev[v5]	design-v5/rules.tsv:13	観点の agent の返り値の「指摘」の節にだけ、専用の severity-assigner が REVIEW.md「重大度」の尺度で重大度を付ける

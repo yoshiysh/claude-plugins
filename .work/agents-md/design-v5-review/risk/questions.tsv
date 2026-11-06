@@ -1,0 +1,2 @@
+q	options	recommend
+ready の後に設計へ戻るとき、bot（claude_review.yml は opened・reopened・ready_for_review だけで走り、push では走らない）の再レビューをどう起こすか	(a) 戻るときに PR を draft に戻し、実装レビューの後に ready にし直す（ready_for_review で bot が走る。ready の後の差分は「最後の ready からの差分」として diff-verifier に渡す）/ (b) ready のまま直し、bot の再実行を司令塔が手で起こす手順を workflow.md に置く / (c) claude_review.yml に synchronize を足す（作業中の push のたびに bot が走る）	(a)。作り直し中の途中の差分が merge 可能な ready の PR に載らず、bot の発火を手順や注意に頼らない。反対側: draft と ready の往復の手間

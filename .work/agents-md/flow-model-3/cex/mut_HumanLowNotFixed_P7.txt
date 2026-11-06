@@ -1,0 +1,187 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 5 and seed 3632707814027587895 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 62991] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-3/Flow.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-3/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-3/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-3/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Flow
+Starting... (2026-11-06 22:16:45)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 22:16:45.
+Error: Action property P7 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ bc = {}
+/\ stage = "purpose"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "none"
+/\ scale = "other"
+/\ ds = (0 :> "none" @@ 1 :> "latent" @@ 2 :> "latent")
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "Init", actor |-> "none"]
+/\ selfSeen = {}
+/\ sj = "unset"
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ dLeft = 1
+/\ envLeft = 1
+/\ sjLeft = 1
+/\ fpLeft = 1
+/\ place = "unset"
+/\ irOK = FALSE
+/\ drOK = FALSE
+/\ inbox = {}
+
+State 2: <FixPurpose line 99, col 3 to line 108, col 65 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ bc = {}
+/\ stage = "design"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "draft"
+/\ scale = "other"
+/\ ds = (0 :> "none" @@ 1 :> "latent" @@ 2 :> "latent")
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "FixPurpose", actor |-> "builder"]
+/\ selfSeen = {}
+/\ sj = "other"
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ dLeft = 1
+/\ envLeft = 1
+/\ sjLeft = 1
+/\ fpLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+/\ inbox = {}
+
+State 3: <Work line 112, col 3 to line 125, col 47 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ bc = {}
+/\ stage = "dreview"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "draft"
+/\ scale = "other"
+/\ ds = (0 :> "none" @@ 1 :> "latent" @@ 2 :> "latent")
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "Work", actor |-> "builder"]
+/\ selfSeen = {}
+/\ sj = "other"
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ dLeft = 1
+/\ envLeft = 1
+/\ sjLeft = 1
+/\ fpLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+/\ inbox = {}
+
+State 4: <Review line 196, col 3 to line 210, col 83 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ bc = {}
+/\ stage = "dtriage"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "draft"
+/\ scale = "other"
+/\ ds = (0 :> "none" @@ 1 :> "latent" @@ 2 :> "latent")
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "Review", actor |-> "reviewer"]
+/\ selfSeen = {}
+/\ sj = "other"
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ dLeft = 1
+/\ envLeft = 1
+/\ sjLeft = 1
+/\ fpLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+/\ inbox = {}
+
+State 5: <DraftHuman line 228, col 3 to line 232, col 85 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ bc = {}
+/\ stage = "dtriage"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "draft"
+/\ scale = "other"
+/\ ds = (0 :> "none" @@ 1 :> "latent" @@ 2 :> "latent")
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "DraftHuman", actor |-> "human"]
+/\ selfSeen = {}
+/\ sj = "other"
+/\ reLeft = 1
+/\ hc = {1}
+/\ irEver = FALSE
+/\ dLeft = 0
+/\ envLeft = 1
+/\ sjLeft = 1
+/\ fpLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+/\ inbox = {[d |-> 1, src |-> "human", sev |-> "none", by |-> "none"]}
+
+State 6: <Triage line 277, col 3 to line 298, col 40 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ bc = {}
+/\ stage = "impl"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "draft"
+/\ scale = "other"
+/\ ds = (0 :> "none" @@ 1 :> "logged" @@ 2 :> "latent")
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "Triage", actor |-> "orch"]
+/\ selfSeen = {}
+/\ sj = "other"
+/\ reLeft = 1
+/\ hc = {1}
+/\ irEver = FALSE
+/\ dLeft = 0
+/\ envLeft = 1
+/\ sjLeft = 1
+/\ fpLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = TRUE
+/\ inbox = {}
+
+616 states generated, 587 distinct states found, 492 states left on queue.
+The depth of the complete state graph search is 6.
+The average outdegree of the complete state graph is 6 (minimum is 1, the maximum 14 and the 95th percentile is 11).
+Finished in 00s at (2026-11-06 22:16:45)

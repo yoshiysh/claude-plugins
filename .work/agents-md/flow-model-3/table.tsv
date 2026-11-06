@@ -1,0 +1,23 @@
+state	event	guard	next	actor	source
+purpose	FixPurpose	-	design（draft PR を作る。置き場は typo 級が PR 本文、それ以外は commit）	builder	X1・Y1・answers.txt:37
+design	Work	chk=idle	dreview（直した欠陥を持ち込み直すことがある: F1）	builder	D1
+impl	Work	chk=idle	ireview（同上）	builder	D1
+design|impl	SelfCheckFail	chk=idle	同じ段（chk=fail）。直していない欠陥は PR 本文に載っていても再び落ちる	builder	Q5
+design|impl	Classify	chk=fail	同じ段（欠陥・除ける環境・除けない環境に分類。誤りうる: F5。環境と判じたら分類と理由を記録）	builder	Y3
+design|impl	HandleDefect	分類=欠陥	design（重大度を付けない。真の原因が欠陥ならその欠陥を直す）	orch	Q5・answers.txt:42
+design|impl	HandleEnvR	分類=除ける環境	同じ段（同じ検査をやり直す。真の原因が欠陥なら覆われて通るか再び落ちる）	builder	Q10
+design|impl	HandleEnvU	分類=除けない環境	reported（記録した分類と理由を利用者に報告）	orch	Q9・Y3
+design〜itriage（draft の間）	DraftHuman	PR が draft	同じ段（受け箱に入る）	human	Z3
+design〜itriage（draft の間）	DraftBot	PR が draft	同じ段（bot の重大度つきで受け箱に入る）	bot	Z3・Y4
+dreview	Review	-	dtriage（記録を読み、誤分類で残った欠陥を自己検査の指摘にして記録を空にする。誤検出もありうる: F8）	reviewer	AGENTS.md:76・Y3
+ireview	Review	-	itriage（同上）	reviewer	AGENTS.md:76・Y3
+dtriage|itriage|ptriage|htriage	AssignSev	重大度の無い agent の指摘がある	同じ段（その指摘に重大度。付け間違いうる: Z1）	sevagent	Y2・answers.txt:42
+dtriage	Triage	agent の指摘に重大度	受け箱も加え、MEDIUM の agent・bot の指摘、自己検査の指摘、人の指摘のどれかがあれば design。無ければ impl。LOW は PR 本文	orch	D1・W4・X3・Q5・Z3
+itriage	Triage	同上	戻りは design（PR は draft に戻さない）。無ければ prbot（PR を ready に）	orch	D1・W4・Y1・answers.txt:42・Z3
+prbot	BotReview	-	ptriage（bot が重大度を付ける）	bot	Y4
+ptriage	Triage	-	MEDIUM の bot の指摘があれば design。無ければ gate。LOW は PR 本文	orch	W4・Y4
+gate	HumanComment	未修正の欠陥がある（PR 本文の LOW を含む: Z1）	htriage	human	X3・Z1
+gate	HumanMerge	-	merged	human	X2
+htriage	Triage	-	design（重大度を付けず、問わず）	orch	X3・D1・answers.txt:42
+design〜itriage（ready の後の戻り）	人・bot の指摘	?	?（FQ1）	human・bot	Z3（draft の間だけを決める）
+merged|reported	Done	-	同じ（終端）	-	X2・Q9

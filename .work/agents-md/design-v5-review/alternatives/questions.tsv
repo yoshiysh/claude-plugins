@@ -1,0 +1,2 @@
+q	options	recommend
+Q8 の「Codex の hooks をいったん削除」は、検査の時機と関係の無い Stop の通知（macOS の通知音）の hook も含むか	(a) 含む: .codex/hooks.json をファイルごと消す / (b) 含まない: PostToolUse の make test の項目だけを消し、Stop の通知は残す	(b)。目的が問題にしたのは検査の時機だけで、通知を消す理由が目的から出ない

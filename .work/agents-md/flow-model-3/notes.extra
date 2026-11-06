@@ -1,0 +1,5 @@
+v5_P15	v5 で破れる: 規模の判定の指摘が LOW と付くと、置き場が誤ったまま ready になる（FQ2）
+v5NoSevErr_P15	付け間違いが無くても破れる: 規模の誤りの真の重大度が REVIEW.md で決まらず、LOW になりうる（FQ2）
+v5_I1	decided と同じ残るリスク（Z1）
+v5_I2	decided と同じ残るリスク
+v5_I4	decided と同じ残るリスク（見逃し）

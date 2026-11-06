@@ -1,0 +1,6 @@
+q	options	recommend
+builder 役の agent の定義（置き場・入出力・model）を .claude/agents/ に 1 体足すか、repo-implement を全段の builder と定めるか	agent を足す / repo-implement を全段の builder にする	agent を足す（目的・設計・要求仕様の段の builder が repo-implement の範囲外のため）
+「承認済みの設計」の承認は、設計レビューの振り分けを通ったことか、利用者の明示の承認か	振り分けを通ったこと / 利用者の明示の承認	振り分けを通ったこと（人間ゲートはマージだけという流れと整合）
+typo 級の draft PR は、目的を commit する前に作れないが、最初の commit を何にするか	目的を書いた空 commit で draft PR を作る / 実装の commit の後に作る	実装の commit の後に作り、目的はその PR 本文に置く（固定した時点の文言を直す）
+repo-implement・skill-creator・prd-spec の内部の検証と、workflow.md の設計・実装レビューの関係	内側の検証は作り手の検査として扱い、workflow.md のレビューを必ず別に通す / 内側の検証を段のレビューに数える	内側は作り手の検査（生成と検証の分離の原則に沿う）
+prd-spec の Issue 起票と作業ルール (7) の Issue 化禁止の関係	prd-spec の保持規則つきの起票は例外と明記 / Issue 化を禁じ prd-spec 側を合わせる	例外と明記

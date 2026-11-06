@@ -1,0 +1,72 @@
+check	cfg	states	result	cex	note
+decided_P1	cfg/decided_P1.cfg	558852	pass		性質（決定）
+decided_P2	cfg/decided_P2.cfg	558852	pass		性質（決定）
+decided_P3	cfg/decided_P3.cfg	558852	pass		性質（決定）
+decided_P4	cfg/decided_P4.cfg	558852	pass		性質（決定）
+decided_P5	cfg/decided_P5.cfg	558852	pass		性質（決定）
+decided_P6	cfg/decided_P6.cfg	558852	pass		性質（決定）
+decided_P7	cfg/decided_P7.cfg	558852	pass		性質（決定）
+decided_P8	cfg/decided_P8.cfg	558852	pass		性質（決定）
+decided_P9	cfg/decided_P9.cfg	558852	pass		性質（決定）
+decided_P10	cfg/decided_P10.cfg	558852	pass		性質（決定）
+decided_P11	cfg/decided_P11.cfg	558852	pass		性質（決定）
+decided_P13	cfg/decided_P13.cfg	558852	pass		性質（決定）
+decided_P14	cfg/decided_P14.cfg	558852	pass		性質（決定）
+decided_P15	cfg/decided_P15.cfg	558852	pass		性質（決定）
+decided_P16	cfg/decided_P16.cfg	558852	pass		性質（決定）
+decided_C1	cfg/decided_C1.cfg	558852	pass		実行可能性の制約
+decided_C2	cfg/decided_C2.cfg	558852	pass		実行可能性の制約
+decided_C3	cfg/decided_C3.cfg	558852	pass		実行可能性の制約
+decided_I1	cfg/decided_I1.cfg	33486	fail	cex/decided_I1.txt	残るリスクの測定; Invariant I1 is violated; 残るリスク（Z1 で受容）: 付け間違えた真の MEDIUM が LOW として PR 本文に載ったままマージされうる
+decided_I2	cfg/decided_I2.cfg	360	fail	cex/decided_I2.txt	残るリスクの測定; Action property I2 is violated; 残るリスク: 欠陥を除けない環境と誤分類すると止まる。分類と理由は報告に載る（Y3）
+decided_I4	cfg/decided_I4.cfg	35919	fail	cex/decided_I4.txt	残るリスクの測定; Invariant I4 is violated; 残るリスク: レビュー・bot・人が見逃した真の MEDIUM はマージに届く（見なかったもの）
+decidedNoSevErr_I1	cfg/decidedNoSevErr_I1.cfg	231134	pass		残るリスクの測定; 付け間違いが無ければ通る（I1 の原因は付け間違いだけ）
+decidedNoMis_I2	cfg/decidedNoMis_I2.cfg	193094	pass		残るリスクの測定; 誤分類が無ければ通る
+assume_F1off_P14	cfg/assume_F1off_P14.cfg	230329	fail	cex/assume_F1off_P14.txt	仮定を外した版; Temporal properties were violated; 残るリスク（Z2）: 修正が欠陥を持ち込み続けると終わらない
+assume_F2off_P14	cfg/assume_F2off_P14.cfg	258273	fail	cex/assume_F2off_P14.txt	仮定を外した版; Temporal properties were violated; 残るリスク（Z2）: 環境の失敗が続くと終わらない
+assume_F5off_P14	cfg/assume_F5off_P14.cfg	274256	fail	cex/assume_F5off_P14.txt	仮定を外した版; Temporal properties were violated; 残るリスク（Z2）: 誤分類が続くと終わらない
+assume_F8off_P14	cfg/assume_F8off_P14.cfg	232976	fail	cex/assume_F8off_P14.txt	仮定を外した版; Temporal properties were violated; 残るリスク（Z2）: 誤検出が続くと終わらない（誤検出の MEDIUM は設計に戻すので）
+assume_F6off_P8	cfg/assume_F6off_P8.cfg	39652	fail	cex/assume_F6off_P8.txt	仮定を外した版; Invariant P8 is violated; 残るリスク（Z2）: 記録を読んだレビュー役が誤分類を見落とすと、自己検査の欠陥が ready まで残る
+v5_P1	cfg/v5_P1.cfg	2098510	pass		性質（決定）
+v5_P2	cfg/v5_P2.cfg	2098510	pass		性質（決定）
+v5_P3	cfg/v5_P3.cfg	2098510	pass		性質（決定）
+v5_P4	cfg/v5_P4.cfg	2098510	pass		性質（決定）
+v5_P5	cfg/v5_P5.cfg	2098510	pass		性質（決定）
+v5_P6	cfg/v5_P6.cfg	2098510	pass		性質（決定）
+v5_P7	cfg/v5_P7.cfg	2098510	pass		性質（決定）
+v5_P8	cfg/v5_P8.cfg	2098510	pass		性質（決定）
+v5_P9	cfg/v5_P9.cfg	2098510	pass		性質（決定）
+v5_P10	cfg/v5_P10.cfg	2098510	pass		性質（決定）
+v5_P11	cfg/v5_P11.cfg	2098510	pass		性質（決定）
+v5_P13	cfg/v5_P13.cfg	2098510	pass		性質（決定）
+v5_P14	cfg/v5_P14.cfg	2098510	pass		性質（決定）
+v5_P15	cfg/v5_P15.cfg	22631	fail	cex/v5_P15.txt	性質（決定）; Invariant P15 is violated; v5 で破れる: 規模の判定の指摘が LOW と付くと、置き場が誤ったまま ready になる（FQ2）
+v5_P16	cfg/v5_P16.cfg	2098510	pass		性質（決定）
+v5_C1	cfg/v5_C1.cfg	2098510	pass		実行可能性の制約
+v5_C2	cfg/v5_C2.cfg	2098510	pass		実行可能性の制約
+v5_C3	cfg/v5_C3.cfg	2098510	pass		実行可能性の制約
+v5_I1	cfg/v5_I1.cfg	80363	fail	cex/v5_I1.txt	残るリスクの測定; Invariant I1 is violated; decided と同じ残るリスク（Z1）
+v5_I2	cfg/v5_I2.cfg	511	fail	cex/v5_I2.txt	残るリスクの測定; Action property I2 is violated; decided と同じ残るリスク
+v5_I4	cfg/v5_I4.cfg	95054	fail	cex/v5_I4.txt	残るリスクの測定; Invariant I4 is violated; decided と同じ残るリスク（見逃し）
+v5NoSevErr_P15	cfg/v5NoSevErr_P15.cfg	12430	fail	cex/v5NoSevErr_P15.txt	性質（決定）; Invariant P15 is violated; 付け間違いが無くても破れる: 規模の誤りの真の重大度が REVIEW.md で決まらず、LOW になりうる（FQ2）
+v5_assume_F6off_P15	cfg/v5_assume_F6off_P15.cfg	14202	fail	cex/v5_assume_F6off_P15.txt	仮定を外した版; Invariant P15 is violated; decision-verifier が規模の判定の誤りを見落とすと、置き場が規模に合わないまま ready になる
+mut_TriageNoSev_P1	cfg/mut_TriageNoSev_P1.cfg	233	fail	cex/mut_TriageNoSev_P1.txt	性質（決定）; Action property P1 is violated; 変異を検出（狙いの性質で破れた）
+mut_SevOnHuman_P1	cfg/mut_SevOnHuman_P1.cfg	99279	fail	cex/mut_SevOnHuman_P1.txt	性質（決定）; Action property P1 is violated; 変異を検出（狙いの性質で破れた）
+mut_OrchSev_P2	cfg/mut_OrchSev_P2.cfg	230	fail	cex/mut_OrchSev_P2.txt	性質（決定）; Invariant P2 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipDR_P3	cfg/mut_SkipDR_P3.cfg	6	fail	cex/mut_SkipDR_P3.txt	性質（決定）; Invariant P3 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipIR_P4	cfg/mut_SkipIR_P4.cfg	779	fail	cex/mut_SkipIR_P4.txt	性質（決定）; Invariant P4 is violated; 変異を検出（狙いの性質で破れた）
+mut_MedPass_P5	cfg/mut_MedPass_P5.cfg	683	fail	cex/mut_MedPass_P5.txt	性質（決定）; Action property P5 is violated; 変異を検出（狙いの性質で破れた）
+mut_LowFix_P6	cfg/mut_LowFix_P6.cfg	758	fail	cex/mut_LowFix_P6.txt	性質（決定）; Action property P6 is violated; 変異を検出（狙いの性質で破れた）
+mut_HumanLowNotFixed_P7	cfg/mut_HumanLowNotFixed_P7.cfg	587	fail	cex/mut_HumanLowNotFixed_P7.txt	性質（決定）; Action property P7 is violated; 変異を検出（狙いの性質で破れた）
+mut_SelfLowLog_P8	cfg/mut_SelfLowLog_P8.cfg	364	fail	cex/mut_SelfLowLog_P8.txt	性質（決定）; Action property P8a is violated; 変異を検出（狙いの性質で破れた）
+mut_NoRecord_P8	cfg/mut_NoRecord_P8.cfg	38959	fail	cex/mut_NoRecord_P8.txt	性質（決定）; Invariant P8 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvRToDesign_P9	cfg/mut_EnvRToDesign_P9.cfg	3730	fail	cex/mut_EnvRToDesign_P9.txt	性質（決定）; Action property P9 is violated; 変異を検出（狙いの性質で破れた）
+mut_NoRecord_P10	cfg/mut_NoRecord_P10.cfg	301	fail	cex/mut_NoRecord_P10.txt	性質（決定）; Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvURetry_P10	cfg/mut_EnvURetry_P10.cfg	463	fail	cex/mut_EnvURetry_P10.txt	性質（決定）; Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_AskStop_P11	cfg/mut_AskStop_P11.cfg	765	fail	cex/mut_AskStop_P11.txt	性質（決定）; Invariant P11 is violated; 変異を検出（狙いの性質で破れた）
+mut_SelfReview_P13	cfg/mut_SelfReview_P13.cfg	100	fail	cex/mut_SelfReview_P13.txt	性質（決定）; Invariant P13 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipRecReview_P13	cfg/mut_SkipRecReview_P13.cfg	5746	fail	cex/mut_SkipRecReview_P13.txt	性質（決定）; Invariant P13 is violated; 変異を検出（狙いの性質で破れた）
+mut_PlaceAny_P15	cfg/mut_PlaceAny_P15.cfg	9307	fail	cex/mut_PlaceAny_P15.txt	性質（決定）; Invariant P15 is violated; 変異を検出（狙いの性質で破れた）
+mut_InboxIgnored_P16	cfg/mut_InboxIgnored_P16.cfg	746	fail	cex/mut_InboxIgnored_P16.txt	性質（決定）; Action property P16a is violated; 変異を検出（狙いの性質で破れた）
+mut_ResumeAfterReport_C3	cfg/mut_ResumeAfterReport_C3.cfg	238	fail	cex/mut_ResumeAfterReport_C3.txt	実行可能性の制約; Invariant C3 is violated; 変異を検出（狙いの性質で破れた）
+mut_GateAmbiguous_C3	cfg/mut_GateAmbiguous_C3.cfg	36190	fail	cex/mut_GateAmbiguous_C3.txt	実行可能性の制約; Action property C3b is violated; 変異を検出（狙いの性質で破れた）

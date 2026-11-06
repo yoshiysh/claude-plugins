@@ -1,0 +1,2 @@
+q	options	recommend
+fan-out の規則（agent ごとの model と effort の明示・抽出を 1 回にして配る・上位 model へ絞って渡す）の正本を AGENTS.md「作業ルール」に置くか、docs/guidelines/ に置いて作業ルールには指し先 1 行だけを残すか（置く基準の P1・P5 は後者を指し、設計は新しい文書を足さないため前者を選んでいる）	A: docs/guidelines/ に置く（新しい文書か review-lenses.md の節）。作業ルールは指し先 1 行。参照元は節名「作業ルール」を指すので 1 段で届く / B: 設計どおり AGENTS.md を正本にする（新しい文書を足さず、入口に題材の規範が 1 項目残る）	A
