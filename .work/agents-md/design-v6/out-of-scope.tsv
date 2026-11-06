@@ -1,0 +1,18 @@
+kind	item	source	reason	where_next
+out-of-scope	AGENTS.md の約 100 行の地図化・節の移動と削除（インストール・注意点・Claude Code 固有・Codex 固有）・規範の置き場の節	AA1	流れの規範だけに絞る	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	外の参照の付け替え（REVIEW.md の読むものの表・tests/repo-review-workflow.test.mjs の期待値・develop-plugin.md・docs/specifications の参照）	AA1・束 G12・G14	地図化と組で行う	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	README.md・docs/guidelines/testing.md・manage-marketplace-plugin への移し替え（Codex の install・Worktree の設定・個別スキルの検証コマンド・SKIP:・テストの置き場）	AA1・束 G13	地図化と組で行う	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	置き場の基準（docs/guidelines/placement.md）と placement-auditor	AA1	置き場の基準は地図化の物差しで、地図化と組で行う	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	配布の規則の正本の 1 本化・正本と写しの向きの表どうしの照合（公開済み script の例外と §13、テストの置き場、REVIEW.md:3）	束 G8・G9	地図化で節を動かすときに決める	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	規範の書き方の低自由度の例外・L2 の検査の限界の持ち主	束 G13	既存の行を動かさないので行き先の確かめも次の PR	次の PR（材料: design-v5/main-lines.tsv・refs.tsv・canon-inventory.tsv）
+out-of-scope	既存スキル（repo-implement・address-review・build_skill.js・pr-review-fix・prd-spec.js・review-document）の修正ループと開始時の停止・prd-spec の Issue を新しい流れに接続すること	Q1・AA1・束 G16	新しい流れで次の PR として行う	次の PR
+out-of-scope	観点の agent と severity-assigner を既存のスキルや Workflow に組み込むこと・Codex 用の agent 定義の生成	AA1・W1	定義と対応表を置くまで	次の PR
+out-of-scope	best-practices.md §13 のスコープの梯子との食い違い	W3	best-practices を更新する	best-practices の更新
+out-of-scope	formal-methods スキルの未決の解消	Q2	手順の正本として参照するだけ	design-v2h/later.tsv
+out-of-scope	quick_validate.py・evals.json の語の揃え	Q4	スキルの改修と同じ別 PR	次の PR
+out-of-scope	Codex の hook の再導入と検査の時機の設計	Q8	削除だけを行う	後で見直す
+out-of-scope	develop-skills-redesign.md の「止めない」の旧文の引用の照合	later.tsv	3 スキルの再設計に入るときに照らす	design-v2h/later.tsv
+out-of-scope	この変更自身の目的・設計を docs/design/changes/ へ移すこと（模型は tests/formal/workflow/ に置く）	この設計	目的は流れを規範にすることで、作業用の成果物を移すことは要らない。模型だけは形式検証の規範の適用として置く	利用者（作業用ディレクトリの扱いを含む）
+cut	norm-auditor・evidence-packer・claim-checker	v4・v5 の束	diff-verifier と作り手が 1 回作る置き場のファイルで足りる	-
+cut	作り手の検査の指摘・人の指摘・規模の判定の誤りへの重大度の付与	流れの模型の検証・束 G15	LOW として残すと合否ゲートで再び落ちるか、利用者の決定（置き場）に反したまま残る	-
+cut	ready の後に戻るとき draft に戻すこと	AA2	draft に戻さず bot を手で起こす	-

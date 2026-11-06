@@ -1,0 +1,15 @@
+kind	item	source	handling
+risk	付け間違い: 真に MEDIUM の指摘が LOW と付くと直されずにマージに届きうる	Z1・模型 decided_I1	人がマージの前に reviews/ の LOW の全件を読んで拾う。bot の LOW は bot の出力が件数しか出さない分を読めない
+risk	見逃し: レビュー・bot・人が見逃した真の MEDIUM はマージに届く	模型 decided_I4	見なかったものとして載せる
+risk	誤分類で止まる: 欠陥を除けない環境と分類すると要らない報告で止まる	模型 decided_I2	報告を読む利用者が分類を確かめる
+assumption	往復が終わる前提: 修正が欠陥を持ち込むのは有限回・環境の失敗は有限回・誤分類は有限回・誤検出は有限回。外すと終わらない	Z2・模型 assume_F1off・F2off・F5off・F8off	回数の上限を置かない
+assumption	記録を読んだレビュー役は誤分類を見落とさない。外すと作り手の検査の欠陥が ready まで残る	Z2・模型 assume_F6off_P8	リスクとして載せる
+limit	模型の結果は有限の定数での欠陥の証拠で、証明ではない。make test は TLC を走らせず、規則と action の対応だけを照らす	Flow.tla・tests/develop-formal-trace.test.mjs の前例	README に走らせた版と結果を書く
+limit	ready の後に戻った間に来た指摘の扱いは未決で、模型にも規則にも無い	流れの模型 3 の FQ1	questions.tsv で問う
+limit	bot を起こすのは PR の close と reopen で、利用者として操作する必要がある（bot は User の操作でだけ走る）。close の間は PR が閉じて見える	.github/workflows/claude_review.yml	そのまま載せる
+limit	担い手が走れない（レート制限など）間は段を進めず待ってやり直す。作り手の検査の失敗ではないので報告して止まる経路は模型に無い	束 G4	そのまま載せる
+limit	観点の agent が読まない入力はファイルとパスの選択で外すが、Read を持つので読もうとすれば読める	v5 の束 V5	そのまま載せる
+limit	Codex では観点の agent の model と effort が親を継承し、読み取り専用も指示でしか担保できない	W1・codex の公式文書の確認	組み込みの PR で決める
+limit	既存スキルの上限つきの修正ループと「欠陥は設計へ戻る」が、接続の PR まで食い違う	Q1・AA1	優先の規則を書かない
+limit	.codex/hooks.json を消すと Stop の通知（macOS の通知音）も消える	Q8・束 G20	要るなら利用者の個人設定に置く
+limit	AGENTS.md の行数は main とほぼ同じ（約 216 行）で、入口の重さは次の PR まで残る	AA1	そのまま載せる

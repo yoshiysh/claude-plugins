@@ -1,0 +1,22 @@
+referrer	ref	old_target	new_target
+AGENTS.md:174	make test は .codex/hooks.json の hook から呼ばれる	.codex/hooks.json	消える（hook を消す）
+AGENTS.md:235	.codex/hooks.json の hook は make test を実行する	.codex/hooks.json	消える（hook を消す）
+AGENTS.md:176	ready の後の差分の検証役。観点を分けるかは呼び出し側	AGENTS.md の同じ行	AGENTS.md（同じ行の括弧を review-lenses.md を指す形に改める）
+.claude/agents/diff-verifier.md:11	観点の分け方は AGENTS.md の規則に従い呼び出し側が決める	AGENTS.md「作業ルール」の単一視点の行	変更なし（その行が review-lenses.md を指し、1 段で届く）
+.agents/skills/repo-implement/scripts/plan.js:12	計画は上位の model にする（AGENTS.md「作業ルール」）	作業ルールの fan-out の行	変更なし（1 行に model と effort の明示と閉集合は小さい model が残る）
+.agents/skills/repo-review/scripts/review.js:16	運搬役は小さい model（AGENTS.md「作業ルール」）	同上	変更なし（同上）
+.agents/skills/address-review/scripts/triage.js:12	分類は上位の model（AGENTS.md「作業ルール」）	同上	変更なし（同上）
+docs/specifications/bp-inspection.md:268	prompt の先頭を揃えて cache を効かせる：AGENTS.md の作業ルール	同上	変更なし（1 行に「共有部分を prompt の先頭に置く」が残る）
+plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-inspection.md:268	同上（写し）	同上	変更なし（同上。写しを変えると再配布が要る）
+docs/design/develop-skills-redesign.md:165	AGENTS.md の実測（model を省いた監査がレート制限を使い切った）	作業ルールの fan-out の行の実測	変更なし（1 行の理由に実測が残る）
+docs/design/develop-skills-redesign.md:175	閉集合からの選択は小さいモデルに任せる AGENTS.md の規則	同上	変更なし（1 行に残る）
+docs/design/develop-skills-redesign.md:195	抽出役 1 体が束を配る AGENTS.md の規則	同上	変更なし（1 行に「抽出を 1 回にして配る」が残り、行番号つきの束の細則は review-lenses.md へ 1 段）
+docs/design/develop-skills-redesign.md:209	上位モデルへ渡すものを絞る AGENTS.md の規則	同上	変更なし（1 行に残る）
+docs/design/develop-skills-redesign.md:327	同上	同上	変更なし（同上）
+docs/design/develop-plugin.md:374	model・effort の根拠が AGENTS.md を指す（指摘の記録）	同上	変更なし（過去の記録）
+docs/design/develop-skills-redesign.md:297	AGENTS.md の「止めない」の旧文の引用	作業ルールの止まってよい場所の行（文が変わる）	変更なし（旧文の引用。照合は out-of-scope.tsv の行）
+docs/design/develop-plugin.md:344	Issue 化で完了を先送りしない（AGENTS.md「作業ルール」）	止まってよい場所の行の次の行	変更なし（その行は変えない）
+docs/guidelines/README.md:5	AGENTS.md の作業ルールと配布の制約はここに写さない	正本の向き	docs/guidelines/README.md（5 行目を改める）
+skills-audit.md:574	.codex/hooks.json に make test hook がある（過去の監査）	.codex/hooks.json	変更なし（時点の記録）
+skills-audit.md:586	同上	.codex/hooks.json	変更なし（同上）
+検索語（閉集合の作り方）	grep -rnIE 'AGENTS\.md' --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.work . の 94 件（設計 v5 の refs.tsv が全件を起こした）から、この PR が変える行（作業ルールの止まってよい場所・単一視点・DRY・1 役割 1 責務・根本原因・fan-out の行、検証の節の hook と ready の後の段落、Codex 固有の hook の行）を引く行を選んだ。hook は grep -rnIE 'hooks\.json|\.codex/hooks' から plugin 同梱の hooks/hooks.json を除いた	判定: 変わる行の語を引く参照は、その語が残るか 1 段で届けば変えない	直す参照は docs/guidelines/README.md:5 と AGENTS.md 自身の 3 行（174・235 は消え、176 は改める）
