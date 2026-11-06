@@ -1,0 +1,57 @@
+check	cfg	states	result	cex	note
+decided_P1	cfg/decided_P1.cfg	9618	pass		
+decided_P2	cfg/decided_P2.cfg	9618	pass		
+decided_P3	cfg/decided_P3.cfg	9618	pass		
+decided_P4	cfg/decided_P4.cfg	9618	pass		
+decided_P4D	cfg/decided_P4D.cfg	9618	pass		
+decided_P5	cfg/decided_P5.cfg	9618	pass		
+decided_P6	cfg/decided_P6.cfg	9618	pass		
+decided_P7	cfg/decided_P7.cfg	9618	pass		
+decided_P8	cfg/decided_P8.cfg	9618	pass		
+decided_P9	cfg/decided_P9.cfg	9618	pass		
+decided_P10	cfg/decided_P10.cfg	9618	pass		
+decided_P11	cfg/decided_P11.cfg	9618	pass		
+decided_P12	cfg/decided_P12.cfg	9618	pass		
+decided_P13	cfg/decided_P13.cfg	9618	pass		
+decided_P14	cfg/decided_P14.cfg	9618	pass		
+decided_P15	cfg/decided_P15.cfg	9618	pass		
+decided_P16	cfg/decided_P16.cfg	26	fail	cex/decided_P16.txt	Invariant P16 is violated; 決定から一意に導けない: FQ1
+decided_P17	cfg/decided_P17.cfg	195	fail	cex/decided_P17.txt	Invariant P17 is violated; 決定から一意に導けない: FQ2
+decidedOpt_P16	cfg/decidedOpt_P16.cfg	9618	pass		DraftForTypo=TRUE（FQ1 (a)）で通過
+decidedOpt_P17	cfg/decidedOpt_P17.cfg	9618	pass		HoldLow=TRUE（FQ2 (a)）で通過
+decidedOpt_P4D	cfg/decidedOpt_P4D.cfg	43	fail	cex/decidedOpt_P4D.txt	Invariant P4D is violated; FQ1 (a) の draft PR は実装レビュー前に PR を作る。「出す」を ready と定義する必要（FQ1）
+decidedOpt_P4	cfg/decidedOpt_P4.cfg	9618	pass		FQ1 (a) でも ready の PR は実装レビューの後だけ
+decidedOpt_P14	cfg/decidedOpt_P14.cfg	9618	pass		両案を入れても終端に到達
+v4_P1	cfg/v4_P1.cfg	106	fail	cex/v4_P1.txt	Action property P1 is violated; 未定ゆえ非決定: 設計段の 6 体の出力に重大度が無い（agents.tsv:2-8・V1）
+v4_P2	cfg/v4_P2.cfg	111	fail	cex/v4_P2.txt	Invariant P2 is violated; 未定ゆえ非決定: 付ける者が無く、付けるなら残る担い手は司令塔（V1）
+v4_P3	cfg/v4_P3.cfg	124938	pass		
+v4_P4	cfg/v4_P4.cfg	124938	pass		
+v4_P4D	cfg/v4_P4D.cfg	124938	pass		
+v4_P5	cfg/v4_P5.cfg	91	fail	cex/v4_P5.txt	Action property P5 is violated; 未定ゆえ非決定: 重大度の無い MEDIUM が LOW として通る（V1）
+v4_P6	cfg/v4_P6.cfg	132	fail	cex/v4_P6.txt	Action property P6act is violated; 未定ゆえ非決定: 重大度の無い LOW が MEDIUM として設計に戻される（V1）
+v4_P7	cfg/v4_P7.cfg	15100	fail	cex/v4_P7.txt	Action property P7 is violated; 明示: files.tsv:7 (B) は人の指摘にも W4 を当てる。X3 は v4 より後の決定で予期どおり
+v4_P8	cfg/v4_P8.cfg	70	fail	cex/v4_P8.txt	Action property P8 is violated; 明示と未定: files.tsv:12 (4) は自己検査も重大度で振り分けるが make test は重大度を出さない（FQ8）
+v4_P9	cfg/v4_P9.cfg	124938	pass		
+v4_P10	cfg/v4_P10.cfg	124938	pass		
+v4_P11	cfg/v4_P11.cfg	2495	fail	cex/v4_P11.txt	Invariant P11 is violated; 未定ゆえ非決定: files.tsv:7 (7) の「マージ・公開」で登録の前が停止点になりうる（V16）。X2 は v4 より後の決定で予期どおり
+v4_P12	cfg/v4_P12.cfg	124938	pass		
+v4_P13	cfg/v4_P13.cfg	124938	pass		
+v4_P14	cfg/v4_P14.cfg	124938	pass		
+v4_P15	cfg/v4_P15.cfg	29	fail	cex/v4_P15.txt	Invariant P15 is violated; 明示: files.tsv:12 (1) の置き場は規模で分かれない。X1 は v4 より後の決定で予期どおり
+v4_P16	cfg/v4_P16.cfg	4	fail	cex/v4_P16.txt	Invariant P16 is violated; 明示: 目的の置き場が PR から辿れる場所だが作業の最初に PR が無い（V7）
+v4_P17	cfg/v4_P17.cfg	70	fail	cex/v4_P17.txt	Invariant P17 is violated; 明示: 設計段の LOW も PR 本文に載せるが PR が無い（V7・FQ2）
+mut_TriageNoSev_P1	cfg/mut_TriageNoSev_P1.cfg	48	fail	cex/mut_TriageNoSev_P1.txt	Action property P1 is violated; 変異を検出（狙いの性質で破れた）
+mut_OrchSev_P2	cfg/mut_OrchSev_P2.cfg	44	fail	cex/mut_OrchSev_P2.txt	Invariant P2 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipDR_P3	cfg/mut_SkipDR_P3.cfg	6	fail	cex/mut_SkipDR_P3.txt	Invariant P3 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipIR_P4	cfg/mut_SkipIR_P4.cfg	165	fail	cex/mut_SkipIR_P4.txt	Invariant P4 is violated; 変異を検出（狙いの性質で破れた）
+mut_MedPass_P5	cfg/mut_MedPass_P5.cfg	116	fail	cex/mut_MedPass_P5.txt	Action property P5 is violated; 変異を検出（狙いの性質で破れた）
+mut_Relog_P6	cfg/mut_Relog_P6.cfg	1083	fail	cex/mut_Relog_P6.txt	Invariant P6inv is violated; 変異を検出（狙いの性質で破れた）
+mut_HumanLowNotFixed_P7	cfg/mut_HumanLowNotFixed_P7.cfg	2303	fail	cex/mut_HumanLowNotFixed_P7.txt	Action property P7 is violated; 変異を検出（狙いの性質で破れた）
+mut_SelfDefInPlace_P8	cfg/mut_SelfDefInPlace_P8.cfg	241	fail	cex/mut_SelfDefInPlace_P8.txt	Action property P8 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvRToDesign_P9	cfg/mut_EnvRToDesign_P9.cfg	337	fail	cex/mut_EnvRToDesign_P9.txt	Action property P9 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvURetry_P10	cfg/mut_EnvURetry_P10.cfg	90	fail	cex/mut_EnvURetry_P10.txt	Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_AskStop_P11	cfg/mut_AskStop_P11.cfg	78	fail	cex/mut_AskStop_P11.txt	Invariant P11 is violated; 変異を検出（狙いの性質で破れた）
+mut_ResumeAfterReport_P12	cfg/mut_ResumeAfterReport_P12.cfg	106	fail	cex/mut_ResumeAfterReport_P12.txt	Invariant P12 is violated; 変異を検出（狙いの性質で破れた）
+mut_SelfReview_P13	cfg/mut_SelfReview_P13.cfg	72	fail	cex/mut_SelfReview_P13.txt	Invariant P13 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvURetry_P14	cfg/mut_EnvURetry_P14.cfg	9404	fail	cex/mut_EnvURetry_P14.txt	Temporal properties were violated; 変異を検出（狙いの性質で破れた）
+mut_PlaceAny_P15	cfg/mut_PlaceAny_P15.cfg	30	fail	cex/mut_PlaceAny_P15.txt	Invariant P15 is violated; 変異を検出（狙いの性質で破れた）

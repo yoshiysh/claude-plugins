@@ -1,0 +1,23 @@
+state	event	guard	next	actor	source
+purpose	FixPurpose	-	design（place=規模で決まる置き場）	maker	X1・files.tsv:7・AGENTS.md:86
+design	Work（作業と自己検査が成功）	chk=idle	dreview	maker	files.tsv:7
+design	SelfCheckFail	chk=idle・欠陥 latent か envLeft>0	design（chk=defect/envR/envU）	maker	Q5・Q9・Q10
+impl	Work	chk=idle	ireview	maker	files.tsv:7
+impl	SelfCheckFail	chk=idle・欠陥 latent か envLeft>0	impl（chk=defect/envR/envU）	maker	Q5・Q9・Q10
+design|impl	HandleDefect	chk=defect	design（欠陥を fixed）	orch	Q5
+design|impl	HandleDefect[v4]	chk=defect	同じ段（LOW として PR 本文へ）か design（非決定）	orch	files.tsv:12（4）
+design|impl	HandleEnvR	chk=envR	同じ段（同じ検査をやり直す）	maker	Q10
+design|impl	HandleEnvU	chk=envU	reported	orch	Q9
+dreview	Review	-	dtriage（指摘は重大度なし）	reviewer	AGENTS.md:76
+ireview	Review	-	itriage	reviewer	AGENTS.md:76
+*triage	AssignSev	重大度の無い指摘がある	同じ段（その指摘に重大度）	reviewer（v4 の dtriage・htriage は未定で orch）	agents.tsv:2-9・V1
+*triage	Triage	全ての指摘に重大度（v4 の dtriage・htriage は無くても可）	MED（agent・bot）か人の指摘があれば design、無ければ次の段。LOW は PR 本文（PR が無ければ held: HoldLow）	orch	W4・X3・AGENTS.md:90
+dtriage	Triage（通過）	直す指摘が無い	impl（drOK）	orch	W4
+itriage	Triage（通過）	直す指摘が無い	prbot（irOK・PR を ready に）。v4 は pubgate も	orch	W4・X2・files.tsv:7（7）
+ptriage	Triage（通過）	直す指摘が無い	gate	orch	W4
+htriage	Triage	-	design（決定）。v4 は LOW なら gate	orch	X3・files.tsv:7（B）
+prbot	BotReview	-	ptriage	bot	X3
+pubgate	PubApprove[v4]	-	prbot	human	files.tsv:7（7）・V16
+gate	HumanComment	未指摘の未修正の欠陥がある	htriage	human	X3
+gate	HumanMerge	-	merged	human	X2
+merged|reported	Done	-	同じ（終端）	-	X2・Q9

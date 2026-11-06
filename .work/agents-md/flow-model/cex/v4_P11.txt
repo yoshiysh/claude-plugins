@@ -1,0 +1,155 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 22 and seed 3402891267001882552 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 47570] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model/Flow.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Flow
+Starting... (2026-11-06 20:45:06)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 20:45:06.
+Error: Invariant P11 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ chk = "idle"
+/\ stage = "purpose"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Init", actor |-> "none"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "unset"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 2: <FixPurpose line 77, col 3 to line 84, col 86 of module Flow>
+/\ chk = "idle"
+/\ stage = "design"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "FixPurpose", actor |-> "maker"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 3: <Work line 88, col 3 to line 97, col 93 of module Flow>
+/\ chk = "idle"
+/\ stage = "dreview"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Work", actor |-> "maker"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 4: <Review line 150, col 3 to line 154, col 91 of module Flow>
+/\ chk = "idle"
+/\ stage = "dtriage"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Review", actor |-> "reviewer"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 5: <Triage line 198, col 3 to line 228, col 55 of module Flow>
+/\ chk = "idle"
+/\ stage = "impl"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Triage", actor |-> "orch"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = FALSE
+/\ drOK = TRUE
+
+State 6: <Work line 88, col 3 to line 97, col 93 of module Flow>
+/\ chk = "idle"
+/\ stage = "ireview"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Work", actor |-> "maker"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = FALSE
+/\ drOK = TRUE
+
+State 7: <Review line 150, col 3 to line 154, col 91 of module Flow>
+/\ chk = "idle"
+/\ stage = "itriage"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Review", actor |-> "reviewer"]
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = FALSE
+/\ drOK = TRUE
+
+State 8: <Triage line 198, col 3 to line 228, col 55 of module Flow>
+/\ chk = "idle"
+/\ stage = "pubgate"
+/\ pend = {}
+/\ chkD = 0
+/\ pr = "ready"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent", "latent">>
+/\ logCnt = <<0, 0, 0>>
+/\ ev = [act |-> "Triage", actor |-> "orch"]
+/\ hc = {}
+/\ irEver = TRUE
+/\ envLeft = 2
+/\ place = "prBody"
+/\ irOK = TRUE
+/\ drOK = TRUE
+
+3457 states generated, 2495 distinct states found, 1389 states left on queue.
+The depth of the complete state graph search is 8.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 11 and the 95th percentile is 8).
+Finished in 00s at (2026-11-06 20:45:06)

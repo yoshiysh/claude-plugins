@@ -1,0 +1,20 @@
+action	source	quote
+FixPurpose,Work,Review	design-v4/files.tsv:7	変更は規模を問わず「目的の固定 → 設計 → 設計レビュー → 実装 → 実装レビュー」を通し
+FixPurpose	X1 design-review-1/answers.txt:24	規模で分ける（typo 級は PR 本文、それ以外は commit。docs/design/ など）
+FixPurpose[v4]	design-v4/files.tsv:12	置き場は PR から辿れる場所（PR 本文か、PR 本文が指すファイル）
+FixPurpose,Work	AGENTS.md:86	内容の生成・修正・採点を
+Work	W5 design-review-1/answers.txt:22	免除せず規模に比例させる（typo なら目的 1 行・設計 1 行・fresh なレビュー 1 体
+SelfCheckFail,HandleDefect	Q5 design-review-1/answers.txt:6	作り手が作業中に走らせる検査（hook の make test・作業段階の中の形式検証）で出た、まだレビューに出していないものの欠陥も「設計に戻る」に含める
+HandleDefect[v4]	design-v4/files.tsv:12	見つかった段を問わず（作り手が作業中に走らせる検査を含む）同じに扱う。MEDIUM 以上は設計に戻り、LOW は直さず PR 本文に載せて追わない
+HandleEnvR	Q10 design-review-1/answers.txt:11	作り手が原因を除いて同じ検査をその場でやり直す（設計に戻らない）
+HandleEnvU	Q9 design-review-1/answers.txt:10	報告して止める（失敗と理由を利用者に報告して止める。人間ゲート以外では止めないの止まってよい場所にこの場合を含める）
+Review,AssignSev	AGENTS.md:76	自分が書いた成果物・修正に自分で合格判定を出さず
+AssignSev[v4]	design-v4/agents.tsv:2	要素ごとに keep / cut / shrink と、対応する目的の文（path:line）
+AssignSev	design-v4/agents.tsv:9	問題を file:line・誤り・重大度で
+Triage	W4 design-review-1/answers.txt:21	MEDIUM 以上は設計に戻し、LOW は直さず PR 本文に載せて追わない。回数の上限は置かない
+Triage,BotReview,HumanComment	X3 design-review-1/answers.txt:26	人の指摘は重大度を問わず直す（LOW を追わないのは agent と bot の指摘に限る）
+Triage[v4]	design-v4/files.tsv:7	MEDIUM 以上の欠陥は、見つかった段を問わず成果物を直接直さずに設計へ戻り、LOW は直さず PR 本文に載せる
+Triage	AGENTS.md:90	どの段を次に走らせるか（段の選択）は司令塔の仕事に含む（内容の生成・修正・採点ではない）
+HumanMerge,Done	X2 design-review-1/answers.txt:25	マージが公開（登録まで進めて PR を出し、マージを人間が行う）
+PubApprove[v4],HandleEnvU[v4]	design-v4/files.tsv:7	止まってよいのは人間ゲート（マージ・公開）と、作り手が除けない失敗を理由とともに利用者へ報告するときだけ
+Done	AGENTS.md:70	人間ゲート（マージ・公開）以外では止めない。
