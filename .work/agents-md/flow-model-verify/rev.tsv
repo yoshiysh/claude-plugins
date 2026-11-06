@@ -1,0 +1,21 @@
+action	verdict	reason	evidence_ref	evidence_quote
+FixPurpose	決定どおり	置き場を規模で決める（X1）。担い手を maker にしたのは main の作業ルールから導ける（FQ5 は導ける）	.work/agents-md/design-review-1/answers.txt:29	typo 級は PR 本文、それ以外は commit
+FixPurpose[DraftForTypo]	決定に無い（案として分離）	FQ1 (a) の案。定数で切り替え、決定どおりの版（FALSE）と混ぜていない	.work/agents-md/flow-model/Flow.tla:81	pr' = IF DraftForTypo /\ scale = "typo" THEN "draft" ELSE pr
+FixPurpose（担い手）	決定どおり	司令塔は書かず builder 役が書く	AGENTS.md:99	生成は builder 役の agent へ dispatch し
+Work	決定どおり	design→dreview、impl→ireview。ガードに Latent={} が無いので検査の見逃しも表す（抽象化として妥当）	.work/agents-md/design-review-1/answers.txt:2	作業の流れを「設計 → 設計レビュー → 実装 → 実装レビュー」に徹底させる
+SelfCheckFail	決定どおり（抽象化の限界あり）	3 つの結果は Q5・Q9・Q10 どおり。chk' は真の原因と独立に選ばれるので誤分類は表せない（P13・FQ4）。envLeft の上限（F2）は決定に無い	.work/agents-md/flow-model/Flow.tla:104	envLeft > 0 /\ chk' \in {"envR", "envU"} /\ chkD' = 0
+HandleDefect	決定どおり（Q5 の一つの読み）	自己検査の欠陥を全て設計へ戻す。W4 との合成の読みは FQ8。担い手 orch は段の選択（AGENTS.md:90）	.work/agents-md/design-review-1/answers.txt:11	まだレビューに出していないものの欠陥も「設計に戻る」に含める
+HandleEnvR	決定どおり	段を変えずにやり直す。envLeft を減らすのは公平性 F2 のための上限で、決定には無い	.work/agents-md/design-review-1/answers.txt:16	作り手が原因を除いて同じ検査をその場でやり直す（設計に戻らない）
+HandleEnvU	決定どおり	reported に入り止まる。報告を orch が中継するのは AGENTS.md の relay と整合	.work/agents-md/design-review-1/answers.txt:15	失敗と理由を利用者に報告して止める
+Review	決定どおり	レビュー役は作り手と別。Open の任意の部分集合を報告するので見逃しと LOW の再報告を含む	AGENTS.md:76	自分が書いた成果物・修正に自分で合格判定を出さず
+AssignSev	決定に無い制約（仮定）	全ての出どころ（agent・bot・人）の重大度をレビュー役が付けると仮定（FQ3・FQ6・FQ7）。付ける値は常に真の重大度で、付け間違いを表せない（P5・P6 の通過はこの仮定に依る）	.work/agents-md/flow-model/Flow.tla:176	pend' = (pend \ {f}) \cup {[f EXCEPT !.sev = Kind[f.d], !.by = who]}
+Triage（戻り）	決定どおり	agent・bot の MEDIUM 以上と人の指摘は設計へ（W4・X3）。担い手 orch は閾値による段の選択	.work/agents-md/design-review-1/answers.txt:31	人の指摘は重大度を問わず直す
+Triage（人の指摘の経路）	決定から導ける	人の指摘を設計へ戻すのは D1 から導ける。FQ7 の経路の半分は問いでない	.work/agents-md/design-review-1/answers.txt:2	指摘を直接直さず設計に戻ってから実装する
+Triage（LOW）	決定どおり	LOW は PR 本文（logged）。held は FQ2 の案で定数 HoldLow で分離	.work/agents-md/design-review-1/answers.txt:26	LOW は直さず PR 本文に載せて追わない
+BotReview	決定に無い制約（順序）	bot の指摘の存在は X3 にある。bot→人間ゲートの順序と、PR の段に入るたびに bot が 1 回だけ走ることは模型の仮定（FQ6）	.work/agents-md/design-review-1/answers.txt:31	LOW を追わないのは agent と bot の指摘に限る
+HumanComment	決定に無い制約	人の指摘を gate（bot の後）だけに置き、同じ欠陥は一度だけ（F3）。draft や bot の途中での人の指摘は表さない。X3 は時機を決めていない	.work/agents-md/design-review-1/answers.txt:31	人の指摘は重大度を問わず直す
+HumanMerge	決定どおり	マージは人が行い終端に入る	.work/agents-md/design-review-1/answers.txt:30	マージを人間が行う
+PubApprove・AskAnswer・ResumeAfterReport	決定どおり（decided では無効）	公開＝マージ（X2）なので pubgate は v4 版だけ。問いで止まる（V10）と報告後の再開は決定に無く、変異だけで使う	.work/agents-md/design-review-1/answers.txt:30	マージが公開
+Done（reported を終端）	決定どおり	Q9 の「止める」を終端と読む。報告後に利用者が再開する遷移は決定に無いので持たない	.work/agents-md/design-review-1/answers.txt:15	人間ゲート以外では止めないの止まってよい場所にこの場合を含める
+欠落の確認	欠落なし（畳み込みあり）	D3 の形式検証は自己検査に畳まれている（Q5 が作業段階の中の形式検証を自己検査に含める）。W5 の規模の比例は流れを変えないので遷移の差は無い。決定にある遷移で落ちたものは見つからなかった（D1〜D4・Q1〜Q10・V1〜V5・W1・W3〜W5・X1〜X3 の全行を読んで照らした範囲で）	.work/agents-md/design-review-1/answers.txt:11	作業段階の中の形式検証
+trace.tsv（出典）	誤り（軽微）	answers.txt の行番号が 5 行ずれている（X1 を :24 と書くが今は :29）。answers.txt は 20:50 に D1〜D4 の 5 行が先頭に足され、模型（20:44）より新しい。引用は逐語で一致する。trace は D1〜D4 を一度も引いていない	.work/agents-md/design-review-1/answers.txt:29	X1 成果物の置き場: 規模で分ける

@@ -1,0 +1,7 @@
+decided_P16	r2	52	fail	Invariant P16 is violated
+decided_P16	r3	44	fail	Invariant P16 is violated
+mut_SelfReview_P13	r2	72	fail	Invariant P13 is violated
+mut_SelfReview_P13	r3	72	fail	Invariant P13 is violated
+decided_P2	ctl	9618	pass	
+decided_P9	ctl	9618	pass	
+decided_P13	ctl	9618	pass	

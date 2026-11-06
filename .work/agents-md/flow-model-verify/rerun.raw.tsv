@@ -1,0 +1,13 @@
+check	kind	expected_states	expected_result	states	result	match	note
+decided_P1	decided	9618	pass	9618	pass	yes	
+decided_P8	decided	9618	pass	9618	pass	yes	
+decided_P11	decided	9618	pass	9618	pass	yes	
+decided_P14	decided	9618	pass	9618	pass	yes	
+decided_P16	decided	26	fail	34	fail	no	Invariant P16 is violated
+v4_P1	v4	106	fail	115	fail	no	Action property P1 is violated
+v4_P8	v4	70	fail	70	fail	yes	Action property P8 is violated
+v4_P11	v4	2495	fail	2470	fail	no	Invariant P11 is violated
+v4_P14	v4	124938	pass	124938	pass	yes	
+mut_OrchSev_P2	mutation(seed7272)	44	fail	63	fail	no	Invariant P2 is violated
+mut_EnvRToDesign_P9	mutation(seed7272)	337	fail	298	fail	no	Action property P9 is violated
+mut_SelfReview_P13	mutation(seed7272)	72	fail	70	fail	no	Invariant P13 is violated

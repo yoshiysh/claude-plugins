@@ -1,0 +1,14 @@
+check	result	class	faithful	reason	evidence_ref
+v4_P1	fail	V1 の fail-open（v4 の欠陥）	yes	設計段の 6 体の output に重大度が無く、dtriage は重大度なしで振り分けられる（TriageGuard の緩和）	.work/agents-md/design-v4/agents.tsv:2-8
+v4_P2	fail	模型の推定に依存	partly	v4 は付ける者を名指さない。V1 は「司令塔が付ければ (11) に反し、誰も付けなければ fail-open」の両枝を挙げるが、模型は付けるなら orch と置いた（Flow.tla:168）。付ける者の不在は本物の欠陥、P2 の破れという形は写し方の選択	.work/agents-md/design-v4-review/aggregate/bundles.tsv:2
+v4_P3・P4・P4D	pass	-	yes	v4 も流れの順序は決定と同じ	.work/agents-md/design-v4/files.tsv:7
+v4_P5	fail	V1 の fail-open（v4 の欠陥）	yes	重大度の無い MEDIUM を LOW として通す経路。P1 と同じ原因	.work/agents-md/design-v4/agents.tsv:2-8
+v4_P6	fail	V1 の fail-open（v4 の欠陥）	yes	重大度の無い LOW を MEDIUM として戻す経路。P1 と同じ原因	.work/agents-md/design-v4/agents.tsv:2-8
+v4_P7	fail	v4 より後の決定（X3）	yes	v4 は出所を問わず W4 を当てると明示しており、人の LOW を直さない。v4 の欠陥ではなく決定の変更	.work/agents-md/design-v4/bundles-resolution.tsv:5
+v4_P8	fail	FQ8 次第（解釈の差）	yes	files.tsv:12 (4) は自己検査も重大度で振り分ける。これは Q5+W4 の合成の一つの読みで、P8（全て設計へ）が唯一の読みでない。本物の欠陥は自己検査の失敗に重大度の出どころが無いこと（V1 と同根）	.work/agents-md/design-v4/files.tsv:12
+v4_P9・P10・P12・P13・P14	pass	-	yes	P13 の通過は decided と同じく分類の自己判定を見ない弱さを含む	.work/agents-md/flow-model/Flow.tla:314
+v4_P11	fail	v4 より後の決定（X2）	yes	v4 の (7) は公開も止まってよい人間ゲートに含めるので v4 の内部では矛盾しない。pubgate を実装レビューの後・PR の前に置くのは (4)(7) の一つの読み（V16 が曖昧と指摘）	.work/agents-md/design-v4/files.tsv:7
+v4_P15	fail	v4 より後の決定（X1）	yes	v4 の置き場は「PR から辿れる場所」で規模で分かれない	.work/agents-md/design-v4/files.tsv:12
+v4_P16	fail	決定自体の欠落（v4 にもある）	yes	v4 は作業の最初に PR から辿れる場所へ書くが PR が無い（V7）。decided_P16 も破れるので X1 でも残る（FQ1）	.work/agents-md/design-v4/files.tsv:12
+v4_P17	fail	決定自体の欠落（v4 固有でない）	yes	設計段の LOW を PR 本文に載せるが PR が無い。decided_P17 も同じく破れ、W4 の時機の欠落（FQ2）	.work/agents-md/design-v4/files.tsv:12
+v4 版の bot 段	-	模型の追加（寛容側）	no	design-v4 の *.tsv に bot の語は 0 件（grep -c）。模型は X3 由来の bot 段を v4 版にも入れ、bot の重大度をレビュー役が付ける（Flow.tla:168 の orch への落としは dtriage と人だけ）。v4 版は bot の重大度の出どころが無いことを検出しない。破れた性質の判定は変えない	.work/agents-md/flow-model/Flow.tla:168
