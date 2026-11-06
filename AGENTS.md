@@ -1,11 +1,11 @@
 # AGENTS.md
 
-Claude Code と Codex がこのリポジトリで作業するときの入口。
+このリポジトリで作業するエージェントの入口。
 ユーザーへの返答は日本語で行う。
 
 ## リポジトリ概要
 
-Claude/Codex向けの汎用スキルをmarketplace pluginとして管理・配布する。
+汎用スキルをmarketplace pluginとして管理・配布する。
 Marketplaceの定義は `.claude-plugin/marketplace.json`、利用者向けの入口は [README.md](README.md)。
 
 ## 現在の実体
@@ -30,6 +30,8 @@ Marketplaceの定義は `.claude-plugin/marketplace.json`、利用者向けの�
 | [リポジトリの運用](docs/guidelines/repository-operations.md) | 編集・登録・配布、実行環境、検証の手順と制約 |
 | [共通ガイドライン](docs/guidelines/README.md) | コード・テスト・文書の基準と検査 |
 
+子agentの起動promptには [引継ぎの規約](docs/guidelines/agent-work.md#子agentへ明示して引き継ぐ) を明示して渡す。AGENTSの継承や自動読了を仮定しない。
+
 必要な詳細へ辿れるよう、このファイルは地図に保つ。規則の追加は正本の既存箇所を更新する。
 スキル設計の正本は [best-practices](plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md)。
 
@@ -45,19 +47,7 @@ make check
 
 レビューは [REVIEW.md](REVIEW.md) が入口。機械的な検査の成功と意味の合格を区別する。
 
-## インストール
-
-利用者の手順は [README.md](README.md)、依存とWorkflowの条件は [実行と環境](docs/guidelines/repository-operations.md#実行と環境) を読む。
-
 ## 注意点
 
 配布のmanifest、symlink走査、runtimeの拒否条件、opt-inは [リポジトリの運用](docs/guidelines/repository-operations.md) にまとめている。
 規約を運ぶツールはこのリンクの自動追跡を仮定せず、REVIEW.md等の読む文書の集合へ正本を直接含める。
-
-## Claude Code 固有
-
-pluginの依存解決とinstallは [実行と環境](docs/guidelines/repository-operations.md#実行と環境) を読む。
-
-## Codex 固有
-
-marketplace登録・依存の手動導入・Worktree setup・hookは [実行と環境](docs/guidelines/repository-operations.md#実行と環境) を読む。

@@ -228,9 +228,19 @@ test('全ての agent 呼び出しが model と effort を明示し、運搬役�
   }
   for (const c of b.calls.filter((x) => x.options.label.startsWith('carrier:'))) {
     assert.ok(!c.prompt.includes('"target"'), '運搬役は計画の本体を写さない')
+    for (const phrase of ['目的', '合格条件', '所有範囲', '読む外部正本はない', '実行前に読む', '再委譲をしない', '返すもの']) assert.ok(c.prompt.includes(phrase), `${c.options.label}: ${phrase}`)
   }
   for (const c of b.calls.filter((x) => /^(review|verify)/.test(x.options.label))) {
     assert.ok(c.prompt.includes(args.plan.policyPack.path), `${c.options.label}: 方針の束の path を渡す`)
+    for (const phrase of ['目的:', '合格条件:', '継承・自動読了を仮定しない', '作業前に読む', 'ファイルを変更しない', '別のスキル・Workflow・agent を起動しない', '返答の参照と範囲:']) assert.ok(c.prompt.includes(phrase), `${c.options.label}: ${phrase}`)
+    assert.ok(c.prompt.includes(JSON.stringify(args.plan.policyPack.index)), `${c.options.label}: 版を固定した節ID・元参照を渡す`)
+    if (c.options.label.startsWith('review:')) {
+      assert.ok(c.prompt.includes('読めなかったpath/節と理由を limitations'))
+      assert.ok(c.prompt.includes('担当ファイル'))
+    } else {
+      assert.ok(c.prompt.includes('読めなかったpath/節と理由・範囲内/逸脱/未確認を reason'))
+      assert.ok(c.prompt.includes('割り当てられた主張'))
+    }
     assert.ok(!c.prompt.includes(':REVIEW.md'), `${c.options.label}: 方針を各体に git show で読み直させない`)
     assert.ok(!c.prompt.includes(args.plan.policyPack.token), `${c.options.label}: 読取りトークンを prompt に出さない（束を開かずに返せてしまう）`)
     assert.ok(!c.prompt.includes('shasum'), `${c.options.label}: 追加のコマンドに頼らない`)
@@ -627,11 +637,39 @@ test('実表をCLIへ通すと移動した作業・配布・runtime規則が方�
   const pack = readFileSync(args.plan.policyPack.path, 'utf8')
   for (const [doc, phrase] of [
     ['agent-work.md', '上限を自動更新しない'],
+    ['agent-work.md', '各子agentのpromptに次のbriefを必ず渡す'],
     ['agent-work.md', '成果物本文（コード・hook・文書）の生成・修正・採点をしない'],
     ['repository-operations.md', '`plugins/` 配下に symlink を作らない'],
     ['repository-operations.md', '秘密情報を含むため'],
     ['repository-operations.md', '最初の execution agent の dispatch 前に拒否する'],
   ]) {
     assert.ok(pack.split('\n').some((line) => line.startsWith(`docs/guidelines/${doc}:`) && line.includes(phrase)), phrase)
+  }
+})
+
+
+test('準正常: 検証役の未読票は成功にせず、残る独立2票の多数決は維持する', async (t) => {
+  for (const first of ['unverified', 'pack_unread', 'forbidden_evidence']) {
+    await t.test(first, async (t) => {
+      const fx = fixture(t)
+      const reviewers = [...REVIEWERS, { id: 'third', focus: '別の観点', files: ['docs/a.md'] }]
+      const args = planArgs({ repo: fx.repo, mode: 'diff', baseRef: fx.base, headSha: fx.head, policyRef: fx.base, reviewers, stateDir: fx.stateDir })
+      const decide = verifyAll(fx.head, (lens) => lens === 'correctness' && first === 'unverified' ? 'unverified' : 'confirmed')
+      const b = backend({
+        review: (id) => reviewOk(fx.head, id, { findings: id === 'correctness' ? [finding()] : [] }),
+        verify: (lens, round, prompt) => {
+          const value = decide(lens, round, prompt)
+          if (lens !== 'correctness') return value
+          if (first === 'pack_unread') return { ...value, policy_pack_token: 'unreadable' }
+          if (first === 'forbidden_evidence') value.results[0].evidence = [{ path: 'deps.lock', line: 1, claim: 'x' }]
+          return value
+        },
+      })
+      const result = await runWorkflow(t, args, b)
+      assert.equal(result.status, 'completed', JSON.stringify(result.reasons))
+      assert.equal(result.findings.length, 1)
+      assert.deepEqual(labels(b, 'verify'), ['verify1:correctness', 'verify2:docs', 'verify2:third'])
+      assert.ok(b.calls.filter((c) => c.options.label.startsWith('verify2:')).every((c) => c.prompt.includes('返答の参照と範囲:')))
+    })
   }
 })

@@ -63,18 +63,10 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 
 ## 実行と環境
 
-`Workflow({ name })` は install 済みの写しへ解決される。未リリースの改稿は `Workflow({ scriptPath: "<checkout の絶対パス>/plugins/<plugin>/workflows/<f>.js", args })` で起動する。名前では旧版が走り、未 install なら not found になるため。
+この開発環境ではpluginをinstallせず、checkoutのsourceを使う。未リリースのWorkflowは `Workflow({ scriptPath: "<checkout の絶対パス>/plugins/<plugin>/workflows/<f>.js", args })` で起動する。`Workflow({ name })` はinstall済みの写しへ解決されるため、開発中の変更を試す入口にはしない。
 
-```bash
-/plugin install <plugin-name>@yoshiysh-claude-plugins
-```
+利用者向けの導入手順は [README.md](../../README.md#インストール) と各pluginのREADMEを正本とし、ここにコマンドを写さない。配布先では、Claude Codeのdependencies自動解決とCodexの手動依存導入の違いがある。Workflowを使うcallerは各SKILL.mdのactive callsite契約に従い、native Workflowを優先する。native Workflowがない環境で使う互換runnerはworkflow pluginに同梱され、利用側で必要になる。開発環境へのplugin導入を意味しない。
 
-`notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
-
-Workflow caller は、各 SKILL.md の active callsite 契約に従い、native Workflow が無い Codex で
-`workflow:dynamic-workflow-runner` を内部利用する（runner は workflow plugin に同梱）。
-Codex は plugin dependency を自動導入しないため、workflow 以外の caller plugin と `workflow` plugin を
-別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
 共通 JavaScript runtime は信頼済み source の `scriptPath` と、信頼済み plugin root 内の source の
 `meta.name` による名前付き呼び出しを受け付け、caller 名の許可リストを要求しない。
 必要 capability・source 構文・host 権限と各 caller の互換性分類は引き続き検証する。
@@ -89,27 +81,13 @@ Codex は plugin dependency を自動導入しないため、workflow 以外の 
 - Workflow を使う caller スキルは native Workflow を優先し、それが無い Codex では caller SKILL.md の active callsite から `workflow:dynamic-workflow-runner` を透過利用する（runner を参照しているスキルは `grep -rl dynamic-workflow-runner plugins/*/skills | cut -d/ -f1-4 | sort -u | grep -v '/dynamic-workflow-runner$'` で列挙できる）。これは host-global interceptor ではないため、新たな Workflow caller には同じ native-first route 契約を追加する。
 - runner は意味保存して実行できない graph を最初の execution agent の dispatch 前に拒否する。拒否の基準は `plugins/workflow/skills/dynamic-workflow-runner/references/claude-workflow-compatibility.md` の互換性基準を正とする。
 
-Codex の plugin marketplace は次で登録する。
-
-```bash
-codex plugin marketplace add yoshiysh/claude-plugins
-```
-
-登録後は ChatGPT デスクトップの Plugin Directory から必要な plugin を選んでインストールする。
-Codex は `.claude-plugin/plugin.json` の `dependencies` を自動で解決しないため、依存は推移的に辿って手動でインストールする。plugin ごとの依存は次で確認する。
-
-```bash
-jq -r '.dependencies[]?' plugins/<plugin-name>/.claude-plugin/plugin.json
-```
-
 Codex Desktop の Worktree を使う場合は、ローカル環境のセットアップスクリプトに
 `scripts/worktree-setup.sh` を指定する。依存関係が未導入の Worktree だけが `npm ci` を実行し、runtime の
 リポジトリ root の `.npmrc` の release age 設定で新しい package version を拒否する。`.worktreeinclude` には Worktree
 へコピーするローカル設定（`.env` / `.env.local`）を列挙する。秘密情報を含むため、追加するパスは
 必要最小限に保つ。
 
-Claude Code の plugin install は `README.md` の手順に従い、依存は `.claude-plugin/plugin.json` の `dependencies` で解決される。
-`.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）は編集のたびに `make test` を実行する。
+`.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）を適用する環境では、編集のたびに `make test` が実行される。
 
 ## 検証
 
