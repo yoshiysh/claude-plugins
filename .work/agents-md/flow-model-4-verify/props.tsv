@@ -1,0 +1,20 @@
+property	decision	verdict	reason	evidence
+P1	W4・Y2・answers.txt:42（自己検査・人に重大度を付けない）・WF-02	過不足なし	agent の指摘は 4 値、self・human・scale は none を求める。bot は Y4 で自分の値なので P1 の外で P2 が見る。前回の「人にも重大度を求める」強さは消えた	flow-model-4/Flow.tla:372-374・mut_SevOnHuman_P1
+P2	Y2・Y4	過不足なし	bot 以外は sevagent、bot は bot	flow-model-4/Flow.tla:376-377・mut_OrchSev_P2
+P3	D1	過不足なし	戻りで drOK=FALSE	flow-model-4/Flow.tla:379・mut_SkipDR_P3
+P4	D1・Y1	過不足なし（ただし AA2 の「draft に戻さない」を見る性質が無い）	P4 は ready の前に実装レビューを通ることだけを見る。ready の後に戻るとき PR を draft に戻す変異（own_ReDraft）でも P1〜P17・C1〜C3 が全て通る。AA2・WF-14 の「draft に戻さない」は遷移の書き方だけが守り、性質も変異も無い。足すなら P4R（ready は ready のまま）で、own_ReDraft_P4R が検出する	rerun.tsv:own_ReDraft_all・own_ReDraft_P4R
+P5	W4	過不足なし	agent・bot の MEDIUM は design かつ fixed。自己検査は重大度を持たなくなったので前回の穴（self の MEDIUM）は P1・P8a に移った	flow-model-4/Flow.tla:384-386・mut_MedPass_P5
+P6	W4	過不足なし	LOW は logged、LOW だけでは戻らない。旧 P6inv を外した理由が見出しに記録された	flow-model-4/Flow.tla:24・390-396・mut_LowFix_P6
+P7	X3・D1・AA4・answers.txt:48	式は過不足なし・注釈は言い過ぎ	式は振り分けに来た人の指摘を見る。注釈「来た時機を問わず」は、模型が wake・prbot・ptriage の間に来る人の指摘を持たないので模型の範囲を超える（導けた答えの時点が欠けている）	flow-model-4/Flow.tla:397-399・rev.tsv:欠落
+P8・P8a	Q5・Y3・answers.txt:42	過不足なし	自己検査の欠陥は誤分類されても ready の前に fixed。HandleDefect と self の振り分けは design・fixed	flow-model-4/Flow.tla:402-405・mut_SelfLowLog_P8・mut_NoRecord_P8
+P9	Q10	過不足なし		flow-model-4/Flow.tla:407・mut_EnvRToDesign_P9
+P10	Q9・Y3	過不足なし	「理由」は抽象化で落ちる	flow-model-4/Flow.tla:409-410・mut_NoRecord_P10・mut_EnvURetry_P10
+P11	X2・Q9・AGENTS.md:70	過不足なし		flow-model-4/Flow.tla:411・mut_StuckAfterReview_P11
+P13	AGENTS.md:76・Y3	過不足なし（範囲つき）	読み手の見落としは F6 で外で測る	flow-model-4/Flow.tla:415-416・mut_SelfReview_P13・mut_SkipRecReview_P13
+P14	D1・Q9・X2	過不足なし（仮定つき）	F1・F2・F5・F7・F8・F9 の下で通る。加えて DraftBudget（作業中に来る指摘の数）も終了を支える有限の仮定だが、見出しでは「状態数を抑える抽象化」とだけ書かれ F 一覧に無い（assumptions.tsv）	flow-model-4/Flow.tla:16-23・418
+P15	X1・WF-02	過不足なし（F6 の規模の半分は測っていない）	F6 の注釈は「記録・規模の判定を読む reviewer」で RecCorrect は SS も制御するが、作り役は F6off を P8 でしか回していない。RecCorrect=FALSE で P15 は破れる（own_F6off_P15）ので、F6 の規模の半分も終了ではなく安全に効く仮定で、results.tsv に載せるべき	flow-model-4/Flow.tla:189-192・420・rerun.tsv:own_F6off_P15
+P16・P16a	Z3・AA4（・answers.txt:48 と WF-19 の時点を問わない規則）	範囲が古い（導けた原則と食い違う）	P16 は PRStages（wake・prbot・ptriage を含む）で受け箱が空を求める。導けた答え・WF-19 は bot の run を待つ間の人の指摘も受け箱に入れ ptriage の振り分けに加えるので、それを入れた模型では P16 は定義から破れる（own_PRHuman_P16）。時点を問わない原則の形は「人間ゲート以降で受け箱が空」と「全ての振り分けが受け箱を空にする」（own の P16x・P16xa）	flow-model-4/Flow.tla:423-424・rerun.tsv:own_PRHuman_*
+P17	Y4・AA2	過不足なし		flow-model-4/Flow.tla:426・mut_NoWake_P17・mut_NoWait_P17
+C1・C2	X1・Y1（実行可能性）	過不足なし・空虚でないことは未確認	どちらにも変異が無い。FixPurpose が置き場と draft PR を同時に決めるので構造上破れない。前回は v4 の版の破れで空虚でないことを示したが、模型 4 には v4 の版が無い	flow-model-4/results.tsv（C1・C2 の変異の行なし）
+C3・C3b	AGENTS.md:70 の理由（実行可能性）	一部直った	C3b が止まる段で行動ごとに次の段が 1 つに決まることを見る（mut_GateAmbiguous で検出）。C3 は担い手の包含のままで、gate で人に行動が 2 つ（指摘・マージ）あることは見ない。これは人の選択なので制約として妥当	flow-model-4/Flow.tla:431-436
+I1・I2・I4	残るリスクの測定（Z1・Q9・見逃し）	妥当	I1 は付け間違い、I2 は誤分類、I4 は見逃しで破れ、それぞれを外すと通る（I4 は外した版が無い: 見逃しは Review の S の選び方に組み込まれ外す定数が無い）。前回の「I1 は latent を測らない」は I4 で埋まった	flow-model-4/Flow.tla:439-441

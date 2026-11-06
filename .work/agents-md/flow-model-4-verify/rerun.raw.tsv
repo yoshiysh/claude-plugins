@@ -23,3 +23,5 @@ own_F6off_P15	P15	11572	fail	Invariant P15 is violated
 own_ReDraft_all	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1777900	pass	
 own_ReDraft_P4R	P4R	42950	fail	Action property P4R is violated
 own_PRHuman_dec	P1,P5,P6,P7,P11,P14,P16x,P16xa,P17,C3,C3b	1486680	pass	
+own_PRHuman_v6	P1,P5,P6,P7,P11,P14,P16x,P16xa,P17,C3,C3b	3538186	pass	
+own_PRHuman_P16	P16	18583	fail	Invariant P16 is violated

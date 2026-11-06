@@ -1,0 +1,20 @@
+transition	verdict	reason	evidence
+FixPurpose	決定どおり	draft PR を作り（Y1）、置き場は規模（X1）、規模の判定は誤りうる（WF-02）	flow-model-4/Flow.tla:87-98
+Work	決定どおり	持ち込みは F1	flow-model-4/Flow.tla:101-117
+SelfCheckFail	決定どおり	OpenReal は logged を含むので PR 本文に載った欠陥も合否ゲートで再び落ちる	flow-model-4/Flow.tla:120-129
+Classify	決定どおり	誤分類は F5、環境と判じたら記録（Y3）	flow-model-4/Flow.tla:132-144
+HandleDefect	決定どおり	重大度なしで design（answers.txt:42 の導出）	flow-model-4/Flow.tla:150-160
+HandleEnvR	決定どおり	段を変えずやり直す（Q10）。envU を envR と誤分類すると Retry で再び落ちる	flow-model-4/Flow.tla:163-173
+HandleEnvU	決定どおり	reported で終わる（Q9）。再開は模型の外（WF-09）	flow-model-4/Flow.tla:176-182
+Review	決定どおり	記録を読み self の指摘に、規模の誤りは dreview だけで scale の指摘に（WF-02）。誤検出 F8	flow-model-4/Flow.tla:186-202
+Wake	決定どおり	AA2・WF-15	flow-model-4/Flow.tla:206-211
+BotReview	決定どおり	Y4	flow-model-4/Flow.tla:214-225
+DraftHuman・DraftBot	決定どおり	Z3。受け箱 inbox を dtriage・itriage が加える	flow-model-4/Flow.tla:228-245
+ReworkHuman	決定どおり	AA4。bot は push で走らない（WF-15）ので人だけ	flow-model-4/Flow.tla:248-255
+（欠落）wake・prbot・ptriage の間の人の指摘	決定にあるのに無い	answers.txt:48 の導けた答え（bot の run を待つ間の人の指摘も bot の指摘の振り分けに加える）と rules.tsv の WF-19（L24）に当たる遷移が decided・v6 のどちらにも無い。questions.tsv・table.tsv は ? のまま。own_PRHuman（受け箱に入れ ptriage で加える）では P1・P5・P6・P7・P11・P14・P17・C3 と書き直した P16x・P16xa が通り、元の P16 だけが破れる	flow-model-4/Flow.tla:248-255・285・table.tsv:24・questions.tsv・rerun.tsv:own_PRHuman_*
+AssignSev	決定どおり	agent の指摘にだけ sevagent（Y2）。付け間違い Z1、破損 F9	flow-model-4/Flow.tla:258-271
+Recount	v6 どおり（粒度は導ける）	壊れた 1 件だけを付け直す。WF-13 の「同じ入力でやり直す」が全件のやり直しでも、模型の結果（有限回で合うまで振り分けない）は同じ	flow-model-4/Flow.tla:274-282
+Triage	決定どおり（ただし受け箱を加える段が dtriage・itriage だけ）	抜粋 B の閾値・draft に戻さない（AA2）は正しい。Absorbs が dtriage・itriage に限られ、時点を問わない WF-19 の「次の振り分け」（ptriage を含む）を表さない。規模の誤りの訂正（sj・place）を振り分けで行うのは、作り手が設計で直すことの畳み込みで経路は変わらない	flow-model-4/Flow.tla:284-332
+HumanComment	決定どおり（仮定が暗黙）	人は開いた実在の欠陥にだけ、同じ欠陥に 1 度だけ指摘する（OpenAll \ hc）。人の誤検出は表さず、F 一覧に無い	flow-model-4/Flow.tla:338-344
+HumanMerge・Done	決定どおり	X2・WF-20	flow-model-4/Flow.tla:346-358
+決定に無い制約	無い（TriageGuard は W4・Y2 から）	decided で重大度が壊れると振り分けが進まないのは決定に扱いが無いことの表れで、v6 の WF-13 で除かれる（decidedBadSev_P11）。DraftBudget は指摘の数の上限で、決定に無いが抽象化として明示されている	flow-model-4/Flow.tla:288-290・results.tsv:decidedBadSev_P11

@@ -1,0 +1,6 @@
+qid	verdict	reason	evidence
+FQ1（wake・prbot・ptriage の間の人の指摘）	答えは導けた・模型に反映されていない	answers.txt:48 が (a) を導けた答えとする。questions.tsv・table.tsv は ? のまま、Flow.tla に遷移が無い。入れるときは受け箱に入れ ptriage の振り分けで加え、P16 を「人間ゲート以降で受け箱が空」に書き直す（own_PRHuman で整合を確認）	flow-model-4/questions.tsv・table.tsv:24・answers.txt:48
+Recount の粒度（壊れた 1 件か全件か）	導ける	WF-13 は「同じ入力でやり直す」で、どちらでも合うまで振り分けない結果は同じ。問いにしなくてよい	flow-model-4/Flow.tla:274-282
+ptriage の振り分けの後・gate の前に来た人の指摘	導ける	ptriage の次は gate で、そこで来た指摘は HumanComment（WF-17）。受け箱を経る遷移は要らない	flow-model-4/Flow.tla:338-344
+ready の後の戻りの間の bot の指摘	導ける	WF-15 で bot は push では走らない	rules.tsv:WF-15
+その他の遷移	一意（見た範囲で）	table.tsv の ? 以外の 23 行と Flow.tla の NonDone の 18 action を全て読み、決定・規則から一意に決まらないものは上の FQ1 だけ	flow-model-4/table.tsv・Flow.tla:350-355

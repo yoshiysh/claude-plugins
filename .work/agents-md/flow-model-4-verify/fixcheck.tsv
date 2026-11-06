@@ -1,0 +1,9 @@
+item	prior	status	reason	evidence
+自己検査の MEDIUM の経路	P5 が self を対象外にし、self の MEDIUM を LOW に載せる変異が通った	直った	自己検査には重大度を付けず全て設計へ戻す（answers.txt:42）。P1 が self に重大度が無いことを、P8a が HandleDefect と self の振り分けが design・fixed であることを見る。mut_SelfLowLog を P8a が検出（再検査でも検出）	flow-model-4/Flow.tla:150-157・372-374・403-405・rerun.tsv:mut_SelfLowLog_P8
+合否ゲートの再失敗	logged の欠陥が合否ゲートで再び捉えられない暗黙の仮定	直った	SelfCheckFail は logged を含む OpenReal から選び、再び落ちた欠陥は HandleDefect で fixed。この下で decided・v6 の P14 が通る	flow-model-4/Flow.tla:119-122・rerun.tsv:decided_all・v6_all
+誤検出の仮定	暗黙（F 一覧に無い）	直った（人の誤検出は残る・軽い）	F8 として FpBudget を置き、Review・BotReview が id 9 を指摘できる。外した版で P14 が破れる（Z2 で受容）。人の指摘（HumanComment・DraftHuman・ReworkHuman）は実在の欠陥だけで、人の誤検出は表さない	flow-model-4/Flow.tla:22・67・194・216・rerun.tsv:assume_F8off_P14
+C3 の「次の行動が 1 つ」	担い手の包含で行動の数を見ない	一部直った	C3b が止まる段の行動ごとの次の段の一意を見る（mut_GateAmbiguous で検出）。gate の行動の数（2）は見ないが、人の選択なので制約として妥当	flow-model-4/Flow.tla:431-436・results.tsv:mut_GateAmbiguous_C3
+P1 の範囲	人の指摘にも重大度を求めて強すぎ	直った	P1 は agent に 4 値、self・human・scale に none を求める。mut_SevOnHuman を検出	flow-model-4/Flow.tla:372-374・results.tsv:mut_SevOnHuman_P1
+C4（ready の間は irOK）	決定に無い	直った（外した）	AA2 で ready の後に戻っても draft に戻さない。ただし代わりの「draft に戻さない」性質が無い（props.tsv:P4）	flow-model-4/Flow.tla:24-25・rerun.tsv:own_ReDraft_all
+P6inv を落とした記録	記録が無い	直った	見出しに理由つきで書かれた	flow-model-4/Flow.tla:24
+I1 の範囲（latent のままマージ）	測らない	直った	I4 を足した	flow-model-4/Flow.tla:441

@@ -1,0 +1,65 @@
+# mut の選択: results.tsv の mut_ の 23 行をその順に並べたリスト MUTS（rerun.py）から random.Random(9494).sample(range(23), 3) = [19, 9, 14]
+check	props	mine_states	mine_result	mine_violated	theirs_states	theirs_result	theirs_violated	match	note
+decided_P1	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P2	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P3	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P4	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P5	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P6	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P7	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P8	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P9	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P10	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P11	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P13	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P14	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P15	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P16	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_P17	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_C1	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_C2	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_C3	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1454344	pass		1454344	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P1	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P2	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P3	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P4	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P5	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P6	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P7	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P8	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P9	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P10	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P11	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P13	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P14	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P15	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P16	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_P17	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_C1	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_C2	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+v6_C3	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	3473186	pass		3473186	pass		yes	全 P・C を 1 回の実行で確かめ、状態数で照合
+decided_I1	I1	73077	fail	Invariant I1 is violated	70722	fail	Invariant I1 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+decided_I2	I2	500	fail	Action property I2 is violated	987	fail	Action property I2 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+decided_I4	I4	60227	fail	Invariant I4 is violated	71172	fail	Invariant I4 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+decidedNoSevErr_I1	I1	625474	pass		625474	pass		yes	
+decidedNoMis_I2	I2	513054	pass		513054	pass		yes	
+decidedBadSev_P11	P11	1651	fail	Invariant P11 is violated	1660	fail	Invariant P11 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+assume_F1off_P14	P14	243875	fail	Temporal properties were violated	238812	fail	Temporal properties were violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+assume_F2off_P14	P14	230573	fail	Temporal properties were violated	258958	fail	Temporal properties were violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+assume_F5off_P14	P14	249062	fail	Temporal properties were violated	279784	fail	Temporal properties were violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+assume_F8off_P14	P14	245670	fail	Temporal properties were violated	244900	fail	Temporal properties were violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+assume_F6off_P8	P8,P8a	122424	fail	Invariant P8 is violated	123676	fail	Invariant P8 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+v6_I1	I1	97633	fail	Invariant I1 is violated	107008	fail	Invariant I1 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+v6_I2	I2	460	fail	Action property I2 is violated	516	fail	Action property I2 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+v6_I4	I4	84595	fail	Invariant I4 is violated	97542	fail	Invariant I4 is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+v6NoWF19_P16	P16,P16a	543230	fail	Action property P16a is violated	526090	fail	Action property P16a is violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+v6_assume_F9off_P14	P14	233913	fail	Temporal properties were violated	220691	fail	Temporal properties were violated	yes	fail は破れた式の名前で照合（workers 4 で違反時の状態数は揺れる）
+mut_InboxIgnored_P16	P16,P16a	1633	fail	Action property P16a is violated	1657	fail	Action property P16a is violated	yes	seed 9494 の選択
+mut_SelfLowLog_P8	P8,P8a	652	fail	Action property P8a is violated	569	fail	Action property P8a is violated	yes	seed 9494 の選択
+mut_StuckAfterReview_P11	P11	1718	fail	Invariant P11 is violated	1631	fail	Invariant P11 is violated	yes	seed 9494 の選択
+own_F6off_P15	P15	11572	fail	Invariant P15 is violated	-	-	-	-	自作の確かめ（模型 4 の結果には無い）
+own_ReDraft_all	P1,P2,P3,P4,P5,P6,P7,P8,P8a,P9,P10,P11,P13,P14,P15,P16,P16a,P17,C1,C2,C3,C3b	1777900	pass		-	-	-	-	自作の確かめ（模型 4 の結果には無い）
+own_ReDraft_P4R	P4R	42950	fail	Action property P4R is violated	-	-	-	-	自作の確かめ（模型 4 の結果には無い）
+own_PRHuman_dec	P1,P5,P6,P7,P11,P14,P16x,P16xa,P17,C3,C3b	1486680	pass		-	-	-	-	自作の確かめ（模型 4 の結果には無い）
+own_PRHuman_v6	P1,P5,P6,P7,P11,P14,P16x,P16xa,P17,C3,C3b	3538186	pass		-	-	-	-	自作の確かめ（模型 4 の結果には無い）
+own_PRHuman_P16	P16	18583	fail	Invariant P16 is violated	-	-	-	-	自作の確かめ（模型 4 の結果には無い）

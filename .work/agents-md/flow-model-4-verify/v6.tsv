@@ -1,0 +1,9 @@
+item	verdict	reason	evidence
+WF-01〜WF-09・WF-11〜WF-18・WF-20〜WF-22 の遷移	写している	rules.tsv の model_transition の action と担い手に一致（WF-13 の数の照合は Recount、WF-02 の戻しは scale の指摘）	rules.tsv・flow-model-4/Flow.tla
+WF-19（時点を問わない 1 つの規則）	写していない	模型は draft の間（DraftHuman・DraftBot→inbox）と ready の後の戻りの間（ReworkHuman→inboxR）の時点ごとの遷移で、bot の run を待つ間（rules.tsv L24）を持たない。Flow.tla:10-11 の「WF19=FALSE は rules.tsv の WF-19 未決の版」は今の rules.tsv に無い版を指す。模型は 22:38、rules.tsv は 22:52 で、WF-19 を 1 つにする前の rules.tsv に合わせて作られている	rules.tsv:WF-19・flow-model-4/Flow.tla:10-11・248-255
+trace.tsv → rules.tsv	不一致 2 件	「WF-10 draft の間に来た人・bot の指摘」（v6 では欠番）と「WF-19 ready の後に設計へ戻って作り直している間（PR は ready のまま）に来た人・bot の指摘」（見出しが古い）が rules.tsv に無い	flow-model-4/trace.tsv:10・20
+rules.tsv → trace.tsv	不一致 1 件	「WF-19 人・bot の指摘」が trace.tsv に無い。WF-19 の actions は DraftHuman・DraftBot・ReworkHuman・（PR の段の人の指摘）・Triage になるはず	rules.tsv:WF-19
+files.tsv の trace テスト（tests/workflow-flow-trace.test.mjs）	今の trace.tsv では落ちる	(2) trace.tsv の WF が全て workflow.md にある、が WF-10 と旧 WF-19 で破れ、(3) が「WF-19 人・bot の指摘」で破れる	files.tsv:10
+v6NoWF19_P16 の行	意味を失った	比べる相手の「WF-19 未決」の rules.tsv はもう無い。今の v6 との差は WF-19 の時点の範囲（bot の run の間）で、この行は測っていない	flow-model-4/results.tsv:v6NoWF19_P16
+WF-13 の数の照合	写している	Recount は v6 だけ。decided との差として BadSev で示される	flow-model-4/Flow.tla:274-282
+files.tsv:9 の README の仮定の一覧（v6 の文書側）	模型の仮定より少ない	挙げるのは 4 つ（持ち込み・環境と誤分類・記録を読む reviewer・誤検出）。模型の F9（返り値の破損は有限回）・F6 の規模の判定の半分・F7・作業中の指摘の数（DraftBudget）が無い	files.tsv:9・flow-model-4/Flow.tla:21-23
