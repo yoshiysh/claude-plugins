@@ -1,0 +1,134 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 127 and seed 9041756908580680999 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 50592] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-2-verify/Flow.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-2-verify/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-2-verify/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/agents-md/flow-model-2-verify/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Flow
+Starting... (2026-11-06 21:25:53)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 21:25:53.
+Error: Action property P10 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ wst = "none"
+/\ stage = "purpose"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent">>
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "Init", actor |-> "none"]
+/\ selfSeen = {}
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 1
+/\ place = "unset"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 2: <FixPurpose line 91, col 3 to line 99, col 66 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ wst = "none"
+/\ stage = "design"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 1
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent">>
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "FixPurpose", actor |-> "builder"]
+/\ selfSeen = {}
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 3: <SelfCheckFail line 122, col 3 to line 130, col 36 of module Flow>
+/\ chk = "fail"
+/\ chkTrue = "defect"
+/\ wst = "none"
+/\ stage = "design"
+/\ pend = {}
+/\ chkD = 1
+/\ misLeft = 1
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent">>
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "SelfCheck", actor |-> "builder"]
+/\ selfSeen = {1}
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 4: <Classify line 134, col 3 to line 145, col 51 of module Flow>
+/\ chk = "cls"
+/\ chkTrue = "defect"
+/\ wst = "none"
+/\ stage = "design"
+/\ pend = {}
+/\ chkD = 1
+/\ misLeft = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent">>
+/\ cls = "envU"
+/\ rec = {}
+/\ ev = [act |-> "Classify", actor |-> "builder"]
+/\ selfSeen = {1}
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+State 5: <HandleEnvU line 186, col 3 to line 192, col 41 of module Flow>
+/\ chk = "idle"
+/\ chkTrue = "none"
+/\ wst = "none"
+/\ stage = "reported"
+/\ pend = {}
+/\ chkD = 0
+/\ misLeft = 0
+/\ pr = "none"
+/\ scale = "typo"
+/\ ds = <<"latent", "latent">>
+/\ cls = "none"
+/\ rec = {}
+/\ ev = [act |-> "HandleEnvU", actor |-> "orch"]
+/\ selfSeen = {1}
+/\ reLeft = 1
+/\ hc = {}
+/\ irEver = FALSE
+/\ envLeft = 1
+/\ place = "commit"
+/\ irOK = FALSE
+/\ drOK = FALSE
+
+193 states generated, 177 distinct states found, 116 states left on queue.
+The depth of the complete state graph search is 5.
+The average outdegree of the complete state graph is 3 (minimum is 1, the maximum 8 and the 95th percentile is 8).
+Finished in 00s at (2026-11-06 21:25:53)

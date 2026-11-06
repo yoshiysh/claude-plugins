@@ -1,0 +1,39 @@
+from pathlib import Path
+O = Path(__file__).resolve().parent
+H = ["item", "prior", "status", "reason", "evidence"]
+R = [
+("props:P1", "強すぎ（人の指摘にも重大度を求める）", "残る（無害）", "NeedSev が human を含み、htriage の振り分けは sevagent の重大度を待つ。X3 で人の指摘の経路に重大度は効かず、Y2 が答えたのは「誰が付けるか」だけで「人の指摘に要るか」ではない（answers.txt:34 の括弧は FQ3・FQ7・FQ8 を束ねたと言うだけ）。経路は変わらないが、決定に無い agent 呼び出しが 1 回増える", "flow-model-2/Flow.tla:70"),
+("props:P2", "過不足なし", "直った（Y2 に合わせて強めた）", "司令塔を除くだけだった式が、bot 以外は sevagent・bot は bot を求める式になった。Y2・Y4 どおり", "flow-model-2/Flow.tla:335-336"),
+("props:P3・P4", "過不足なし", "維持", "drOK・irOK は戻りで FALSE。P4 に pr=ready=>irEver を足し、Y1 の「出す＝ready」を表す", "flow-model-2/Flow.tla:338-341"),
+("props:P4D", "決定に無い（解釈の片側）", "直った（Y1 で消えた）", "Y1 が「出す」を ready と定義したので draft を含む読みは不要。性質から外した", "answers.txt:33"),
+("props:P5・P6act", "仮定に依存（付ける値が常に真）", "直った", "SevErr=TRUE で付け間違いを入れ、性質は付いた重大度で書く（W4 の閾値は付いた値に当たる）。付け間違いの影響は I1 に分けた。ただし P5 は src=self を対象外にしたので、自己検査の MEDIUM の経路は無検査（rev の own_FlowSelfMed を参照）", "flow-model-2/Flow.tla:343-348"),
+("props:P6inv", "強すぎ（「載せ直さない」は解釈）", "直った（落とした。落とした理由の記録は無い）", "brief の「LOW は PR 本文に載り直さない」に当たる性質は無くなった。旧検証の判定に沿うが、results.tsv・Flow.tla のどこにも落とした旨が無い", "flow-model-2/results.tsv（P6inv の行なし）"),
+("props:P7", "過不足なし", "維持", "人の指摘は重大度を問わず設計へ", "flow-model-2/Flow.tla:350-351"),
+("props:P8", "強すぎ（FQ8 の一方の読み）", "変わった（別の読みに寄った）", "SelfLow で両方の読みを持ち、既定を log（自己検査の LOW も PR 本文）にした。両方の版で全性質が通るので模型の結論は読みに依らない。ただし既定 log は Y2 からの導出でなく解釈で、合否ゲートの検査（AGENTS.md:151）では成り立たない（rev・qcheck の FQ3 候補）", "flow-model-2/Flow.tla:149-160"),
+("props:P9・P10", "過不足なし（分類の正しさは表せない）", "直った", "Classify で真の原因と違う分類を MisBudget 回まで選べ、P10 は Y3 の記録も求める。誤分類の影響は I2・P8 に出る", "flow-model-2/Flow.tla:133-145"),
+("props:P11", "過不足なし", "維持", "停止は gate・merged・reported だけ", "flow-model-2/Flow.tla:362"),
+("props:P12（今の C3）", "決定に無い・式は弱い（担い手の包含で行動の数を見ない）", "残る（ラベルだけ直った）", "brief 由来の実行可能性の制約と明記した点は直った。式は同じく担い手の包含で、gate の人は HumanComment と HumanMerge の 2 つを持つ。「次の行動が 1 つ」は表していない", "flow-model-2/Flow.tla:378-379"),
+("props:P13", "弱すぎ（作り手の分類を見ない）", "直った（範囲つき）", "第 2 項で、builder の環境の分類の記録が段のレビューを通る前に builder 以外に読まれることを求める（mut_SkipRecReview で検出）。読んだ者が見落とすかは F6 で、P13 は見ない。v4 では記録が無いので空虚に通る（作り役も注記）", "flow-model-2/Flow.tla:366-367"),
+("props:P14", "仮定に依存（F1 が AGENTS.md と食い違う）", "直った（仮定を外して測った）", "F1・F2・F5 を外すと破れることを示した。仮定の現実性は assumptions.tsv", "flow-model-2/results.tsv:assume_*"),
+("props:P15", "過不足なし", "維持", "", "flow-model-2/Flow.tla:371"),
+("props:P16・P17（今の C1・C2）", "決定自体の欠落（PR より前に PR 本文）", "直った（Y1）", "目的の固定で draft PR を作るので decided で通る。v4 では破れる", "flow-model-2/Flow.tla:95"),
+("rev:AssignSev", "付ける値が常に真・担い手が仮定", "直った", "sevagent が付け、SevErr で誤りうる。bot は自分の値（Y4）", "flow-model-2/Flow.tla:222-236"),
+("rev:SelfCheckFail", "結果が真の原因と独立で誤分類を表せない", "直った", "真の原因 chkTrue と分類 cls を分けた", "flow-model-2/Flow.tla:121-145"),
+("rev:HandleEnvR・envLeft", "上限は決定に無い", "直った（仮定として明示）", "F2 として明示し、外した版で P14 が破れることを示した", "flow-model-2/Flow.tla:27"),
+("rev:BotReview", "順序と重大度は模型の仮定", "直った（Y4）", "bot の重大度をそのまま使い、bot の振り分けの後に人間ゲート", "flow-model-2/Flow.tla:209-218"),
+("rev:HumanComment", "gate だけに置くのは決定に無い", "残る（問いにした）", "draft が最初からあるので時機の問いが強まった。FQ2 として問いにした", "flow-model-2/questions.tsv:FQ2"),
+("rev:FixPurpose[DraftForTypo]", "案として分離", "直った（Y1 で決定どおりに）", "decided は常に draft を作る", "flow-model-2/Flow.tla:95"),
+("rev:trace の行番号", "5 行ずれ、D1〜D4 を引かない", "直った", "25 行全ての引用が引いた行に逐語で一致（check_trace.py）。D1 を answers.txt:2 で引く", "flow-model-2-verify/check_trace.py"),
+("v4:v4_P2", "模型の推定に依存", "変わった", "Y2（v4 より後の決定）で破れる、と分類を改めた。実装段は reviewer、他は orch に落とす推定は残る", "flow-model-2/Flow.tla:222-226"),
+("v4:bot 段", "模型の追加（v4 に bot は無い）", "直った", "v4 の itriage は gate・pubgate へ進み prbot を通らない", "flow-model-2/Flow.tla:254"),
+("v4:v4_P5・P6", "fail（V1 の fail-open）", "変わった（pass）", "性質を付いた重大度で書き直したため。v4 が良くなったのではなく、重大度の無い指摘が P5・P6 の対象外になり、欠陥は P1 に出る（作り役も注記）", "flow-model-2/results.tsv:v4_P5"),
+("qcheck:FQ1・FQ2", "束ねる", "直った（Y1）", "", "answers.txt:33"),
+("qcheck:FQ3・FQ6・FQ7・FQ8", "束ねる", "一部残る", "「誰が付けるか」は Y2・Y4 で決まった。「どの指摘に重大度が要るか」（人の指摘・自己検査）は答えの記録に無く、模型は付ける側に読んだ（Flow.tla:68-70）", "answers.txt:34"),
+("qcheck:FQ4", "holds", "直った（Y3）", "", "answers.txt:35"),
+("qcheck:FQ5", "derivable", "直った", "trace で answers.txt:37 と AGENTS.md:99 を引く", "flow-model-2/trace.tsv"),
+]
+with open(O / "fixcheck.tsv", "w") as f:
+    f.write("\t".join(H) + "\n")
+    for r in R:
+        assert len(r) == len(H)
+        f.write("\t".join(r) + "\n")

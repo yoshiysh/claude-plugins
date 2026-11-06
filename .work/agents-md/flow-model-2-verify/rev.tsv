@@ -1,0 +1,20 @@
+action	verdict	reason	evidence_ref	evidence_quote
+FixPurpose	決定どおり	draft PR を作り、置き場は規模で決める	design-review-1/answers.txt:33	目的を固定した時点で draft PR を作り、その本文に置く
+Work	決定どおり	直した欠陥を持ち込み直す（F1）	AGENTS.md:77-78	修正が持ち込む欠陥と
+SelfCheckFail	抽象化が楽観側に偏る	欠陥は Latent からだけ選ぶ（Flow.tla:123）。logged の欠陥（agent・bot の LOW を含む）は、合否ゲートの検査でも二度と捉えられない。make test は合否ゲートで、直さない欠陥は次の検査でも落ちる。own_FlowOpenChk（Open から選ぶ写し）で SelfLow=log の P14 が破れ（反例: dtriage で agent の LOW として logged になった欠陥を impl の自己検査が捉え、striage で LOW→impl→再び失敗を繰り返す）、SelfLow=design では通る	AGENTS.md:151	合否ゲート
+Classify	決定どおり	作り手が分類し、環境と判じたら記録（Y3）	design-review-1/answers.txt:35	作り手が分類と理由を成果物の置き場に記録し
+HandleDefect（SelfLow=log）	決定に無い（解釈）	自己検査の欠陥に sevagent の重大度を付け W4 を当てる。Y2 は付ける者を決めたが、自己検査の失敗に重大度を付けるかは記録に無い（旧 FQ8 の推奨は付けない側）。上の SelfCheckFail の通り、合否ゲートの検査では LOW の経路が成り立たない	design-review-1/answers.txt:11	まだレビューに出していないものの欠陥も「設計に戻る」に含める
+HandleEnvR	決定どおり	段を変えずやり直す。真の欠陥なら覆われうる（probe_R2 で到達）	design-review-1/answers.txt:16	作り手が原因を除いて同じ検査をその場でやり直す（設計に戻らない）
+HandleEnvU	決定どおり	記録を持って reported	design-review-1/answers.txt:15	失敗と理由を利用者に報告して止める
+Review	決定どおり（誤検出を表さない）	記録を読み RF を self として出す（probe_R3 で到達）。指摘は Open（実在の欠陥）からだけで誤検出が無い	design-review-1/answers.txt:35	次のレビュー（作り手と別の者）が見る
+BotReview	決定どおり		design-review-1/answers.txt:36	bot が付けた重大度をそのまま使う
+AssignSev（人の指摘）	決定に無い制約（無害）	NeedSev に human を入れ、htriage が重大度を待つ	design-review-1/answers.txt:31	人の指摘は重大度を問わず直す
+Triage（戻り・LOW）	決定どおり		design-review-1/answers.txt:26	MEDIUM 以上は設計に戻し、LOW は直さず PR 本文に載せて追わない
+Triage（ready の後の戻り）	決定どおり（C4 は決定外）	PR を ready のまま戻る。V3・AGENTS.md:176 が前提にする経路で、C4 の破れは決定の欠陥ではない	design-review-1/answers.txt:20	段の対応表に ready 後の差分の役として載せる
+Triage（ready の後の検証役）	欠落（軽微）	ready の後の差分を diff-verifier が見る段（V3）が無く、ireview の reviewer に畳まれている。経路の判定は変わらない	AGENTS.md:176	PR を ready にした後に足した差分は、push した後に
+HumanComment	決定に無い制約（問いにした）	gate だけ。FQ2	design-review-1/answers.txt:36	順序は bot の振り分けの後に人間ゲート
+HumanMerge・Done	決定どおり		design-review-1/answers.txt:30	マージを人間が行う
+PubApprove・AskAnswer・ResumeAfterReport	決定どおり（decided では無効）		design-review-1/answers.txt:30	マージが公開
+BackFlags（Redraft）	案として分離	FQ1 (a)。decided は FALSE。往復に到達する（probe_R4）	flow-model-2/Flow.tla:87	pr' = IF Redraft /\ pr = "ready" THEN "draft" ELSE pr
+欠落の確認	上の 2 件以外は見つからない	answers.txt の D1〜Y4 の全行と AGENTS.md:70-100 を遷移表に照らした範囲で。D3 は自己検査に、W5 は流れの差なしに畳まれる	design-review-1/answers.txt:4	形式検証をルールにする
+trace.tsv	正しい	25 行全て逐語で一致（check_trace.py）。main の AGENTS.md と作業ツリーの AGENTS.md は cmp で同一	flow-model-2/trace.tsv	-

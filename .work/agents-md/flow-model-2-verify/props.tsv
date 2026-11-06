@@ -1,0 +1,21 @@
+property	decision	verdict	reason
+P1	W4・Y2	強すぎ（無害）	bot 以外の全ての指摘に重大度を求め、人の指摘を含む。X3 で人の指摘は重大度を問わず戻るので経路は変わらないが、人の指摘に重大度が要るとする決定は無い（Y2 は付ける者だけ）
+P2	Y2・Y4・AGENTS.md:85-87	過不足なし	bot 以外は sevagent、bot は bot。指摘した者と付ける者が別であることも by の欄で足りる
+P3	D1	過不足なし	戻りで drOK が FALSE。mut_SkipDR で空虚でない
+P4	D1・Y1	過不足なし	PR の段で irOK、ready なら irEver。Y1 の「出す＝ready」をそのまま表す
+P5	W4	弱すぎ（自己検査が抜けた）	src ∈ {agent, bot} に限る。自己検査の指摘（HandleDefect 由来と、Review が記録から拾う RS）は src=self で対象外。Q5 は自己検査の欠陥を設計に戻す規則に含め、W4 は MEDIUM 以上を戻すので、self の MEDIUM も戻るはず。own_FlowSelfMed（self の MEDIUM を LOW として載せる変異）で P1〜P15 の全てが通った＝この規則を見る性質が無い。P8 は SelfLow=log で logged を許すので拾わない
+P6	W4「LOW は直さず PR 本文」	過不足なし（「追わない」は落とした）	agent・bot の LOW が logged になる。旧 P6inv（載せ直さない）は落とした。旧検証が強すぎとしたので妥当だが、落とした記録が無い
+P7	X3・D1	過不足なし	
+P8	Q5・W4・Y3	弱すぎ（SelfLow=log の下で）	自己検査の欠陥が fixed か logged であれば通り、重大度との対応を見ない（P5 の穴と同じ）。誤分類で覆われた欠陥を見ることは強くなった（mut_NoRecord・F6off で検出）。SelfLow=log 自体が解釈（rev）
+P9	Q10	過不足なし	やり直しは段を変えない。覆われる経路にも到達する（probe_R2）
+P10	Q9・Y3	過不足なし	止まるとき envU の記録がある。「理由」は抽象化で落ちる
+P11	X2・Q9・AGENTS.md:70	過不足なし	
+P13	AGENTS.md:76・Y3	過不足なし（範囲つき）	レビューと重大度は builder 以外、記録はレビューの前に読まれる（空にされる）。読み手の見落としは F6 として外で測る。v4 では空虚
+P14	D1・Q9・X2	過不足なし（仮定つき）	F1・F2・F5・F7 の下で通る。誤検出が無いことも暗黙の仮定（assumptions.tsv）
+P15	X1	過不足なし	
+C1	X1・Y1	過不足なし（実行可能性）	変異が無い（v4_C1 の破れで空虚でないことは示される）
+C2	W4・Y1	過不足なし（実行可能性）	同上（v4_C2）
+C3	brief（AGENTS.md:70 の理由）	決定に無い・式は弱い（旧 P12 のまま）	担い手の包含で、行動の数は見ない。brief 由来と明記した点は正しい
+C4	Y1 の読み	決定に無い（決定と食い違う側）	ready の間は irOK を求める。Y1 は「出す」の時点を定義しただけで、ready のまま差分を足す経路は V3（answers.txt:20「ready 後の差分の役」）と AGENTS.md:176 が前提にする。C4 は FQ1 (a) を性質に焼いている（qcheck FQ1）
+I1	残るリスクの測定	妥当	付け間違いだけで破れ（decidedNoSevErr で通る）、性質でなく測定と分けたのは正しい。範囲は「logged のままマージ」だけで、レビューの見逃し（latent のままマージ）は測らない
+I2	残るリスクの測定	妥当	誤分類だけで破れる（decidedNoMis で通る）

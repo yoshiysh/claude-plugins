@@ -1,0 +1,79 @@
+check	kind	states	result	property	exp_states	exp_result	exp_note
+decided_P1	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P2	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P3	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P4	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P5	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P6	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P7	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P8	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P9	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P10	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P11	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P13	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P14	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_P15	rerun	91844	pass	-	91844	pass	性質（決定）
+decided_C1	rerun	91844	pass	-	91844	pass	実行可能性の制約
+decided_C2	rerun	91844	pass	-	91844	pass	実行可能性の制約
+decided_C3	rerun	91844	pass	-	91844	pass	実行可能性の制約
+decided_C4	rerun	1163	fail	Invariant C4 is violated	1367	fail	実行可能性の制約; Invariant C4 is violated; 決定から一意に導けない: FQ1
+decided_I1	rerun	2509	fail	Invariant I1 is violated	2283	fail	残るリスクの測定; Invariant I1 is violated; 残るリスク: 重大度の付け間違い（SevErr）で真の MEDIUM が LOW として
+decided_I2	rerun	81	fail	Action property I2 is violated	83	fail	残るリスクの測定; Action property I2 is violated; 残るリスク: 欠陥を除けない環境と誤分類すると報告して止まる。分類と理由は報
+assume_F1off_P14	rerun	72194	fail	Temporal properties were violated	72194	fail	性質（決定）; Temporal properties were violated; F1（修正が欠陥を持ち込むのは有限回）を外すと終端に到達しない。W4 は回
+assume_F2off_P14	rerun	86056	fail	Temporal properties were violated	86056	fail	性質（決定）; Temporal properties were violated; F2（環境の失敗は有限回）を外すと終端に到達しない（除ける環境の失敗のやり
+assume_F3off_P14	rerun	91844	pass	-	91844	pass	性質（決定）; F3 は決定どおりの版では要らない: 人の指摘は必ず直る（X3）ので、同じ欠陥を繰り返し指摘する経路が無い
+assume_F5off_P14	rerun	82676	fail	Temporal properties were violated	82676	fail	性質（決定）; Temporal properties were violated; F5（誤分類は有限回）を外すと終端に到達しない（除けない原因や欠陥を除ける
+assume_F6off_P8	rerun	2332	fail	Invariant P8 is violated	2621	fail	性質（決定）; Invariant P8 is violated; F6（記録を読んだレビュー役が誤分類を見落とさない）を外すと P8 が破れる。Y3 の記録と
+v4_assume_F3off_P14	rerun	165238	fail	Temporal properties were violated	165238	fail	性質（決定）; Temporal properties were violated; v4 では F3 が要る: 人の LOW を直さず PR 本文に載せるので
+v4_P1	rerun	106	fail	Action property P1 is violated	115	fail	性質（決定）; Action property P1 is violated; 未定ゆえ非決定: 設計段・自己検査・人の指摘に重大度を付ける者が無い（agent
+v4_P2	rerun	106	fail	Invariant P2 is violated	102	fail	性質（決定）; Invariant P2 is violated; v4 より後の決定（Y2）。v4 は専用の agent を持たず、実装段は diff-ver
+v4_P3	rerun	165238	pass	-	165238	pass	性質（決定）
+v4_P4	rerun	165238	pass	-	165238	pass	性質（決定）
+v4_P5	rerun	165238	pass	-	165238	pass	性質（決定）; 通過: 性質は付いた重大度で書くので、重大度の無い指摘は対象外。v4 の欠陥は P1 に出る
+v4_P6	rerun	165238	pass	-	165238	pass	性質（決定）; 通過: 同上
+v4_P7	rerun	4019	fail	Action property P7 is violated	4043	fail	性質（決定）; Action property P7 is violated; 明示: files.tsv:7 (B) は人の指摘にも W4 を当てる。X3 は
+v4_P8	rerun	7118	fail	Invariant P8 is violated	6980	fail	性質（決定）; Invariant P8 is violated; 未定ゆえ非決定: v4 は環境の判定の記録を持たない（V7）ので、誤分類で覆われた欠陥が r
+v4_P9	rerun	165238	pass	-	165238	pass	性質（決定）
+v4_P10	rerun	177	fail	Action property P10 is violated	170	fail	性質（決定）; Action property P10 is violated; 未定: 除けない失敗の報告に分類の記録が無い（Y3 は v4 より後の決定）
+v4_P11	rerun	1196	fail	Invariant P11 is violated	1191	fail	性質（決定）; Invariant P11 is violated; 未定ゆえ非決定: (7) の「マージ・公開」で登録の前が停止点になりうる（V16）。X2 
+v4_P13	rerun	165238	pass	-	165238	pass	性質（決定）; 通過するが空虚な部分あり: v4 に記録が無いので、記録の読みの条件は常に成り立つ。誤分類の影響は P8 に出る
+v4_P14	rerun	165238	pass	-	165238	pass	性質（決定）
+v4_P15	rerun	17	fail	Invariant P15 is violated	28	fail	性質（決定）; Invariant P15 is violated; 明示: files.tsv:12 (1) の置き場は規模で分かれない。X1 は v4 より
+v4_C1	rerun	4	fail	Invariant C1 is violated	4	fail	実行可能性の制約; Invariant C1 is violated; 明示: 目的の置き場が PR から辿れる場所だが、作業の最初に PR が無い（V7）
+v4_C2	rerun	110	fail	Invariant C2 is violated	111	fail	実行可能性の制約; Invariant C2 is violated; 明示: 設計段の LOW も PR 本文に載せるが PR が無い（V7）
+v4_C3	rerun	165238	pass	-	165238	pass	実行可能性の制約
+v4_C4	rerun	4429	fail	Invariant C4 is violated	4539	fail	実行可能性の制約; Invariant C4 is violated; 決定どおりの版と同じ欠落（FQ1）
+mut_NoRecord_P10	rerun	82	fail	Action property P10 is violated	80	fail	性質（決定）; Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvURetry_P10	rerun	81	fail	Action property P10 is violated	82	fail	性質（決定）; Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_ResumeAfterReport_C3	rerun	80	fail	Invariant C3 is violated	79	fail	実行可能性の制約; Invariant C3 is violated; 変異を検出（狙いの性質で破れた）
+control_mut_ResumeAfterReport_C3	control	91844	pass	-			
+control_mut_EnvURetry_P10	control	91844	pass	-			
+control_mut_NoRecord_P10	control	91844	pass	-			
+probe_R1_logged_self_in_PR	probe	4001	fail	Invariant R1 is violated			
+probe_R2_envR_masks_defect	probe	72	fail	Action property R2 is violated			
+probe_R3_review_reads_record	probe	232	fail	Action property R3 is violated			
+probe_R4_redraft	probe	1331	fail	Action property R4 is violated			
+probe_R5_merged_with_logged	probe	2499	fail	Invariant R5 is violated			
+probe_R6_merged	probe	2218	fail	Invariant R6 is violated			
+probe_R7_reported	probe	81	fail	Invariant R7 is violated			
+probe_R8_human_on_logged	probe	2092	fail	Action property R8 is violated			
+own_FlowSelfMed_P1	own	46106	pass	-			
+own_FlowSelfMed_P2	own	46106	pass	-			
+own_FlowSelfMed_P3	own	46106	pass	-			
+own_FlowSelfMed_P4	own	46106	pass	-			
+own_FlowSelfMed_P5	own	46106	pass	-			
+own_FlowSelfMed_P6	own	46106	pass	-			
+own_FlowSelfMed_P7	own	46106	pass	-			
+own_FlowSelfMed_P8	own	46106	pass	-			
+own_FlowSelfMed_P9	own	46106	pass	-			
+own_FlowSelfMed_P10	own	46106	pass	-			
+own_FlowSelfMed_P11	own	46106	pass	-			
+own_FlowSelfMed_P13	own	46106	pass	-			
+own_FlowSelfMed_P14	own	46106	pass	-			
+own_FlowSelfMed_P15	own	46106	pass	-			
+own_FlowOpenChk_P8	own	106798	pass	-			
+own_FlowOpenChk_P14	own	106798	fail	Temporal properties were violated			
+own_FlowOpenChk_SelfDesign_P14	own	32774	pass	-			
+own_FlowFP_P8	own	261304	pass	-			
+own_FlowFP_P14	own	261304	fail	Temporal properties were violated			
+probe_R9_selfmed_logged	probe	244	fail	Action property R9 is violated			

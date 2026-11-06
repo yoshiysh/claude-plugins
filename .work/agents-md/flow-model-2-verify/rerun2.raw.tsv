@@ -1,0 +1,24 @@
+check	kind	states	result	property	exp_states	exp_result	exp_note
+decidedSelfDesign_P1	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P2	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P3	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P4	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P5	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P6	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P7	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P8	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P9	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P10	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P11	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P13	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P14	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P15	rerun2	22048	pass	-	22048	pass	性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C1	rerun2	22048	pass	-	22048	pass	実行可能性の制約; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C2	rerun2	22048	pass	-	22048	pass	実行可能性の制約; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C3	rerun2	22048	pass	-	22048	pass	実行可能性の制約; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C4	rerun2	1224	fail	Invariant C4 is violated	1492	fail	実行可能性の制約; Invariant C4 is violated; 決定から一意に導けない: FQ1
+decidedRedraft_C4	rerun2	91844	pass	-	91844	pass	実行可能性の制約; FQ1 (a)（Redraft=TRUE）で通過
+decidedRedraft_P4	rerun2	91844	pass	-	91844	pass	性質（決定）; FQ1 (a) でも P4 は保たれる
+decidedRedraft_P14	rerun2	91844	pass	-	91844	pass	性質（決定）; FQ1 (a) でも終端に到達
+decidedNoSevErr_I1	rerun2	32236	pass	-	32236	pass	残るリスクの測定; 付け間違いが無ければ I1 は通る（I1 の破れの原因は SevErr だけ）
+decidedNoMis_I2	rerun2	32414	pass	-	32414	pass	残るリスクの測定; 誤分類が無ければ I2 は通る
