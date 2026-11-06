@@ -1,0 +1,198 @@
+id	doc:line	req_id	kind	condition	outcome	note
+DX-001	docs/requirements/requester.md:156	PR-REQUESTER-001	stop-blocked	依頼文が、既存コードの挙動説明・文書を伴わない実装や修正・規格への適合性評価・生成文書に基づく実装のいずれかを求めているならば	システムは文書の作成に入ってはならない	結果欠け: 依頼者へ返す内容は本項目に無く TBD-RREQUESTER-012（blocking=false）が未決。判定に迷う場合は PR-REQUESTER-037・040 を参照
+DX-002	docs/requirements/requester.md:141	PR-REQUESTER-037	hold	実行主体の言語理解による判定に迷う場合	システムはその判定の結論を定めてはならない	適用対象は PR-REQUESTER-001・007・013 の判定（共通の扱い節）
+DX-003	docs/requirements/requester.md:145	PR-REQUESTER-040	ask	実行主体の言語理解による判定に迷う場合	システムは判定の対象を依頼者へ示して確認しなければならない	結果欠け: 確認への依頼者の応答を受けたあとの扱いは本項目に無い。示す情報の内訳は TBD-RREQUESTER-017（blocking=false。6 文書の本文に参照元なし）
+DX-004	docs/requirements/requester.md:186	PR-REQUESTER-005	ask	決まっていないと文書の作成に着手できない論点がある間	聞き返しの周回の上限に達するまで、その論点を依頼者へ尋ねなければならない	「聞き返しの周回」は flow.md の用語定義に無い（flow.md の「周回」は初稿と未確定事項を示す中断点から同じ中断点へ戻る 1 巡。上限は SP-FLOW-024 の作り直しの実施回数 2 回）
+DX-005	docs/requirements/requester.md:192	PR-REQUESTER-007	hold	依頼者が既に回答した論点について、問いの中身が変わっていないならば	システムは同じ論点を再度尋ねてはならない	回答には決まっていない旨の回答を含む（括弧書き）。判定に迷う場合は PR-REQUESTER-037・040
+DX-006	docs/requirements/requester.md:199	PR-REQUESTER-008	hold	依頼者が問いに対して決まっていない旨を答えたとき	同じ問いへの回答を改めて求めてはならない	問いの言い回しを変えて尋ね直す場合を含む
+DX-007	docs/requirements/requester.md:204	PR-REQUESTER-029	hold	依頼者が問いに対して決まっていない旨を答えたとき	システムはその事項を着手を止める未確定事項として扱ってはならない	外した事項を依頼者へ示すかは TBD-RREQUESTER-013（blocking=false）が未決
+DX-008	docs/requirements/requester.md:210	PR-REQUESTER-009	hold	依頼者が回答していない事項がある間	その事項を推測で埋めた記述を文書に書いてはならない	flow.md は担当外とし authoring.md が扱うと述べる（flow.md 69-70 行）
+DX-009	docs/requirements/requester.md:217	PR-REQUESTER-010	stop-blocked	依頼者が承認の意思を示していない間	システムは生成した文書をファイルとして保存してはならない	条件欠け: 承認が示されないまま時間が経過した場合の扱いは本項目に無い（flow.md では TBD-SFLOW-008）
+DX-010	docs/requirements/requester.md:247	PR-REQUESTER-014	limit	着手を止める未確定事項が残っているならば	それが残っているという事実を依頼者へ明示せずに実行を完了してはならない	完了そのものは禁じていない。consumer.md の PR-CONSUMER-007 は引き渡す文書に着手できない原因となる未確定事項を残してはならないと定める
+DX-011	docs/requirements/requester.md:253	PR-REQUESTER-015	limit	着手を止める未確定事項がある間	システムはその内容を依頼者へ示さなければならない	示す手段・時点は本項目に無い（flow.md の SP-FLOW-016・045 が中断点で示すと定める）
+DX-012	docs/requirements/requester.md:50		limit	聞き返しには上限があり、上限に達してもなお決まらない事項は残りうる。	残っている事実を隠さずに示したうえで実行を終えること	背景節の記述（ID 無し）。上限の値は本節に無い
+DX-013	docs/requirements/requester.md:257	PR-REQUESTER-017	ask	既存の文書を改訂として上書きするとき	上書きであることを依頼者へ示さなければならない	結果欠け: 示したあとの依頼者の応答の扱いは本項目に無い。既存文書の所在が示された場合のモードは flow.md SP-FLOW-010 で未定（TBD-SFLOW-010）
+DX-014	docs/requirements/requester.md:262	PR-REQUESTER-036	stop-blocked	新規に作成する文書と同じパスのファイルが既に存在するならば	システムは保存を行ってはならない	対象は新規に作成する文書
+DX-015	docs/requirements/requester.md:268	PR-REQUESTER-039	ask	新規に作成する文書と同じパスのファイルが既に存在するならば	既存の内容との差分を依頼者へ示して指示を求めなければならない	結果欠け: 指示の集合と指示後の行動は requester.md に無い（flow.md の TBD-SFLOW-021 blocking=true）
+DX-016	docs/requirements/requester.md:273	PR-REQUESTER-018	hold	依頼者の承認を経ていない中間の生成物	対象リポジトリの中に残してはならない	条件欠け: 実行の終了後に残すか消すかは本項目に無い（flow.md の TBD-SFLOW-018 blocking=true）
+DX-017	docs/requirements/requester.md:320	PR-REQUESTER-023	stop-blocked	起動したとき	実行主体の言語理解による判定によって確認しなければならない	確認対象は動的な Workflow の実行と下位 agent の呼び出しの提供の有無。確認結果が不足のときの帰結は PR-REQUESTER-041・024
+DX-018	docs/requirements/requester.md:326	PR-REQUESTER-041	stop-blocked	実行基盤が動的な Workflow の実行または下位 agent の呼び出しを提供していないならば	システムは文書の作成に入ってはならない	
+DX-019	docs/requirements/requester.md:331	PR-REQUESTER-024	stop-blocked	実行基盤が動的な Workflow の実行または下位 agent の呼び出しを提供していないならば	システムは実行できない旨を依頼者へ示さなければならない	結果欠け: 示す内容の内訳は flow.md の TBD-SFLOW-019（blocking=true）
+DX-020	docs/requirements/requester.md:336	PR-REQUESTER-034	limit	下位 agent から規定の形式の結果を得られない状態が続いている間	上限を超えて実行を継続してはならない	上限は SP-FLOW-046（900 秒）・SP-FLOW-047（やり直し 1 回）が定める
+DX-021	docs/requirements/requester.md:343	PR-REQUESTER-025	fail	文書の作成を完了できなかったならば	システムは未完成の文書をファイルとして保存してはならない	
+DX-022	docs/requirements/requester.md:349	PR-REQUESTER-026	fail	文書の作成を完了できなかったならば	システムは完了できなかったことを依頼者へ示さなければならない	結果欠け: そのとき何を示すかは TBD-RREQUESTER-015（blocking=false）
+DX-023	docs/requirements/requester.md:314		limit	本節で言う「規定の形式の結果を得られない」は、応答が返らない場合と、応答は返ったが定めた形式に合わない場合の双方を指す。	両者に対する上限の値は `docs/specifications/flow.md` の SP-FLOW-046（応答を待つ時間の上限）および SP-FLOW-047（やり直す回数の上限）が定める	本節の記述の範囲では列挙は「応答が返らない」「定めた形式に合わない」の 2 つ
+DX-024	docs/requirements/requester.md:80		underspecified	上の流れは、依頼が対象の範囲にあり、実行基盤が要求を満たしている場合のものである。	それ以外の場合の扱いは PR-REQUESTER-001・PR-REQUESTER-041・PR-REQUESTER-024 が定める。	名指しされるのは対象外と実行基盤不足の 3 項目のみ。承認拒否・同名衝突・上限到達・中断・書き込み失敗の分岐は名指しされていない
+DX-025	docs/requirements/requester.md:113		underspecified	依頼者が承認しない旨を示したときにシステムがどう振る舞うかは	`docs/specifications/flow.md` の SP-FLOW-041 および SP-FLOW-042 が定める	結果は仕様側にのみ存在。requester.md の #### PR-REQUESTER-* 33 件に承認拒否を扱う項目は無く、SP-FLOW-041・042 の「実現する要求」は PR-REQUESTER-010 のみ
+DX-026	docs/requirements/consumer.md:145	PR-CONSUMER-007	limit		引き渡す文書に、後続作業者が着手できない原因となる未確定事項を残してはならない	条件欠け（無条件の禁止）。flow.md SP-FLOW-045 は上限到達時に着手不能が残ったまま完成と判定すると定め、SP-FLOW-022・024 の「実現する要求」に本項目が挙がる
+DX-027	docs/requirements/consumer.md:149	PR-CONSUMER-008	underspecified	状態を持つ対象について	振る舞いが定義されていない状況を残してはならない	状態を持つ対象の範囲と定義済みの判定条件は TBD-RCONSUMER-003（blocking=true）が未決
+DX-028	docs/requirements/consumer.md:185	PR-CONSUMER-013	fail	処理を継続できない事象ごとに	そのときの振る舞いと、そこから次に取れる行動を記述しなければならない	生成文書の記述に対する要求
+DX-029	docs/requirements/consumer.md:199	PR-CONSUMER-017	limit	記述した上限または下限を超える値を受け取ったとき	振る舞いを記述しなければならない	生成文書の記述に対する要求
+DX-030	docs/specifications/flow.md:143	SP-FLOW-002	stop-blocked	いずれかを提供していないと判定したならば	文書の作成に入ってはならない	実現: PR-REQUESTER-023・041
+DX-031	docs/specifications/flow.md:144	SP-FLOW-002	ask	判定に迷ったならば	要件を満たすとみなしてはならず、依頼者へ確認しなければならない	結果欠け: 確認への応答を受けたあとの扱いは無い。状態 × イベント表の起動判定中の E3・E8 は「この状態では依頼者の応答を待たない」と記す（488・493 行）
+DX-032	docs/specifications/flow.md:150	SP-FLOW-003	stop-blocked	実行基盤が動的な Workflow の実行または内部の処理単位の呼び出しを提供していないならば	システムは実行できない旨を依頼者へ示さなければならない	結果欠け: 示す内容の内訳は TBD-SFLOW-019（blocking=true）
+DX-033	docs/specifications/flow.md:157	SP-FLOW-004	ask	判定に迷ったならば	システムはその依頼を対象外とみなしてはならず、依頼者へ確認しなければならない	結果欠け: 確認への応答を受けたあとの扱いは無い
+DX-034	docs/specifications/flow.md:162	SP-FLOW-005	stop-blocked	依頼が対象外に当たると判定したならば	システムは文書の作成に入ってはならない	結果欠け: 依頼者へ何を返すかは TBD-RREQUESTER-012。SP-FLOW-002 との評価順は TBD-SFLOW-016（blocking=true）。状態遷移図は起動判定中から中断終了へ遷移（435 行）
+DX-035	docs/specifications/flow.md:122		underspecified	起動時の 2 つの非着手の判定（SP-FLOW-002・SP-FLOW-005）を評価する順序は、上の制約に含めて	この順序は決まっていない	TBD-SFLOW-016（blocking=true）。両方が同時に成立したときに依頼者へ示す内容も未決（tbd.json）
+DX-036	docs/specifications/flow.md:186	SP-FLOW-010	underspecified	1 件以上ある	未定（TBD-SFLOW-010）	結果欠け: 所在を示した既存文書が 1 件以上ある場合のモードとその振る舞いが未決（blocking=true）。表の 2 行目は推測で埋めていないと明記
+DX-037	docs/specifications/flow.md:207	SP-FLOW-013	underspecified	依頼者が既存文書の所在を示したとき	システムはその文書を読み取らなければならない	結果欠け: 読み取れなかったときの結果は本項目と flow.md の状態 × イベント表に無い（elicitation.md の SP-ELICITATION-039 は読み取れない文書の所在を示すと定める）
+DX-038	docs/specifications/flow.md:218	SP-FLOW-014	ask	文書の作成に着手できない論点が 1 件以上ある間	システムは確定情報を尋ねる中断点を設けなければならない	
+DX-039	docs/specifications/flow.md:223	SP-FLOW-015	stop-blocked	確定情報を尋ねる中断点で依頼者の回答を受け取っていない間	システムは文書の生成に入ってはならない	条件欠け: 回答が受け取れないまま時間が経過した場合は TBD-SFLOW-008（blocking=false）
+DX-040	docs/specifications/flow.md:439	SP-FLOW-015	underspecified	確定情報の回答待ち --> 文書生成中 : 回答を受け取る (SP-FLOW-015)		結果欠け: 遷移条件は「回答を受け取る」のみで、論点が解消したかによる分岐は図に無い。確定情報の回答待ちから自己への遷移は図・表に無い。どの論点にも対応づけられない回答の扱いは elicitation.md の TBD-SELICITATION-003
+DX-041	docs/specifications/flow.md:228	SP-FLOW-016	ask	初稿と未確定事項を示す中断点において	着手不能に区分した未確定事項の全件を依頼者へ示さなければならない	進行可能の提示は TBD-SFLOW-024、決めないと決めた事項の提示は TBD-RREQUESTER-013 が未決
+DX-042	docs/specifications/flow.md:236	SP-FLOW-017	hold	依頼者が既に回答した論点について問いの内容が変わっていない間	その論点への回答を中断点で改めて求めてはならない	
+DX-043	docs/specifications/flow.md:238	SP-FLOW-017	ask	判定に迷ったならば	システムは同一の問いとみなしてはならず、依頼者へ確認しなければならない	結果欠け: 確認への応答を受けたあとの扱いは無い
+DX-044	docs/specifications/flow.md:243	SP-FLOW-018	hold	論点が決めないと決めた事項である間	その論点に関する同じ問いへの回答を中断点で改めて求めてはならない	
+DX-045	docs/specifications/flow.md:248	SP-FLOW-019	resume	中断点で未確定事項を依頼者へ示したとき	その未確定事項の識別子と示した問いの内容を提示済みとして記録しなければならない	記録の保持先は本項目に無い
+DX-046	docs/specifications/flow.md:253	SP-FLOW-020	resume	中断点を跨いで実行を継続する間	依頼者へ示した問い・受け取った回答・未確定事項の一覧とその区分・決めないと決めた事項の一覧・提示済みの記録を引き継がなければならない	対象は同一実行の継続。中断終了後に依頼者が実行し直す場合の引き継ぎは本項目に無い
+DX-047	docs/specifications/flow.md:279	SP-FLOW-037	hold	着手不能に区分した未確定事項について依頼者が中断点で決まっていない旨を答えたとき	その未確定事項を未確定事項から外し、決めないと決めた事項として保持規則に変えなければならない	条件は着手不能に区分した未確定事項のみ。進行可能に区分した未確定事項への回答の扱いは flow.md に無い。保持規則の書式は authoring.md SP-AUTHORING-088
+DX-048	docs/specifications/flow.md:281	SP-FLOW-037	ask	判定に迷ったならば	システムはその応答を決まっていない旨の回答とみなしてはならず、依頼者へ確認しなければならない	結果欠け: 確認への応答を受けたあとの扱いは無い。保持規則に変えたことを依頼者へ示すかは TBD-RREQUESTER-013
+DX-049	docs/specifications/flow.md:293	SP-FLOW-024	limit	作り直しの実施回数が 2 回未満である間に、着手不能に区分した未確定事項が 1 件以上あると判定したとき	依頼者の回答を反映した文書の作り直しを行い、作り直しの実施回数に 1 を加えなければならない	上限 2 回は依頼者が定めた値と明記。保存の承認拒否からの作り直しを数えるかは TBD-SFLOW-022
+DX-050	docs/specifications/flow.md:301	SP-FLOW-045	limit	作り直しの実施回数が 2 回に達しても着手不能に区分した未確定事項が 1 件以上残っているならば	システムは残る着手不能の未確定事項の全件を依頼者へ示したうえで実行を完成と判定しなければならない	完成判定後は保存の承認待ちへ遷移（443 行）。consumer.md PR-CONSUMER-007 は引き渡す文書に着手できない原因となる未確定事項を残してはならないと定める
+DX-051	docs/specifications/flow.md:267		underspecified	SP-FLOW-041 による保存の承認拒否からの作り直しは別の経路であり	それを作り直しの実施回数に数えるかは決まっていない（TBD-SFLOW-022）	結果欠け: この経路の反復回数の上限は flow.md に無い（TBD-SFLOW-022 blocking=true）
+DX-052	docs/specifications/flow.md:319	SP-FLOW-027	ask	判定に迷ったならば	システムはその応答を承認とみなしてはならず、依頼者へ確認しなければならない	結果欠け: 確認への応答を受けたあとの扱いは無い
+DX-053	docs/specifications/flow.md:324	SP-FLOW-028	stop-blocked	承認の意思を示す応答を受け取っていない間	システムは文書をファイルとして保存してはならない	条件欠け: 応答が無いまま時間が経過した場合の行き先は TBD-SFLOW-008
+DX-054	docs/specifications/flow.md:328	SP-FLOW-041	retry	依頼者が保存の承認を求める中断点で承認しない旨を示したとき	システムはその理由を依頼者へ尋ねたうえで文書の作り直しへ戻らなければならない	作り直しの実施回数に数えるかは TBD-SFLOW-022。理由を尋ねる問いへの回答待ちは用語定義の 3 種の中断点に挙がらず、状態遷移図は保存の承認待ちから文書生成中へ直接遷移（445 行）
+DX-055	docs/specifications/flow.md:334	SP-FLOW-042	stop-blocked	確定情報を尋ねる中断点・初稿と未確定事項を示す中断点・保存の承認を求める中断点のいずれかで依頼者が実行を終了する意思を示したならば	システムは実行を終了しなければならない	結果欠け: 終了時に依頼者へ示す内容と中間の生成物の扱い（TBD-SFLOW-018）は本項目に無い。E8 が定義済みなのは 3 つの中断点の状態のみ
+DX-056	docs/specifications/flow.md:336	SP-FLOW-042	ask	判定に迷ったならば	終了の意思とみなしてはならず、依頼者へ確認しなければならない	結果欠け: 確認への応答を受けたあとの扱いは無い
+DX-057	docs/specifications/flow.md:341	SP-FLOW-029	underspecified	書き込む先のファイルについて依頼者が所在を示していない間に保存の承認を求めるとき	書き込む先と同じパスのファイルが既に存在するかを確認しなければならない	条件が「所在を示していない間」に限られ、書き込み先の所在が示された場合の確認は本項目に無い（モードは TBD-SFLOW-010）
+DX-058	docs/specifications/flow.md:346	SP-FLOW-030	stop-blocked	書き込む先と同じパスのファイルが既に存在すると判定したならば	保存を行ってはならず、既存の内容と書き込む内容との差分を依頼者へ示して指示を求めなければならない	結果欠け: 依頼者が示しうる指示の集合と指示後の行動は TBD-SFLOW-021（blocking=true）
+DX-059	docs/specifications/flow.md:530	SP-FLOW-030	underspecified	保存の承認待ち | E5 | 準正常系 | 保存の承認待ち	指示を受けたあとの遷移は TBD-SFLOW-021	結果欠け: 指示後の遷移先。自己遷移として表に記載
+DX-060	docs/specifications/flow.md:352	SP-FLOW-031	underspecified	モードが既存文書のレビューまたは改訂である間に保存の承認を求めるとき	システムは上書きであることを依頼者へ示さなければならない	条件欠け: 本項目が参照する「既存文書のレビューまたは改訂」モードに決まる条件は SP-FLOW-010 で未定（TBD-SFLOW-010）
+DX-061	docs/specifications/flow.md:357	SP-FLOW-032	hold	実行の途中で中間の生成物を作るとき	システムはそれを対象リポジトリの外に置かなければならない	結果欠け: 実行の終了後に残すか消すかは TBD-SFLOW-018（blocking=true）
+DX-062	docs/specifications/flow.md:374	SP-FLOW-043	fail	保存の書き込みに失敗したとき	システムは既に書き込みを終えたファイルを削除してはならない	結果欠け: 書き込みに失敗したファイル自体の扱いは本項目に無い。状態は保存中から中断終了（448 行）
+DX-063	docs/specifications/flow.md:378	SP-FLOW-044	fail	保存の書き込みに失敗したとき	どのファイルまで書き込みを終えたかを依頼者へ示さなければならない	示す内容として規定されるのは書き込みを終えたファイルの範囲のみ
+DX-064	docs/specifications/flow.md:389	SP-FLOW-046	limit	応答を待つ時間が 900 秒を超えた時点	その呼び出しを打ち切らなければならない	本文に「現行の実装にこの打ち切りは存在しない — 実装時に新設する項目」と記載。打ち切りにやり直しを適用するかは TBD-SFLOW-023（blocking=true）
+DX-065	docs/specifications/flow.md:397	SP-FLOW-047	retry	内部の処理単位が規定の形式に合わない結果を返したとき	システムは同じ呼び出しのやり直しを 1 回を超えて行ってはならない	やり直しは「行ってよい」（許容）で必須ではない。SP-FLOW-046 の打ち切りを起動条件に含めるかは TBD-SFLOW-023。条件は形式不一致のみで、応答が返らない場合の扱いは未決
+DX-066	docs/specifications/flow.md:404	SP-FLOW-033	fail	内部の処理単位から規定の形式の結果を得られない状態が SP-FLOW-046 または SP-FLOW-047 が定める上限を超えたならば	システムは文書の作成を完了せずに実行を終了しなければならない	状態 × イベント表の E4 は起動判定中・情報収集中・確定情報の回答待ち・文書生成中・初稿と未確定事項への回答待ち・保存の承認待ちで中断終了、保存中は発生しない
+DX-067	docs/specifications/flow.md:409	SP-FLOW-034	fail	文書の作成を完了できなかったならば	システムは作成の途中の文書をファイルとして保存してはならない	対象は承認を得る前の作成途中の文書。承認後の書き込み失敗は SP-FLOW-043
+DX-068	docs/specifications/flow.md:416	SP-FLOW-035	fail	文書の作成を完了できなかったならば	どの中断点または処理の段階で実行が止まったかを依頼者へ示さなければならない	結果欠け: 示す内容の全体は TBD-RREQUESTER-015
+DX-069	docs/specifications/flow.md:384		underspecified	検査を担う内部の処理単位が定めた形式に合わない結果を返したときの再実施と、その再実施をやり直す回数の上限は	`docs/specifications/verification.md` が定める。**その再実施の回数は SP-FLOW-047 の上限に数えない。**	結果欠け: verification.md の SP-VERIFICATION-044（再実施後も不一致なら未実施として記録）が SP-FLOW-033 の終了に至るかは flow.md に無い。flow.md に検査不能・残った指摘を受け取る項目は無い（検査・反復・改稿・残った指摘を grep した範囲）
+DX-070	docs/specifications/flow.md:504		underspecified	確定情報の回答待ち | E3 | 異常系	❌ 未定義（TBD-SFLOW-008）	E3 = 依頼者が応答しないまま時間が経過する。結果欠け: 次の状態と振る舞い（TBD-SFLOW-008 blocking=false）
+DX-071	docs/specifications/flow.md:520		underspecified	初稿と未確定事項への回答待ち | E3 | 異常系	❌ 未定義（TBD-SFLOW-008）	結果欠け: 次の状態と振る舞い
+DX-072	docs/specifications/flow.md:528		underspecified	保存の承認待ち | E3 | 異常系	❌ 未定義（TBD-SFLOW-008）	結果欠け: 次の状態と振る舞い
+DX-073	docs/specifications/flow.md:559		underspecified	依頼者が中断点で応答しないまま時間が経過する	未定	異常系表の行。「未定と書いた 1 行を推測で埋めていない」と明記（561 行）。elicitation.md・verification.md は応答なしの扱いを flow.md が持つとする
+DX-074	docs/specifications/flow.md:488		underspecified	起動判定中 | E3 | — | — | 発生しない（根拠: この状態では依頼者の応答を待たない）		SP-FLOW-002・004 は判定に迷ったとき依頼者へ確認すると定める一方、起動判定中・情報収集中・文書生成中の E3・E8 は「依頼者の応答を待たない」と記す（488・493・496・501・512・517 行）。verification.md SP-VERIFICATION-045 と elicitation.md SP-ELICITATION-046 の確認に対応する flow.md の状態・イベントは無い
+DX-075	docs/specifications/flow.md:481		underspecified	外部の障害・権限の変化は他にも想定できる。	網羅の主張は、ここに列挙した軸に対してのみ成り立つ。	結果欠け: 列挙外のイベント（外部障害・権限変化）の扱いは flow.md に無い
+DX-076	docs/specifications/flow.md:473		underspecified	E5 書き込む先と同じパスのファイルが既に存在する		E5 の定義済み行は保存の承認待ちのみ（530 行）。情報収集中・文書生成中等は「保存を行わない」で発生しないとされる
+DX-077	docs/specifications/flow.md:554		underspecified	（後から反映する経路の有無は TBD-SFLOW-020）		結果欠け: 決めないと決めた事項に後から依頼者が決めた内容を反映する経路（TBD-SFLOW-020 blocking=true）
+DX-078	docs/specifications/flow.md:557	SP-FLOW-045	resume	作り直しの実施回数が 2 回に達しても着手不能が残る	依頼者が次の実行で決める	次の実行が受け取る入力・既存文書の所在を示した場合のモードは SP-FLOW-010 で未定（TBD-SFLOW-010）。SP-FLOW-020 の引き継ぎは同一実行内
+DX-079	docs/specifications/flow.md:133		underspecified	上の 3 つ以外に依存する外部システムがあるかどうかは決まっていない		TBD-RREQUESTER-014（blocking=false）。結果欠け: 外部システム障害時の振る舞いの有無
+DX-080	docs/specifications/verification.md:97		fail	実施できない検査が 1 件あることは反復の打ち切りにならず（SP-VERIFICATION-002）、稿の検査状態が検査不能になるのは、実施できた検査が 1 件も無いときに限る（SP-VERIFICATION-041）。	一部の検査を実施できなかった稿も引き渡される。	検査不能の稿を引き渡すか終了するかは verification.md に記述が無い（SP-VERIFICATION-041 は改稿を行わず反復を終了すると定める）
+DX-081	docs/specifications/verification.md:111	SP-VERIFICATION-002	fail	1 つの検査が結果を返さなかったならば	システムは他の検査を実施しなければならない	
+DX-082	docs/specifications/verification.md:119	SP-VERIFICATION-004	fail	検査記録において	システムは未実施の検査を指摘 0 件の検査と同じ値で表してはならない	未実施の表し方は TBD-SVERIFICATION-013（blocking=true）
+DX-083	docs/specifications/verification.md:228	SP-VERIFICATION-023	fail	検査の対象に照合の相手が含まれていないならば	SP-VERIFICATION-018・SP-VERIFICATION-019・SP-VERIFICATION-021 の 3 つの検査を未実施として検査記録に記さなければならない	
+DX-084	docs/specifications/verification.md:144	SP-VERIFICATION-043	hold	実行主体の言語理解によって判定できなかったならば	システムはその 2 つを同一とみなしてはならない	
+DX-085	docs/specifications/verification.md:150	SP-VERIFICATION-045	ask	実行主体の言語理解によって判定できなかったならば	システムはその 2 つを依頼者へ示して確認を求めなければならない	結果欠け: 確認を求めた検査がその回に何を返すか、応答を待つ間の反復の扱い、確認を挟んだ回を往復に数えるかは TBD-SVERIFICATION-012（blocking=true）。確認の提示と応答の受け取りは工程側（flow.md）と本文書 61 行にあるが、flow.md に対応する項目は無い
+DX-086	docs/specifications/verification.md:168	SP-VERIFICATION-010	hold	稿に未確定事項として既に起票されている論点か、決めないと決めた事項として保持規則に書かれた論点である間	システムは実行可能性の指摘を返してはならない	同じ論点か判定できないときは SP-VERIFICATION-043・045
+DX-087	docs/specifications/verification.md:163	SP-VERIFICATION-009	hold	実行可能性の判定で着手できないと判定したならば	その箇所の論点を未確定事項として起票することを求める指摘を返さなければならない	起票は改稿が行う。着手可否の区分と依頼者への提示は flow.md（本文に明記）
+DX-088	docs/specifications/verification.md:275	SP-VERIFICATION-031	retry	指摘の直し方が文書を示しているならば	システムはその文書に対して、その指摘を解消する改稿を行わなければならない	改稿を必須とする指摘の区分は TBD-SVERIFICATION-007、同一箇所に両立しない書き換えを求める指摘の扱いは TBD-SVERIFICATION-014
+DX-089	docs/specifications/verification.md:284	SP-VERIFICATION-033	retry	検査と改稿の往復の回数が 2 回に達していない間に改稿を行ったとき	システムは改稿後の稿に対して検査を再び実施しなければならない	再び実施する検査の範囲は TBD-SVERIFICATION-003（blocking=false）
+DX-090	docs/specifications/verification.md:288	SP-VERIFICATION-034	limit	検査と改稿の往復を 2 回行ったならば	システムは検査を行わずに反復を終了しなければならない	2 回目の改稿を終えた時点で終了し、引き渡す稿は検査を受けていない（268-272 行）
+DX-091	docs/specifications/verification.md:293	SP-VERIFICATION-035	limit	反復の回数が上限に達したならば	システムは 2 回目の検査が返した指摘を残った指摘として記録しなければならない	結果欠け: 記録以外（依頼者への提示・flow.md への受け渡し）は本項目に無い。保持先と項目は TBD-SVERIFICATION-010、改稿で書き換えられた箇所の除外は TBD-SVERIFICATION-015
+DX-092	docs/specifications/verification.md:270		limit	上限に達した時点で記録の対象となるのは 2 回目の検査が返した指摘であり	2 回目の改稿がそれを書き換えたかどうかを検査によって確かめる機会は無い。	本文に記載された事実
+DX-093	docs/specifications/verification.md:302	SP-VERIFICATION-037	hold	指摘を解消している間	照合元の入力のいずれにも根拠が無い記述を書いてはならない	結果欠け: 根拠が無い場合に何をするかは本項目に無い（authoring.md SP-AUTHORING-079 は未確定事項として起票すると定める）
+DX-094	docs/specifications/verification.md:310	SP-VERIFICATION-038	stop-blocked	検査の対象となる文書が 1 件も無いならば	システムは検査を実施してはならない	状態 × イベント表では検査不能へ遷移し SP-VERIFICATION-041 が反復を終了する（359 行）。依頼者への提示は本項目に無い
+DX-095	docs/specifications/verification.md:313	SP-VERIFICATION-039	retry	検査の結果が定めた形式に合わないならば	システムはその検査の呼び出しを 1 回だけやり直さなければならない	条件欠け: 検査 1 回の結果が満たすべき形式は TBD-SVERIFICATION-009（blocking=true）。flow.md SP-FLOW-047 のやり直しは「超えて行ってはならない」で、ここは「1 回だけやり直さなければならない」。flow.md はこの再実施を SP-FLOW-047 の上限に数えないと定める
+DX-096	docs/specifications/verification.md:319	SP-VERIFICATION-044	fail	SP-VERIFICATION-039 が定めるやり直しの結果も定めた形式に合わないならば	システムはその検査を未実施として検査記録に記さなければならない	未実施の記録は検査記録に残るのみ。依頼者への提示は本項目に無い
+DX-097	docs/specifications/verification.md:323	SP-VERIFICATION-041	fail	実施できた検査が 1 件も無いならば	システムは改稿を行わずに反復を終了しなければならない	結果欠け: 反復終了後の稿を受けた実行の継続・中断・完了は flow.md の担当とされる（58 行）が flow.md に項目が無い。分母となる検査の集合は TBD-SVERIFICATION-010
+DX-098	docs/specifications/verification.md:366		underspecified	未検査 | 同一の対象を指すかどうかを判定できない | 準正常系 | 未確定（TBD-SVERIFICATION-012）	❌ 未定義（TBD-SVERIFICATION-012）	結果欠け: 次の状態と検査がその回に返す内容
+DX-099	docs/specifications/verification.md:374		underspecified	指摘あり | 同じ指摘が解消されないまま再び返る | 準正常系 | 未確定（TBD-SVERIFICATION-006）	❌ 未定義（TBD-SVERIFICATION-006）	結果欠け: 振る舞いと遷移先。同じ指摘と判定する条件も未決（TBD-SVERIFICATION-006 blocking=true）。上限 2 往復の規定（SP-VERIFICATION-034）との関係は本文に無い
+DX-100	docs/specifications/verification.md:376		underspecified	指摘あり | 2 件以上の指摘が同一の箇所に対して両立しない書き換えを求める | 準正常系 | 未確定（TBD-SVERIFICATION-014）	❌ 未定義（TBD-SVERIFICATION-014）	結果欠け: 扱い（TBD-SVERIFICATION-014 blocking=false）
+DX-101	docs/specifications/verification.md:432	PR-CONSUMER-032	underspecified	PR-CONSUMER-032 | SP-VERIFICATION-010		参照先の PR-CONSUMER-032 は consumer.md の #### 見出しに無い（#### 見出しで定義されるのは 001-013・015・017-031）。決めないと決めた事項の検査を扱うトレーサビリティ行
+DX-102	docs/specifications/elicitation.md:139	SP-ELICITATION-009	hold	入力のどの記述からも判定できない観点を	システムは不明と判定しなければならない	不明のまま残った観点のその後は TBD-SELICITATION-010（blocking=false）
+DX-103	docs/specifications/elicitation.md:143	SP-ELICITATION-010	hold	システムは、不明と判定した観点を	該当または非該当が確定したものとして扱ってはならない	不明のまま残った観点のその後の扱いは TBD-SELICITATION-010
+DX-104	docs/specifications/elicitation.md:206	SP-ELICITATION-017	ask	未確定の事項が文書の作成に着手できない原因である間	システムはその事項について問いを作らなければならない	問いを繰り返す周回の上限は flow.md が定める（括弧書き）
+DX-105	docs/specifications/elicitation.md:218	SP-ELICITATION-024	hold	依頼者が既に回答した論点について、その論点の中身が変わっていない間	システムは同じ論点の問いを再び作ってはならない	
+DX-106	docs/specifications/elicitation.md:222	SP-ELICITATION-025	retry	既に回答を得た事項の論点の中身が変わったとき	システムはその事項を未確定の事項として起こし直さなければならない	起こし直した事項が元の識別子を引き継ぐかは TBD-SELICITATION-012。保留の事項にも状態 × イベント表で適用される（342 行）
+DX-107	docs/specifications/elicitation.md:226	SP-ELICITATION-026	hold	保留となった事項について	システムは同じ論点の問いを再び作ってはならない	
+DX-108	docs/specifications/elicitation.md:244	SP-ELICITATION-029	hold	未確定の事項の論点に対応づけられる決まっていない旨の回答を受け取ったとき	システムはその事項を保留としなければならない	状態 × イベント表は確定の事項への決まっていない旨の回答（確定 × E2）も保留へ遷移（334 行）
+DX-109	docs/specifications/elicitation.md:252	SP-ELICITATION-040	hold	事項を保留としたとき	システムはその事項が保留であることを記録しなければならない	記録の保持先は本項目に無い
+DX-110	docs/specifications/elicitation.md:256	SP-ELICITATION-041	hold	保留となった事項を	システムは文書の作成に着手できない原因として扱ってはならない	
+DX-111	docs/specifications/elicitation.md:260	SP-ELICITATION-042	hold	システムは、保留となった事項を	決めないと決めた事項として文書の作成へ引き渡さなければならない	
+DX-112	docs/specifications/elicitation.md:186	SP-ELICITATION-045	hold	判定が付かないとき	システムは次の表の右の欄に挙げた扱いを採ってはならない	対象は論点の同一・関心事の同一・論点の中身の変化・回答と論点の対応づけ・回答の種別の 5 つ
+DX-113	docs/specifications/elicitation.md:199	SP-ELICITATION-046	ask	判定が付かないとき	システムはその判定の対象を依頼者へ示して確認を求めなければならない	結果欠け: 確認への回答の扱いは TBD-SELICITATION-017（blocking=true）
+DX-114	docs/specifications/elicitation.md:232	SP-ELICITATION-049	underspecified	確定した事項の値と異なる回答を依頼者から受け取ったとき	扱いは TBD-SELICITATION-019	結果欠け: どちらの値を採るか。要求文書に当該要求が無い旨が tbd.json に記載（TBD-SELICITATION-019 blocking=true）
+DX-115	docs/specifications/elicitation.md:274	SP-ELICITATION-036	stop-blocked	着手を止める未確定の事項が 0 件である間	システムは問いを作ってはならない	
+DX-116	docs/specifications/elicitation.md:278	SP-ELICITATION-037	hold	どの事項の論点にも対応づけられない回答を受け取ったとき	システムはその回答の内容を事項の値として確定させてはならない	結果欠け: 確定させないこと以外の扱いは TBD-SELICITATION-003（blocking=true）
+DX-117	docs/specifications/elicitation.md:281	SP-ELICITATION-038	ask	分割単位の名前が衝突したとき	システムは衝突した名前を依頼者へ示さなければならない	結果欠け: 名前を示したあとに分割案をどうするかは TBD-SELICITATION-018（blocking=true）。SP-ELICITATION-014 は同一名を 2 つ以上の分割単位に与えることを禁じる
+DX-118	docs/specifications/elicitation.md:286	SP-ELICITATION-039	fail	依頼者が所在を示した文書を読み取れないならば	システムは読み取れなかった文書の所在を依頼者へ示さなければならない	結果欠け: 示したあとの継続・終了・依頼者の回答の扱いは本項目と elicitation.md の状態 × イベント表に無い。ディレクトリを所在として示した場合は TBD-SELICITATION-015（blocking=true）
+DX-119	docs/specifications/elicitation.md:265		underspecified	依頼者がファイルではなくディレクトリを所在として示したときの扱いは	TBD-SELICITATION-015 が扱う。	結果欠け: 扱い全体
+DX-120	docs/specifications/elicitation.md:297		underspecified	判定が付かないことの確認へ依頼者が回答する | 準正常系	未定	TBD-SELICITATION-017（blocking=true）
+DX-121	docs/specifications/elicitation.md:271		underspecified	実行の打ち切り・実行基盤の不足・依頼者が応答しないまま時間が経過したときの扱いは	`docs/specifications/flow.md` が持つ。	flow.md の依頼者の無応答は未定義（TBD-SFLOW-008）
+DX-122	docs/specifications/elicitation.md:329		underspecified	未確定 | E4 | 準正常系 | 未確定	❌ 未定義（TBD-SELICITATION-003）	E4 = どの事項の論点にも対応づけられない回答を受け取る。結果欠け: 確定させないこと以外の扱い
+DX-123	docs/specifications/elicitation.md:332		underspecified	未確定 | E7 | 準正常系 | 未確定	❌ 未定義（TBD-SELICITATION-017）	E7 = 判定が付かないことの確認へ依頼者が回答する。結果欠け: 回答の扱い
+DX-124	docs/specifications/elicitation.md:333		underspecified	確定 | E1 | 準正常系 | 未確定（TBD-SELICITATION-019）	❌ 未定義（TBD-SELICITATION-019）	E1 = その事項の論点に対応づけられる値を定める回答を受け取る。結果欠け: 次の状態（表は未確定と仮記し TBD-SELICITATION-019 を付す）
+DX-125	docs/specifications/elicitation.md:336		underspecified	確定 | E4 | 準正常系 | 確定	❌ 未定義（TBD-SELICITATION-003）	結果欠け: 確定させないこと以外の扱い
+DX-126	docs/specifications/elicitation.md:337		underspecified	確定 | E5 | 準正常系 | 未確定（TBD-SELICITATION-019）	❌ 未定義（TBD-SELICITATION-019）	E5 = 確定した内容と異なる回答を受け取る。結果欠け: どちらの値を採るか
+DX-127	docs/specifications/elicitation.md:339		underspecified	確定 | E7 | 準正常系 | 確定	❌ 未定義（TBD-SELICITATION-017）	結果欠け: 確認への回答の扱い
+DX-128	docs/specifications/elicitation.md:340		underspecified	保留 | E1 | 準正常系 | 保留	❌ 未定義（TBD-SELICITATION-003。保留の事項は問いを再び作らないが、その論点に対応づけられる回答は届きうる）	結果欠け: 保留の事項に値を定める回答が届いたときの扱い。TBD-SELICITATION-003 の本文が挙げるのは「問いを出していない事項」と「どの論点にも対応づけられない回答」で、保留の事項は挙がっていない。flow.md の TBD-SFLOW-020 は決めないと決めた事項に後から依頼者が決めた内容を反映する経路を扱う
+DX-129	docs/specifications/elicitation.md:341		underspecified	保留 | E2 | 準正常系 | 保留	❌ 未定義（TBD-SELICITATION-003。同上）	結果欠け: 保留の事項に決まっていない旨の回答が再び届いたときの扱い
+DX-130	docs/specifications/elicitation.md:343		underspecified	保留 | E4 | 準正常系 | 保留	❌ 未定義（TBD-SELICITATION-003）	結果欠け: 確定させないこと以外の扱い
+DX-131	docs/specifications/elicitation.md:346		underspecified	保留 | E7 | 準正常系 | 保留	❌ 未定義（TBD-SELICITATION-017）	結果欠け: 確認への回答の扱い
+DX-132	docs/specifications/authoring.md:168	SP-AUTHORING-015	fail	1 つの機能にしか生じない異常系は	その機能を扱う生成文書に置かなければならない	生成文書の記述の置き場
+DX-133	docs/specifications/authoring.md:171	SP-AUTHORING-016	fail	2 つ以上の機能に共通して生じる異常系は	生成文書一式のうち共通の機構を扱う 1 つの生成文書に置かなければならない	生成文書の記述の置き場
+DX-134	docs/specifications/authoring.md:202	SP-AUTHORING-024	limit	数量・時間・件数・容量に上限または下限を定めるならば	その範囲外の値を受け取ったならばどう振る舞うかを書かなければならない	範囲外の値の受け取りは SP-AUTHORING-028 の不正入力に含まれる（本文）
+DX-135	docs/specifications/authoring.md:207	SP-AUTHORING-025	hold	閾値が入力から確定していない場合	生成文書は数値を書かず、その閾値を未確定事項として起票しなければならない	
+DX-136	docs/specifications/authoring.md:219	SP-AUTHORING-028	underspecified	失敗・不正入力・外部障害を扱う要求文および仕様項目は	条件節のパターンの集合のうち望ましくない事象に対応するパターンで書かなければならない	結果欠け: パターンの集合と書式は TBD-SAUTHORING-007（blocking=true）
+DX-137	docs/specifications/authoring.md:480	SP-AUTHORING-079	hold	SP-AUTHORING-030 が定める 3 つの出所のいずれにも根拠が無い事項がある場合	生成文書は推測した記述を書かず、その事項を未確定事項として起票しなければならない	
+DX-138	docs/specifications/authoring.md:343	SP-AUTHORING-053	hold	生成文書に開いている未確定事項があるならば	その未確定事項は、生成文書を保存したファイルの拡張子 `.md` を `.tbd.json` に替えた、同じ場所のファイルに置かなければならない	flow.md の用語定義では決めないと決めた事項は未確定事項の区分ではなく、保持規則として本文に置く（SP-AUTHORING-088）
+DX-139	docs/specifications/authoring.md:357	SP-AUTHORING-055	hold	要求文書の着手不能に区分した未確定事項は	その要求文書の保存先の INDEX に全件を並べなければならない	条件欠け: 仕様書の着手不能の未確定事項を INDEX に並べるかは SP-AUTHORING-055・065 に書かれていない（055 は着手不能以外を並べてはならないと定め、065 の項目に着手不能の一覧は無い）
+DX-140	docs/specifications/authoring.md:376	SP-AUTHORING-088	hold	決めないと決めた事項に関係する要求文および仕様項目は	その事項の裁定が下るまで何をしてはならないかを定める規範文（保持規則）として書かなければならない	結果欠け: 裁定をどこへ起票・反映するかは 6 文書に記述が無い（「Issue」を grep した範囲）。反映経路は flow.md TBD-SFLOW-020（blocking=true）
+DX-141	docs/specifications/authoring.md:127	SP-AUTHORING-009	underspecified	該当が 0 件で未判定の観点が残る場合	扱いは TBD-SAUTHORING-018	結果欠け: リスクと影響の章を置くか、未判定の観点を後続作業者へ伝える置き場（TBD-SAUTHORING-018 blocking=true）
+DX-142	docs/specifications/authoring.md:505		underspecified	扱う対象に状態遷移があるかを判定できない | 異常系 | 未定義	未定義（`docs/requirements/consumer.md` の TBD-RCONSUMER-003）	結果欠け: 振る舞い
+DX-143	docs/specifications/authoring.md:506		underspecified	ある語が曖昧語の集合に属するかを判定できない | 異常系 | 未定義	未定義（TBD-SAUTHORING-001）	結果欠け: 振る舞い。TBD-SAUTHORING-001 にいずれの一覧にも属さない語を検出したときの扱いも含まれる（blocking=true）
+DX-144	docs/specifications/authoring.md:507		underspecified	ある項目が 2 つ以上の動作を含むかを判定できない | 異常系 | 未定義	未定義（TBD-SAUTHORING-002）	結果欠け: 振る舞い
+DX-145	docs/specifications/authoring.md:508		underspecified	根拠の記述が定めた上限に収まらない | 異常系 | 未定義	未定義（TBD-SAUTHORING-006）	結果欠け: 上限の値と超えたときの扱い
+DX-146	docs/specifications/authoring.md:509		underspecified	ある条件節が条件節のパターンの集合に属するかを判定できない | 異常系 | 未定義	未定義（TBD-SAUTHORING-007）	結果欠け: 振る舞い
+DX-147	docs/specifications/authoring.md:510		underspecified	根拠の併記を機械が同定できない | 異常系 | 未定義	未定義（TBD-SAUTHORING-009）	結果欠け: 振る舞い
+DX-148	docs/specifications/authoring.md:511		underspecified	該当と判定された観点が 0 件で、未判定の観点が残る | 異常系 | 未定義	未定義（TBD-SAUTHORING-018）	結果欠け: 振る舞い
+DX-149	docs/specifications/authoring.md:512		underspecified	ある観点がその生成文書の関心事に関わるかを判定できない | 異常系 | 未定義	未定義（TBD-SAUTHORING-005）	結果欠け: 振る舞い
+DX-150	docs/specifications/authoring.md:513		underspecified	発生しない組み合わせ以外の行に、定義されているかどうかを何と書くかが決まらない | 異常系 | 未定義	未定義（TBD-SAUTHORING-012）	結果欠け: 振る舞い
+DX-151	docs/specifications/authoring.md:514		underspecified	生成文書を書き出す先のディレクトリとファイル名が決まらない | 異常系 | 未定義	未定義（TBD-SAUTHORING-015）	結果欠け: 振る舞い。flow.md の SP-FLOW-025 は保存先のパスの決め方を SP-AUTHORING-060 に委ねる
+DX-152	docs/specifications/authoring.md:502		fail	生成文書一式に同一の ID が 2 件以上ある | 異常系 | 領域コードで区別し、重複を残さない	定義済み（SP-AUTHORING-041・SP-AUTHORING-042）	
+DX-153	docs/specifications/authoring.md:503		fail	2 つ以上の topic が同一の領域コードになる | 異常系 | 領域コードが衝突しない topic に直す	定義済み（SP-AUTHORING-062）	SP-AUTHORING-062 本文は衝突する組み合わせを含んではならないと定める
+DX-154	docs/specifications/authoring.md:504		fail	本文が参照する ID が生成文書一式にも未確定事項のファイルにも存在しない | 異常系 | 参照先が実在する ID に直す	定義済み（SP-AUTHORING-045）	
+DX-155	docs/specifications/authoring.md:547	PR-CONSUMER-014	underspecified	PR-CONSUMER-014 | SP-AUTHORING-008		参照先の PR-CONSUMER-014 は consumer.md の #### 見出しに無い。authoring.md のトレーサビリティ表で 2 行から参照（547・592 行）
+DX-156	docs/requirements/requester.tbd.json:15	TBD-RREQUESTER-011	tbd	着手を止めない事項について、依頼者へ回答を求めるかどうかが決まっていない。求めない場合に、求めない事項であると判定する条件も決まっていない		blocking=false；md 本文での参照: なし（tbd.json のみ）
+DX-157	docs/requirements/requester.tbd.json:20	TBD-RREQUESTER-012	tbd	依頼が対象外であると判定したときに依頼者へ返す内容が決まっていない（PR-REQUESTER-001 に関係する）		blocking=false；md 本文での参照: flow.md
+DX-158	docs/requirements/requester.tbd.json:25	TBD-RREQUESTER-013	tbd	依頼者が決まっていない旨を答えたことによって着手を止める未確定事項から外した事項を、依頼者へ示すかどうかが決まっていない（PR-REQUESTER-029 に関係する）		blocking=false；md 本文での参照: flow.md
+DX-159	docs/requirements/requester.tbd.json:35	TBD-RREQUESTER-015	tbd	文書の作成を完了できなかったときに依頼者へ示す内容が決まっていない（PR-REQUESTER-026 に関係する）		blocking=false；md 本文での参照: requester.md、flow.md
+DX-160	docs/requirements/requester.tbd.json:40	TBD-RREQUESTER-017	tbd	判定に迷うと実行主体が結論を定めなかったときに、依頼者へ示す情報の内訳が決まっていない（PR-REQUESTER-040 に関係する）		blocking=false；md 本文での参照: なし（tbd.json のみ）
+DX-161	docs/requirements/consumer.tbd.json:5	TBD-RCONSUMER-003	tbd	状態を持つ対象とみなす範囲と、その対象の振る舞いが定義されていると判定する条件（PR-CONSUMER-008 に関係する）		blocking=true；md 本文での参照: consumer.md、verification.md、authoring.md
+DX-162	docs/requirements/consumer.tbd.json:10	TBD-RCONSUMER-007	tbd	引き渡す文書に、実施した検査と実施していない検査の区別を載せるかどうか。載せる場合の対象とする検査の集合と、未実施の検査を指摘 0 件の検査と区別する表記も決まっていない		blocking=true；md 本文での参照: verification.md
+DX-163	docs/specifications/flow.tbd.json:55	TBD-SFLOW-008	tbd	依頼者が中断点で応答しないまま時間が経過したときの振る舞いが決まっていない		blocking=false；md 本文での参照: flow.md
+DX-164	docs/specifications/flow.tbd.json:5	TBD-SFLOW-010	tbd	所在を示された既存文書が 1 件以上あるときのモード、モードごとに変わる振る舞い、およびその既存文書の種別を判定する必要があるかが決まっていない（SP-FLOW-010 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-165	docs/specifications/flow.tbd.json:15	TBD-SFLOW-016	tbd	起動時の 2 つの非着手の判定（実行基盤の不足・対象外の依頼）を評価する順序と、両方が同時に成立したときに依頼者へ示す内容が決まっていない（SP-FLOW-002・SP-FLOW-005 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-166	docs/specifications/flow.tbd.json:20	TBD-SFLOW-018	tbd	中間の生成物を実行の終了後に残すか消すかが決まっていない（SP-FLOW-032・SP-FLOW-039 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-167	docs/specifications/flow.tbd.json:25	TBD-SFLOW-019	tbd	実行基盤が要件を満たさないと判定したときに依頼者へ示す内容の内訳が決まっていない（SP-FLOW-003 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-168	docs/specifications/flow.tbd.json:30	TBD-SFLOW-020	tbd	決めないと決めた事項について、後から依頼者が決めた内容を反映する経路を設けるかが決まっていない（SP-FLOW-037 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-169	docs/specifications/flow.tbd.json:35	TBD-SFLOW-021	tbd	書き込む先と同じパスのファイルが既に存在するときに依頼者が示しうる指示の集合と、それぞれの指示を受けたあとにシステムが行うことが決まっていない（SP-FLOW-030 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-170	docs/specifications/flow.tbd.json:40	TBD-SFLOW-022	tbd	保存の承認を拒否されたことによる文書の作り直しを、作り直しの実施回数に数えるかが決まっていない（SP-FLOW-041・SP-FLOW-024 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-171	docs/specifications/flow.tbd.json:45	TBD-SFLOW-023	tbd	応答を待つ時間の上限による打ち切りを、やり直しの起動条件に含めるかが決まっていない（SP-FLOW-046・SP-FLOW-047 に関係する）		blocking=true；md 本文での参照: flow.md
+DX-172	docs/specifications/verification.tbd.json:5	TBD-SVERIFICATION-006	tbd	同じ指摘が解消されないまま再び返ったときの振る舞いと、そのときの遷移先の状態が決まっていない。同じ指摘であると判定する条件も決まっていない		blocking=true；md 本文での参照: verification.md
+DX-173	docs/specifications/verification.tbd.json:10	TBD-SVERIFICATION-007	tbd	指摘の重大度の区分と、どの区分の指摘が改稿を必須にするかが決まっていない（SP-VERIFICATION-031 に関係する）		blocking=true；md 本文での参照: verification.md
+DX-174	docs/specifications/verification.tbd.json:15	TBD-SVERIFICATION-009	tbd	検査 1 回の結果が満たすべき形式が決まっていない（SP-VERIFICATION-039 に関係する）		blocking=true；md 本文での参照: verification.md
+DX-175	docs/specifications/verification.tbd.json:20	TBD-SVERIFICATION-010	tbd	検査記録および残った指摘の保持先、検査記録が保持する項目の集合、検査を識別するキー、および実施できた検査の件数を数える分母となる検査の集合が決まっていない（SP-VERIFICATION-003・SP-VERIFICATION-023・SP-VERIFICATION-035・SP-VERIFICATION-041 に関係する）		blocking=true；md 本文での参照: verification.md
+DX-176	docs/specifications/verification.tbd.json:25	TBD-SVERIFICATION-012	tbd	同一性を判定できずに依頼者へ確認を求めたとき、その検査がその回に何を返すか、応答を待つ間に反復を止めるか、確認を挟んだ回を往復の回数に数えるかが決まっていない（SP-VERIFICATION-045 に関係する）		blocking=true；md 本文での参照: verification.md
+DX-177	docs/specifications/verification.tbd.json:30	TBD-SVERIFICATION-013	tbd	検査記録を引き渡す文書へ書き出す形式（置き場となる章、検査ごとの行の列構成、未実施を指摘 0 件と区別して表す値）が決まっていない（SP-VERIFICATION-005 に関係する。書き出す対象の範囲は `docs/requirements/consumer.md` の TBD-RCONSUMER-007 が扱う）		blocking=true；md 本文での参照: verification.md
+DX-178	docs/specifications/verification.tbd.json:45	TBD-SVERIFICATION-014	tbd	2 件以上の指摘が同一の箇所に対して両立しない書き換えを求めたときの扱いが決まっていない（SP-VERIFICATION-031 に関係する）		blocking=false；md 本文での参照: verification.md
+DX-179	docs/specifications/verification.tbd.json:50	TBD-SVERIFICATION-015	tbd	上限に達したときに記録する残った指摘から、2 回目の改稿によって書き換えられた箇所に対する指摘を除くかどうか、および除く場合にその判定をどの手段で行うかが決まっていない（SP-VERIFICATION-035 に関係する）		blocking=false；md 本文での参照: verification.md
+DX-180	docs/specifications/verification.tbd.json:35	TBD-SVERIFICATION-016	tbd	2 回目の検査の検査記録を 1 回目の記録とどう併存させるか、および反復の終了時に引き渡す検査記録が全ての回の分であるか最後に実施した回の分であるかが決まっていない（SP-VERIFICATION-003・SP-VERIFICATION-005 に関係する）		blocking=true；md 本文での参照: verification.md
+DX-181	docs/specifications/elicitation.tbd.json:5	TBD-SELICITATION-003	tbd	問いを出していない事項の論点に対応づけられる回答を受け取ったときの扱い、およびどの事項の論点にも対応づけられない回答を受け取ったときの、確定させないこと以外の扱い（SP-ELICITATION-037 に関係する）		blocking=true；md 本文での参照: elicitation.md
+DX-182	docs/specifications/elicitation.tbd.json:10	TBD-SELICITATION-005	tbd	観点の判定と分割案について、依頼者の承認を要するか（SP-ELICITATION-008・SP-ELICITATION-012 に関係する）		blocking=true；md 本文での参照: なし（tbd.json のみ）
+DX-183	docs/specifications/elicitation.tbd.json:60	TBD-SELICITATION-010	tbd	最後まで不明のまま残った観点の扱い。回答によって観点の判定を更新するかを含む（SP-ELICITATION-010 に関係する）		blocking=false；md 本文での参照: elicitation.md
+DX-184	docs/specifications/elicitation.tbd.json:30	TBD-SELICITATION-015	tbd	依頼者がファイルではなくディレクトリを所在として示したときの扱い（機能仕様 §根拠として読み取る範囲に関係する）		blocking=true；md 本文での参照: elicitation.md
+DX-185	docs/specifications/elicitation.tbd.json:35	TBD-SELICITATION-017	tbd	判定が付かないことの確認に対して依頼者が返した回答の扱い（確認の対象であった判定を直ちに定めるのか、通常の回答と同じ判定の経路に載せるのか、なお判定が付かないときに再び確認を求めるのか）が決まっていない（SP-ELICITATION-046 に関係する）		blocking=true；md 本文での参照: elicitation.md
+DX-186	docs/specifications/elicitation.tbd.json:40	TBD-SELICITATION-018	tbd	分割単位の名前の衝突を依頼者へ示したあとに、分割案をどう扱うかが決まっていない（SP-ELICITATION-038・SP-ELICITATION-048 に関係する）		blocking=true；md 本文での参照: elicitation.md
+DX-187	docs/specifications/elicitation.tbd.json:45	TBD-SELICITATION-019	tbd	確定した事項の論点に対応づけられ、その事項の確定した値と異なる回答を依頼者から受け取ったときに、どちらの値を採るかが決まっていない（SP-ELICITATION-027・SP-ELICITATION-049 に関係する。この論点を扱う要求が要求文書に無いため、要求の側で先に決める必要がある）		blocking=true；md 本文での参照: elicitation.md
+DX-188	docs/specifications/authoring.tbd.json:5	TBD-SAUTHORING-001	tbd	機械検査が参照する語の集合の値。曖昧語として扱う語の一覧、境界の包含を示す語として認める語の一覧、およびいずれの一覧にも属さない語を検出したときの扱いが決まっていない（SP-AUTHORING-020・SP-AUTHORING-022・SP-AUTHORING-080 に関係する）		blocking=true；md 本文での参照: consumer.md、authoring.md
+DX-189	docs/specifications/authoring.tbd.json:10	TBD-SAUTHORING-002	tbd	1 件の要求文または仕様項目が 2 つ以上の動作を含むと判定する規則（SP-AUTHORING-026 に関係する）		blocking=true；md 本文での参照: authoring.md
+DX-190	docs/specifications/authoring.tbd.json:20	TBD-SAUTHORING-005	tbd	リスク・影響の ID の連番の振り方と、ある観点がその生成文書の関心事に関わると判定する規則が決まっていない（SP-AUTHORING-014・SP-AUTHORING-041 に関係する）		blocking=true；md 本文での参照: authoring.md
+DX-191	docs/specifications/authoring.tbd.json:25	TBD-SAUTHORING-006	tbd	根拠の記述の分量の上限と下限、および上限を超えたときの扱いが決まっていない（SP-AUTHORING-031 に関係する）		blocking=true；md 本文での参照: authoring.md
+DX-192	docs/specifications/authoring.tbd.json:30	TBD-SAUTHORING-007	tbd	条件節のパターンの集合の値と、望ましくない事象に対応するパターンの書式、2 つ以上の条件を重ねてよい組み合わせ、および処理を継続できる事象と望ましくない事象とでパターンを書き分けるかどうかが決まっていない（SP-AUTHORING-027・SP-AUTHORING-028 に関係する）		blocking=true；md 本文での参照: authoring.md
+DX-193	docs/specifications/authoring.tbd.json:35	TBD-SAUTHORING-009	tbd	根拠の併記を置く位置と、機械が根拠の記述を同定する目印が決まっていない（SP-AUTHORING-029 に関係する。根拠の分量は TBD-SAUTHORING-006 が扱う）		blocking=true；md 本文での参照: authoring.md
+DX-194	docs/specifications/authoring.tbd.json:45	TBD-SAUTHORING-012	tbd	状態 × イベント表について、発生しない組み合わせ以外の行に、振る舞いが定義されているかどうかを何と書くかが決まっていない（SP-AUTHORING-072 に関係する。発生しない組み合わせの行は SP-AUTHORING-085・SP-AUTHORING-086 が定める）		blocking=true；md 本文での参照: authoring.md
+DX-195	docs/specifications/authoring.tbd.json:55	TBD-SAUTHORING-015	tbd	生成文書を書き出す先のディレクトリの位置と名前、および生成文書のファイル名の作り方が決まっていない（SP-AUTHORING-060 に関係する）		blocking=true；md 本文での参照: authoring.md
+DX-196	docs/specifications/authoring.tbd.json:70	TBD-SAUTHORING-018	tbd	該当と判定された観点が 0 件で、未判定の観点が残る場合に、リスクと影響の章を置くかどうか、および未判定の観点を後続作業者へ伝える置き場が決まっていない（SP-AUTHORING-009・SP-AUTHORING-013 に関係する）		blocking=true；md 本文での参照: authoring.md
+DX-197	docs/specifications/authoring.tbd.json:85	TBD-SAUTHORING-021	tbd	状態 × イベント表の列の構成と、行に付ける振る舞いの種別の分類体系が決まっていない（SP-AUTHORING-072 に関係する）		blocking=true；md 本文での参照: authoring.md
