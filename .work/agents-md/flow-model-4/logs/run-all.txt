@@ -1,0 +1,77 @@
+decided_P1	cfg/decided_P1.cfg	1454344	pass		
+decided_P2	cfg/decided_P2.cfg	1454344	pass		
+decided_P3	cfg/decided_P3.cfg	1454344	pass		
+decided_P4	cfg/decided_P4.cfg	1454344	pass		
+decided_P5	cfg/decided_P5.cfg	1454344	pass		
+decided_P6	cfg/decided_P6.cfg	1454344	pass		
+decided_P7	cfg/decided_P7.cfg	1454344	pass		
+decided_P8	cfg/decided_P8.cfg	1454344	pass		
+decided_P9	cfg/decided_P9.cfg	1454344	pass		
+decided_P10	cfg/decided_P10.cfg	1454344	pass		
+decided_P11	cfg/decided_P11.cfg	1454344	pass		
+decided_P13	cfg/decided_P13.cfg	1454344	pass		
+decided_P14	cfg/decided_P14.cfg	1454344	pass		
+decided_P15	cfg/decided_P15.cfg	1454344	pass		
+decided_P16	cfg/decided_P16.cfg	1454344	pass		
+decided_P17	cfg/decided_P17.cfg	1454344	pass		
+decided_C1	cfg/decided_C1.cfg	1454344	pass		
+decided_C2	cfg/decided_C2.cfg	1454344	pass		
+decided_C3	cfg/decided_C3.cfg	1454344	pass		
+decided_I1	cfg/decided_I1.cfg	70722	fail	cex/decided_I1.txt	Invariant I1 is violated
+decided_I2	cfg/decided_I2.cfg	987	fail	cex/decided_I2.txt	Action property I2 is violated
+decided_I4	cfg/decided_I4.cfg	71172	fail	cex/decided_I4.txt	Invariant I4 is violated
+decidedNoSevErr_I1	cfg/decidedNoSevErr_I1.cfg	625474	pass		
+decidedNoMis_I2	cfg/decidedNoMis_I2.cfg	513054	pass		
+decidedBadSev_P11	cfg/decidedBadSev_P11.cfg	1660	fail	cex/decidedBadSev_P11.txt	Invariant P11 is violated
+assume_F1off_P14	cfg/assume_F1off_P14.cfg	238812	fail	cex/assume_F1off_P14.txt	Temporal properties were violated
+assume_F2off_P14	cfg/assume_F2off_P14.cfg	258958	fail	cex/assume_F2off_P14.txt	Temporal properties were violated
+assume_F5off_P14	cfg/assume_F5off_P14.cfg	279784	fail	cex/assume_F5off_P14.txt	Temporal properties were violated
+assume_F8off_P14	cfg/assume_F8off_P14.cfg	244900	fail	cex/assume_F8off_P14.txt	Temporal properties were violated
+assume_F6off_P8	cfg/assume_F6off_P8.cfg	123676	fail	cex/assume_F6off_P8.txt	Invariant P8 is violated
+v6_P1	cfg/v6_P1.cfg	3473186	pass		
+v6_P2	cfg/v6_P2.cfg	3473186	pass		
+v6_P3	cfg/v6_P3.cfg	3473186	pass		
+v6_P4	cfg/v6_P4.cfg	3473186	pass		
+v6_P5	cfg/v6_P5.cfg	3473186	pass		
+v6_P6	cfg/v6_P6.cfg	3473186	pass		
+v6_P7	cfg/v6_P7.cfg	3473186	pass		
+v6_P8	cfg/v6_P8.cfg	3473186	pass		
+v6_P9	cfg/v6_P9.cfg	3473186	pass		
+v6_P10	cfg/v6_P10.cfg	3473186	pass		
+v6_P11	cfg/v6_P11.cfg	3473186	pass		
+v6_P13	cfg/v6_P13.cfg	3473186	pass		
+v6_P14	cfg/v6_P14.cfg	3473186	pass		
+v6_P15	cfg/v6_P15.cfg	3473186	pass		
+v6_P16	cfg/v6_P16.cfg	3473186	pass		
+v6_P17	cfg/v6_P17.cfg	3473186	pass		
+v6_C1	cfg/v6_C1.cfg	3473186	pass		
+v6_C2	cfg/v6_C2.cfg	3473186	pass		
+v6_C3	cfg/v6_C3.cfg	3473186	pass		
+v6_I1	cfg/v6_I1.cfg	107008	fail	cex/v6_I1.txt	Invariant I1 is violated
+v6_I2	cfg/v6_I2.cfg	516	fail	cex/v6_I2.txt	Action property I2 is violated
+v6_I4	cfg/v6_I4.cfg	97542	fail	cex/v6_I4.txt	Invariant I4 is violated
+v6NoWF19_P16	cfg/v6NoWF19_P16.cfg	526090	fail	cex/v6NoWF19_P16.txt	Action property P16a is violated
+v6_assume_F9off_P14	cfg/v6_assume_F9off_P14.cfg	220691	fail	cex/v6_assume_F9off_P14.txt	Temporal properties were violated
+mut_TriageNoSev_P1	cfg/mut_TriageNoSev_P1.cfg	466	fail	cex/mut_TriageNoSev_P1.txt	Action property P1 is violated
+mut_SevOnHuman_P1	cfg/mut_SevOnHuman_P1.cfg	200503	fail	cex/mut_SevOnHuman_P1.txt	Action property P1 is violated
+mut_NoCount_P1	cfg/mut_NoCount_P1.cfg	491	fail	cex/mut_NoCount_P1.txt	Action property P1 is violated
+mut_OrchSev_P2	cfg/mut_OrchSev_P2.cfg	584	fail	cex/mut_OrchSev_P2.txt	Invariant P2 is violated
+mut_SkipDR_P3	cfg/mut_SkipDR_P3.cfg	10	fail	cex/mut_SkipDR_P3.txt	Invariant P3 is violated
+mut_SkipIR_P4	cfg/mut_SkipIR_P4.cfg	2022	fail	cex/mut_SkipIR_P4.txt	Invariant P4 is violated
+mut_MedPass_P5	cfg/mut_MedPass_P5.cfg	1736	fail	cex/mut_MedPass_P5.txt	Action property P5 is violated
+mut_LowFix_P6	cfg/mut_LowFix_P6.cfg	1700	fail	cex/mut_LowFix_P6.txt	Action property P6 is violated
+mut_HumanLowNotFixed_P7	cfg/mut_HumanLowNotFixed_P7.cfg	1699	fail	cex/mut_HumanLowNotFixed_P7.txt	Action property P7 is violated
+mut_SelfLowLog_P8	cfg/mut_SelfLowLog_P8.cfg	569	fail	cex/mut_SelfLowLog_P8.txt	Action property P8a is violated
+mut_NoRecord_P8	cfg/mut_NoRecord_P8.cfg	82975	fail	cex/mut_NoRecord_P8.txt	Invariant P8 is violated
+mut_EnvRToDesign_P9	cfg/mut_EnvRToDesign_P9.cfg	8831	fail	cex/mut_EnvRToDesign_P9.txt	Action property P9 is violated
+mut_NoRecord_P10	cfg/mut_NoRecord_P10.cfg	552	fail	cex/mut_NoRecord_P10.txt	Action property P10 is violated
+mut_EnvURetry_P10	cfg/mut_EnvURetry_P10.cfg	504	fail	cex/mut_EnvURetry_P10.txt	Action property P10 is violated
+mut_StuckAfterReview_P11	cfg/mut_StuckAfterReview_P11.cfg	1631	fail	cex/mut_StuckAfterReview_P11.txt	Invariant P11 is violated
+mut_SelfReview_P13	cfg/mut_SelfReview_P13.cfg	101	fail	cex/mut_SelfReview_P13.txt	Invariant P13 is violated
+mut_SkipRecReview_P13	cfg/mut_SkipRecReview_P13.cfg	9464	fail	cex/mut_SkipRecReview_P13.txt	Invariant P13 is violated
+mut_PlaceAny_P15	cfg/mut_PlaceAny_P15.cfg	19282	fail	cex/mut_PlaceAny_P15.txt	Invariant P15 is violated
+mut_ScaleSev_P15	cfg/mut_ScaleSev_P15.cfg	21316	fail	cex/mut_ScaleSev_P15.txt	Invariant P15 is violated
+mut_InboxIgnored_P16	cfg/mut_InboxIgnored_P16.cfg	1657	fail	cex/mut_InboxIgnored_P16.txt	Action property P16a is violated
+mut_NoWake_P17	cfg/mut_NoWake_P17.cfg	638023	fail	cex/mut_NoWake_P17.txt	Invariant P17 is violated
+mut_NoWait_P17	cfg/mut_NoWait_P17.cfg	908696	fail	cex/mut_NoWait_P17.txt	Invariant P17 is violated
+mut_GateAmbiguous_C3	cfg/mut_GateAmbiguous_C3.cfg	72575	fail	cex/mut_GateAmbiguous_C3.txt	Action property C3b is violated

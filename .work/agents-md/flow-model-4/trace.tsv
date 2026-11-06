@@ -1,0 +1,23 @@
+wf	actions	note
+WF-01 目的の固定	FixPurpose	
+WF-02 規模の判定	FixPurpose,Review,Triage	判定は FixPurpose、確かめは設計レビューの Review、誤りは重大度なしで Triage が設計へ戻す
+WF-03 設計の作業	Work	
+WF-04 実装の作業	Work	
+WF-05 作り手の検査	SelfCheckFail	
+WF-06 分類と記録	Classify	
+WF-07 欠陥	HandleDefect	
+WF-08 除ける環境	HandleEnvR	
+WF-09 除けない環境	HandleEnvU	再開（新しい作業として目的の固定から）は模型の外。reported は終端
+WF-10 draft の間に来た人・bot の指摘	DraftHuman,DraftBot,Triage	受け箱は inbox。dtriage・itriage の Triage が加える
+WF-11 設計レビュー	Review	
+WF-12 実装レビュー	Review	ready の後の差分を diff-verifier が見ることは reviewer に畳む
+WF-13 重大度	AssignSev,Recount	数の照合は Recount（壊れた重大度を同じ入力でやり直す）
+WF-14 振り分け	Triage	dtriage・itriage
+WF-15 bot	Wake,BotReview	Wake は ready の後の作り直しの後の close・reopen。run の完了は BotReview の後に ptriage へ進むことで表す
+WF-16 bot の指摘の振り分け	Triage	ptriage
+WF-17 人間ゲート	HumanComment,HumanMerge	
+WF-18 人の指摘	Triage	htriage
+WF-19 ready の後に設計へ戻って作り直している間（PR は ready のまま）に来た人・bot の指摘	ReworkHuman,Triage	受け箱は inboxR。bot は push では走らない（WF-15）ので人だけ
+WF-20 終わり	Done	Done は NonDone の外の終端の足踏み
+WF-21 LOW と範囲と限界の記録	Triage	LOW の行き先（logged）だけ。reviews/ の保存と範囲と限界の記録は模型の外
+WF-22 形式検証の契約	SelfCheckFail	模型の実行は作り手の検査の中身。置き場・README・trace の照合は模型の外

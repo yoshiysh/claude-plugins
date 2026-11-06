@@ -1,0 +1,2 @@
+qid	state	event	problem	options	recommend
+FQ1	wake|prbot|ptriage	人の指摘	PR が ready で、bot の run を待っている間（作り直しでも人間ゲートでもない）に来た人の指摘の扱いが決まっていない。Z3 は draft の間、AA4 は ready の後に設計へ戻った間だけを決める。模型はこの間の人の指摘を持たない	(a) bot の指摘の振り分け（ptriage）に加え、同じ規則で扱う / (b) 人間ゲートまで待たせる	(a)。作業中に来た指摘を次の振り分けに加える Z3・AA4 と同じ形になり、規則が 1 つで済む
