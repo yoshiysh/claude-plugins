@@ -1,0 +1,34 @@
+finding_id	file:line	what	why
+D-002	docs/requirements/requester.md:559	PR-REQUESTER-035 に、039 の差分のために同じパスの既存ファイルを読む場合と、064 の照合でシステム自身の稿を読む場合の除外を加えた	039・064 と同時に満たせない。除外は 039・064 の要求そのものから一意に決まる
+D-003	docs/requirements/requester.md:399	PR-REQUESTER-052 の条件に「作成を完了し」「元に戻せる」「064 に当たらない」を加えた	025・064 の保存禁止と同時に満たせない
+D-004	docs/requirements/consumer.md:143;148	PR-CONSUMER-005・006 を「引き渡す文書が仕様書を含むならば」の条件付きにした	PR-REQUESTER-003 が要求文書だけの実行を認めるため、全称だと常に満たせない
+D-007	docs/requirements/requester.md:329;335	PR-REQUESTER-071（確定事項と食い違う回答・確定事項への「決まっていない」→ 確認の問い）・072（対応づけられない回答・保留の事項への回答 → 聞き直す）を新設	Q7 の選択肢の説明が一意に定める
+D-008	docs/requirements/requester.md:310;317	PR-REQUESTER-073（検証落ちの反映を差し戻す。回数の上限は flow.md）・074（差し戻しの上限後も落ちれば次の中断点の問いにし、中断点が無ければ 055）を新設	Q8「1 回差し戻し、なお落ちれば問いに戻すか保持規則にする」。どちらにするかは中断点が設けられるかで分けた（Q2 の上限後は保持規則と一致）
+D-009;D-010;D-019;D-028;D-029;D-030;D-031;D-040;M-006	docs/requirements/requester.md:33-60	用語の表を新設: 実行主体・段・中断点（070 の問いは当たらない）・回答の記録・論点・保持規則（定義は consumer の 033 を正とし、保持規則にした論点の未確定事項は閉じる）・完了・完成・事後報告・対象リポジトリ・実施しなかった検査（検査できなかった箇所との区別）。保持規則の requester 側の定義は削った	用語の未定義・二重定義。完了・完成と、保持規則で TBD が閉じることは Q2 と SKILL.md の「完成の条件」から、実施しなかった検査と検査できなかった箇所の区別は Q4・Q11 から導いた
+D-011	docs/requirements/requester.md:387-397;405	保存の節の前文を書き直し、止まる場合を 053 と 036 に、Q5 の「既存ファイルの上書き」を新規作成の同名衝突に揃え、改訂の上書きは止めず 017 で示すと明記。053 の根拠に SKILL.md の不変条件の列挙を加えた	SKILL.md「このランの生成物でない既存ファイルを上書きするとき（下の衝突）」で Q5 の範囲が一意に決まる
+D-012	docs/requirements/requester.md:396;399;405	「元に戻せる」を、保存で書き換わるか失われる内容が保存の前にすべて版管理に記録されていることと定義し、052・053 の条件をこの語で書いた	Q5「git で戻せる限り」
+D-013	docs/requirements/requester.md:405	053 に「不変と定められたものに触れる」の意味（作業規則を定めるファイルへの書き込み・マージ・外部公開を伴う）を書き、規則ファイルの所在は flow.md が定めるとした	SKILL.md の不変条件の列挙
+D-015	docs/requirements/requester.md:353;359;605;647	046 を Q9 の時点（初稿とその検査の後）に揃え、PR-REQUESTER-075（上流の論点の停止は最初からやり直す側）を新設、060 を検査以外の下位 agent（034）にも広げ、残りの停止の種類は flow.md が停止ごとに定めると前文に書いた	Q9「再実行の引数なし」、Q4、SKILL.md「next_args があるのは、その段からやり直せる失敗」。051・058・064 の種類は回答に無いため仕様段に送った
+D-016	docs/requirements/requester.md:475;481	PR-REQUESTER-076（承認された Issue の文案を書き換えずに起票）・077（番号を示す）を新設	SKILL.md 保存と事後報告 6
+D-017	docs/requirements/requester.md:169;docs/requirements/requester.tbd.json	前提と依存に Issue の起票先（対象リポジトリの GitHub の Issue）を置き、TBD-RREQUESTER-014 の本文から起票先を除いた	description「裁定そのものは GitHub Issue として起票して完了する」。起票できないときの扱いは未決として open へ
+D-018	docs/requirements/requester.md:405;497	053 の承認されなかった後の振る舞いと 039 の指示ごとの振る舞いは flow.md が定めると明記	正とする文書を指す（fix_hint の後者）
+D-020	docs/requirements/requester.md:540	022 に、所在を示されたものが対象リポジトリの実装なら 021 を優先し読み取らないと加えた	回答 Q9「文書生成時に対象リポジトリのコードを読むか: 読まない」
+D-021	docs/requirements/consumer.md:170	PR-CONSUMER-009 の主語を生成文書一式にし、全件を 1 つの文書に置き他は参照するとした	025 と同時に満たせない
+M-001	docs/requirements/consumer.md:180	PR-CONSUMER-011 の主語を生成文書一式にし、共通の前提は 1 つの文書に書き他は参照してよいとした	D-021 と同じ形
+D-022;D-036	docs/requirements/consumer.md:73-78	「引き渡し」を保存のことと定義し（完成と示されない保存も含む）、「後続作業者」を役割の表の 2 者、「作成者」をシステムと依頼者と定義した	Q2 で完成と示さない保存が生じるため
+D-037	docs/requirements/consumer.md:122	PR-CONSUMER-001 の着手の対象を実装とテスト設計にした	対象の範囲（回答「後続作業の範囲は実装とテスト設計まで」）
+D-024	docs/requirements/consumer.md:138	PR-CONSUMER-004 に「動作の数え方は仕様書が定める」を加えた	fix_hint の後者
+D-025	docs/requirements/consumer.md:290	PR-CONSUMER-030 の主語をシステムにした	主語の欠け
+D-026	docs/requirements/INDEX.md	doc_check で導出し直した（scratchpad に W を作り place と reset で 10 本の要求文書と仕様書を置き、index --req-dir docs/requirements --spec-dir docs/specifications を実行し、checks/INDEX.requirements.md を逐語で写した）。パスはリポジトリからの相対になり、絶対パス・アカウント名が消え、requester の節名・件数（001〜079・70 件）・PR-CONSUMER-033 が入った	前回は W を作れないとしたが、W を R の外（scratchpad）に置けば書いてよいファイルの範囲を外れずに導出できた
+D-027	docs/requirements/requester.md:640	026 の保持規則の形の文（主体が無く対象が本要求）を削り、「示す内容の残りは TBD-RREQUESTER-015 として起票し、本文書は定めていない」とした	doc_check の TBD-ASSERT は出ない
+D-033	docs/requirements/requester.tbd.json	TBD-RREQUESTER-006 を閉じた（TBD-RCONSUMER-009 と同じ論点。正は consumer の PR-CONSUMER-030）	二重の TBD
+D-034	docs/requirements/requester.md:115-116	流れから外れる場合の列挙に 070・062・063 を加えた	列挙の欠け
+D-039	docs/requirements/requester.md:241;567	003 の括弧書きに主語（システム）を入れ、「検査と改稿の結果」の前文から主語の無い規範文を削って定義だけにした（068 と重なる）	主語の欠け・項目外の規範文
+D-041	docs/requirements/requester.md:178	言語理解の判定の閉集合を 6 つ（001・069・023・007・045・013）として前文に列挙した	列挙の欠け
+M-002	docs/requirements/requester.md:605	上限の単位と上限ちょうどを含むかは上限ごとに flow.md が定めると前文に書いた	Q3 で値は定数名で参照するため、単位と境界も同じ正本に置く
+M-004	docs/requirements/requester.md:202	PR-REQUESTER-078 新設（作成に入った後の確認で次の中断点を設けられないなら 055 に従い保持規則にする）	Q7「推測で決めずに」と Q2 の上限後の扱い
+M-005	docs/requirements/requester.md:353;365	046 の停止の時点を初稿とその検査の後にし、047 で示す論点を初稿とその検査までの全件とした	Q9 の問い「初稿と監査の後に blocked」・SKILL.md「初稿の監査の裁定までに出た論点がまとめて載る」
+M-006	docs/requirements/requester.md:236	PR-REQUESTER-079 新設（070 の問いの後は回答を待たずに実行を終える）。用語の表で 070 の問いは中断点に当たらないとした	description「尋ねて終了する」
+-	docs/requirements/consumer.md:287	§分量の決まり方の前文を「未確定事項として起票しており、本文書は定めていない」の形にした	既存の TBD-ASSERT を消す試み（結果は下の検査行。消えなかった）
+-	docs/requirements/requester.md:647	060 の根拠の引用から「など」を含む部分を外した	doc_check の ST-AMBIGUOUS（引用中の曖昧語）
+-	(検査)	node doc_check.mjs <input.json>（6 文書）: exit 0。requirements の指摘は UNDECLARED R（PR-CONSUMER-033・028・030 の requester からの参照。文書を跨ぐ参照で、前回と同じ）と UNDECLARED_TBD だけ。doc --lint（scratchpad の W）requester: findings 38、全件 ST-ORPHAN-REQ（新設の要求に仕様項目がまだ無い）、lint 0。consumer: findings 5（ST-ORPHAN-REQ 1、既存の ST-AMBIGUOUS「等」2 件（逐語引用の中）、§分量の決まり方の ST-TBD-ASSERT 2 件）、lint 0。not_checked 7（trace と flow を渡していない）。index: 導出できた（未解決の節は 4 件、実現する仕様項目が無い要求 418 件）。合否の判定はしていない	brief 5

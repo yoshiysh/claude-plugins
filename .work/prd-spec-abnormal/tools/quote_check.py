@@ -21,7 +21,7 @@ bad = 0; n = 0
 for path in sys.argv[1:]:
     rows = list(csv.DictReader(open(path), delimiter='\t'))
     for r in rows:
-        for refk, qk in (('doc_ref', 'doc_quote'), ('impl_ref', 'impl_quote')):
+        for refk, qk in (('doc_ref', 'doc_quote'), ('impl_ref', 'impl_quote'), ('file:line', 'quote'), ('evidence_ref', 'evidence_quote')):
             q = (r.get(qk) or '').strip()
             if q in ('', '-'): continue
             n += 1
@@ -29,5 +29,5 @@ for path in sys.argv[1:]:
             texts = [t for t in (text(f) for f in files(r.get(refk) or '')) if t]
             ok = texts and all(any(norm(s) in t for t in texts) for s in segs)
             if not ok:
-                bad += 1; print(f"NG\t{path}\t{r['id']}\t{qk}\t{q[:80]}")
+                bad += 1; print(f"NG\t{path}\t{r.get('id') or r.get('did')}\t{qk}\t{q[:80]}")
 print(f"checked={n} ng={bad}")
