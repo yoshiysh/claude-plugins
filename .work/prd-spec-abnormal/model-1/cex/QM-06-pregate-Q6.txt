@@ -1,0 +1,88 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 13 and seed 7402294226593317773 with 2 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 90572] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-06 13:52:09)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 13:52:09.
+Error: Invariant Q6 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ docBlk = 0
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ fixedTbd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ lowLeft = FALSE
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "S0"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = FALSE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 2: <Internal line 46, col 6 to line 46, col 60 of module Composed>
+/\ docBlk = 0
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "apply"
+/\ stops = 1
+/\ gates = 1
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"asked">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ fixedTbd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<1>>
+/\ tree = "na"
+/\ lowLeft = FALSE
+/\ redraft = TRUE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ ncOut = FALSE
+/\ hasNext = TRUE
+/\ stopReason = "none"
+/\ rs = "S0"
+/\ rework = 0
+/\ cause = "answers"
+/\ deferred = FALSE
+/\ specOnly = FALSE
+/\ status = "needs_answers"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+8 states generated, 8 distinct states found, 4 states left on queue.
+The depth of the complete state graph search is 2.
+Finished in 00s at (2026-11-06 13:52:09)

@@ -33,8 +33,8 @@ AllSettled  == \A i \in Issues : ist[i] \in Settled
 
 RuleOpts(canAsk) == {"none", "confirmed"} \cup (IF canAsk THEN {"question"} ELSE {"hold"})
 
-\* @row Issue|none|resolver が論点を見つけて裁定する|canAsk|confirmed / question|-|impl:prd-spec.js:2433
-\* @row Issue|none|resolver が論点を見つけて裁定する|~canAsk|confirmed / hold|保持規則と Issue の文案|impl:prd-spec.js:2124
+\* @row Issue|none|resolver が論点を見つけて裁定する|canAsk|confirmed / question|-|impl
+\* @row Issue|none|resolver が論点を見つけて裁定する|~canAsk|confirmed / hold|保持規則と Issue の文案|impl
 \* @trace Issue!AriseAndRule|plugins/workflow/workflows/prd-spec.js:2413|const ASKS = { 3: canAsk, '3a': canAsk, '3b': canAsk, 6: canAsk, "3a'": canAsk }|聞ける段で価値の論点は question、上限の後は hold
 AriseAndRule(canAsk) ==
   /\ \E f \in [Issues -> RuleOpts(canAsk)] :
@@ -48,7 +48,7 @@ Force(s) ==
                     /\ sameAsk' = [sameAsk EXCEPT ![j] = IF s = "asked" THEN 1 ELSE 0]
   /\ UNCHANGED <<ver, lost, vfail, filing>>
 
-\* @row Issue|question|ゲートを開く|-|asked|questions.json（同じ版なら sameAsk+1）|impl:prd-spec.js:2223
+\* @row Issue|question|ゲートを開く|-|asked|questions.json（同じ版なら sameAsk+1）|impl
 \* @trace Issue!AskAll|plugins/workflow/workflows/prd-spec.js:2221|const ids = pendingQuestions(state)|ゲートで回答待ちの問いをまとめて聞く
 AskAll ==
   /\ AnyPending
@@ -56,7 +56,7 @@ AskAll ==
   /\ sameAsk' = [i \in Issues |-> IF ist[i] = "question" THEN sameAsk[i] + 1 ELSE sameAsk[i]]
   /\ UNCHANGED <<ver, lost, vfail, filing>>
 
-\* @row Issue|asked|依頼者が回答する（中身あり・空・決まっていない・確定値と異なる・対応づけられない・なお着手できない）|-|a_*|answers/gN.md|impl:SKILL.md:110
+\* @row Issue|asked|依頼者が回答する（中身あり・空・決まっていない・確定値と異なる・対応づけられない・なお着手できない）|-|a_*|answers/gN.md|impl
 \* @trace Issue!RespondAll|plugins/workflow/skills/prd-spec/SKILL.md:110|依頼者が答えなかった問いも `<ID>:` の行を書き、`:` の後を空にする|回答の種類は依頼者が非決定的に選ぶ
 RespondAll ==
   /\ \E f \in [Issues -> Kinds] :
@@ -65,7 +65,7 @@ RespondAll ==
 
 CanLose == AnyAsked /\ \A i \in Issues : ist[i] = "asked" => lost[i] < MAX_LOSS
 
-\* @row Issue|asked|回答の記録が失われる|canAsk か 数えない|asked（同じ版で再び聞く）|needs_answers（resumable: false）|impl:prd-spec.js:2282
+\* @row Issue|asked|回答の記録が失われる|canAsk か 数えない|asked（同じ版で再び聞く）|needs_answers（resumable: false）|impl
 \* @trace Issue!LoseReask|plugins/workflow/workflows/prd-spec.js:2282|問いを聞き直して回答を書き、next_args で呼び直してください|記録の消失だけが同じ中身の再質問を許す（Q8）
 LoseReask ==
   /\ CanLose
@@ -74,7 +74,7 @@ LoseReask ==
   /\ UNCHANGED <<ist, ver, vfail, filing>>
 
 \* @row Issue|asked|回答の記録が失われる|~canAsk かつ 数える|hold|保持規則と Issue の文案|open:QM-03
-\* @trace Issue!LoseHold|decision:Q3|-|D-035 の「数える」: 上限の後に失われた回答の論点は保持規則にする
+\* @trace Issue!LoseHold|-|-|open:QM-03: D-035 の「数える」: 上限の後に失われた回答の論点は保持規則にする
 LoseHold ==
   /\ CanLose
   /\ lost' = [i \in Issues |-> IF ist[i] = "asked" THEN lost[i] + 1 ELSE lost[i]]
@@ -103,7 +103,7 @@ NextOf(i, canAsk) ==
        [] s = "a_insufficient" -> Alt(OPT_STILL)
        [] OTHER -> {R(s, v, a, f)}
 
-\* @row Issue|a_content|回答を当て verifier が合格|-|confirmed|-|impl:prd-spec.js:2462
+\* @row Issue|a_content|回答を当て verifier が合格|-|confirmed|-|impl
 \* @row Issue|a_content|verifier が不合格（差し戻し 1 回）|vfail<MAX_VERIFY_REWORK|a_content（vfail+1）|-|decision:Q8
 \* @row Issue|a_content|差し戻し後も不合格|canAsk|question（OPT_VFAIL: 版を変える / 同じ版）または hold|-|open:QM-10
 \* @row Issue|a_empty|回答を当てる（空の回答行）|-|deferred / question（同じ版）/ 2 回目で hold|-|open:QM-07
@@ -112,7 +112,7 @@ NextOf(i, canAsk) ==
 \* @row Issue|a_conflict|回答を当てる（確定値と異なる）|~canAsk|hold|-|decision:Q2
 \* @row Issue|a_unmapped|回答を当てる（対応づけられない）|canAsk|question（OPT_UNMAPPED）または hold|-|open:QM-09
 \* @row Issue|a_insufficient|回答を当てる（なお着手できない）|canAsk|question（OPT_STILL）または hold|-|open:QM-08
-\* @trace Issue!ApplyStep|plugins/workflow/workflows/prd-spec.js:2470|の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）|回答の種類ごとの遷移は NextOf
+\* @trace Issue!ApplyStep|plugins/workflow/workflows/prd-spec.js:2475|の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）|回答の種類ごとの遷移は NextOf
 ApplyStep(canAsk) ==
   \E i \in Issues :
     /\ ist[i] \in Kinds
@@ -121,7 +121,7 @@ ApplyStep(canAsk) ==
          /\ sameAsk' = [sameAsk EXCEPT ![i] = r.a] /\ vfail' = [vfail EXCEPT ![i] = r.f]
     /\ UNCHANGED <<lost, filing>>
 
-\* @row Issue|question / deferred|聞かずに段を出る（上限の後・改稿の輪の出口・run の終わり）|-|hold|保持規則と Issue の文案|impl:prd-spec.js:2127
+\* @row Issue|question / deferred|聞かずに段を出る（上限の後・改稿の輪の出口）|-|hold|保持規則と Issue の文案|impl
 \* @trace Issue!HoldLeft|plugins/workflow/workflows/prd-spec.js:2127|hold（保持規則・Issue の文案・触れる項目 ID）に書き換える|聞かない問いを保持規則に変える
 HoldLeft ==
   /\ ist' = [i \in Issues |-> IF ist[i] \in {"question", "deferred"} THEN "hold" ELSE ist[i]]
@@ -129,23 +129,27 @@ HoldLeft ==
 
 HoldLeftIf(b) == IF b THEN HoldLeft ELSE UNCHANGED ivars
 
+\* @row Issue|deferred|段 9（run の終わり）|-|hold|保持規則と Issue の文案|open:QM-07
+\* @trace Issue!SettleDeferred|-|-|open:QM-07 の選択肢 1 を run の終わりでも閉じるよう補ったもの
 SettleDeferred ==
   /\ ist' = [i \in Issues |-> IF ist[i] = "deferred" THEN "hold" ELSE ist[i]]
   /\ UNCHANGED <<ver, sameAsk, lost, vfail, filing>>
 
-\* @row Issue|hold（filing=na）|依頼者が Issue の文案を承認する|保存の後|approved|-|impl:SKILL.md:180
-\* @trace Issue!Approve|plugins/workflow/skills/prd-spec/SKILL.md:180|文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。|承認は依頼者の非決定的な行動
+\* @row Issue|hold（filing=na）|依頼者が Issue の文案を承認する|保存の後|approved|-|impl
+\* @trace Issue!Approve|plugins/workflow/skills/prd-spec/SKILL.md:179|文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。|承認は依頼者の非決定的な行動
 Approve(i) == ist[i] = "hold" /\ filing[i] = "na" /\ filing' = [filing EXCEPT ![i] = "approved"]
               /\ UNCHANGED <<ist, ver, sameAsk, lost, vfail>>
-\* @row Issue|approved|起票に成功する|-|filed|Issue 番号|impl:SKILL.md:180
+\* @row Issue|approved|起票に成功する|-|filed|Issue 番号|impl
+\* @trace Issue!FileOk|plugins/workflow/skills/prd-spec/SKILL.md:179|文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。|起票の成功
 FileOk(i) == filing[i] = "approved" /\ filing' = [filing EXCEPT ![i] = "filed"]
              /\ UNCHANGED <<ist, ver, sameAsk, lost, vfail>>
 \* @row Issue|approved|起票に失敗する（権限・ネットワーク・gh が無い）|-|manual（OPT_FILE=manual）/ failed（retry）|文案|open:QM-14
-\* @trace Issue!FileFail|decision:Q2|-|D-017: 起票の失敗の後の遷移は実装にも決定にも無い
+\* @trace Issue!FileFail|-|-|open:QM-14: D-017: 起票の失敗の後の遷移は実装にも決定にも無い
 FileFail(i) == filing[i] = "approved"
                /\ filing' = [filing EXCEPT ![i] = IF OPT_FILE = "manual" THEN "manual" ELSE "failed"]
                /\ UNCHANGED <<ist, ver, sameAsk, lost, vfail>>
 \* @row Issue|failed|起票をやり直す|OPT_FILE=retry|approved|-|open:QM-14
+\* @trace Issue!Retry|-|-|open:QM-14 の選択肢 2（起票できるまで完了と扱わない）
 Retry(i) == filing[i] = "failed" /\ filing' = [filing EXCEPT ![i] = "approved"]
             /\ UNCHANGED <<ist, ver, sameAsk, lost, vfail>>
 

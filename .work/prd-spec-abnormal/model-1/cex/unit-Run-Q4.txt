@@ -1,0 +1,156 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 118 and seed -5240820757323506430 with 2 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 90954] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-06 13:56:03)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 13:56:04.
+Error: Invariant Q4 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ fixedTbd = FALSE
+/\ pluginUpd = FALSE
+/\ rs = "S0"
+/\ gates = 0
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = TRUE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ lowLeft = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 2: <S0Go line 71, col 9 to line 73, col 72 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ fixedTbd = FALSE
+/\ pluginUpd = FALSE
+/\ rs = "intake"
+/\ gates = 0
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = TRUE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ lowLeft = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 3: <IntakeCarry line 91, col 3 to line 93, col 75 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ fixedTbd = FALSE
+/\ pluginUpd = FALSE
+/\ rs = "draft"
+/\ gates = 0
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = TRUE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ lowLeft = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 4: <Draft line 99, col 10 to line 99, col 90 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ fixedTbd = FALSE
+/\ pluginUpd = FALSE
+/\ rs = "audit"
+/\ gates = 0
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = TRUE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ lowLeft = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 5: <Audit line 110, col 3 to line 113, col 104 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ fixedTbd = FALSE
+/\ pluginUpd = FALSE
+/\ rs = "decide"
+/\ gates = 0
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = TRUE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ lowLeft = FALSE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+43 states generated, 32 distinct states found, 11 states left on queue.
+The depth of the complete state graph search is 5.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 3 and the 95th percentile is 3).
+Finished in 00s at (2026-11-06 13:56:04)

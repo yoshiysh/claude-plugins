@@ -1,0 +1,43 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 48 and seed -6680077570494289142 with 2 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 90963] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-06 13:56:11)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-06 13:56:11.
+Error: Invariant IssueTracked is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ vfail = <<0>>
+/\ sameAsk = <<0>>
+/\ ist = <<"none">>
+/\ ver = <<0>>
+/\ filing = <<"na">>
+/\ lost = <<0>>
+
+State 2: <AriseAndRule line 40, col 3 to line 42, col 52 of module Issue>
+/\ vfail = <<0>>
+/\ sameAsk = <<0>>
+/\ ist = <<"hold">>
+/\ ver = <<0>>
+/\ filing = <<"na">>
+/\ lost = <<0>>
+
+State 3: <Approve line 140, col 15 to line 141, col 61 of module Issue>
+/\ vfail = <<0>>
+/\ sameAsk = <<0>>
+/\ ist = <<"hold">>
+/\ ver = <<0>>
+/\ filing = <<"approved">>
+/\ lost = <<0>>
+
+State 4: <FileFail line 148, col 16 to line 150, col 62 of module Issue>
+/\ vfail = <<0>>
+/\ sameAsk = <<0>>
+/\ ist = <<"hold">>
+/\ ver = <<0>>
+/\ filing = <<"manual">>
+/\ lost = <<0>>
+
+134 states generated, 26 distinct states found, 9 states left on queue.
+The depth of the complete state graph search is 5.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 7 and the 95th percentile is 7).
+Finished in 00s at (2026-11-06 13:56:11)

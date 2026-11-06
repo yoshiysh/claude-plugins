@@ -1,0 +1,63 @@
+action	impl_ref	impl_quote	note
+S0Go	plugins/workflow/skills/prd-spec/SKILL.md:69	**W を作る**: native では `[SKILL_DIR]/workspace/<案件>/`	OPT_W=ask は案件名を聞くので依頼者を 1 回止める
+S0Unreadable	decision:Q10	-	読み取れない文書があれば run を始めずに止める
+S0DoubtEnd	plugins/workflow/skills/prd-spec/SKILL.md:35	空入力・単語のみのときは、推測で対象を決めずに次を返して終える	空入力の扱いを判定の迷いに広げた選択肢
+S0DoubtDefer	-	-	open:QM-06 の選択肢 2（実装にも決定にも無い遷移）
+S0DoubtPregate	-	-	open:QM-06 の選択肢 3（実装にも決定にも無い遷移）
+IntakeCarry	plugins/workflow/workflows/prd-spec.js:2210	if (!specOnly()) state.deferred = true	最初のゲートは段 6 まで開かない（collecting）
+IntakeAskNow	-	-	変異 Q6 専用（最初のゲートを段 6 まで持ち越さない変更）
+Draft	plugins/workflow/workflows/prd-spec.js:2606	async function stage4() {	writer の null は FailNotRun が持つ
+Audit	plugins/workflow/workflows/prd-spec.js:2694	state.pass = 1	段 5 に入るたびに pass は 1 に戻る
+Decide	plugins/workflow/workflows/prd-spec.js:2768	async function stage6() {	裁定は Issue!AriseAndRule が持つ
+Decide2Ask	plugins/workflow/workflows/prd-spec.js:2784	if (allowQuestions) return needsAnswers("3a'", '7')	deferred なら 3a から入り初稿を書き直す（redraft）
+Decide2Upstream	plugins/workflow/workflows/prd-spec.js:2249	stop_reason: 'upstream_gap',	要求文書を直すと固定の文書の sha が変わるので next_args を付けない
+Decide2Go	plugins/workflow/workflows/prd-spec.js:2785	const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)	聞ける回数の上限の後は保持規則
+Apply	plugins/workflow/workflows/prd-spec.js:2462	async function stageApply(stageId) {	回答の反映は Issue!ApplyStep が持つ
+ApplyDone	plugins/workflow/workflows/prd-spec.js:2488	if (res.error) return blocked(res.error, res.rerun === false ? null : stageId)	段を出るとき doc_check のやり直しの回数は 0 に戻る
+ApplyRework	plugins/workflow/workflows/prd-spec.js:2149	}, MAX_CHECK_REWORK)	生成者への差し戻しは MAX_CHECK_REWORK 回まで
+ApplyReworkLimit	plugins/workflow/workflows/prd-spec.js:2152	if (done.defect) return { error: `段 ${stage}: 回答を当てた flow が閉じていません（${done.defect.text}）`, rerun: !done.defect.stop }	stop は FIXERS_BY_CODE に無い符号で、script の表の欠陥として扱う
+Apply2Ask	plugins/workflow/workflows/prd-spec.js:2492	if (allowQuestions) return needsAnswers(stageId)	回答の後の続きの問いも MAX_GATES から引く
+Apply2Go	plugins/workflow/workflows/prd-spec.js:2497	return ENTRY === 'existing' ? '5' : '4'	最初のゲートの後は初稿を書き直す
+ReviseReaudit	plugins/workflow/workflows/prd-spec.js:2851	await backupDocs('7', auditDocs())	writer の null は FailNotRun
+ReviseReport	plugins/workflow/workflows/prd-spec.js:2847	log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')	unchecked のまま来ても止まらない（A-024 の経路）
+ReviseFinal	plugins/workflow/workflows/prd-spec.js:2846	if (p.blocking.length) return finalHold(p.blocking.length, [], 'no_progress', '改稿に回せる指摘も裁定も無いまま blocking が残った', '7')	finalHold の blocked は next_args を付けない
+Reaudit	plugins/workflow/workflows/prd-spec.js:2947	const docCheck = parseStdout(d.doc_check)	usable(d) は doc_check を見ない
+JudgeReport	plugins/workflow/workflows/prd-spec.js:2973	if (!blocking) return '9'	Blocking に notChecked・lowLeft を数えるかは OPT_NC・OPT_LOW
+JudgeNoProgress	plugins/workflow/workflows/prd-spec.js:2979	return finalHold(blocking, newTbd, 'no_progress',	進展の有無は環境が決める
+JudgeLimit	plugins/workflow/workflows/prd-spec.js:2981	if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit',	上限は暴走止め
+JudgeLoop	plugins/workflow/workflows/prd-spec.js:2982	state.pass += 1	段 6 → 7 → 8 をもう 1 パス
+Report	plugins/workflow/workflows/prd-spec.js:3036	return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })	done は固定の文書の開いた TBD を残しうる
+Save	plugins/workflow/skills/prd-spec/SKILL.md:157	違えば保存しない。	保存しない後の行動は実装にも SKILL.md にも無い（A-022）
+SaveApprove	plugins/workflow/skills/prd-spec/SKILL.md:169	新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。	承認・拒否は依頼者の非決定的な行動
+SaveDecline	plugins/workflow/skills/prd-spec/SKILL.md:169	新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。	拒んだ後は保存しない
+ReqAnswer	plugins/workflow/skills/prd-spec/SKILL.md:111	そのうえで下の「呼び直し」のとおりに呼び直す。	依頼者は無応答でもよい（run は返したまま。Q7）
+ReqWLost	plugins/workflow/skills/prd-spec/SKILL.md:70	native はこの skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない	D-014
+ReqLoseNoCount	plugins/workflow/workflows/prd-spec.js:2281	ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）'	同じゲート名で止め直し、gates を数えない
+ReqLoseCountAsk	-	-	open:QM-03 の選択肢 2（数える）
+ReqLoseCountHold	-	-	open:QM-03 の選択肢 2（数える）で上限に達したとき
+Rerun	plugins/workflow/skills/prd-spec/SKILL.md:114	`next_args` があるのは、その段からやり直せる失敗（agent が応答	呼び直しの回数は MAX_RERUN で有限にする
+PluginUpdate	plugins/workflow/skills/prd-spec/SKILL.md:70	native はこの skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない	plugin の更新は環境
+FailNotRun	plugins/workflow/workflows/prd-spec.js:3157	else if (e && e.rerunStage) r = blocked(e.message, running)	段から再実行
+FailScript	plugins/workflow/workflows/prd-spec.js:3161	if (scriptDefect) r = blocked(`script の不変条件に反しました（段 ${running}）: ${scriptDefect}`, null)	次の行動は prd-spec.js を直すこと（workflow-io.md §5）
+FailIntegrity	plugins/workflow/workflows/prd-spec.js:3088	W を段の入口に戻せないので、S0 からやり直してください	最初からやり直す
+FailBudget	plugins/workflow/workflows/prd-spec.js:3156	else if (e && e.budgetStop) r = blocked(e.message, running, { stop_reason: 'budget' })	目標を上げて段から再実行
+FailVerify	plugins/workflow/workflows/prd-spec.js:2104	const stuck = (ids) => ({ error: `段 ${stage}: 保持規則 ${list(ids)} が書き直した後も検証に落ちました	rerun を偽にしないので next_args が付く
+Issue!AriseAndRule	plugins/workflow/workflows/prd-spec.js:2413	const ASKS = { 3: canAsk, '3a': canAsk, '3b': canAsk, 6: canAsk, "3a'": canAsk }	聞ける段で価値の論点は question、上限の後は hold
+Issue!Force	decision:Q7	-	判定に迷った点を推測で決めずに問いにする
+Issue!AskAll	plugins/workflow/workflows/prd-spec.js:2221	const ids = pendingQuestions(state)	ゲートで回答待ちの問いをまとめて聞く
+Issue!RespondAll	plugins/workflow/skills/prd-spec/SKILL.md:110	依頼者が答えなかった問いも `<ID>:` の行を書き、`:` の後を空にする	回答の種類は依頼者が非決定的に選ぶ
+Issue!LoseReask	plugins/workflow/workflows/prd-spec.js:2282	問いを聞き直して回答を書き、next_args で呼び直してください	記録の消失だけが同じ中身の再質問を許す（Q8）
+Issue!LoseHold	-	-	open:QM-03: D-035 の「数える」: 上限の後に失われた回答の論点は保持規則にする
+Issue!ApplyStep	plugins/workflow/workflows/prd-spec.js:2475	の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）	回答の種類ごとの遷移は NextOf
+Issue!HoldLeft	plugins/workflow/workflows/prd-spec.js:2127	hold（保持規則・Issue の文案・触れる項目 ID）に書き換える	聞かない問いを保持規則に変える
+Issue!SettleDeferred	-	-	open:QM-07 の選択肢 1 を run の終わりでも閉じるよう補ったもの
+Issue!Approve	plugins/workflow/skills/prd-spec/SKILL.md:179	文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。	承認は依頼者の非決定的な行動
+Issue!FileOk	plugins/workflow/skills/prd-spec/SKILL.md:179	文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。	起票の成功
+Issue!FileFail	-	-	open:QM-14: D-017: 起票の失敗の後の遷移は実装にも決定にも無い
+Issue!Retry	-	-	open:QM-14 の選択肢 2（起票できるまで完了と扱わない）
+Seam!Dispatch	plugins/workflow/workflows/prd-spec.js:2670	async function runAuditors(plan, round, stage) {	監査役の起動
+Seam!Return	plugins/workflow/workflows/prd-spec.js:2679	const missing = plan.filter((_, i) => !results[i]).map((p) => auditorLabel(p, round))	返り値の有無と designated の doc_check の有無は環境が決める
+Seam!Recopy	plugins/workflow/workflows/prd-spec.js:1271	const bad = Object.keys(cmds).filter((k) => cmds[k] && copyFault(x[k]))	JSON の行はあるが受け取れない写しだけを取り直す
+Seam!Verdict	plugins/workflow/workflows/prd-spec.js:2758	doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,	A-024 の fail-open。stage8 の usable(d) も doc_check を見ない
+Seam!Consume	plugins/workflow/workflows/prd-spec.js:2720	if (missing.length) throw notRun(missing.join(', '))	司令塔が返り値を読み終える
+Seam!TreeCheck	plugins/workflow/skills/prd-spec/SKILL.md:157	`tree_digest` を文字列で比べる	最後の監査の後の書き換えは環境が決める
