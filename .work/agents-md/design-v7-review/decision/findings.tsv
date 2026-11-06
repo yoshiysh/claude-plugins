@@ -1,0 +1,42 @@
+decision	verdict	severity	reason	evidence_ref	evidence_quote
+D1	ok	-	流れの段と「欠陥は直接直さず設計へ戻る」が AGENTS.md の足す 4 行の (2)(3) にある	design-v7/files.tsv:3	見つかった段を問わず成果物を直接直さずに設計へ戻る
+D2	ok	-	根本原因の行に設計と設計レビューへの適用を足す	design-v7/files.tsv:7	設計と設計レビューもこの規範に従い
+D3	ok	-	形式検証を要求・仕様・実装の全てに掛ける行と、検証の担い手の列挙への追加がある	design-v7/files.tsv:3	形式検証は要求・仕様・実装の全てに掛け
+D4	ok	-	AGENTS.md に足す文は規範と理由の形で、手順は書かない規則が全ファイル共通の行にある	design-v7/files.tsv:2	運用の手順（受け箱・bot の起こし方・指摘の時点ごとの扱い・数の照合・再開・置き場の分け方）を書かない
+Q1	ok	-	スキルの修正ループの揃えを次の PR へ回している	design-v7/out-of-scope.tsv:5	規範を先に入れ、スキルは次の PR
+Q2	ok	-	形式検証の行が formal-methods スキル（.agents/skills/formal-methods に実在）を手順の正本として指す	design-v7/files.tsv:3	手順は formal-methods スキルに従う
+Q3	ok	-	段と形式検証を AGENTS.md の 1 文に置く	design-v7/files.tsv:3	その段の生成者が模型を書いて走らせ
+Q4	ok	-	AGENTS.md の「設計レビュー」の 1 語だけ揃え、ツールの語は次の PR	design-v7/files.tsv:9	「公開前にはそこをレビューで見る」に改める
+Q5	ok	-	作り手の検査の欠陥も重大度を問わず設計へ戻る	design-v7/files.tsv:3	人の指摘と作り手の検査で見つかった欠陥は重大度を問わず設計へ戻る
+Q6	ok	-	検査の時機の設計は Q8 の「後で見直す」として次へ回している	design-v7/out-of-scope.tsv:12	Codex の hook の再導入と検査の時機の設計
+Q7	ok	-	Q8 が置き換えたものとして扱う	design-v7/decisions-map.tsv:12	Q8 が置き換えた
+Q8	ok	-	.codex/hooks.json を削除し、AGENTS.md の hook の 2 行（174・235 行）を消す。.codex/config.toml に hook は無い	design-v7/files.tsv:21	ファイルごと消す（PostToolUse の make test と Stop の通知）
+Q9	ok	-	止まってよい場所の唯一の行に、除けない環境の失敗を報告して止まる場合を入れる	design-v7/files.tsv:4	分類と理由とともに利用者へ報告するときだけ
+Q10	ok	-	除ける環境の原因は除いて同じ検査をやり直す（設計へ戻る対象の「欠陥」と「環境が原因の失敗」を語で分けている）	design-v7/files.tsv:4	環境が原因で作り手が除けるものは、除いて同じ検査をやり直す
+V1	ok	-	目的の 3 項目のうち流れの規範と観点の 1 か所化を残し、地図化は利用者の AA1・BB1 に従い次の PR	design-v7/decisions-map.tsv:16	地図化は次の PR（BB1・AA1 で目的を狭めた）
+V2	ok	-	AGENTS.md の変更は全て既存の行の中で、見出しを変える行が無い	design-v7/files.tsv:3	AGENTS.md 作業ルール: 冒頭の「ガイドラインを参照する」行の後に 4 行を足す
+V3	ok	-	diff-verifier を変えず、観点の表に ready 後の差分の担い手として載せる	design-v7/files.tsv:11	diff-verifier は ready の後に足した差分も持つ
+V4	ok	-	公式文書は design-v3-full/codex.txt で確認済み。生成は W1 で次の PR に回り、#207 は呼ぶ側が本文を渡す立て方を置く（正本は .claude/agents の 1 つ）	design-v7/files.tsv:11	.claude/agents の定義は Codex に読まれないので、呼ぶ側が本文を指示として渡す
+V5	ok	-	目的の固定・生成後のレビュー・形式検証を AGENTS.md に置き、観点の中身は review-lenses.md を指す	design-v7/files.tsv:3	設計などの文書も実装も、生成の後にレビューを通す
+W1	ok	-	Codex 用の生成は次の PR、#207 は review-lenses.md に Codex の立て方だけ	design-v7/out-of-scope.tsv:9	Codex 用の agent 定義の生成
+W3	ok	-	§13 との食い違いを扱わず、優先の行も書かない	design-v7/out-of-scope.tsv:10	best-practices.md §13 との食い違い
+W4	ok	-	MEDIUM 以上を設計へ、LOW は PR 本文に載せて追わない。上限を置かない	design-v7/files.tsv:3	MEDIUM 以上を設計へ戻し、LOW は直さず PR 本文に載せて追わない
+W5	ok	-	免除せず規模に比例させ、衝突の起きえない変更は模型を書かず理由 1 行。typo 級の具体は運用として次の PR	design-v7/files.tsv:3	変更は規模を問わず「目的の固定 → 設計 → 設計レビュー → 実装 → 実装レビュー」を通し
+X1	ok	-	置き場の分け方は BB1 が運用に挙げたもので、次の PR へ回すのは正しい	design-v7/out-of-scope.tsv:2	置き場の分け方
+X2	ok	-	人間ゲートをマージとし、マージが公開に当たると書く	design-v7/files.tsv:4	人間ゲート（マージ。マージが公開に当たる）
+X3	ok	-	人の指摘は重大度を問わず設計へ戻り、LOW を追わないのは agent と bot に限る	design-v7/files.tsv:3	agent と bot の指摘は重大度を付け
+Y1	ok	-	目的の固定時の draft PR と「出す」の定義は BB1 が運用に挙げたもので、次の PR へ回すのは正しい	design-v7/out-of-scope.tsv:2	目的の固定の時点の draft PR
+Y2	ok	-	重大度を付ける専用の agent（severity-assigner）を置く	design-v7/files.tsv:18	重大度を付ける専用の 1 体（指摘した者・作り手・司令塔と分ける）
+Y3	ng	中	「作り手が分類と理由を記録し、作り手と別の者が見る」は記録の形（運用）と違い規範の水準の要求だが、AGENTS.md の文で記録を求めるのは止まる場合（利用者への報告）だけで、除ける環境としてやり直す場合の分類の記録と別の者の確認がどこにも無い。対応表は既存の「生成と検証の分離」の行を挙げるが、その行は自分の成果物への合格判定を禁じるもので分類の記録を求めると読み取れない。limits.tsv はレビュー役が分類を読むことを前提にしている	design-v7/decisions-map.tsv:30	AGENTS.md 作業ルールの生成と検証の分離の行（既存）
+Y4	ng	高	利用者は bot の重大度を「そのまま使う」を選んだ（FQ6 の選択肢 (b)。(a) の「レビュー役が付け直す」を退けた）。ところが AGENTS.md に足す (3) は bot の指摘も含めて「重大度は指摘した者でなく専用の agent が付ける」と規範に書いており、決定に反する。対応表はこれを運用として次の PR へ回しているが、規範の文そのものが決定と食い違うので次の PR では直らない	design-v7/files.tsv:3	重大度は指摘した者でなく専用の agent（severity-assigner）が付ける
+Z1	ok	-	付け間違いをリスクとして受け入れ、PR 本文の LOW を人が読んで拾うと記録する	design-v7/limits.tsv:2	受け入れる。PR 本文の LOW をマージの前に人が読んで拾う
+Z2	ok	-	上限を置かず、往復が終わる前提を仮定として記録する	design-v7/limits.tsv:4	回数の上限を置かない
+Z3	ok	-	指摘の時点ごとの扱いは BB1 が運用に挙げたもので、次の PR へ回すのは正しい	design-v7/out-of-scope.tsv:2	受け箱と指摘の時点ごとの扱い
+AA1	ok	-	BB1 が置き換え、地図化は次の PR	design-v7/out-of-scope.tsv:7	AGENTS.md の約 100 行の地図化
+AA2	ok	-	ready と bot の起こし方は BB1 が運用に挙げたもので、次の PR へ回すのは正しい	design-v7/out-of-scope.tsv:2	ready と bot の起こし方
+AA3	ok	-	fan-out の正本を review-lenses.md に置き、AGENTS.md は規則 1 行・理由・指し先	design-v7/files.tsv:8	細則は docs/guidelines/review-lenses.md「fan-out」
+AA4	ok	-	指摘の時点ごとの扱いとして次の PR へ回すのは BB1 に合う	design-v7/out-of-scope.tsv:2	受け箱と指摘の時点ごとの扱い
+導いた答え（draft に戻さない・指摘は時点を問わず次の振り分けに）	ok	-	運用の細則として次の PR へ回すのは BB1 に合う	design-v7/decisions-map.tsv:36	次の PR（運用）
+導いた答え（作り手の検査と人の指摘に重大度を付けない・builder 役が書く）	ok	-	(3) が重大度を問わず設計へ戻すと書き、builder は既存の 1 役割 1 責務の行が持つ	design-v7/files.tsv:3	人の指摘と作り手の検査で見つかった欠陥は重大度を問わず設計へ戻る
+BB1	ok	-	#207 を AGENTS.md の規範の行・review-lenses.md と観点の agent・severity-assigner・hook の削除に絞り、運用の細則と模型は .work を指して次の PR の入力にする	design-v7/out-of-scope.tsv:2	入力として design-v6/rules.tsv・files.tsv・agents.tsv を指す
+BB2	ok	-	観点は目的に応じて選び、規範の水準の設計レビューの合格基準 3 つと norm・decision の 2 体を review-lenses.md「選び方」に置く	design-v7/files.tsv:11	当てるのは norm（diff-verifier に「規範どうしの矛盾」「原因が除かれたか」を追加の観点として渡す）と decision（decision-verifier）の 2 体
