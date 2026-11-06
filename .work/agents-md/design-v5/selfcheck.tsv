@@ -1,0 +1,329 @@
+check	target	result	method
+refs: 変更なし・消えるの referrer が実在する	REVIEW.md:3	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	REVIEW.md:11	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	REVIEW.md:13 → AGENTS.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: new_target の先頭のパスが files.tsv にある	REVIEW.md:14 → .agents/skills/manage-marketplace-plugin/SKILL.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	REVIEW.md:15	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	REVIEW.md:19 → AGENTS.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: new_target の先頭のパスが files.tsv にある	REVIEW.md:21 → AGENTS.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	REVIEW.md:23	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	REVIEW.md:35	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	tests/repo-review-workflow.test.mjs:591 → tests/repo-review-workflow.test.mjs	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: new_target の先頭のパスが files.tsv にある	tests/repo-review-workflow.test.mjs:592 → tests/repo-review-workflow.test.mjs	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	.claude/agents/diff-verifier.md:11	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	docs/design/develop-plugin.md:201 → AGENTS.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-plugin.md:49	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-run.md:487	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:487	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	AGENTS.md:25	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	AGENTS.md:33	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	AGENTS.md:50	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	AGENTS.md:174	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	AGENTS.md:235	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/scripts/implement-core.mjs:12	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/skill-design-patterns.md:521	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/design/skill-design-patterns.md:521	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/scripts/review-core.mjs:7	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	docs/design/develop-plugin.md:71 → docs/guidelines/testing.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/scripts/plan.js:12	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/scripts/review.js:16	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/address-review/scripts/triage.js:12	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/address-review/scripts/address-core.mjs:48	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/agents/implementer.md:12	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/agents/planner.md:13	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/address-review/agents/comment-triager.md:14	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/address-review/agents/triage-verifier.md:13	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/scripts/plan.js:200	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/scripts/implement.js:139	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/address-review/scripts/triage.js:120	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/address-review/scripts/address-core.mjs:9	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/SKILL.md:6	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/evals/trigger-evals.json:19	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/scripts/review-core.test.mjs:569	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/scripts/review-core.test.mjs:641	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-review/scripts/review-core.test.mjs:676	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	.agents/skills/repo-implement/SKILL.md:197	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	README.md:35	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/git/skills/commit/SKILL.md:56	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_author.js:464	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_inspect.js:369	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-run.md:56	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:56	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-run.md:184	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:184	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-run.md:507	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-run.md:507	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-authoring.md:57	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-authoring.md:57	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-authoring.md:64	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-authoring.md:64	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-authoring.md:511	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-authoring.md:511	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-inspection.md:268	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-inspection.md:268	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-entry.md:179	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-entry.md:179	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/specifications/bp-entry.md:244	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/specifications/bp-entry.md:244	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	docs/guidelines/README.md:5 → docs/guidelines/README.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	docs/guidelines/README.md:26	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/guidelines/README.md:27	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/guidelines/documentation.md:12	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/guidelines/javascript.md:34	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-plugin.md:140	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-plugin.md:344	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-plugin.md:372	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-plugin.md:374	実在する	ファイルの有無と行数
+refs: new_target の先頭のパスが files.tsv にある	docs/design/develop-plugin.md:395 → docs/guidelines/documentation.md	ある	new_target の「・（・: の前を files.tsv の path と照合（AGENTS.md は節の行の先頭語で一致）
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-plugin.md:425	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:3	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:21	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:165	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:175	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:195	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:209	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:282	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:297	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:318	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:321	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:327	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:336	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:338	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:340	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:342	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:348	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:371	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:384	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:432	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	docs/design/develop-skills-redesign.md:449	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	skills-audit.md:574	実在する	ファイルの有無と行数
+refs: 変更なし・消えるの referrer が実在する	skills-audit.md:586	実在する	ファイルの有無と行数
+rules: model_transition が table.tsv の行と逐語で一致する	L2 目的の固定: 作り手が防ぐ失敗・達成すること・や	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L2 typo 級の定義: 目的 1 行・設計 1 行	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L11 typo 級の定義: 目的 1 行・設計 1 行	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L3 設計の作業: 作り手が決定・理由・利用場面を別の	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L4 実装の作業: 作り手（このリポジトリでは rep	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L5 作り手の検査の失敗: 作業中に走らせる検査（ma	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L6 分類と記録: 作り手は原因を 欠陥・除ける環境・	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L7 欠陥と分類したもの: 重大度を付けずに設計へ戻す	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L8 欠陥と分類したもの: 重大度を付けずに設計へ戻す	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L9 除ける環境と分類したもの: 作り手が原因を除いて	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L10 除けない環境と分類したもの: 司令塔が記録した分	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L11 設計レビュー: 作り手と別の fresh な観点	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L12 実装レビュー: 同じく fresh な観点の a	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L13 重大度: 観点の agent の返り値の「指摘」	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L14 設計レビューの振り分け: MEDIUM 以上の 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L15 実装レビューの振り分け: 戻る条件は設計レビュー	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L16 bot のレビュー: ready の PR に 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L17 bot の指摘の振り分け: MEDIUM 以上の	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L18 人の指摘: 人間ゲートで人が指摘する	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L19 マージ: 人がマージする。マージが公開に当たる	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L20 人の指摘の振り分け: 重大度を付けずに、重大度を	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L21 （写さない）作り手の検査の指摘を重大度で振り分け	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L22 draft の間に来た人・bot の指摘: その	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L23 終わり: マージか、除けない失敗の報告で作業が終	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L10 止まってよい場所: 途中で止めず、止まってよいの	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L19 止まってよい場所: 途中で止めず、止まってよいの	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L23 止まってよい場所: 途中で止めず、止まってよいの	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L11 生成と検証の分離: レビューと重大度は作り手以外	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L12 生成と検証の分離: レビューと重大度は作り手以外	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L13 生成と検証の分離: レビューと重大度は作り手以外	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L7 司令塔の役: 司令塔は段を選び、指摘をそのまま 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L10 司令塔の役: 司令塔は段を選び、指摘をそのまま 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L14 司令塔の役: 司令塔は段を選び、指摘をそのまま 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L15 司令塔の役: 司令塔は段を選び、指摘をそのまま 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L17 司令塔の役: 司令塔は段を選び、指摘をそのまま 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L20 司令塔の役: 司令塔は段を選び、指摘をそのまま 	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が模型の外と書かれている	規模に比例させる: 各段の成果物とレビューの体数を変更の規模	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	観点の異なる検証: 検証は観点の異なる agent で行い、	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	設計の体裁: 決定・理由・利用場面を別のファイルに書く（観点	模型の外と書かれている	先頭の文字列
+rules: model_transition が table.tsv の行と逐語で一致する	L5 形式検証の契約: 性質ごとに範囲と残りを宣言し、	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が模型の外と書かれている	根本原因の除去: 解決は常に根本原因の除去を目指し、設計と設	模型の外と書かれている	先頭の文字列
+rules: model_transition が table.tsv の行と逐語で一致する	L14 PR 本文の範囲と限界: LOW の一覧（REV	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L17 PR 本文の範囲と限界: LOW の一覧（REV	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が模型の外と書かれている	置き場の基準: AGENTS.md と文書に何を置くかは p	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	抜粋の一致: AGENTS.md の 3 つの抜粋と wor	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	同じ値を 2 箇所に書かない: 写しが要るときは機械で一致を	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	編集の置き場: .agents/skills/<name>/	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	未リリースの Workflow は scriptPath に	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	plugins/ 配下に symlink を作らない	模型の外と書かれている	先頭の文字列
+rules: model_transition が table.tsv の行と逐語で一致する	L19 登録と公開: 登録・更新は manage-mar	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が模型の外と書かれている	説明的なコメントを書かない	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	後方互換性は不要（version bump は対象外）	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	不在・網羅の断定に裏付けを付け、sweep の後に再 gre	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	fan-out では agent ごとに model と e	模型の外と書かれている	先頭の文字列
+rules: model_transition が table.tsv の行と逐語で一致する	L11 観点の agent の入力: 設計段は置き場のフ	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致する	L12 観点の agent の入力: 設計段は置き場のフ	一致	L<行> の後が state・event・guard で始まるか
+rules: model_transition が模型の外と書かれている	commit を作ったら同じ作業単位で push する	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	.agents/skills/ の走査は symlink を	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	収録スキル・plugin・公開名は正本から得て、呼び出し名は	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	別 plugin のスキルは dependencies の宣	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	テストの置き場: workflows/ に置かず、別 plu	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	make portability は exit 0 でも B	模型の外と書かれている	先頭の文字列
+rules: model_transition が模型の外と書かれている	Codex での検証役の立て方: agent 定義の本文を指	模型の外と書かれている	先頭の文字列
+table: 行が rules.tsv のどれかに写るか除かれている	L2 purpose・FixPurpose	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L3 design・Work	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L4 impl・Work	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L5 design|impl・SelfCheckFail	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L6 design|impl・Classify	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L7 design|impl・HandleDefect	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L8 design|impl・HandleDefect	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L9 design|impl・HandleEnvR	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L10 design|impl・HandleEnvU	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L11 dreview・Review	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L12 ireview・Review	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L13 dtriage|itriage|htriage|striage・AssignSev	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L14 dtriage・Triage	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L15 itriage・Triage	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L16 prbot・BotReview	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L17 ptriage・Triage	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L18 gate・HumanComment	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L19 gate・HumanMerge	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L20 htriage・Triage	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L21 striage・Triage	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L22 design〜gate（draft の間を含む）・HumanComment・BotReview（ready の前）	現れる	rules.tsv の model_transition の L 番号の集合
+table: 行が rules.tsv のどれかに写るか除かれている	L23 merged|reported・Done	現れる	rules.tsv の model_transition の L 番号の集合
+rules: actor が担い手の集合にある	目的の固定: 作り手が防ぐ失敗・達成すること・やらないことを	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	typo 級の定義: 目的 1 行・設計 1 行で書ける変更	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	設計の作業: 作り手が決定・理由・利用場面を別のファイルに書	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	実装の作業: 作り手（このリポジトリでは repo-impl	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	作り手の検査の失敗: 作業中に走らせる検査（make tes	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	分類と記録: 作り手は原因を 欠陥・除ける環境・除けない環境	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	欠陥と分類したもの: 重大度を付けずに設計へ戻す（作り手の検	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	除ける環境と分類したもの: 作り手が原因を除いて同じ検査をそ	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	除けない環境と分類したもの: 司令塔が記録した分類と理由を利	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	設計レビュー: 作り手と別の fresh な観点の agen	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	実装レビュー: 同じく fresh な観点の agent が	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	重大度: 観点の agent の返り値の「指摘」の節にだけ、	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	設計レビューの振り分け: MEDIUM 以上の agent 	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	実装レビューの振り分け: 戻る条件は設計レビューと同じ。戻ら	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	bot のレビュー: ready の PR に bot が付	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	bot の指摘の振り分け: MEDIUM 以上の bot の	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	人の指摘: 人間ゲートで人が指摘する	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	マージ: 人がマージする。マージが公開に当たる	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	人の指摘の振り分け: 重大度を付けずに、重大度を問わず設計へ	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	（写さない）作り手の検査の指摘を重大度で振り分ける段は置かな	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	draft の間に来た人・bot の指摘: その段のレビュー	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	終わり: マージか、除けない失敗の報告で作業が終わる	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	止まってよい場所: 途中で止めず、止まってよいのは人間ゲート	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	生成と検証の分離: レビューと重大度は作り手以外が行い、作り	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	司令塔の役: 司令塔は段を選び、指摘をそのまま relay 	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	規模に比例させる: 各段の成果物とレビューの体数を変更の規模	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	観点の異なる検証: 検証は観点の異なる agent で行い、	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	設計の体裁: 決定・理由・利用場面を別のファイルに書く（観点	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	形式検証の契約: 性質ごとに範囲と残りを宣言し、規則と模型の	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	根本原因の除去: 解決は常に根本原因の除去を目指し、設計と設	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	PR 本文の範囲と限界: LOW の一覧（REVIEW.md	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	置き場の基準: AGENTS.md と文書に何を置くかは p	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	抜粋の一致: AGENTS.md の 3 つの抜粋と wor	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	同じ値を 2 箇所に書かない: 写しが要るときは機械で一致を	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	編集の置き場: .agents/skills/<name>/	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	未リリースの Workflow は scriptPath に	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	plugins/ 配下に symlink を作らない	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	登録と公開: 登録・更新は manage-marketpla	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	説明的なコメントを書かない	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	後方互換性は不要（version bump は対象外）	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	不在・網羅の断定に裏付けを付け、sweep の後に再 gre	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	fan-out では agent ごとに model と e	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	観点の agent の入力: 設計段は置き場のファイル（作り	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	commit を作ったら同じ作業単位で push する	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	.agents/skills/ の走査は symlink を	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	収録スキル・plugin・公開名は正本から得て、呼び出し名は	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	別 plugin のスキルは dependencies の宣	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	テストの置き場: workflows/ に置かず、別 plu	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	make portability は exit 0 でも B	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: actor が担い手の集合にある	Codex での検証役の立て方: agent 定義の本文を指	ある	英字の語を {builder,orch,reviewer,sevagent,human,bot,script} と agents.tsv の名前に照合
+rules: input・output・place が - の行	（写さない）作り手の検査の指摘を重大度で振り分ける段は置かな	- の欄: input,output,place	欄の値
+rules: input・output・place が - の行	終わり: マージか、除けない失敗の報告で作業が終わる	- の欄: input,output,place	欄の値
+files: content_gist の作業用の参照の件数	files.tsv	0	正規表現 (?<![A-Za-z§])[DQVWXYZ]\d+\b|\.work/|main-lines|main の L|L\d+-\d+
+AGENTS.md の行数の見込み	files.tsv の AGENTS.md 節の行	節の見込みの合計 65（4+3+11+3+22+13+6+3）と節の間の空行 7 で 72 行	content_gist の「（見込み N 行）」を合計。1 項目 1 行・折り返しなしの数え方。main は 235 行
+抜粋の文が AGENTS.md の行に逐語である	EXA	ある	部分文字列の照合
+抜粋の文の数	EXA	1 個の句点	句点を数える（C は 1 文の決定）
+抜粋の文が AGENTS.md の行に逐語である	EXB	ある	部分文字列の照合
+抜粋の文の数	EXB	2 個の句点	句点を数える（C は 1 文の決定）
+抜粋の文が AGENTS.md の行に逐語である	EXC	ある	部分文字列の照合
+抜粋の文の数	EXC	1 個の句点	句点を数える（C は 1 文の決定）
+workflow.md の行が抜粋の行を逐語で置くと書く	docs/guidelines/workflow.md	書く	「逐語で置き」の数
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: modify・delete の対象が実在する	AGENTS.md	実在する	パスの有無
+files: create の対象がまだ無い	docs/guidelines/workflow.md	無い	パスの有無
+files: create の対象がまだ無い	docs/guidelines/review-lenses.md	無い	パスの有無
+files: create の対象がまだ無い	docs/guidelines/placement.md	無い	パスの有無
+files: modify・delete の対象が実在する	docs/guidelines/README.md	実在する	パスの有無
+files: modify・delete の対象が実在する	docs/guidelines/testing.md	実在する	パスの有無
+files: modify・delete の対象が実在する	docs/guidelines/documentation.md	実在する	パスの有無
+files: modify・delete の対象が実在する	docs/guidelines/javascript.md	実在する	パスの有無
+files: modify・delete の対象が実在する	REVIEW.md	実在する	パスの有無
+files: modify・delete の対象が実在する	tests/repo-review-workflow.test.mjs	実在する	パスの有無
+files: create の対象がまだ無い	tests/agents-md-excerpts.test.mjs	無い	パスの有無
+files: modify・delete の対象が実在する	README.md	実在する	パスの有無
+files: create の対象がまだ無い	.claude/agents/purpose-auditor.md	無い	パスの有無
+files: create の対象がまだ無い	.claude/agents/alternatives-auditor.md	無い	パスの有無
+files: create の対象がまだ無い	.claude/agents/placement-auditor.md	無い	パスの有無
+files: create の対象がまだ無い	.claude/agents/risk-auditor.md	無い	パスの有無
+files: create の対象がまだ無い	.claude/agents/decision-verifier.md	無い	パスの有無
+files: create の対象がまだ無い	.claude/agents/reader.md	無い	パスの有無
+files: create の対象がまだ無い	.claude/agents/severity-assigner.md	無い	パスの有無
+files: modify・delete の対象が実在する	.claude/agents/diff-verifier.md	実在する	パスの有無
+files: modify・delete の対象が実在する	.codex/hooks.json	実在する	パスの有無
+files: modify・delete の対象が実在する	docs/design/develop-plugin.md	実在する	パスの有無
+files: modify・delete の対象が実在する	.agents/skills/manage-marketplace-plugin/SKILL.md	実在する	パスの有無
+files: modify・delete の対象が実在する	traceability.config.json	実在する	パスの有無
+本文が指すパスが実在する	docs/requirements/INDEX.md	実在する	パスの有無
+本文が指すパスが実在する	docs/specifications/INDEX.md	実在する	パスの有無
+本文が指すパスが実在する	plugins/workflow/skills/dynamic-workflow-runner/references/claude-workflow-compatibility.md	実在する	パスの有無
+本文が指すパスが実在する	skills-audit.md	実在する	パスの有無
+本文が指すパスが実在する	docs/specifications/formal-methods.md	実在する	パスの有無
+本文が指すパスが実在する	docs/design/skill-design-patterns.md	実在する	パスの有無
+本文が指すパスが実在する	.agents/skills/formal-methods/SKILL.md	実在する	パスの有無
+本文が指すパスが実在する	.agents/skills/manage-marketplace-plugin/SKILL.md	実在する	パスの有無
+本文が指すパスが実在する	tests/bp-criteria-copy.test.mjs	実在する	パスの有無
+本文が指すパスが実在する	scripts/worktree-setup.sh	実在する	パスの有無
+本文が指すパスが実在する	tools/update-plugins	実在する	パスの有無
+本文が名指す見出しが完全一致で実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md「model と effort は役割ごとに組で選ぶ」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md「体数は測れる値から段階的に決める（作るスキル向けの設計指針）」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md「解決は根本原因の除去に置く（防御パッチを解決と呼ばない）」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md「script の置き場」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md「3. Sub-agent 設計」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	.agents/skills/manage-marketplace-plugin/SKILL.md「設計上の不変条件（守るべきルール）」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	docs/design/skill-design-patterns.md「機械で確かめる」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	README.md「インストール」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	README.md「開発」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	REVIEW.md「重大度」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	REVIEW.md「観点」	ある	見出し行の完全一致
+本文が名指す見出しが完全一致で実在する	REVIEW.md「読むもの」	ある	見出し行の完全一致
+main-lines.tsv: 直した行の鍵が v4 の行にある	L19 後半	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L21	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L23-27	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L29-31	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L33-37	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L59	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L62	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L70-71	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L79-81	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L101-107	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L108-117	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L118-127	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L176	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L204	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L205	ある	1 列目の照合
+main-lines.tsv: 直した行の鍵が v4 の行にある	L207	ある	1 列目の照合
+rules: 重大度の行の入力が「指摘」の節を名指す	重大度: 観点の agent の返り値の	名指す	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	purpose-auditor	ある	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	alternatives-auditor	ある	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	placement-auditor	ある	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	risk-auditor	ある	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	decision-verifier	ある	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	reader	ある	部分文字列
+agents: 観点の agent の output に「指摘」の節がある	diff-verifier（既存。定義は変えない）	ある	部分文字列
+agents: decision-verifier の output に作り手の検査の指摘の節と typo 級の判定の確かめがある	decision-verifier	ある	部分文字列
+v4 から写った古い語の残り	canon-inventory.tsv:11	distribution.md	正規表現 multi-agent\.md|distribution\.md|plugins/\*/skills/manage-marketplace-plugin|AGENTS\.md:25 を含む|除けない原因（cut の行と old_target の列は意図した残り）
+v4 から写った古い語の残り	out-of-scope.tsv:13	multi-agent.md	正規表現 multi-agent\.md|distribution\.md|plugins/\*/skills/manage-marketplace-plugin|AGENTS\.md:25 を含む|除けない原因（cut の行と old_target の列は意図した残り）
+v4 から写った古い語の残り	out-of-scope.tsv:13	distribution.md	正規表現 multi-agent\.md|distribution\.md|plugins/\*/skills/manage-marketplace-plugin|AGENTS\.md:25 を含む|除けない原因（cut の行と old_target の列は意図した残り）
