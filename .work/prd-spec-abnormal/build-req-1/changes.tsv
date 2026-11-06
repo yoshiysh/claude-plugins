@@ -1,0 +1,45 @@
+finding_id	file:line	what	why
+A-001;A-003;B-004;A-009	docs/requirements/requester.md:39-76	背景の「上限に達して残った未確定事項は明示して完了」の段落を書き直し、論点は保持規則と Issue の文案、直せていない欠陥は保存せず止める、に置き換えた（回答 E の引用は Q1・Q2 で置き換え）	Q1「止めて保存しない」・Q2。回答の引用ラベルは既存の Q1/Q9 と区別するため「回答（人間ゲート③）Qn」とした
+A-001;A-003;B-004	docs/requirements/requester.md:480	PR-REQUESTER-058 新設（改稿を必須とする指摘が残れば完了しない）	Q1。完了しない→PR-REQUESTER-025（保存しない）・026（示す）へつながる
+A-004;B-017;A-025	docs/requirements/requester.md:366	PR-REQUESTER-014 を「着手を止める未確定事項が残る事実を明示せずに完了しない」から「開いている未確定事項が残る文書を完成と示さない」に改訂（ID 維持。条件を着手不能→開いている全件に広げた）	Q2
+A-004;B-017;A-025	docs/requirements/requester.md:371	PR-REQUESTER-054 新設（残る未確定事項の件数と識別子を示す）	Q2
+A-004;B-017	docs/requirements/requester.md:381	PR-REQUESTER-055 新設（上限の後・反復の後に決まらない論点を、決まっていない旨の回答の有無にかかわらず保持規則にする）	Q2
+A-004;B-018	docs/requirements/requester.md:387	PR-REQUESTER-056 新設（Issue の文案を示す）	Q1・Q2。要求文書に Issue の記述が 0 件だった欠落を埋める
+B-018	docs/requirements/requester.md:392	PR-REQUESTER-057 新設（承認前に Issue を起票しない）	SKILL.md 保存と事後報告 6 と description を出典にした。仕様側の置き場（flow/authoring）の選択は仕様段
+A-004;B-017	docs/requirements/consumer.md:181	PR-CONSUMER-033 新設（裁定の下っていない論点を保持規則として書く）。032 は verification.md:432 の宙づり参照があるため使わず 033 にした	Q2。032 を使うと宙づり参照が別の意味の要求へ黙って解決される
+-	docs/requirements/requester.md:34-37	用語「中断点」「事後報告」「保持規則」の定義を追加	新設要求で使う語の定義
+A-002;B-009;A-007	docs/requirements/requester.md:139-142	「上限の値は要求として持たず、正は実装の定数で flow.md が参照する」段落を追加	Q3「実装の定数を正本に」。要求側は値に触れない
+A-002;B-020	docs/requirements/requester.md:231	PR-REQUESTER-005 から SP-FLOW-024 の ID 参照と「周回」を外し flow.md が定める上限とし、初稿の後の中断点を含めて尋ねること・PR-REQUESTER-045 の除外を追加	Q3・Q6（回答後もなお着手できない事項は後のゲートで聞き直す）・Q9
+A-007	docs/requirements/requester.md:510-516;534	実行環境と中断の前文と PR-REQUESTER-034 から SP-FLOW-046・047 の ID 参照を外し、値を持たない旨にした	Q3。SP-FLOW-047 は Q3 で書き直される
+A-008;B-006;B-007;A-024	docs/requirements/requester.md:486	PR-REQUESTER-059 新設（検査の結果を得ないまま完了しない）	Q4
+A-008;B-006;B-007	docs/requirements/requester.md:553	PR-REQUESTER-060 新設（検査の結果を得られず止めた実行を止めた段から実行し直せる状態に保つ）	Q4
+A-005	docs/requirements/requester.md:155 (旧 216-219)	PR-REQUESTER-010（承認を得ずに保存しない）を削除し欠番にした	Q5 で義務が反転したため。同じ ID で逆の意味にすると flow.md の 9 行が構造上は正しいまま誤りになる
+A-005	docs/requirements/requester.md:326	PR-REQUESTER-052 新設（版管理で戻せる保存先へは承認を待たずに保存）	Q5
+A-005	docs/requirements/requester.md:331	PR-REQUESTER-053 新設（版管理外・不変のものに触れる保存は承認を得てから）	Q5
+A-005	docs/requirements/requester.md:337;343	PR-REQUESTER-011・012 を「承認を求めるとき先に示す」から「保存したとき事後報告で示す」に改訂（ID 維持）	Q5。示す義務は残り契機だけ変わる
+A-005	docs/requirements/requester.md:319-324	節名を「提示と承認」から「保存の判断と事後報告」に変え、前文を追加	Q5
+A-005	docs/requirements/requester.md:122-127	「承認しない旨は SP-FLOW-041・042 が定める」を「事後報告で覆したときは flow.md が定める」に置き換え	Q5 で承認待ちの状態が仕様から外れる
+A-005	docs/requirements/requester.md:423;428	PR-REQUESTER-018・031 の「承認を経ていない中間の生成物」を「保存する文書以外の中間の生成物」に改訂	Q5 で保存前の承認が無くなり語が意味を失う
+A-005	docs/requirements/requester.md:571;577	RK-002・RK-008 の根拠を Q5 と Issue の起票に合わせて改訂	Q5・Q2
+A-005;A-006	docs/requirements/requester.md:78-97	「どう使われるか」の手順を、初稿の後にまとめて尋ねる・保存してから事後報告・承認された Issue を起票する流れに改訂	Q5・Q6
+A-010;A-011;B-005	docs/requirements/requester.md:175	PR-REQUESTER-042 新設（作成に入った後の確認を次の中断点の問いにする）。前文の参照を 037・040・042 に更新	Q7
+A-010	docs/requirements/requester.md:308	PR-REQUESTER-043 新設（応答の無い中断点を時間で打ち切らない）	Q7
+A-010	docs/requirements/requester.md:313	PR-REQUESTER-044 新設（中断点から後で続けられる状態を保つ）	Q7
+A-018;B-027	docs/requirements/requester.md:238;245;261	PR-REQUESTER-007・008 に PR-REQUESTER-048 の例外を追加し、048 新設（回答の記録が失われた・欠けた問いを尋ね直す）	Q8
+B-027	docs/requirements/requester.md:267	PR-REQUESTER-049 新設（空のまま渡された回答を尋ね直さない）	Q8
+B-027	docs/requirements/requester.md:272	PR-REQUESTER-050 新設（検証に落ちた回答の反映を文書に書かない）	Q8
+A-017	docs/requirements/requester.md:277	PR-REQUESTER-051 新設（修正後も検証に落ちる裁定・問い・保持規則で止まる）	Q8
+A-013	docs/requirements/requester.md:282-304	節「仕様書だけを作成する実行」と PR-REQUESTER-045・046・047 を新設	Q9
+A-014;A-015;A-016;A-019	docs/requirements/requester.md:558	PR-REQUESTER-061 新設（止めた段から実行し直せるか最初からやり直すかを示す）。A-019 は A-014 に併合された行として同じ扱い	Q10
+A-014	docs/requirements/requester.md:546-549	PR-REQUESTER-026 の括弧書きを 061 を参照する形にし、TBD-RREQUESTER-015 に触れる文を保持規則の形にした	Q10。doc_check の TBD-ASSERT に合わせた
+A-014	docs/requirements/requester.tbd.json:36	TBD-RREQUESTER-015 の本文を、026・061 で決まった内容を除いた残りに狭めた（flow.md が参照するため閉じない）	Q10
+B-021	docs/requirements/requester.md:454;458	PR-REQUESTER-062・063 新設（所在を示された文書を読み取れなければ作成に入らない／所在を示す）	Q10
+A-022	docs/requirements/requester.md:413;418	PR-REQUESTER-064・065 新設（保存直前に最後に検査した文書と一致しなければ保存しない／食い違いを示す）	Q10
+M-001	docs/requirements/requester.md:498;504	PR-REQUESTER-066・067 新設（申告外の書き換えを示す／検査せずに残さない）	Q11
+B-012;B-025	docs/requirements/requester.md:472-496	節「検査と改稿の結果」と PR-REQUESTER-068 新設（実施しなかった検査と残った指摘を指摘 0 件と区別して事後報告で示す）	Q11「検査記録として引き渡しに載せる（今は report に届いていないので足す）」から、載せる先を事後報告と読んだ
+B-012	docs/requirements/consumer.tbd.json	TBD-RCONSUMER-007（検査の実施・未実施の区別を載せるか）を閉じた	Q11 で載せる（事後報告）と決まり、要求は PR-REQUESTER-068 が持つ。表記の細部は仕様段
+B-023	docs/requirements/consumer.md:123-126	PR-CONSUMER-002 の括弧書きから SP-AUTHORING-020 と TBD-SAUTHORING-001 の参照を外し、語の集合は仕様書が定め本文書は列挙しない、とした	Q3・Q11。TBD-SAUTHORING-001 は仕様段で閉じられる
+A-020	docs/requirements/requester.md:106-118;187;197;202;208	スコープ外の表に一般ドキュメント執筆・設計判断の壁打ちを追加、PR-REQUESTER-001 を拡張、PR-REQUESTER-069・070 新設（空・単語だけの依頼文）、PR-REQUESTER-003 から 069 の依頼文を除外	builder-choice: SKILL.md description が定める発火条件を写した
+-	docs/requirements/requester.md:155;docs/requirements/consumer.md:101	欠番の申告行を追加（requester は 010 を含む 9 件、consumer は 032 を含む 3 件）	doc_check の ST-GAP-UNDECLARED
+-	docs/requirements/INDEX.md	触らなかった。index モードは W（作業ディレクトリ）を要し、W を作ることは書いてよいファイルの外。現 INDEX は別 checkout（pr198）の絶対パスで導出されている	brief「INDEX を導出する手段が無ければ触らない」
+-	(検査)	node doc_check.mjs <input.json>（6 文書、ids は見出しから）: exit 0。改訂前との差分は GAP に PR-REQUESTER-010・PR-CONSUMER-032 が増え、UNDECLARED R に PR-CONSUMER-033（requester からの参照）が出た。node doc_check.mjs doc --workspace <scratchpad の W> --doc requirements/requester --lint --open-tbd <両 sidecar の TBD>: findings 29（全件 ST-ORPHAN-REQ: 新設要求に仕様項目が未対応）・lint 0。同 consumer: findings 5（ST-ORPHAN-REQ 1 件 PR-CONSUMER-033、既存の ST-AMBIGUOUS「等」2 件、既存の ST-TBD-ASSERT 2 件）・lint 0。not_checked 7（trace と flow を渡していないため）。合否の判定はしない	brief 5

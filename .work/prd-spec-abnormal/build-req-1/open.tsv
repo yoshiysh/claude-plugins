@@ -1,0 +1,28 @@
+finding_id	file:line	what	why
+A-001	docs/specifications/flow.md:300-303	SP-FLOW-045 を Q1・Q2 に合わせる（残したまま完成と判定しない）	仕様段で扱う
+A-002;B-009;A-007	docs/specifications/flow.md:292-298;396-401;docs/specifications/verification.md:287-290	上限の値を実装の定数名の参照に書き換え、根拠の記述（SP-FLOW-047 等）を直す	仕様段で扱う（Q3）
+A-003;A-009;B-004;B-026	docs/specifications/flow.md;docs/specifications/verification.md	上限到達・進展なし・検査不能の遷移を blocked（保存しない）として状態遷移に置く。図と表の置き場	仕様段で扱う
+A-004;B-017;B-018	docs/specifications/flow.md;authoring.md	保持規則に入る経路と Issue の経路の置き場。PR-REQUESTER-055〜057・PR-CONSUMER-033 を実現する仕様項目を置く	仕様段で扱う
+A-005	docs/specifications/flow.md:56;325;331;338;343;618-621	PR-REQUESTER-010 を削除したので flow.md の参照 9 件（SP-FLOW-028・041・042・029 の実現する要求とトレーサビリティ表）が宙づりになる。SP-FLOW-029 は PR-REQUESTER-036、保存は PR-REQUESTER-052・053 へ付け替え、承認待ちの状態を外す	仕様段で扱う（参照切れ）
+A-005	docs/specifications/flow.md	PR-REQUESTER-011・012 の意味が「保存前に示す」から「事後報告で示す」に変わった。参照する仕様項目（各 5 件）の書き直し	仕様段で扱う
+A-006;B-020	docs/specifications/flow.md:222-225;elicitation.md:205-206	SP-FLOW-015 と問い直しの経路	仕様段で扱う（Q6）
+A-008;B-006;B-007	docs/specifications/verification.md:110-111;312-323	SP-VERIFICATION-002・041・044 を段で止める側に書き直し、PR-REQUESTER-059・060 へ紐付け	仕様段で扱う（Q4）
+A-010;B-001;B-002;B-003;B-005	docs/specifications/flow.md:559;elicitation.md:329-346	無応答・確認・対応づけ外の回答・確定値と異なる回答の未定義セル（TBD-SFLOW-008・TBD-SELICITATION-003・017・019）	仕様段で扱う（Q7。要求側は PR-REQUESTER-042〜044）
+A-011	docs/requirements/requester.md:175	起動時（中断点が 1 つも無い時点）の判定に迷う場合の確認をどこで受けるか。Q7 は「次のゲートの問いとして聞く」とするが、起動判定（PR-REQUESTER-001・023・069）は作成に入る前でゲートが無い。PR-REQUESTER-042 は作成に入った後に限定して書いた	未決（回答から一意に決まらない）
+A-012;B-019	docs/specifications/authoring.md:547;592;docs/specifications/verification.md:432	宙づり参照の付け替え。authoring.md:547 の PR-CONSUMER-014 → PR-CONSUMER-006、authoring.md:592 は 591 と重複するので削除、verification.md:432 の PR-CONSUMER-032 → PR-REQUESTER-029。要求は新設しない	仕様段で扱う
+A-013	docs/specifications/flow.md:217-220	SP-FLOW-014 に仕様書だけの実行の例外を置き PR-REQUESTER-045〜047 に紐付け	仕様段で扱う（Q9）
+A-014;A-015;A-016;A-019;A-022;B-021	docs/specifications/flow.md	実装にだけある停止を異常系に置き、段からの再実行と最初からのやり直しを区別。PR-REQUESTER-061〜065 に紐付け	仕様段で扱う（Q10）
+A-017;A-018;B-027	docs/specifications/flow.md;elicitation.md	回答の欠け・空欄・反映の検証落ち・裁定の検証落ちの遷移。PR-REQUESTER-048〜051 に紐付け	仕様段で扱う（Q8）
+A-021	plugins/workflow/skills/prd-spec/SKILL.md:148-186	保存の書き込み失敗時の扱いを SKILL.md に足す	実装段で扱う（derived）
+A-023	plugins/workflow/workflows/prd-spec.js:1153-1170	call() に応答を待つ時間の上限を設ける	実装段で扱う（derived）
+A-024	plugins/workflow/workflows/prd-spec.js:2758	指名された監査役が doc_check の stdout を返さないとき doc_blocking を 0 としない	実装段で扱う（derived。要求側は PR-REQUESTER-059）
+B-008;B-012;B-013	plugins/workflow/workflows/prd-spec.js;scripts/doc_check.mjs	形式違反のやり直し・not_checked の参照・無言で外す経路	実装段で扱う（derived）
+B-010;B-011;B-014;B-015;B-016;B-022;B-023;B-024;M-002	docs/specifications/verification.md;authoring.md;elicitation.md	実装の検査規則を仕様の正にする（曖昧語の集合・根拠の置き場・語尾の範囲・問いの形・観点の判定・INDEX の検査結果・終了条件）、判定値の語の統一、両立しない指摘の裁定	仕様段で扱う（Q11・Q12）
+B-012;B-025	docs/specifications/verification.md:121-125;418-462;docs/specifications/verification.tbd.json;docs/specifications/authoring.tbd.json	TBD-RCONSUMER-007 を閉じたので verification.md の参照 2 件と spec の tbd.json 2 件が宙づりになる。PR-REQUESTER-068 へ付け替え。検査の異常系の紐付け先（B-025）も PR-REQUESTER-058・059・068 へ	仕様段で扱う（参照切れ）
+B-023	docs/specifications/authoring.md:184-186	PR-CONSUMER-002 は SP-AUTHORING-020・TBD-SAUTHORING-001 を参照しなくなった。仕様側で TBD-SAUTHORING-001 を閉じ、実装の集合を参照する	仕様段で扱う
+B-011;B-010	docs/requirements/consumer.md:111-136	Q11（終了は blocking 0 件、低重大度の指摘は残して記録、語尾は意図が判別できる文だけ検査）と、回答 Q1 由来の完了条件「機械検査が全部通る（曖昧語・平叙終止・複合要求が 0 件）」および PR-CONSUMER-002〜004 が両立するか。Q11 が文書の性質（PR-CONSUMER-003 等）を緩めるのか、検査の範囲だけを決めたのかは回答から決まらないので、どちらにも書き換えていない	未決
+-	docs/requirements/requester.md:479-496	Q1 の「検査できなかった箇所」（止める側）と Q11 の「実施しなかった検査」（記録する側）の境界。要求側は、下位 agent から検査の結果を得られない場合を止める側（PR-REQUESTER-059）、検査器が対象外として外した検査を記録する側（PR-REQUESTER-068）と読んで書いた。この読みが違えば依頼者への確認が要る	検証役が確かめる（解釈を含む）
+-	docs/requirements/requester.tbd.json TBD-RREQUESTER-014	Issue の起票（PR-REQUESTER-057）で GitHub への依存が生じた。外部依存の TBD の本文は変えていない	未決（依存の範囲の判断は回答に無い）
+-	docs/requirements/consumer.md:150-165	既存の ST-AMBIGUOUS「等」2 件（回答の逐語引用の中）と §分量の決まり方の ST-TBD-ASSERT 2 件	今回の照合行に無い既存の指摘。引用は逐語なので書き換えない
+-	docs/specifications/*.md	新設した PR-REQUESTER-042〜070・PR-CONSUMER-033 を実現する仕様項目とトレーサビリティ行が無い（doc_check の ST-ORPHAN-REQ 30 件）	仕様段で扱う
+-	docs/requirements/INDEX.md	導出し直していない（W が要る）。要求の件数・欠番の欄が古い	保存の段で doc_check index を使って導出する
