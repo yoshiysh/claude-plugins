@@ -205,7 +205,7 @@ for (const target of [{ scope: 'full' }, { scope: 'diff', diffRef: 'main...HEAD'
   });
 }
 
-test('diff scope treats the same finding on a changed file as preexisting', async () => {
+test('diff scope treats the same finding on a changed file as preexisting and revises it', async () => {
   const { agent, calls } = reverifyFindingAgent({
     file: 'SKILL.md',
     location: 'L1',
@@ -217,8 +217,9 @@ test('diff scope treats the same finding on a changed file as preexisting', asyn
   }, ['find-why-driven-p2r1']);
   const { result } = await run('update', agent, { scope: 'diff', diffRef: 'main...HEAD' });
   const updaters = calls.filter(c => c.label.startsWith('update-')).map(c => c.label);
-  assert.deepEqual(updaters, ['update-r1']);
-  assert.equal(result.staging.preexisting.length, 1);
+  assert.deepEqual(updaters, ['update-r1', 'update-r2']);
+  assert.deepEqual(blockClaims(calls.find(c => c.label === 'update-r2').prompt, 'PREEXISTING_FINDINGS'),
+    ['comment restates what the code does']);
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
@@ -244,7 +245,22 @@ test('source Find and Verify agents receive only the frozen snapshot target', as
   }
 });
 
-test('reverify finding already present in the original is preexisting and does not re-enter the loop', async () => {
+// [NAME]:\n の直後から次の空行区切りのブロックまでを JSON として読み、claim を返す。ブロックが無ければ null。
+function blockClaims(prompt, name) {
+  const marker = `[${name}]:\n`;
+  const start = prompt.indexOf(marker);
+  if (start < 0) return null;
+  const from = start + marker.length;
+  const end = prompt.indexOf('\n\n[', from);
+  return JSON.parse(prompt.slice(from, end < 0 ? undefined : end)).map(f => f.claim);
+}
+
+function reviseNoteClaims(prompt) {
+  const note = prompt.slice(prompt.indexOf('[REVISE_NOTE]'));
+  return JSON.parse(note.match(/(\{[\s\S]*\})\s*$/)[1]).unresolved.map(f => f.claim);
+}
+
+test('a preexisting finding re-enters the loop in its own block and is rechecked, not as a revision-introduced one', async () => {
   const { agent, calls } = reverifyFindingAgent({
     file: 'SKILL.md',
     location: 'L3',
@@ -256,10 +272,202 @@ test('reverify finding already present in the original is preexisting and does n
   }, ['find-why-driven-p2r1']);
   const { result } = await run('update', agent);
   const updaters = calls.filter(c => c.label.startsWith('update-')).map(c => c.label);
-  assert.deepEqual(updaters, ['update-r1']);
-  assert.equal(result.staging.preexisting.length, 1);
+  assert.deepEqual(updaters, ['update-r1', 'update-r2']);
+  assert.equal(blockClaims(calls.find(c => c.label === 'update-r1').prompt, 'PREEXISTING_FINDINGS'), null);
+  const r2 = calls.find(c => c.label === 'update-r2').prompt;
+  assert.deepEqual(blockClaims(r2, 'PREEXISTING_FINDINGS'), ['comment restates what the code does']);
+  assert.deepEqual(blockClaims(r2, 'CONFIRMED_FINDINGS'), []);
+  assert.ok(!r2.includes('[REVISE_NOTE]'), 'REVISE_NOTE must not ask to resolve an empty list');
+  assert.match(calls.find(c => c.label === 'find-why-driven-p2r2').prompt,
+    /\[RECHECK_FINDINGS\]:[\s\S]*"claim": "comment restates what the code does"/);
+  assert.deepEqual(Array.from(result.staging.reverify_scope.recheck_ids), ['p2r1-why-driven-1']);
   assert.equal(result.staging.new.length, 0);
   assert.equal(result.verdict, 'applied_to_staging');
+  assert.equal(result.stop_reason, 'resolved');
+});
+
+// updater は原本から複製し直してよいので、前巡分だけを持ち回すと、直した巡の次で原本に戻ったファイルが報告範囲から外れる。
+test('a preexisting finding stays in the updater input and the recheck after the round that no longer reports it', async () => {
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: {
+      'find-why-driven-p2r1': [
+        finding({ claim: 'already there', present_in_original: true }),
+        finding({ claim: 'introduced a', present_in_original: false }),
+        finding({ claim: 'introduced b', present_in_original: false }),
+      ],
+      'find-why-driven-p2r2': [finding({ claim: 'introduced c', present_in_original: false })],
+    },
+  });
+  const { result } = await run('update', agent);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2', 'update-r3']);
+  assert.deepEqual(blockClaims(calls.find(c => c.label === 'update-r3').prompt, 'PREEXISTING_FINDINGS'), ['already there']);
+  assert.match(calls.find(c => c.label === 'find-why-driven-p2r3').prompt, /\[RECHECK_FINDINGS\]:[\s\S]*"claim": "already there"/);
+  assert.equal(result.stop_reason, 'resolved');
+});
+
+test('a preexisting finding that the updater does not fix dries the loop', async () => {
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: {
+      'find-why-driven-p2r1': [finding({ claim: 'already there', present_in_original: true })],
+      'find-why-driven-p2r2': [finding({ claim: 'already there', present_in_original: true })],
+    },
+  });
+  const { result } = await run('update', agent);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  assert.deepEqual(Array.from(result.staging.preexisting), []);
+  assert.deepEqual(Array.from(result.staging.preexisting_recheck.still_confirmed, f => f.claim), ['already there']);
+  assert.equal(result.verdict, 'needs_human_decision');
+  assert.equal(result.stop_reason, 'dried');
+});
+
+// minor は反証に回さないので確定せず、preexisting ではなく reported_minor に載る。
+test('a minor finding already in the original is reported as minor and never sent to the updater as preexisting', async () => {
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: {
+      'find-why-driven-p2r1': [
+        finding({ claim: 'minor there', severity: 'minor', present_in_original: true }),
+        finding({ claim: 'introduced', present_in_original: false }),
+      ],
+    },
+  });
+  const { result } = await run('update', agent);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  const r2 = calls.find(c => c.label === 'update-r2').prompt;
+  assert.equal(blockClaims(r2, 'PREEXISTING_FINDINGS'), null);
+  assert.deepEqual(reviseNoteClaims(r2), ['introduced']);
+  const p2r1 = calls.filter(c => c.phase === 'Reverify' && c.label.startsWith('refute-p2r1')).flatMap(c => batchIds(c.prompt));
+  assert.deepEqual(p2r1, ['p2r1-why-driven-2']);
+  assert.equal(result.verdict, 'applied_to_staging');
+});
+
+// 2 巡目以降の再確認で確定以外になった、または見られなかった preexisting は、黙って消えず行き先の枠に載る。
+for (const [name, opts, expected] of [
+  ['unobserved major', { severity: 'major', scanned: [] }, { bucket: 'unobserved', stop: 'resolved' }],
+  ['unobserved blocker', { severity: 'blocker', scanned: [] }, { bucket: 'unobserved', stop: 'unverified_blocker' }],
+  ['refuted major', { severity: 'major', vote: 'refuted' }, { bucket: 'refuted_on_recheck', stop: 'resolved' }],
+  ['refuted blocker', { severity: 'blocker', vote: 'refuted' }, { bucket: 'refuted_on_recheck', stop: 'contested_blocker' }],
+  ['downgraded blocker', { severity: 'blocker', downgrade: true }, { bucket: 'minor', stop: 'contested_blocker' }],
+  ['unverified blocker', { severity: 'blocker', vote: 'unreadable' }, { bucket: 'still_unverified', stop: 'unverified_blocker' }],
+]) {
+  test(`a preexisting finding rechecked as ${name} lands in preexisting_recheck.${expected.bucket}`, async () => {
+    const p = finding({ claim: 'already there', severity: opts.severity, present_in_original: true });
+    const { agent } = scriptedAgent({
+      findingsByLabel: {
+        'find-why-driven-p2r1': [p],
+        'find-why-driven-p2r2': opts.scanned ? [] : [opts.downgrade ? { ...p, severity: 'minor' } : p],
+      },
+      scannedByLabel: opts.scanned ? { 'find-why-driven-p2r2': opts.scanned } : {},
+      votes: label => (label.startsWith('refute-p2r2') && opts.vote ? opts.vote : 'not_refuted'),
+    });
+    const { result } = await run('update', agent);
+    for (const b of ['still_confirmed', 'resolved', 'minor', 'still_unverified', 'refuted_on_recheck', 'unobserved']) {
+      assert.equal(result.staging.preexisting_recheck[b].length, b === expected.bucket ? 1 : 0, b);
+    }
+    assert.equal(result.stop_reason, expected.stop);
+  });
+}
+
+// 未検証は直ったと確かめられていないので未解消のまま。同じ指摘が残り続けるので dried で止まる（resolved にならない）。
+test('a preexisting finding rechecked as unverified major stays unresolved instead of resolving the loop', async () => {
+  const p = finding({ claim: 'already there', present_in_original: true });
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: { 'find-why-driven-p2r1': [p], 'find-why-driven-p2r2': [p] },
+    votes: label => (label.startsWith('refute-p2r2') ? 'unreadable' : 'not_refuted'),
+  });
+  const { result } = await run('update', agent);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  assert.deepEqual(Array.from(result.staging.preexisting_recheck.still_unverified, f => f.claim), ['already there']);
+  assert.equal(result.verdict, 'needs_human_decision');
+  assert.equal(result.stop_reason, 'dried');
+});
+
+// 揺れた巡で止まるよう、同じ指摘だけを 2 巡返す（未解消のキー集合が前巡と同じなので dried）。キー集合は Set なので二重計上は
+// dried の成否には出ない。二重計上は dried のログの件数（unresolved 配列の長さ）が 1 であることで検出する。
+for (const [first, second, bucket] of [[true, false, 'preexisting'], [false, true, 'introduced']]) {
+  test(`a finding first classified ${bucket} keeps that class when present_in_original flips, and is counted once`, async () => {
+    const logs = [];
+    const p = finding({ claim: 'flipping' });
+    const { agent, calls } = scriptedAgent({
+      findingsByLabel: {
+        'find-why-driven-p2r1': [{ ...p, present_in_original: first }],
+        'find-why-driven-p2r2': [{ ...p, present_in_original: second }],
+      },
+    });
+    const { result } = await run('update', agent, { scope: 'full' }, { log: m => logs.push(String(m)) });
+    assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+    const r2 = calls.find(c => c.label === 'update-r2').prompt;
+    if (bucket === 'preexisting') {
+      assert.deepEqual(blockClaims(r2, 'PREEXISTING_FINDINGS'), ['flipping']);
+      assert.ok(!r2.includes('[REVISE_NOTE]'));
+      assert.deepEqual(Array.from(result.staging.preexisting_recheck.still_confirmed, f => f.claim), ['flipping']);
+      assert.equal(result.staging.new.length, 0);
+    } else {
+      assert.equal(blockClaims(r2, 'PREEXISTING_FINDINGS'), null);
+      assert.deepEqual(reviseNoteClaims(r2), ['flipping']);
+      assert.deepEqual(Array.from(result.staging.new, f => f.claim), ['flipping']);
+      assert.equal(result.staging.preexisting.length + result.staging.preexisting_recheck.still_confirmed.length, 0);
+    }
+    assert.ok(logs.some(m => m.startsWith('blocker/major 1 件が前回の改稿から')), logs.join('\n'));
+    assert.equal(result.stop_reason, 'dried');
+  });
+}
+
+// prompt-audit の確信度は揺れるので、手の入っていないファイルから消えたことを直った証拠にしない（auditCarried と同じ）。
+for (const [changedInR2, bucket, stop] of [[false, 'still_confirmed', 'dried'], [true, 'resolved', 'resolved']]) {
+  test(`a preexisting prompt-audit finding gone from a file ${changedInR2 ? '' : 'not '}changed in round 2 is ${bucket}`, async () => {
+    const p = finding({ file: 'references/x.md', claim: 'stale prompt', present_in_original: true, audit_confidence: 'High', audit_action: 'rewrite' });
+    const { agent } = scriptedAgent({
+      findingsByLabel: { 'find-prompt-audit-p2r1': [p] },
+      scannedByLabel: { 'find-prompt-audit-p2r2': ['SKILL.md', 'references/x.md'] },
+      changedByLabel: {
+        'update-r1': ['SKILL.md', 'references/x.md'],
+        'update-r2': changedInR2 ? ['SKILL.md', 'references/x.md'] : ['SKILL.md'],
+      },
+    });
+    const { result } = await run('update', agent);
+    for (const b of ['still_confirmed', 'resolved', 'unobserved']) {
+      assert.equal(result.staging.preexisting_recheck[b].length, b === bucket ? 1 : 0, b);
+    }
+    assert.equal(result.stop_reason, stop);
+  });
+}
+
+// 前巡の未解消の new も、再確認で未検証・未観測になったとき黙って消えない。
+for (const [name, severity, opts, bucket, stop] of [
+  ['unverified major', 'major', { vote: 'unreadable' }, 'still_unverified', 'dried'],
+  ['unobserved major', 'major', { scanned: [] }, 'unobserved', 'resolved'],
+  ['unobserved blocker', 'blocker', { scanned: [] }, 'unobserved', 'unverified_blocker'],
+]) {
+  test(`a revision-introduced finding rechecked as ${name} lands in ${bucket}`, async () => {
+    const q = finding({ claim: 'introduced', severity, present_in_original: false });
+    const { agent } = scriptedAgent({
+      findingsByLabel: { 'find-why-driven-p2r1': [q], 'find-why-driven-p2r2': opts.scanned ? [] : [q] },
+      scannedByLabel: opts.scanned ? { 'find-why-driven-p2r2': opts.scanned } : {},
+      votes: (label, phase) => (label.startsWith('refute-p2r2') && opts.vote ? opts.vote : 'not_refuted'),
+    });
+    const { result } = await run('update', agent);
+    assert.deepEqual(Array.from(result.staging[bucket], f => f.claim), ['introduced']);
+    assert.equal(result.stop_reason, stop);
+  });
+}
+
+test('the updater receives every reverify perspective as id, title and reference paths only', async () => {
+  const { agent, calls } = respondingAgent();
+  await run('update', agent);
+  const updater = calls.find(c => c.label === 'update-r1').prompt;
+  const marker = '[REVERIFY_PERSPECTIVES]:\n';
+  const from = updater.indexOf(marker) + marker.length;
+  const perspectives = JSON.parse(updater.slice(from, updater.indexOf('\n\n[', from)));
+  const categories = calls.filter(c => /^find-.*-p2r1$/.test(c.label))
+    .map(c => c.prompt.match(/\[CATEGORY\]: (\S+) — (.+)/).slice(1));
+  assert.deepEqual(perspectives.map(p => [p.id, p.title]), categories);
+  for (const p of perspectives) assert.deepEqual(Object.keys(p).filter(k => !['id', 'title', 'references'].includes(k)), []);
+  const refs = Object.fromEntries(perspectives.filter(p => p.references).map(p => [p.id, p.references]));
+  assert.deepEqual(refs, {
+    'best-practices': ['/mock/skill-creator/references/best-practices.md', '/mock/skill-creator/references/skill-writing-guide.md'],
+    'prompt-audit': ['/mock/skill-creator/references/prompt-audit.md'],
+  });
+  assert.ok(!updater.includes('[CATEGORY_GUIDE]'));
 });
 
 test('intent is absent from update Find and from every review prompt', async () => {
@@ -299,13 +507,14 @@ function finding(overrides = {}) {
   };
 }
 
-function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () => 'not_refuted', outOfScopeByLabel = {} }) {
+function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () => 'not_refuted', outOfScopeByLabel = {}, changedByLabel = {} }) {
   const calls = [];
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label, phase: opts.phase });
     if (opts.label.startsWith('update-')) {
       if (outOfScopeByLabel[opts.label] === null) return null;
-      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }],
+      const changed = changedByLabel[opts.label] || ['SKILL.md'];
+      return { changed_files: changed.map(path => ({ path, reason: 'intent', findings_addressed: [] })),
         out_of_scope_changes: outOfScopeByLabel[opts.label] || [], summary: 'updated' };
     }
     if (opts.label.startsWith('refute-')) {
@@ -1166,6 +1375,34 @@ test('an unjudged measurement item is also excluded from the loop, while a revis
   assert.deepEqual(byId, { 'verifier-path': false, 'description-triggers': true });
 });
 
+test('an unmet delegated item carries the judged file and location to the updater', async () => {
+  const { agent, calls } = uncheckedAgent((label) => [
+    label.endsWith('-p1')
+      ? { id: 'verifier-path', verdict: 'partial', evidence: 'a.md contradicts SKILL.md', file: './references/a.md', location: 'L3' }
+      : { id: 'verifier-path', verdict: 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  const prompt = calls.find(c => c.label === 'update-r1').prompt;
+  const start = prompt.indexOf('[UNCHECKED_FAILURES]:\n') + '[UNCHECKED_FAILURES]:\n'.length;
+  const [sent] = JSON.parse(prompt.slice(start, prompt.indexOf('\n\n[', start)));
+  assert.equal(sent.file, 'references/a.md');
+  assert.equal(sent.location, 'L3');
+  assert.equal(sent.evidence, 'a.md contradicts SKILL.md');
+  assert.doesNotMatch(sent.suggested_fix, /経路を設ける/);
+});
+
+test('a delegated item reported at a different file each round is still the same unresolved item for dried', async () => {
+  const { agent, calls } = uncheckedAgent((label) => [
+    { id: 'verifier-path', verdict: 'partial', evidence: 'gap', file: label.endsWith('-p1') || label.endsWith('-p2r2') ? 'SKILL.md' : 'references/a.md', location: label },
+    { id: 'description-triggers', verdict: 'pass', evidence: 'e' },
+  ]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  assert.equal(result.stop_reason, 'dried');
+  assert.deepEqual(Array.from(result.unchecked_failures, f => f.item_id), ['verifier-path']);
+});
+
 test('review stays non-clean when only a measurement item is unmet', async () => {
   const { agent } = uncheckedAgent(() => [
     { id: 'verifier-path', verdict: 'pass', evidence: 'e' },
@@ -1270,7 +1507,8 @@ test('seed reconciliation: re-reported seeds stay remaining, minor ones do not l
   assert.deepEqual(claims('remaining'), ['major seed', 'minor seed']);
   assert.deepEqual(claims('resolved'), ['fixed seed']);
   assert.deepEqual(claims('unobserved'), ['unseen seed']);
-  assert.deepEqual(claims('preexisting'), ['already there']);
+  assert.deepEqual(claims('preexisting'), []);
+  assert.deepEqual(Array.from(result.staging.preexisting_recheck.still_confirmed, f => f.claim), ['already there']);
   assert.deepEqual(claims('new'), ['introduced']);
   assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
   const note = calls.find(c => c.label === 'update-r2').prompt;

@@ -89,7 +89,7 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
 
 観点によっては、`scripts/quick_validate.py` が「機械では判定できない」と宣言した項目が
 id つきで `[UNCHECKED_ITEMS]` として渡される。渡されたときは、**その id すべてについて**
-`unchecked_judgments` に `verdict` と `evidence` を返す。判定値の意味と扱いは、この役割定義と同じスキルの
+`unchecked_judgments` に `verdict` と `evidence`（finder は判定によって `file`・`location` も）を返す。判定値の意味と扱いは、この役割定義と同じスキルの
 `references/schemas.md`「委譲項目（[UNCHECKED_ITEMS]）の受け渡し」に従う（返さなかった id は未判定として指摘に変換される）。
 
 ## prompt-audit 観点
