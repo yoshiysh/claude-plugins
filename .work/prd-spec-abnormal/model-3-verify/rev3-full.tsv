@@ -1,0 +1,66 @@
+action	verdict	reason	evidence_ref	evidence_quote
+S0Go	faithful	SKILL.md:69 の W の作成から intake へ。OPT_W=ask の stops+1 は QM-05 の選択肢の写し	plugins/workflow/skills/prd-spec/SKILL.md:69	**W を作る**: native では `[SKILL_DIR]/workspace/<案件>/`
+S0Unreadable	faithful	決定 Q10「読み取れない文書があれば run を始めずに止める」。始めていない run なので next_args なし（Block の FALSE）・restart	decision:Q10	-
+S0DoubtEnd	faithful	QM-06 の選択肢 1 の写し（SKILL.md:35 を迷いに広げた形）。open の行で、実装の遷移ではない	plugins/workflow/skills/prd-spec/SKILL.md:35	空入力・単語のみのときは、推測で対象を決めずに次を返して終える
+S0DoubtDefer	faithful	"QM-06 の選択肢 2 の写し（Issue!Force(""question"") と同期）。open の行"	-	-
+S0DoubtPregate	faithful	QM-06 の選択肢 3 の写し（ゲートを開く）。open の行	-	-
+IntakeCarry	too-loose	2210 の deferred は needsAnswers の collecting（running≠6 かつ specOnly か最初のゲート前）で立ち、~specOnly のときだけ。模型の deferred は ~specOnly かつ問いが残るときで一致。entry=existing の段 5 直行（2497・2455）を模型にせず draft を通すので、draft の失敗注入（FailScript・FailIntegrity）が existing でも起きる分だけ緩い（@trace に明記、model-2-verify で justified）。性質の結果は変えない	plugins/workflow/workflows/prd-spec.js:2210	if (!specOnly()) state.deferred = true
+IntakeAskNow	faithful	MUT=Q6 専用の変異の遷移。基礎では無効	-	-
+Draft	faithful	段 4 から段 5。writer の null は FailNotRun（FailStages に draft は無いが、FailScript・FailIntegrity が draft を代表にする。FailNotRun の代表は intake・audit・apply・reaudit）	plugins/workflow/workflows/prd-spec.js:2606	async function stage4() {
+Audit	faithful	段 5 で pass=1（2694）、v=rerun は監査役の結果が無い blocked（2720 の notRun、next_args あり）、zero は A-024（2758）の fail-open。audited を立てる	plugins/workflow/workflows/prd-spec.js:2694	state.pass = 1
+Decide	faithful	段 6 の裁定は Issue!AriseAndRule と同期。決定 Q12	plugins/workflow/workflows/prd-spec.js:2768	async function stage6() {
+Decide2Ask	faithful	"2784: allowQuestions（canAsk）で needsAnswers(""3a'"",'7')。段 6 では collecting が偽（running≠6 の条件）なのでゲートを開く。~specOnly の条件は 2213（specOnly なら upstreamGap）と一致"	plugins/workflow/workflows/prd-spec.js:2784	"if (allowQuestions) return needsAnswers(""3a'"", '7')"
+Decide2Upstream	faithful	canAsk かつ specOnly で needsAnswers が upstreamGap（2213・2247-2249）を返す。next_args なし・stop_reason upstream_gap	plugins/workflow/workflows/prd-spec.js:2249	stop_reason: 'upstream_gap',
+Decide2Go	faithful	問いが無いか ~canAsk で段 7 へ。~canAsk の問いは holdLeft（2785）で保持規則（Composed の HoldLeftIf）	plugins/workflow/workflows/prd-spec.js:2785	const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)
+Apply	faithful	段 3a・3b・3a' の回答の反映は Issue!ApplyStep と同期する入れ物	plugins/workflow/workflows/prd-spec.js:2462	async function stageApply(stageId) {
+ApplyDone	faithful	回答をすべて当て終えて段を出る（2488 の後）。rework を 0 に戻すのは rework() の呼び出しごとの数え直しの抽象	plugins/workflow/workflows/prd-spec.js:2488	if (res.error) return blocked(res.error, res.rerun === false ? null : stageId)
+ApplyRework	faithful	MAX_CHECK_REWORK 回までの差し戻し（2149）。defect.stop・stalled の抜けは ApplyFixerUnknown・ApplyReworkLimit・FailNotRun が持つ	plugins/workflow/workflows/prd-spec.js:2149	}, MAX_CHECK_REWORK)
+ApplyReworkLimit	faithful	表にある符号の上限での停止（2152、rerun:true）。上限前の stalled（448・451）の停止は guard に無いが、同じ形を FailNotRun（apply）が持つので到達できる返り値は同じ。@trace の note は stalled を書いていない	plugins/workflow/workflows/prd-spec.js:2152	if (done.defect) return { error: `段 ${stage}: 回答を当てた flow が閉じていません（${done.defect.text}）`, rerun: !done.defect.stop }
+ApplyFixerUnknown	faithful	608 の stop:true → 444 で差し戻さず抜け → 2152 で rerun:false。OPT_FIXER で reason の接頭辞（§5 への回送）を切り替える。1348・1676 も同じ形で apply に代表化	plugins/workflow/workflows/prd-spec.js:444	for (let i = 0; defect && !defect.stop && i < limit; i++)
+Apply2Ask	faithful	2492: 反映の後に問いが残り allowQuestions なら needsAnswers(stageId)。gates+1	plugins/workflow/workflows/prd-spec.js:2492	if (allowQuestions) return needsAnswers(stageId)
+Apply2Go	too-loose	2496-2497: 3a' は段 7、3a は段 4（existing は段 5）。3b の組み直しを apply に畳み existing も draft を通す（@trace に明記、model-2-verify で justified）。性質の結果は変えない	plugins/workflow/workflows/prd-spec.js:2497	return ENTRY === 'existing' ? '5' : '4'
+ReviseReaudit	faithful	段 7 で改稿する対象があれば改稿して段 8 へ。writer の null は FailNotRun が持つ（FailStages に revise は無いが返り値の形は同じ）	plugins/workflow/workflows/prd-spec.js:2851	await backupDocs('7', auditDocs())
+ReviseReport	faithful	2847: 改稿の対象が無く blocking も無ければ段 9。guard の Blocking=0 は targets が空の条件（doc_blocking>0 なら targets が残る）と合う	plugins/workflow/workflows/prd-spec.js:2847	log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')
+ReviseFinal	faithful	2846: 改稿の対象が無く blocking が残れば finalHold('7', no_progress)。正常の終わり（3032）は next_args なし	plugins/workflow/workflows/prd-spec.js:2846	if (p.blocking.length) return finalHold(p.blocking.length, [], 'no_progress', '改稿に回せる指摘も裁定も無いまま blocking が残った', '7')
+FinalHoldFail	faithful	3021・3025 の rerun:true の枝。再実行先は呼んだ段（7→revise、8→reaudit）、stop_reason は no_progress か pass_limit。rerun:false の枝（1440）は finalhold の Block と同じ形	plugins/workflow/workflows/prd-spec.js:3021	if (kept) return blocked(kept.error, kept.rerun ? stage : null, report)
+Reaudit	faithful	段 8 の範囲を絞った監査。v=rerun は notRun（2928）・diff の欠け（2931・2933）、zero は usable(d) が doc_check を見ない A-024 の経路（2947）	plugins/workflow/workflows/prd-spec.js:2947	const docCheck = parseStdout(d.doc_check)
+JudgeReport	faithful	2973: blocking 0 で段 9。低重大度と not_checked を数えないのは決定 Q11	plugins/workflow/workflows/prd-spec.js:2973	if (!blocking) return '9'
+JudgeNoProgress	too-loose	2978-2979 の条件（尽きた項目・新しい TBD なし・doc_blocking が減らない）を Blocking>0 だけで過大近似（@trace に明記、model-2-verify で justified）。不変式には反例を増やす向きだけで、Term は上限側（JudgeLimit）で止まるので影響なし	plugins/workflow/workflows/prd-spec.js:2979	return finalHold(blocking, newTbd, 'no_progress',
+JudgeLimit	faithful	2981: pass ≥ MAX_AUDIT_PASSES で finalHold('8', pass_limit)	plugins/workflow/workflows/prd-spec.js:2981	if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit',
+JudgeLoop	faithful	2982: pass+1 で段 6 へ（MUT=TERM は pass を増やさない変異）	plugins/workflow/workflows/prd-spec.js:2982	state.pass += 1
+Report	faithful	3037: 段 9 は done（next_args なし）。固定の文書の TBD があっても done は決定 Q2 の本文どおり	plugins/workflow/workflows/prd-spec.js:3037	return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })
+Save	faithful	SKILL.md:157 の照合。一致かつ git で戻せれば承認を待たずに保存（決定 Q5）、止まる条件なら save_wait。一致しないときの後は QM-04 の選択肢で切り替える。ncRecorded は決定 Q11（OPT_NC=impl は記録しない実装）	plugins/workflow/skills/prd-spec/SKILL.md:157	違えば保存しない。
+SaveApprove	faithful	SKILL.md:168-169 の承認後の保存	plugins/workflow/skills/prd-spec/SKILL.md:169	新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
+SaveDecline	too-strong	SKILL.md:169: 衝突しない文書は写す部分保存を「保存しない」に畳む（@trace に明記、model-2-verify で justified）。保存される木は同じ監査済みの版なので saved を読む Q1・Q1nc の結果は変わらない	plugins/workflow/skills/prd-spec/SKILL.md:169	新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
+ReqAnswer	faithful	SKILL.md:110-111: 回答を書いて呼び直す。W がある前提（無い場合は ReqWLost）	plugins/workflow/skills/prd-spec/SKILL.md:111	そのうえで下の「呼び直し」のとおりに呼び直す。
+ReqWLost	faithful	impl は 3113（段 3 以降の入口）・2321（段 1 の入口）の next_args ありの blocked の繰り返し、q10 は決定 Q10 から導いた起動前の例外。段 2 からの呼び直しは未確認	plugins/workflow/workflows/prd-spec.js:3113	if (!fc) return blocked(`flow-check（段 ${from} の入口）が doc_check flow の stdout を返しませんでした`, from)
+ReqBadArgs	faithful	902・907・911・928 に cause が 1 対 1。ExActions の impl/q10 の読みは実装の例外の文と §5 から導ける（args_fixedkeys を restart と fix_script のどちらにするかは仕様書の書き手の選択に残る。結果は変えない）	plugins/workflow/workflows/prd-spec.js:911	返った next_args を変えずに渡すか、段 1 から始めてください
+ReqLoseNoCount	faithful	2281-2282: 回答のファイルが無ければ同じゲート名で needs_answers を返し直し gates を数えない（stops だけ +1）	plugins/workflow/workflows/prd-spec.js:2281	ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）'
+ReqLoseCountAsk	faithful	QM-03 の選択肢 2 の写し（open の行）	-	-
+ReqLoseCountHold	faithful	QM-03 の選択肢 2 の上限の後の写し（open の行）	-	-
+Rerun	faithful	SKILL.md:114: next_args のある blocked は原因を除いて同じ段から。MAX_RERUN は有限化	plugins/workflow/skills/prd-spec/SKILL.md:114	`next_args` があるのは、その段からやり直せる失敗（agent が応答
+PluginUpdate	faithful	SKILL.md:70: skilldir なら plugin の更新で W が引き継がれない	plugins/workflow/skills/prd-spec/SKILL.md:70	native はこの skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない
+FailNotRun	faithful	3157: rerunStage の例外は next_args（同じ段）付きの blocked。代表の段（intake・audit・apply・reaudit）に畳む	plugins/workflow/workflows/prd-spec.js:3157	else if (e && e.rerunStage) r = blocked(e.message, running)
+FailScript	faithful	3161: scriptDefect は next_args なし、reason の接頭辞「script の不変条件に反しました」。代表の段 draft	plugins/workflow/workflows/prd-spec.js:3161	if (scriptDefect) r = blocked(`script の不変条件に反しました（段 ${running}）: ${scriptDefect}`, null)
+FailIntegrity	faithful	3088 などの所有表の外の書き込み（next_args なし）。fixedMoved の本文の変化（2334、rerun:false）もここ。代表の段 draft	plugins/workflow/workflows/prd-spec.js:3088	W を段の入口に戻せないので、S0 からやり直してください
+FailBudget	faithful	3156: budgetStop は stop_reason budget・next_args あり。MUT=Q10 は next_args を外す変異	plugins/workflow/workflows/prd-spec.js:3156	else if (e && e.budgetStop) r = blocked(e.message, running, { stop_reason: 'budget' })
+FailVerify	faithful	2104 など rerun を偽にしない検証落ち（next_args あり）。model-1 の too-strong（1776）は FailVerifyHard に分けて解消	plugins/workflow/workflows/prd-spec.js:2104	const stuck = (ids) => ({ error: `段 ${stage}: 保持規則 ${list(ids)} が書き直した後も検証に落ちました
+FailVerifyHard	faithful	1598・1653・1769・1776・1779: rerun:false の検証落ち（next_args なし）。rs は apply・decide2 に代表化	plugins/workflow/workflows/prd-spec.js:1779	if (missing.length) return { error: `段 ${stage}: 問いへの変換後の独立検証が合格を返しませんでした（${list(missing)}）。確認できるまで依頼者に提示できません`, rerun: false }
+Issue!AriseAndRule	faithful	2413: 聞ける段で価値の論点は question、~canAsk は hold、ほかは confirmed か none	plugins/workflow/workflows/prd-spec.js:2413	"const ASKS = { 3: canAsk, '3a': canAsk, '3b': canAsk, 6: canAsk, ""3a'"": canAsk }"
+Issue!Force	faithful	QM-06 の選択肢 2・3 の写し（open の行）	-	-
+Issue!AskAll	faithful	2221: ゲートで回答待ちの問いをまとめて聞く。sameAsk・reaskAns は Q8 を見るための記録	plugins/workflow/workflows/prd-spec.js:2221	const ids = pendingQuestions(state)
+Issue!RespondAll	faithful	SKILL.md:110: 空の回答行も書く。空の回答行は ansCur を立てない（Q8 の未回答）	plugins/workflow/skills/prd-spec/SKILL.md:110	依頼者が答えなかった問いも `<ID>:` の行を書き、`:` の後を空にする
+Issue!LoseReask	faithful	2282: 記録の消失は同じ問いを聞き直す（reaskAns に数えない。Q8 の例外）	plugins/workflow/workflows/prd-spec.js:2282	問いを聞き直して回答を書き、next_args で呼び直してください
+Issue!LoseHold	faithful	QM-03 の count の上限の後の写し（open の行）	-	-
+Issue!ApplyStep	faithful	2475 と resolver.md の「回答の反映」。a_content の差し戻し 1 回・版を変えた問いか hold、a_empty は同じ版で回答待ち（283-285）、a_undecided は hold、a_conflict・a_unmapped・a_insufficient は版を変えた問いか hold（決定 Q2・Q6・Q7・Q8）	plugins/workflow/workflows/prd-spec.js:2475	の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）
+Issue!HoldLeft	faithful	2127: 聞かない問いを保持規則に書き換える	plugins/workflow/workflows/prd-spec.js:2127	hold（保持規則・Issue の文案・触れる項目 ID）に書き換える
+Issue!Approve	faithful	SKILL.md:179: 承認は保存の後（Composed の Env で rs=end ∧ saved）	plugins/workflow/skills/prd-spec/SKILL.md:179	文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
+Issue!FileOk	faithful	SKILL.md:179: 起票の成功	plugins/workflow/skills/prd-spec/SKILL.md:179	文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
+Issue!FileFail	faithful	QM-14 の選択肢の写し（open の行）	-	-
+Issue!Retry	faithful	QM-14 の選択肢 2 の写し（open の行）	-	-
+Seam!Dispatch	faithful	2670: 段 5・8 で監査役を起動	plugins/workflow/workflows/prd-spec.js:2670	async function runAuditors(plan, round, stage) {
+Seam!Return	faithful	2679: 返り値の有無と designated の doc_check の有無（present・absent・malformed）は環境	plugins/workflow/workflows/prd-spec.js:2679	const missing = plan.filter((_, i) => !results[i]).map((p) => auditorLabel(p, round))
+Seam!Recopy	faithful	1271・1279: 受け取れない写しを 1 回取り直し、なお合わなければ fault（rerun）	plugins/workflow/workflows/prd-spec.js:1271	const bad = Object.keys(cmds).filter((k) => cmds[k] && copyFault(x[k]))
+Seam!Verdict	faithful	2758: doc_check が無いと doc_blocking を 0 にする A-024（IMPL_A024）。~IMPL_A024 は決定 Q4 の段で止める形	plugins/workflow/workflows/prd-spec.js:2758	doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,
+Seam!Consume	faithful	2720: 返り値を読み終える	plugins/workflow/workflows/prd-spec.js:2720	if (missing.length) throw notRun(missing.join(', '))
+Seam!TreeCheck	faithful	SKILL.md:157: 保存直前の tree digest の照合。最後の監査の後の書き換えは環境	plugins/workflow/skills/prd-spec/SKILL.md:157	`tree_digest` を文字列で比べる

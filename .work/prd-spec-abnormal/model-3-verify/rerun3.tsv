@@ -1,0 +1,33 @@
+run	check	states_mine	result_mine	results_tsv	match	note
+base.cfg	TypeOK Q1 Q1nc Q2 Q3a Q3b Q4 Q5 Q6 Q7 Q7W Q8 Q9 Q10 + Term（1 回でまとめて）	420054	pass	420054 pass（全項目）	yes	run/out/base.txt
+impl.cfg	TypeOK	1387688	pass	1387688 pass	yes	不変式ごとに 1 回（run/cfg/impl-*.cfg）
+impl.cfg	Q1	6828（反例まで）	violated	5566 violated	yes（結果）	反例までの状態数は workers 4 の探索順で変わる
+impl.cfg	Q1nc	5467（反例まで）	violated	5210 violated	yes（結果）	同上
+impl.cfg	Q2	1387688	pass	1387688 pass	yes	
+impl.cfg	Q3a	1387688	pass	1387688 pass	yes	
+impl.cfg	Q3b	214560（反例まで）	violated	210545 violated	yes（結果）	
+impl.cfg	Q4	225（反例まで）	violated	208 violated	yes（結果）	
+impl.cfg	Q5	1387688	pass	1387688 pass	yes	
+impl.cfg	Q6	1387688	pass	1387688 pass	yes	
+impl.cfg	Q7	1387688	pass	1387688 pass	yes	
+impl.cfg	Q7W	72（反例まで）	violated	50 violated	yes（結果）	反例: blocked・hasNext・~wExists（rs=intake、notrun）
+impl.cfg	Q8	1387688	pass	1387688 pass	yes	
+impl.cfg	Q9	1387688	pass	1387688 pass	yes	
+impl.cfg	Q10	60（反例まで）	violated	42 violated	yes（結果）	反例の最後: status=exception・cause=args_old（907。ExActions={fix_args, restart}）
+mutants/mut-ARGS.cfg	Q10	53（反例まで）	violated（検出）	42 violated	yes	cause=args_old の例外。args_fixedkeys は同じ ExActions の枝で、最初の反例で止まるので単独では見ていない
+mutants/mut-FIXER.cfg	Q10	1768（反例まで）	violated（検出）	1786 violated	yes	最後: blocked・cause=fixer_unknown・hasNext=FALSE（ObsSet={restart}、Remedy=fix_script）
+mutants/mut-WLOST.cfg	Q10	156（反例まで）	violated（検出）	84 violated	yes	最後: blocked・cause=wlost・hasNext=TRUE・wExists=FALSE（rs=intake。ObsSet={rerun_stage}、Remedy=restart）
+options/QM-03-count.cfg	全不変式 + Term	420054	pass	420054 pass	yes	run/oout
+options/QM-03-nocount.cfg	全不変式 + Term（最初の破れで止まる）	-	Q3b violated	Q3b violated（他は 579034 pass）	yes（最初の破れ）	
+options/QM-04-undef.cfg	同上	-	Q10 violated	Q10 violated	yes	
+options/QM-04-restart.cfg	同上	420054	pass	420054 pass	yes	
+options/QM-04-rerun8.cfg	同上	432866	pass	432866 pass	yes	
+options/QM-04-existing.cfg	同上	-	Q10 violated	Q10 violated	yes	
+options/QM-05-skilldir.cfg	同上	-	Q7W violated	Q7W violated（他は 292172 pass）	yes	
+options/QM-05-home.cfg	同上	420054	pass	420054 pass	yes	
+options/QM-05-ask.cfg	同上	-	Q3b violated	Q3b violated	yes	
+options/QM-06-ask_end.cfg	同上	420054	pass	420054 pass	yes	
+options/QM-06-defer.cfg	同上	420096	pass	420096 pass	yes	
+options/QM-06-pregate.cfg	同上	-	Q6 violated	Q6・Q9 violated	yes	Q9 は INVARIANTS Q9 だけの cfg で別に回して破れることを確かめた（run/xout/pregate-Q9.txt）
+options/QM-14-manual.cfg	全不変式 + IssueTracked + Term・FilingLive	-	IssueTracked violated	IssueTracked violated	yes	
+options/QM-14-retry.cfg	同上	-	FilingLive violated（Term は単独で pass）	FilingLive violated（IssueTracked は pass）	yes	PROPERTIES を 1 本ずつにして切り分けた（run/xcfg・run/xout の retry-Term・retry-FilingLive）

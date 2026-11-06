@@ -1,0 +1,14 @@
+id	finding	source_table	affects_results	basis
+D1	基礎（base.cfg・impl.cfg・run_checks.py の BASE）の OPT_DOUBT が ask_end のままで、QM-06 の新しい推奨 defer と注記「推奨側」に合わない（修正の不徹底）	rev3・qcheck3・fixcheck3	no	TLC: options/QM-06-defer（基礎の OPT_DOUBT だけを defer にした cfg）が全不変式と Term を 420096 状態で通る（run/oout/QM-06-defer.txt）。impl を defer で回すと結果が変わるかは見ていない（作成前の迷いは impl の欠陥のどれとも経路を共有しない、という論拠だけ）
+D2	ApplyReworkLimit の guard が上限前の stalled の停止（prd-spec.js:448・451）を含まず、@trace の note も書いていない	rev3・rev3-full	no	論拠: 同じ返り値（apply・notrun・next_args あり）を FailNotRun が rework に依らず持つので、到達できる返り値の集合が同じ
+D3	FinalHoldFail に kept.rerun:false（1440）の枝が無い	rev3・rev3-full	no	論拠: 返り値の形（blocked・next_args なし・stop_reason あり）が ReviseFinal・JudgeNoProgress・JudgeLimit の Block と同じで、Q10 の行動も restart で一致
+D4	args_fixedkeys の Remedy（restart）は決定から一意でない（§5 の論理では fix_script も当たる）	rev3・props3	no	論拠: q10 の形は ExActions と Remedy を模型が同じ値に置くので、restart・fix_script のどちらでも Q10 は通る。args_fixedkeys 単独の TLC は模型を書き換えないと切り出せないので回していない（args_old と同じ ExActions の枝）
+D5	Composed.tla の ASSUME の注記「prd-spec.js:61」が MAX_GATES の行（60）と合わない	rev3	no	注記だけ。式は正しい
+D6	QM-05 の推奨の文「nocount を採るなら ask も通る」が TLC の結果として不正確（nocount でも Q3b は破れる）	qcheck3・fixcheck3	no	文の精度の問題。TLC の結果（ask: Q3b、home: pass、skilldir: Q7W）は再検査で一致
+D7	table.tsv に open:QM-05 の行が 0 件（model-2 から）。S0 の W の置き場と OPT_W=ask の止まりが表から辿れない	qcheck3	no	表（文書）の欠け。模型の遷移（S0Go・PluginUpdate）は OPT_W を持つ
+D8	QM-15 の推奨が選択肢に無い第 3 の形（固定の文書を INDEX の導出だけに使う実装の変更を条件にした選択肢 1）	qcheck3	no	模型の外の問い（TLC なし）
+D9	IntakeCarry too-loose（entry=existing の段 5 直行を模型にしない）	rev3-full	no	論拠: draft の失敗注入が増えるだけで性質を読む状態は変わらない（model-2-verify で justified）
+D10	Apply2Go too-loose（existing も draft を通す・3b を apply に畳む）	rev3-full	no	同上
+D11	JudgeNoProgress too-loose（条件を Blocking>0 で過大近似）	rev3-full	no	論拠: 不変式には反例を増やす向きだけ。基礎は全部通るので、緩さで隠れた反例は無い
+D12	SaveDecline too-strong（部分保存を保存しないに畳む）	rev3-full	no	論拠: 保存される木は同じ監査済みの版で、saved を読む Q1・Q1nc は変わらない
+D13	ReqWLost の段 2 からの呼び直しの実装の振る舞いを確かめていない	rev3・rev3-full	unknown	未確認。段 1（2321）・段 3 以降（3113）は next_args ありの blocked の繰り返しで模型と一致。段 2 が別の形を返しても、模型は from=intake（段 1〜3 を畳む）なので Q10 の impl の結果（すでに破れている）は変わらない

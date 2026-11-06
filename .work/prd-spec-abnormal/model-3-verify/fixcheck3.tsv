@@ -1,0 +1,20 @@
+ref	verdict	reason	evidence
+rev2:ReqBadArgs（wrong）	fixed	cause を args_hash・args_old・args_fixedkeys・args_try に組み直した。existing_docs の打ち間違いは 902（hash が existing_docs を覆う、392・397）、固定の文書の本文の変化は fixedMoved（2334、rerun:false）として FailIntegrity に畳む、と @trace に明記。911 に届くのは hash が合いキーだけ合わない場合という読みは prd-spec.js:910 と一致。impl・mut-ARGS の Q10 の反例は args_old（907）で、自分の再検査でも同じ	model-3/Run.tla ReqBadArgs・FailIntegrity の @trace / prd-spec.js:392・397・902・907・910-911・2334 / model-3-verify/run/out/impl-Q10.txt
+rev2:FinalHoldFail（wrong）	fixed	再実行先を finalHold を呼んだ段に分けた（revise→from=revise=段 7、judge→from=reaudit=段 8）。stop_reason は revise で no_progress、judge で no_progress か（PassLimitHit のとき）pass_limit。実装の呼び出し 2846（'7'・no_progress）、2979（'8'・no_progress）、2981（'8'・pass_limit、no_progress の判定の後）と一致。kept.rerun:false（flowKept の所有表の外の書き込み、1440）の枝は FinalHoldFail に無いが、返り値の形（next_args なし・stop_reason あり）は ReviseFinal・JudgeNoProgress・JudgeLimit の Block と同じで、Q10 の行動も restart で一致するので結果は変わらない	model-3/Run.tla FinalHoldFail / prd-spec.js:2846・2979・2981・3021・3025・1440
+rev2:ApplyReworkLimit（too-strong）	fixed	表に無い符号を ApplyFixerUnknown に分け、ReworkLimitHit を課さない（差し戻し 0 回でも止まる）。next_args なし（2152 の rerun: !stop）。OPT_FIXER で reason の接頭辞の有無を切り替える	model-3/Run.tla ApplyReworkLimit・ApplyFixerUnknown / prd-spec.js:444・608・2152
+fixcheck:props:ConsumerAllZero（D-023 の帰結）	fixed	table.tsv の JudgeReport の行（28 行）に「consumer の完了条件『機械検査が全部通る』（D-023）を『改稿を必須とする指摘が 0 件』に改める要求の改訂が要る」が載った。run_checks.py の DROPPED の記述と一致。D-023 の中身（consumer の完了条件 002〜008 と requester の完了の判定の継ぎ目）と docs/requirements/consumer.md:112 の「機械検査が全部通る」とも合う	model-3/table.tsv:28 / insp-req-1/C/defects.tsv D-023 / docs/requirements/consumer.md:112
+fixcheck:qcheck:QM-13（D-023 の帰結）	fixed	上と同じ行で帰結が残った	model-3/table.tsv:28
+derive:28（JudgeReport）	fixed	D-023 の帰結が行に載った	model-3/table.tsv:28
+derive:33（Save）	fixed	source が decision:Q5・Q11 になり、遷移先に「承認を待たずに」が入った	model-3/table.tsv:33
+derive:66（a_empty）	fixed	source が decision:Q8・Q2	model-3/table.tsv:66
+derive:68（a_conflict）	fixed	source が decision:Q7・Q2	model-3/table.tsv:68
+derive:69（a_unmapped）	fixed	source が decision:Q7・Q8・Q2	model-3/table.tsv:69
+derive:70（a_insufficient）	fixed	source が decision:Q6・Q8・Q2	model-3/table.tsv:70
+derive:67（a_undecided の注意）	justified	derive.tsv は直す指摘でなく注意（Q7 の確定事項への「決まっていない」は a_conflict に当たり、模型は区別しない）。a_conflict の遷移（版を変えた確認の問い、~canAsk なら hold）が持つので性質の結果は変わらない	model-3/Issue.tla NextOf
+qcheck2:QM-03（推奨の根拠が片側）	fixed	推奨に数えない側の根拠（Q3 の「数える単位も実装に揃う」）を書き、それを試験の数え方の文脈で読む理由を添えて count を推す形になった。注記の行番号も 56→57 に直った（prd-spec.js:57 が「依頼者を止める回数の上限」）	model-3/questions.tsv QM-03 / prd-spec.js:57
+qcheck2:QM-05（推奨が QM-03 の読みに依る）	fixed	ask が Q3b を破ることが QM-03 の読みに依ると明記し、QM-03 に依らない根拠（決定 Q6 の「依頼者を止める回数が減る」）を足した。ただし「nocount を採るなら ask も通る」の「通る」は不正確（nocount でも TLC は Q3b を破る。正しくは「Q3b が決定の性質でなくなる」）。文の精度の問題で推奨の向きは変わらない	model-3/questions.tsv QM-05
+qcheck2:QM-06（推奨の根拠が片側・決定の文言と逆向き）	fixed	推奨を defer に変え、両側の根拠（Q7 の文言・Q6 の無駄の受け入れ／SKILL.md:35 の空入力の扱い）を書いた。ただし base.cfg・impl.cfg・run_checks.py の BASE は OPT_DOUBT="ask_end" のままで、「残った問いは推奨側」（base.cfg の注記）・「基礎と同じ推奨側」（impl.cfg の注記）と食い違う（rev3.tsv）。defer も性質をすべて通すので結果は変わらない	model-3/questions.tsv QM-06 / model-3/base.cfg:16 / model-3/tools/run_checks.py:8
+qcheck2:QM-15（選択肢 1 が実装より弱い）	fixed	選択肢 1 に「並べ忘れた文書は書き換えてよい文書として監査され改稿されうる」が入り SKILL.md:162 と一致。推奨は「固定の文書を INDEX の導出だけに使い根拠に渡さない実装の変更」を条件にした。ただしこの条件付きの推奨は選択肢 1（実装）そのものではなく第 3 の形で、選択肢の列に無い（qcheck3.tsv）	model-3/questions.tsv QM-15 / SKILL.md:162
+qcheck2:QM-16（wrong）	fixed	問いを外し、ReqBadArgs を決定 Q10 から導いた形（OPT_ARGS="q10"）と実装（"impl"）の切り替えにした。前提の誤り（911 に打ち間違いと本文の変化が届く）も ReqBadArgs から消えた	model-3/questions.tsv に無い / model-3/Run.tla ReqBadArgs
+qcheck2:QM-17（derivable:Q10）	fixed	問いを外し ApplyFixerUnknown を decision:Q10 の行にした（OPT_FIXER は実装の欠陥の切り替え）。mut-FIXER で Q10 が破れる	model-3/table.tsv:19 / model-3-verify/run/out/mut-FIXER.txt
+qcheck2:QM-18（derivable:Q10）	fixed	問いを外し ReqWLost を decision:Q10 の行にした（OPT_WLOST は実装の欠陥の切り替え）。実装の読み（3113 の enterFromDisk の next_args ありの blocked）を @trace に書いた。段 1 からの呼び直しは 2321（reset の stdout が無い blocked、next_args '1'）で同じ形になることを確かめた（mut-WLOST の反例は rs=intake）。段 2 からの呼び直しは未確認のまま	model-3/Run.tla ReqWLost / prd-spec.js:2321・3113 / model-3-verify/run/out/mut-WLOST.txt

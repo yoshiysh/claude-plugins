@@ -1,0 +1,20 @@
+property	decision	verdict	reason
+TypeOK	-	n/a	型
+Q1	Q1「止めて保存しない」	faithful	saved ⇒ blk=0 ∧ docBlk=0 ∧ ~unchecked は「直せていない指摘か検査できなかった箇所が残る稿は保存しない」をそのまま表す。着手不能の未確定事項の側は Q2（保持規則）が持つ。impl で破れる（再検査で確認）
+Q1nc	Q11「実装を正とし残件を記録」	faithful	saved ∧ notChecked ⇒ ncRecorded は「実施しなかった検査は検査記録として引き渡しに載せる」。低重大度の指摘の記録は状態にしていない（JudgeReport の行の語の規則）ので、Q11 の片側だけを表す。過大でなく不足の向きだが、低重大度の記録を読む遷移が無いので性質にできるのはこの片側だけ
+Q2	Q2「保持規則にし TBD 0 で完成」	faithful	done ⇒ 論点がすべて none・confirmed・hold。固定の文書の TBD があっても done は Q2 の本文（語の規則）で状態の性質にしない、と PROP_NOTE に明記
+Q3a	Q3「実装の定数を正本に」	faithful	gates・pass・rework・vfail が実装の定数を超えない
+Q3b	Q3（prd-spec.js:57 の注記の読み）	faithful（QM-03 に依る）	stops ≤ MAX_GATES は「依頼者を止める回数の上限」の読み。Q3 の「数える単位も実装に揃う」の読みでは決定の性質でなくなる（QM-03 で開いたまま）。基礎は count 側なので通る
+Q4	Q4「段で止め再実行させる」	faithful	~unchecked（結果の無い doc_check を 0 件として進む状態に入らない）。決定の「検査の結果を得ないまま完成に至る経路が無くなる」より強い（完成に至らなくても 0 件として進んだ時点で破れる）が、決定は「1 体でも結果が無ければ段で止め」なので段で止めることまで含めて一致
+Q5	Q5「待たずに保存し事後報告」	faithful	saveWait ⇒ saveCond=stop（承認待ちは不変条件・git 管理外・上書きのときだけ）
+Q6	Q6「初稿まで進めまとめて聞く」	faithful	gates>0 ⇒ audited（最初のゲートは初稿の監査の後）。「回答後もなお着手できない事項は上限まで後のゲートで聞き直す」は Issue の a_insufficient の遷移が持つ
+Q7	Q7「ゲートにまとめ時間で切らない」	faithful	needs_answers ⇒ hasNext（next_args でいつでも続けられる）。「独立の待ち状態を作らない」は QM-06 の pregate を Q6・Q9 で落とすことで間接に見る。時間は模型に無い
+Q7W	Q7 の前提	faithful	next_args を持つ返り値の間は W がある。impl（skilldir・plugin の更新）で破れる
+Q8	Q8「実装どおりに扱う」	faithful	reaskAns=0（中身のある回答を受け取った版のまま聞き直さない。記録の消失は数えない、空の回答行は回答に数えない）。検出力は mut-Q8 だけ（props2 の注意どおり）
+Q9	Q9「聞かず止め要求を先に直す」	faithful	specOnly ⇒ gates=0、upstream_gap ⇒ audited ∧ ~hasNext
+Q10	Q10「全て異常系に置き再実行を区別」・workflow-io.md §5・SKILL.md「中継」	faithful	返り値の形から文書が割り当てる行動がちょうど 1 つで、閉集合に入り、Remedy と一致する。model-3 で例外（exception）の 5 つの cause と fixer_unknown を足した。impl の 3 つの欠陥（args・fixer・wlost）と QM-04 の undef・existing を検出する（再検査で mut-ARGS・mut-FIXER・mut-WLOST がそれぞれ破れた）。限界: Remedy は模型が置く表で、args_fixedkeys の Remedy を restart にするか fix_script にするかは決定から一意でない（どちらでも q10 の形は通る）
+Term	Q3（上限と進展なしで止まる）	faithful	非終端から終端へ。FinalHoldFail からの再実行も MAX_RERUN で有限
+IssueTracked	-（QM-14 の選択肢を見る）	not-decision	PROP_NOTE で決定に無いと明記し、QM-14 の options だけで回す。正しい扱い
+FilingLive	-（QM-14 の選択肢を見る）	not-decision	同上
+SeamQ4	Q4	faithful	Seam の単体の性質（Ready ⇒ Verdict≠zero）。合成では Q4 が持つ
+Reach*（14 本）	-	n/a	到達の確認（空振りの検出）。決定に対応しない
