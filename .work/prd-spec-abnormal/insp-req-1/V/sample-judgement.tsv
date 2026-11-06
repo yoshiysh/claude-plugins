@@ -1,0 +1,16 @@
+item	judgement	note
+PR-CONSUMER-004	covered	covered:D-024（「動作」の定義なし）
+PR-CONSUMER-006	covered	covered:D-004（要求文書だけの実行で紐づけ先が無い）
+PR-CONSUMER-011	missed	M-001（025 との二重記述の衝突）
+PR-CONSUMER-015	missed	M-002（定数名で参照する量の単位・境界）
+PR-REQUESTER-011	no-defect	12 型と unbound-term に照らして欠けなし（保存の失敗は前提「保存先に書き込める」の外）
+PR-REQUESTER-013	covered	covered:D-028（実行主体）
+PR-REQUESTER-017	covered	covered:D-011（Q5 の上書きで止まる決定と不一致）
+PR-REQUESTER-023	covered	covered:D-006・D-041・D-028
+PR-REQUESTER-025	covered	covered:D-003・D-010
+PR-REQUESTER-032	missed	M-003（INDEX の導出と走査の禁止）
+PR-REQUESTER-034	covered	covered:D-015
+PR-REQUESTER-042	covered+missed	covered:D-006、M-004（次の中断点が無い場合）
+PR-REQUESTER-046	covered+missed	covered:D-015、M-005（止める時点）
+PR-REQUESTER-064	covered	covered:D-003・D-015
+PR-REQUESTER-069	covered+missed	covered:D-041、M-006（070 の問いが中断点か）

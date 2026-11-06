@@ -1,0 +1,42 @@
+did	verdict	new_severity	reason	evidence_ref	evidence_quote
+D-001	holds	高	空の回答は未回答として扱われ（049）、着手を止める論点なら 005 が上限まで尋ねることを求める。005 の除外は 045 だけで、049 との優先が無い	docs/requirements/requester.md:234	その論点を依頼者へ尋ねなければならない（PR-REQUESTER-045 に当たる論点を除く）。
+D-002	holds	高	039 の差分の提示には同じパスの既存ファイルの読み取りが要るが、035 は所在を示されていない文書の読み取りを無条件に禁じる。064 の部分はシステム自身の稿との照合で、035 の対象に当たるかは弱い	docs/requirements/requester.md:409	新規に作成する文書と同じパスのファイルが既に存在するならば、システムは既存の内容との差分を
+D-003	holds	高	052 の条件は 053・036 だけを除き、025（完了できなかった）・064（照合の不一致）を除かないので、版管理の下では保存の義務と保存の禁止が同時に立つ	docs/requirements/requester.md:327	保存先が版管理の下にあり、保存が PR-REQUESTER-053 と PR-REQUESTER-036 のいずれにも当たらない
+D-004	holds	高	003 の表で要求文書だけを作る実行が成り立つが、その引き渡す文書に仕様項目が無ければ 005 の全称を満たせない	docs/requirements/requester.md:214	| PRD / 要件定義 / 要件 / 要求 | 要求文書 |
+D-005	resev	高	回答済みでなお着手できない論点で問いの中身が同じなら、005 は尋ねることを、007 は尋ねないことを同時に求める。D-001 と同じ構造で、規範が同時に満たせない	docs/requirements/requester.md:239	依頼者が既に回答した論点について、問いの中身が変わっていないならば、システムは同じ論点を
+D-006	holds	中	042 は作成に入った後だけを扱い、作成前（001・023）に迷った場合の確認の待ち方が無い。Q7 は独立の待ち状態を作らないとするが、作成前には中断点が無い	docs/requirements/requester.md:176	文書の作成に入った後に判定に迷う場合、システムは PR-REQUESTER-040 の確認を、確認のためだけに
+D-007	holds	中	requester に「確定」「対応づけ」の語が無く（grep で 0 件）、Q7 の決定の確定値と異なる回答・確定事項への「決まっていない」・対応づけられない回答の扱いが書かれていない	.work/prd-spec-abnormal/questions/questions.json:Q7	確定値と異なる回答・確定事項への「決まっていない」の回答はどちらを採るかを確認の問いにする
+D-008	holds	中	050 は記載の禁止だけで、Q8 の「1 回差し戻し、なお落ちれば問いに戻すか保持規則にする」が requester に無い（「差し戻」は grep で 0 件）	docs/requirements/requester.md:273	依頼者の回答を当てた記述が、作成した者とは別の検証に落ちたままであるならば、システムはその
+D-009	holds	中	055 で保持規則にした論点が「開いている未確定事項」として閉じるかが定義されず、014・054 の適用が決まらない	docs/requirements/requester.md:383	システムはその論点を、依頼者が決まっていない旨を答えたかどうかにかかわらず、保持規則として
+D-010	holds	中	「完了」「完成」の定義が無く、中断点での停止や 036・064 で保存しなかった場合が「完了できなかった」に当たるかが決まらない	docs/requirements/requester.md:547	文書の作成を完了できなかったならば、システムは完了できなかったことを依頼者へ示さなければ
+D-011	holds	中	053 の根拠は Q5 の「既存ファイルの上書きのときだけ止まる」を引くが、053 の条件に上書きが無く、改訂の上書き（017）は 052 で承認なしに保存される	docs/requirements/requester.md:334	（根拠: 回答（人間ゲート③）Q5「不変条件に触れる・git 管理外・既存ファイルの上書きのときだけ
+D-012	holds	中	「版管理の下にある」は未コミットの変更を持つファイルの上書きを元に戻せることを保証しない	docs/requirements/requester.md:321	保存先が版管理によって元に戻せる限り、依頼者は保存の前に止まることを選んでいない。
+D-013	holds	中	不変と定められたものの所在と、ファイルの保存がマージ・外部への公開に「触れる」判定が無い	docs/requirements/requester.md:332	保存先が版管理の下に無いか、保存が依頼者のリポジトリで不変と定められたもの（規則の文書・
+D-014	holds	中	TBD-RREQUESTER-016 は blocking: true のまま開いており、置き場の名前が決まらない	docs/requirements/requester.tbd.json:TBD-RREQUESTER-016	中間の生成物を置くフォルダの名前となる案件名が、何によって決まるかが決まっていない
+D-015	holds	中	061 は 2 種の区別を示す義務だけで、どの停止がどちらかを定めるのは 060 だけ。046 に Q9 の「再実行の引数なし」が無い	docs/requirements/requester.md:296	システムは仕様書の作成を完了せずに実行を止めなければならない。
+D-016	holds	中	承認後に起票する義務は流れの 6 にしか無く、要求一覧は 057 の禁止だけ	docs/requirements/requester.md:91	6. 依頼者が承認した Issue の文案を、システムが起票する。
+D-017	holds	中	Issue の起票先は前提と依存の表に無く、外部への依存の有無は TBD-RREQUESTER-014 として開いている	docs/requirements/requester.md:151	| 外部サービス | 上記以外の外部システムへの依存の有無は未確定（TBD-RREQUESTER-014） |
+D-018	holds	中	053 の承認が得られなかった場合と 039 の指示の後の振る舞いが無い。flow.md へ送っているのは事後報告で覆した場合だけ	docs/requirements/requester.md:132	依頼者が事後報告を見て保存を覆したときにシステムがどう振る舞うかは
+D-019	holds	中	Q1 は「検査できなかった箇所」で止め、068 は完了時に「実施しなかった検査」を示す。両者の違いが定義されていない	docs/requirements/requester.md:493	文書の作成を完了したとき、システムは、実施しなかった検査と、改稿を必須としないまま残った指摘を、
+D-020	holds	中	所在を示されたものが実装に当たる端で 022 と 021 が衝突する。実装が「文書」に当たるかの境界が無く、run ごとに読むかが変わる	docs/requirements/requester.md:447	文書を作成する間、システムは対象リポジトリの実装を読み取ってはならない。
+D-021	holds	中	009 は個々の生成文書に観点の全件を求め、consumer.md 自身は 2 観点しか持たない。正を 1 つにした写しで両立できるので 高 ではない	docs/requirements/consumer.md:295	ドメイン分析は 10 観点を判定しており、本章の表はそのうち**本文書の関心事に関わる観点だけ**を
+D-022	holds	中	Q2 で開いている未確定事項を残して保存する文書が「引き渡す文書」に当たるかが決まらない	docs/requirements/consumer.md:74	時点の生成文書一式を指すときに「引き渡す文書」と書く。
+D-023	holds	中	requester の完了の判定は改稿を必須とする指摘の定義を verification.md に委ねるだけで、consumer の完了条件と結ばれていない	docs/requirements/requester.md:475	できない指摘を指す。どの指摘がそれに当たるかは `docs/specifications/verification.md` が定める。
+D-024	holds	中	「動作」の定義が一式に無い（grep で consumer.md:134 の 1 件のみ）	docs/requirements/consumer.md:134	引き渡す文書の要求文および仕様項目は、1 項目に 2 つ以上の動作を含めてはならない。
+D-025	holds	中	030 は分量を決める主体を持たない	docs/requirements/consumer.md:282	要求文書の分量は、利用形態に応じて決めなければならない
+D-026	holds	中	INDEX.md は他の作業場所の絶対パスとアカウント名を持ち、requester を 001〜041・33 件とし、PR-CONSUMER-033 が 0 件	docs/requirements/INDEX.md:18	（PR-REQUESTER-001〜041、欠番は 002・004・006・016・019・027・028・030／33 件）
+D-027	holds	低	026 の第 2 文は主体が無く、対象が本要求そのもの	docs/requirements/requester.md:548	ならない。TBD-RREQUESTER-015 の裁定が下るまで、PR-REQUESTER-061 が定める区別のほかに示す内容を
+D-028	holds	低	「実行主体」の定義が一式に無い	docs/requirements/requester.md:160	変わったかどうか、応答が承認の意思を示すかどうかがそれに当たる。これらの判定は実行主体の
+D-029	holds	低	「段」の定義が requester に無い	docs/requirements/requester.md:554	検査を担う下位 agent から規定の形式の結果を得られずに実行を止めたとき、システムは、止めた段から
+D-030	holds	低	「対象リポジトリ」と「依頼者のリポジトリ」が併存し、同一かが書かれていない	docs/requirements/requester.md:424	システムは、保存する文書以外の中間の生成物を対象リポジトリの中に残してはならない。
+D-031	holds	低	保持規則の定義が 2 箇所にあり、consumer は縛る主体を後続作業者に限る	docs/requirements/consumer.md:183	定める規範文（保持規則）として記述しなければならない。
+D-032	holds	低	同一の対象を 2 語で呼ぶと requester 自身が述べている。RK-003 は第 3 の語「下位処理単位」も使う	docs/requirements/requester.md:572	工程は多数の下位処理単位の呼び出しで構成され
+D-033	holds	低	TBD-RREQUESTER-006 と TBD-RCONSUMER-009 がともに 030 の分量の基準を扱う	docs/requirements/consumer.tbd.json:TBD-RCONSUMER-009	利用形態に応じて要求文書の分量を決める基準。
+D-034	holds	低	流れの外れの列挙に 062・063・070 が無い	docs/requirements/requester.md:97	それ以外の場合の扱いは PR-REQUESTER-001・PR-REQUESTER-069・PR-REQUESTER-041・PR-REQUESTER-024 が
+D-035	holds	低	048 は上限に言及せず、005 の上限との関係が無い	docs/requirements/requester.md:262	依頼者の回答の記録が失われたか、回答の記録に問いへの回答の欄が無いならば、システムはその問いを
+D-036	holds	低	「作成者」が役割の表に無い	docs/requirements/consumer.md:119	生成された文書一式は、後続作業者が作成者へ追加の質問を行うことなく実装に着手できる状態で
+D-037	holds	低	範囲は実装とテスト設計だが 001 は実装だけを挙げる	docs/requirements/consumer.md:75	- 後続作業者が着手できる対象の範囲は、**実装とテスト設計とする**（根拠: 回答「後続作業の
+D-038	holds	低	Q11 で検査は意図が判別できる文に限られ、Q1 の「機械検査が全部通る」を 003 に展開した対応と範囲がずれる	docs/requirements/consumer.md:114	| 機械検査が全部通る（曖昧語・平叙終止・複合要求が 0 件で、全要求が仕様と検証方法に紐づいている） |
+D-039	holds	低	003#2 は文の主語「システム」が掛かるので主体の欠けは弱いが、476 行の前文は主体が無く項目の外の規範文である	docs/requirements/requester.md:476	改稿を必須としない指摘は、残っていても完了を妨げず、事後報告で示す
+D-040	holds	低	「回答の記録」「回答の欄」の定義が無い	docs/requirements/requester.md:262	回答の記録に問いへの回答の欄が無いならば
+D-041	holds	低	共通の扱いは判定を 3 つに限って挙げるが、023 も言語理解による判定と書き、037・040 を参照しない	docs/requirements/requester.md:520	提供しているかを、実行主体の言語理解による判定によって確認しなければならない。
