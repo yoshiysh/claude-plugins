@@ -1,0 +1,22 @@
+state	event	cell_text	defined_by
+未確定	E1 その事項の論点に対応づけられる値を定める回答を受け取る	（表に行なし。主フローとして状態遷移図が持つ）	状態遷移図 elicitation.md:312 SP-ELICITATION-027
+未確定	E2 その事項の論点に対応づけられる決まっていない旨の回答を受け取る	（表に行なし。主フローとして状態遷移図が持つ）	状態遷移図 elicitation.md:313 SP-ELICITATION-029
+未確定	E3 事項の論点の中身が変わる	準正常系 | 未確定 | ✅ SP-ELICITATION-025	定義済み（表） elicitation.md:328（ただし引用先の条件がこの状態を覆わない: findings B-002）
+未確定	E4 どの事項の論点にも対応づけられない回答を受け取る	準正常系 | 未確定 | ❌ 未定義（TBD-SELICITATION-003）	未定義 elicitation.md:329
+未確定	E5 確定した内容と異なる回答を受け取る	— | — | 発生しない（根拠: 未確定の事項は確定した内容を持たない）	発生しない elicitation.md:330
+未確定	E6 受け取った回答の種別または対応づけの判定が付かない	準正常系 | 未確定 | ✅ SP-ELICITATION-045・SP-ELICITATION-046	定義済み（表） elicitation.md:331
+未確定	E7 判定が付かないことの確認へ依頼者が回答する	準正常系 | 未確定 | ❌ 未定義（TBD-SELICITATION-017）	未定義 elicitation.md:332
+確定	E1 その事項の論点に対応づけられる値を定める回答を受け取る	準正常系 | 未確定（TBD-SELICITATION-019） | ❌ 未定義（TBD-SELICITATION-019）	未定義 elicitation.md:333
+確定	E2 その事項の論点に対応づけられる決まっていない旨の回答を受け取る	準正常系 | 保留 | ✅ SP-ELICITATION-029	定義済み（表） elicitation.md:334（ただし引用先の条件がこの状態を覆わない: findings B-002）
+確定	E3 事項の論点の中身が変わる	準正常系 | 未確定 | ✅ SP-ELICITATION-025	定義済み（表） elicitation.md:335（ただし引用先の条件がこの状態を覆わない: findings B-002）
+確定	E4 どの事項の論点にも対応づけられない回答を受け取る	準正常系 | 確定 | ❌ 未定義（TBD-SELICITATION-003）	未定義 elicitation.md:336
+確定	E5 確定した内容と異なる回答を受け取る	準正常系 | 未確定（TBD-SELICITATION-019） | ❌ 未定義（TBD-SELICITATION-019）	未定義 elicitation.md:337
+確定	E6 受け取った回答の種別または対応づけの判定が付かない	準正常系 | 確定 | ✅ SP-ELICITATION-045・SP-ELICITATION-046	定義済み（表） elicitation.md:338
+確定	E7 判定が付かないことの確認へ依頼者が回答する	準正常系 | 確定 | ❌ 未定義（TBD-SELICITATION-017）	未定義 elicitation.md:339
+保留	E1 その事項の論点に対応づけられる値を定める回答を受け取る	準正常系 | 保留 | ❌ 未定義（TBD-SELICITATION-003。保留の事項は問いを再び作らないが、その論点に対応づけられる回答は届きうる）	未定義 elicitation.md:340
+保留	E2 その事項の論点に対応づけられる決まっていない旨の回答を受け取る	準正常系 | 保留 | ❌ 未定義（TBD-SELICITATION-003。同上）	未定義 elicitation.md:341
+保留	E3 事項の論点の中身が変わる	準正常系 | 未確定 | ✅ SP-ELICITATION-025	定義済み（表） elicitation.md:342
+保留	E4 どの事項の論点にも対応づけられない回答を受け取る	準正常系 | 保留 | ❌ 未定義（TBD-SELICITATION-003）	未定義 elicitation.md:343
+保留	E5 確定した内容と異なる回答を受け取る	— | — | 発生しない（根拠: 保留の事項は確定した内容を持たない）	発生しない elicitation.md:344
+保留	E6 受け取った回答の種別または対応づけの判定が付かない	準正常系 | 保留 | ✅ SP-ELICITATION-045・SP-ELICITATION-046	定義済み（表） elicitation.md:345
+保留	E7 判定が付かないことの確認へ依頼者が回答する	準正常系 | 保留 | ❌ 未定義（TBD-SELICITATION-017）	未定義 elicitation.md:346
