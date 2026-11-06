@@ -64,7 +64,7 @@ export function outcomes(v, viewpoints) {
 
 function textsOf(v, finding) {
   const cand = v.candidates.filter((c) => finding.keys.includes(keyString(c.key))).at(-1);
-  return cand?.texts[0] ?? { quote: null, content: null, fix: null };
+  return cand?.texts[0] ?? finding.texts ?? { quote: null, content: null, fix: null };
 }
 
 export function findingsForResult(v) {

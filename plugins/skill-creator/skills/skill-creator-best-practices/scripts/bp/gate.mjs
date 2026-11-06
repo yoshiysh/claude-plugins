@@ -39,7 +39,7 @@ export const UNIT_ROWS = Object.freeze([
 ]);
 
 export const NEXT_ROWS = Object.freeze([
-  { decision: GATE_DECISIONS.pass, increment: ANY, next: GATE_NEXT.complete },
+  { decision: GATE_DECISIONS.pass, increment: ANY, next: GATE_NEXT.formal },
   { decision: GATE_DECISIONS.fail, increment: INCREMENT.below, next: GATE_NEXT.rewrite },
   { decision: GATE_DECISIONS.fail, increment: INCREMENT.reached, next: GATE_NEXT.iterationLimit },
   { decision: GATE_DECISIONS.unverifiable, increment: ANY, next: GATE_NEXT.blocked },

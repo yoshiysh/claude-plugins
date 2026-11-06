@@ -63,3 +63,22 @@ export function context(t, extra = {}) {
   if (!root) return null;
   return { stateRoot: root, criteriaDir: CRITERIA_FIXTURE, promptAudit: PROMPT_AUDIT_FIXTURE, cwd: REPO_ROOT, env: {}, ...extra };
 }
+
+// 適用の判定表の行 row に CLI が導く答えの並び（SP-BPINSPECTION-006 の表）。検証役は行を選ばず答えだけを返す。
+const SHAPE_PATHS = {
+  ターンごとの指揮: ['いいえ', '問いに到達しない', '問いに到達しない', '問いに到達しない'],
+  固定パイプライン型: ['はい', 'はい', '問いに到達しない', '問いに到達しない'],
+  固定集合の反復型: ['はい', 'いいえ', 'はい', '問いに到達しない'],
+  探索グラフ型: ['はい', 'いいえ', 'いいえ', 'はい'],
+};
+export function answersFor(row, asset) {
+  const quotes = [{ asset, line: 1, text: '---' }];
+  const [A, Q1, Q2, Q3] = SHAPE_PATHS[row.form];
+  const ans = (answer) => ({ answer, quotes });
+  const presence = (cell) => (cell === '*' ? '無' : cell);
+  return {
+    answers: { A: ans(A), W: ans(A === 'はい' ? 'いいえ' : '問いに到達しない'), Q1: ans(Q1), Q2: ans(Q2), Q3: ans(Q3) },
+    ledger: ans(presence(row.ledger)),
+    fanout: ans(presence(row.fanout)),
+  };
+}

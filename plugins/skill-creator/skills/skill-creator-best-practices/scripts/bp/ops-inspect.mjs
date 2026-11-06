@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  CODES, FUNCTION, INSPECT_ROLE_WRITE_LIMITS, INSPECTING_FUNCTIONS, OPS, RECORDS, REJECT_SCOPE, RESULT_KEYS, STAGE, STOP_KINDS, WORK_DIR,
+  CODES, FUNCTION, INSPECT_ROLE_WRITE_LIMITS, VIEWPOINT, INSPECTING_FUNCTIONS, OPS, RECORDS, REJECT_SCOPE, RESULT_KEYS, STAGE, STOP_KINDS, WORK_DIR,
 } from './constants.mjs';
 import { judgeApplicability } from './applicability.mjs';
 import { assetTexts } from './assets.mjs';
@@ -10,7 +10,7 @@ import { internal, reject } from './errors.mjs';
 import { targetFiles } from './fingerprint.mjs';
 import { canonical, sha256Hex } from './ids.mjs';
 import { readOrNull } from './journal.mjs';
-import { flowUnits } from './kinds.mjs';
+import { coverageReason, flowUnits, ignoredSettingsReadable } from './kinds.mjs';
 import { needCriteria, needLedger, rejected } from './ops-ledger.mjs';
 import { stopOutcome } from './ops-run.mjs';
 import { strip } from './records.mjs';
@@ -48,7 +48,8 @@ export function targets(ctx, req) {
       const blocked = changed.length ? { reason: `再開した run の照らす先が状態の指紋と食い違う: ${changed.join(', ')}`, paths: changed } : null;
       return { records: [], output: { viewpoints: valid.viewpoints, targets: publicTargets(valid.targets), criteriaDir: ctx.criteriaDir, blocked, compared: true } };
     }
-    const record = { t: RECORDS.target, run: req.run, viewpoints: now.viewpoints, targets: publicTargets(now.targets) };
+    const coverage = now.viewpoints.includes(VIEWPOINT.flow) ? coverageReason(ctx.criteriaDir) : null;
+    const record = { t: RECORDS.target, run: req.run, viewpoints: now.viewpoints, targets: publicTargets(now.targets), ...(coverage ? { coverage } : {}) };
     const records = [record];
     if (!now.blocked) records.push({ t: RECORDS.stageEnd, stage: STAGE.targets, round: null });
     return { records, output: { viewpoints: now.viewpoints, targets: record.targets, criteriaDir: ctx.criteriaDir, blocked: now.blocked, compared: false } };
@@ -95,8 +96,12 @@ export function bundle(ctx, req) {
   });
 }
 
+export function placedShape(rec) {
+  return rec.runs ? { runs: rec.runs } : { shape: rec.shape, row: rec.row };
+}
+
 function applicabilityOutput(rec) {
-  return { shape: rec.shape, row: rec.row, units: rec.units, forced: rec.forced };
+  return { ...placedShape(rec), units: rec.units, forced: rec.forced };
 }
 
 // 「性能・容量」の章を読めない写しでも、フローの観点の適用の判定は止めない（仕様の観点の全体を未検査として宣言する：SP-BPINSPECTION-005・025）。
@@ -120,7 +125,8 @@ export function applicability(ctx, req) {
     const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir, REVIEW_UNITS), allowed });
     if (judged.error) return rejected(REJECT_SCOPE.applicability, req.n, null, req.result, judged.error);
     const sources = forcedSources(ctx.criteriaDir, REVIEW_UNITS);
-    const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, forcedReason(sources, u)]));
+    // 一覧を読めたときの未検査は強いられていないので、検証役の理由のまま載せる（SP-BPINSPECTION-025）。
+    const forcedBy = ignoredSettingsReadable(ctx.criteriaDir) ? {} : Object.fromEntries(judged.forced.map((u) => [u, forcedReason(sources, u)]));
     const record = { t: RECORDS.applicability, run: req.run, result: req.result, ...judged, forcedBy };
     return { records: [record, end], output };
   });
@@ -162,7 +168,9 @@ export async function inspectOutcome(ctx, req) {
   out[RESULT_KEYS.uncheckedViewpoints] = uncheckedViewpoints(view);
   if (view.state.function === FUNCTION.review) {
     const a = view.applicability;
-    out[RESULT_KEYS.applicability] = { ...a.result, shape: a.shape, row: a.row };
+    out[RESULT_KEYS.applicability] = a.runs
+      ? { ...a.result, runs: a.result.runs.map((r, i) => ({ ...r, shape: a.runs[i].shape, row: a.runs[i].row })) }
+      : { ...a.result, shape: a.shape, row: a.row };
   } else {
     const paths = view.paths.at(-1);
     out[RESULT_KEYS.target] = { root: paths.root, files: paths.files };

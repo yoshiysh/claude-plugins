@@ -46,7 +46,7 @@ async function begin(t, fn, { ctx: given, files = FILES } = {}) {
   const ctx = given ?? context(t);
   if (!ctx) return {};
   const root = await skillDir(t, files);
-  const s = await run.start(ctx, { key: newKey(), function: fn, target: { root }, limits: LIMITS });
+  const s = await run.start(ctx, { host: 'native', key: newKey(), function: fn, target: { root }, limits: LIMITS });
   const req = { state: s.state, run: s.run };
   await run.stageStart(ctx, { ...req, stage: 'targets', keys: [] });
   const targets = await inspect.targets(ctx, req);
@@ -156,7 +156,7 @@ test('SP-BPRUN-036: 判定基準の写しが無いと照らす先の決定を理
   const ctx = context(t, { criteriaDir: path.join(await tmpDir(t), 'none') });
   if (!ctx) return;
   const root = await skillDir(t, FILES);
-  const s = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const s = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root }, limits: LIMITS });
   const req = { state: s.state, run: s.run };
   await run.stageStart(ctx, { ...req, stage: 'targets', keys: [] });
   await rejects(inspect.targets(ctx, req), CODES.input);
@@ -209,7 +209,7 @@ test('SP-BPINSPECTION-017: 未検査の観点の候補を足した結果を受�
 test('SP-BPINSPECTION-005・SP-BPCONFORMANCE-003: 「性能・容量」の章の見出しが無い写しを、create・update の適用の判定表と適合の観点の結果の検査は許さず E_INTERNAL で止まる', async (t) => {
   const noSpec = await edited(t, path.join('specifications', 'bp-conformance.md'), (s) => s.replace('## 性能・容量（対象スキルに課す確定値）', '## 容量'));
   await rejects(units({ criteriaDir: noSpec }), CODES.internal);
-  assert.throws(() => checkExtra('conformance', { applicability: { row: 1 }, units: [], residualRisks: [] }, { criteriaDir: noSpec }), (error) => error.code === CODES.internal);
+  assert.throws(() => checkExtra('conformance', { applicability: {}, units: [], residualRisks: [], checkedRoleLimits: [] }, { criteriaDir: noSpec, assetIds: new Set() }), (error) => error.code === CODES.internal);
   assert.ok((await units({ criteriaDir: CRITERIA_FIXTURE })).rows.length > 0);
 });
 
@@ -260,17 +260,19 @@ test('SP-BPINSPECTION-025: 未検査の観点の 5 つの場合を観点・範�
   assert.match(abortedList.find((u) => u.scope === 'whole').reason, /試行の上限/);
 });
 
-// PR-BPDESIGNEDSKILL-014 が強いられた未検査になる写し（fixture は反復型の 1 行だけを持つ）。
-async function forcedCriteria(t) {
+// ターンごとの指揮の行を足し、PR-BPDESIGNEDSKILL-014（強いられた未検査になりうる単位）を当てる写し（fixture は反復型の 1 行だけを持つ）。
+async function turnCriteria(t) {
   return edited(t, path.join('specifications', 'bp-conformance.md'), (s) => s
     .replace('PR-BPDESIGNEDSKILL-001 はどの行でも当たる。', 'PR-BPDESIGNEDSKILL-001・014 はどの行でも当たる。')
+    .replace('| 固定集合の反復型 | 無 | 有 | 001 が当たる |', '| 固定集合の反復型 | 無 | 有 | 001 が当たる |\n| ターンごとの指揮 | 無 | 無 | 001 が当たる |')
     .replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |', '| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |\n| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-001 | fixture | 未着手 |'));
 }
 
 function answers(asset, seq, ledgerAnswer = '無', fanout = '無') {
   const quotes = [{ asset, line: 1, text: '---' }];
   const [A, Q1, Q2, Q3] = seq;
-  return { answers: { A: { answer: A, quotes }, Q1: { answer: Q1, quotes }, Q2: { answer: Q2, quotes }, Q3: { answer: Q3, quotes } }, ledger: { answer: ledgerAnswer, quotes }, fanout: { answer: fanout, quotes } };
+  const W = A === 'はい' ? 'いいえ' : '問いに到達しない';
+  return { answers: { A: { answer: A, quotes }, W: { answer: W, quotes }, Q1: { answer: Q1, quotes }, Q2: { answer: Q2, quotes }, Q3: { answer: Q3, quotes } }, ledger: { answer: ledgerAnswer, quotes }, fanout: { answer: fanout, quotes } };
 }
 
 test('SP-BPINSPECTION-006・SP-BPFINDINGS-034: 適用の判定が閉集合の外の答え・台帳に無い資産 ID・図の道と合わない並びを拒否の記録とともに拒み、受理した結果から形と行を決め、送り直しは最初の結果とだけ照らす', async (t) => {
@@ -294,20 +296,20 @@ test('SP-BPINSPECTION-006・SP-BPFINDINGS-034: 適用の判定が閉集合の外
   await rejects(send(5, answers(id, ['いいえ', '問いに到達しない', '問いに到達しない', '問いに到達しない'])), CODES.conflict);
 });
 
-test('SP-BPINSPECTION-025・SP-BPINSPECTION-007: 適用の判定で強いられた未検査の単位の候補を拒否し、その単位が SP-BPCONFORMANCE-019 を理由に未検査の観点に載る', async (t) => {
-  const ctx = context(t, { criteriaDir: await forcedCriteria(t) });
+test('SP-BPINSPECTION-025・SP-BPINSPECTION-007: 強いられた未検査になりうる単位の候補を拒否し、検証役がその単位を未検査として返すと、SP-BPCONFORMANCE-019 と一覧を読めないことを理由に未検査の観点に載る', async (t) => {
+  const ctx = context(t, { criteriaDir: await turnCriteria(t) });
   if (!ctx) return;
   const { req, assets } = await withLedger(t, 'review', { ctx });
   await run.stageStart(ctx, { ...req, stage: 'applicability', keys: [] });
-  const out = await inspect.applicability(ctx, { ...req, n: 1, result: answers(assets[0].id, ['はい', 'いいえ', 'はい', '問いに到達しない'], '無', '有') });
-  assert.equal(out.shape, '固定集合の反復型');
+  const out = await inspect.applicability(ctx, { ...req, n: 1, result: answers(assets[0].id, ['いいえ', '問いに到達しない', '問いに到達しない', '問いに到達しない']) });
+  assert.equal(out.shape, 'ターンごとの指揮');
   assert.deepEqual(out.forced, ['SP-BPCONFORMANCE-001']);
   const { items, assignment } = await verifyItems(ctx, req, ['flow']);
   const cand = { judgements: assets.map((a, i) => ({ asset: a.id, judgement: i === 0 ? 'candidate' : 'ok' })), candidates: [{ asset: assets[0].id, viewpoint: 'flow', kind: 'SP-BPCONFORMANCE-001', quote: 'L1', content: 'c', fix: 'f' }], unchecked: [] };
   await rejects(ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: cand }), CODES.result);
   await ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: judged(assets, { unchecked: [{ viewpoint: 'flow', scope: 'unit', value: 'SP-BPCONFORMANCE-001', reason: '検証役の理由' }] }) });
   const list = uncheckedViewpoints(await viewOf(ctx, req.state)).filter((u) => u.viewpoint === 'flow');
-  assert.deepEqual(list.map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-001', 'SP-BPCONFORMANCE-019']]);
+  assert.deepEqual(list.map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-001', 'SP-BPCONFORMANCE-019: 無視される設定の一覧を読めない']]);
 });
 
 test('SP-BPINSPECTION-007: review のフローの観点の閉集合から除く単位の表の単位を除き、create・update の適合の観点の閉集合には残す', async (t) => {
@@ -434,7 +436,7 @@ test('SP-BPRUN-036: 写しの置き場が無い・空・一部が欠ける・通
     await rejects(units(bad), CODES.input);
     await rejects(inspect.applicability(bad, { ...req, n: 1, result: {} }), CODES.input);
   }
-  const s2 = await run.start(ctx, { key: newKey(), function: 'review', target: { root: await skillDir(t, FILES) }, limits: LIMITS });
+  const s2 = await run.start(ctx, { host: 'native', key: newKey(), function: 'review', target: { root: await skillDir(t, FILES) }, limits: LIMITS });
   const req2 = { state: s2.state, run: s2.run };
   await run.stageStart(ctx, { ...req2, stage: 'targets', keys: [] });
   await rejects(inspect.targets({ ...ctx, criteriaDir: file }, req2), CODES.input);

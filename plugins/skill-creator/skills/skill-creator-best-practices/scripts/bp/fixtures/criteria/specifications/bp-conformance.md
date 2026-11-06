@@ -24,7 +24,7 @@ PR-BPDESIGNEDSKILL-001 はどの行でも当たる。
 ## 性能・容量（対象スキルに課す確定値）
 
 #### SP-BPCONFORMANCE-027 同時実行の上限
-3 体以下。
+3 体以下。best-practices 自身の `CONCURRENCY` の値は 3 とする。
 
 #### SP-BPCONFORMANCE-033 要約の大きさの上限
 8,000 字以下。

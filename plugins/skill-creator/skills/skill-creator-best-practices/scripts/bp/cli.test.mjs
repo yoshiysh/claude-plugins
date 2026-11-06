@@ -28,7 +28,7 @@ test('CLI: 受理は 0、拒否は 2 で終わり、応答は sum を持つ。su
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
-  const started = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const started = await call(root, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   assert.equal(started.code, EXIT.ok);
   const req = { state: started.response.state, run: started.response.run };
   const body = { ...req, kind: 'goal', text: '目標' };
@@ -45,7 +45,7 @@ test('CLI: 受理は 0、拒否は 2 で終わり、応答は sum を持つ。su
 test('SP-BPRUN-039: /tmp 配下を BP_STATE_ROOT に渡すと開始を拒否する', async (t) => {
   const target = await skillDir(t);
   const tmp = await tmpDir(t, 'bp-root-');
-  const out = await call(tmp, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const out = await call(tmp, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   assert.deepEqual([out.code, out.response.code], [EXIT.rejected, CODES.place]);
   assert.deepEqual(await fs.readdir(tmp), []);
 });
@@ -54,7 +54,7 @@ test('SP-BPRUN-006: 3 本の子 process の並行の書き込みで記録が欠�
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
-  const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const { response } = await call(root, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const req = { state: response.state, run: response.run };
   const staged = await call(root, 'stage-start', { ...req, stage: 'verify', keys: [{ i: 1 }, { i: 2 }, { i: 3 }] });
   const results = await Promise.all(staged.response.items.map((item, i) => call(root, 'item-result', { ...req, item, result: { i } })));
@@ -70,7 +70,7 @@ test('SP-BPRUN-036: 既定の置き場の判定基準の写しから、本物の
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
-  const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const { response } = await call(root, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const out = await call(root, 'kinds', { state: response.state, viewpoint: 'flow' });
   assert.equal(out.code, EXIT.ok, JSON.stringify(out.response));
   assert.ok(out.response.kinds.length > 0);
@@ -80,7 +80,7 @@ test('SP-BPRUN-036: 判定基準の写しが無い置き場では、閉集合を
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
-  const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const { response } = await call(root, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const body = { state: response.state, viewpoint: 'flow' };
   const out = await main(['kinds'], JSON.stringify({ ...body, sum: sum(body) }), { cwd: REPO_ROOT, env: { [STATE_ROOT_ENV]: root }, criteriaDir: path.join(await tmpDir(t), 'none') });
   assert.deepEqual([out.exitCode, out.output.code], [EXIT.rejected, CODES.input]);
@@ -91,7 +91,7 @@ test('payloadFile と payloadSum が文字列でない要求は E_TRANSPORT', as
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
-  const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const { response } = await call(root, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const out = await call(root, 'premise', { state: response.state, run: response.run, payloadFile: 42, payloadSum: 'x' });
   assert.equal(out.response.code, CODES.transport);
 });
@@ -100,7 +100,7 @@ test('運搬役が写さない大きい値は作業ファイルと sum で渡し
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
-  const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const { response } = await call(root, 'start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const req = { state: response.state, run: response.run };
   const staged = await call(root, 'stage-start', { ...req, stage: 'verify', keys: [{ i: 1 }] });
   const payload = { result: { big: 'x'.repeat(10000) } };
@@ -120,7 +120,7 @@ test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数
   const target = await skillDir(t);
   const env = { ...process.env, [STATE_ROOT_ENV]: root };
   const send = async (op, body) => (await main([op], JSON.stringify({ ...body, sum: sum(body) }), { cwd: REPO_ROOT, env, criteriaDir: CRITERIA_FIXTURE })).output;
-  const s = await send('start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const s = await send('start', { host: 'native', key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const req = { state: s.state, run: s.run };
   const made = await send('ledger-create', req);
   const { assignments } = await send('assignments', { ...req, stage: 'verify', rule: 'all' });

@@ -2,9 +2,11 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GROUND_REF_KEY, INSPECTING_FUNCTIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
-  RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
+  PERFORMANCE_KEYS, RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, ROUTES, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
 import { resolveCallsites } from './callsites.mjs';
+import { formalAfterGate, formalProblem, formalVerdict } from './formal.mjs';
+import { workLogRecord } from './worklog.mjs';
 import { designNote, isTreatedGround, lastGate, progress, writtenFiles } from './ops-author.mjs';
 import { inspectOutcome } from './ops-inspect.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
@@ -80,6 +82,15 @@ function checkKeyRefs(view, key) {
   }
 }
 
+function checkHost(host) {
+  if (!Object.values(ROUTES).includes(host)) reject(CODES.input, `host が ${Object.values(ROUTES).join('・')} のどれでもない: ${JSON.stringify(host)}`);
+}
+
+// 記録の時刻は CLI がその記録を足す操作の時点で書く（SP-BPRUN-005）。
+export function nowIso(ctx) {
+  return (ctx.now ?? new Date()).toISOString();
+}
+
 function checkKey(key) {
   if (typeof key !== 'string' || !/^[A-Za-z0-9._-]+$/.test(key)) reject(CODES.input, `key は英数字と . _ - だけの文字列でなければならない: ${JSON.stringify(key)}`);
 }
@@ -133,6 +144,7 @@ async function expandGrounds(ctx, grounds, root) {
 async function startNew(ctx, req) {
   checkFunction(req.function);
   checkKey(req.key);
+  checkHost(req.host);
   checkLimits(req.limits);
   const target = req.target;
   if (!target || typeof target.root !== 'string' || !path.isAbsolute(target.root)) reject(CODES.input, 'target.root は絶対パスでなければならない');
@@ -157,7 +169,7 @@ async function startNew(ctx, req) {
   const records = [
     state,
     ...grounds,
-    { t: RECORDS.run, id: run, key: req.key, base: emptyRunBase() },
+    { t: RECORDS.run, id: run, key: req.key, at: nowIso(ctx), host: req.host, base: emptyRunBase() },
     paths,
     { t: RECORDS.fingerprint, run, at: FINGERPRINT_AT.start, n: 1, files: started.digests },
   ];
@@ -191,6 +203,7 @@ function answerRecord(view, run, answer) {
 
 async function resume(ctx, req) {
   checkKey(req.key);
+  checkHost(req.host);
   const dir = await locateState(ctx, req.state);
   return withLock(dir, async () => {
     const lines = await readAll(dir);
@@ -215,7 +228,7 @@ async function resume(ctx, req) {
       retake = { counts: r.counts, gone: r.gone, retake: r.records.length ? r.retake : null, affected: affectedFindings(view, r.gone) };
     }
     const runRecord = {
-      t: RECORDS.run, id: run, key: req.key, base: { iterations: view.iterations, repeats: Object.fromEntries(view.repeats) },
+      t: RECORDS.run, id: run, key: req.key, at: nowIso(ctx), host: req.host, base: { iterations: view.iterations, repeats: Object.fromEntries(view.repeats) },
       changed: diffFingerprints(baseline?.files, now), baseline: baseline ? { run: baseline.run, at: baseline.at } : null, retake,
     };
     const records = [runRecord, ...answerRecord(view, run, req.answer), { t: RECORDS.fingerprint, run, at: FINGERPRINT_AT.start, n: 1, files: now }, ...ledgerRecords];
@@ -299,6 +312,10 @@ async function designNoteProblem(view, result) {
   if (!within(file, root)) return `設計の説明のパスが対象スキルの根の外を指す: ${note.path}`;
   const st = await statOrNull(file);
   if (!st?.isFile()) return `設計の説明のファイルが無い: ${note.path}`;
+  const count = (await fs.readFile(file, 'utf8')).replace(/\n$/, '').split('\n').length;
+  if (!Number.isInteger(note.startLine) || !Number.isInteger(note.endLine) || note.startLine < 1 || note.startLine > note.endLine || note.endLine > count) {
+    return `設計の説明の行の区間が 1 ≦ startLine ≦ endLine ≦ ${count}（ファイルの行数）でない: ${JSON.stringify([note.startLine, note.endLine])}`;
+  }
   return null;
 }
 
@@ -311,6 +328,11 @@ export function itemResult(ctx, req) {
       const bad = await designNoteProblem(view, req.result);
       if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, null, req.result, bad);
     }
+    const formal = item.stage === STAGE.formal && REWRITING_FUNCTIONS.has(view.state.function);
+    if (formal && item.result === undefined) {
+      const bad = formalProblem(req.result);
+      if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, null, req.result, bad);
+    }
     const record = { t: RECORDS.result, item: req.item, result: req.result };
     if (req.iteration !== undefined) {
       needPosInt(req.iteration, 'iteration は');
@@ -319,7 +341,11 @@ export function itemResult(ctx, req) {
     }
     return {
       records: [record],
-      output: (after) => ({ item: req.item, iterations: limitState(after, LIMIT_KEYS.iterations, after.iterations, runBase(after).iterations) }),
+      output: (after) => ({
+        item: req.item,
+        iterations: limitState(after, LIMIT_KEYS.iterations, after.iterations, runBase(after).iterations),
+        ...(formal ? formalVerdict(after.items.get(req.item).result.result) : {}),
+      }),
     };
   });
 }
@@ -337,6 +363,7 @@ export function itemFail(ctx, req) {
     const current = item.fails.length;
     const reason = String(req.reason ?? '');
     const records = [{ t: RECORDS.fail, item: req.item, attempt: req.attempt, reason }];
+    if (req.substitute !== undefined) records.push(workLogRecord(ctx, req.run, { ...req.substitute, item: req.item, attempt: req.attempt }, { substitute: true }));
     const limit = view.state.limits[LIMIT_KEYS.attempts];
     if (req.attempt === current + 1 && req.attempt >= limit) records.push({ t: RECORDS.abort, item: req.item, reason: `試行の上限 ${limit} 回に達した: ${reason}` });
     return {
@@ -432,7 +459,7 @@ export function unverifiedFiles(view) {
 export function stop(ctx, req) {
   return mutate(ctx, req, OPS.stop, async (view) => {
     const fn = view.state.function;
-    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? null, launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null, cause: req.cause }));
+    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? null, launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null, cause: req.cause, cost: req.cost }));
     const output = (after) => {
       const stopped = after.stops.get(req.run);
       return { stop: stopped, ...(stopped.kind === STOP_KINDS.complete ? {} : { nextArgs: nextArgs(after) }) };
@@ -455,6 +482,12 @@ export function stop(ctx, req) {
     if (rewriting && req.kind === STOP_KINDS.complete && passed?.result.result.decision !== GATE_DECISIONS.pass) {
       reject(CODES.conflict, '直前の反復の合否が合格でないので完了で止まれない（SP-BPAUTHORING-026）');
     }
+    if (rewriting && req.kind === STOP_KINDS.complete) {
+      const formal = formalAfterGate(view, passed);
+      if (!formal || !formalVerdict(formal).passed) reject(CODES.conflict, '合格の後の形式検証の段を通っていないので完了で止まれない（SP-BPAUTHORING-026・SP-BPAUTHORING-044）');
+    }
+    if (req.cost !== undefined && (req.cost === null || typeof req.cost !== 'object' || Array.isArray(req.cost))) reject(CODES.input, `cost はオブジェクトでなければならない: ${JSON.stringify(req.cost)}`);
+    for (const k of ['at', 'performance', 'toDecide', 'verification', 'impact', 'remainingWork']) if (Object.hasOwn(req, k)) reject(CODES.input, `stop は ${k} を受け取らない（CLI が状態から作る：SP-BPRUN-031）`);
     const outsidePaths = req.outside ?? [];
     if (!Array.isArray(outsidePaths)) reject(CODES.input, 'outside は並びでなければならない');
     const live = stoppedStage(view, { includeCurrentRun: true });
@@ -481,8 +514,10 @@ export function stop(ctx, req) {
     }
     // 残した件数の正本は CLI が導いた未着手の並びなので、script の理由に CLI が足す（SP-BPCONFORMANCE-023）。
     if (limitHit === LIMIT_HITS.launch) reason = `${reason}。残した項目の件数 ${pending.length}`;
+    const at = nowIso(ctx);
+    const substitute = req.substitute === undefined ? [] : [workLogRecord(ctx, req.run, req.substitute, { substitute: true })];
     const record = {
-      t: RECORDS.stop, run: req.run, kind, reason, limitHit, requested, cause: kind === req.kind ? req.cause : undefined,
+      t: RECORDS.stop, run: req.run, at, performance: performance(view, req.run, at, req.cost), kind, reason, limitHit, requested, cause: kind === req.kind ? req.cause : undefined,
       stage: live.stage == null ? null : { stage: live.stage, round: live.round },
       pending, launches: req.launches,
       unverified: rewriting && req.kind !== STOP_KINDS.complete ? unverifiedFiles(view) : [],
@@ -497,10 +532,44 @@ export function stop(ctx, req) {
       ? unverifiedFiles(view).map((f) => ({ t: RECORDS.verified, run: req.run, path: f.path, iteration: passed.result.result.number, verified: true }))
       : [];
     return {
-      records: [...verified, record, { t: RECORDS.fingerprint, run: req.run, at: FINGERPRINT_AT.stop, n: 1, files: now }],
+      records: [...verified, ...substitute, record, { t: RECORDS.fingerprint, run: req.run, at: FINGERPRINT_AT.stop, n: 1, files: now }],
       output,
     };
   });
+}
+
+// 前の run の止まり方から人の介入の再開の数を決める（SP-BPRUN-046 の表）。
+function resumes(view, runId) {
+  const i = view.runs.findIndex((r) => r.id === runId);
+  if (i <= 0) return 0;
+  const prior = view.stops.get(view.runs[i - 1].id);
+  if (!prior) return 1;
+  return prior.kind === STOP_KINDS.needsInput || prior.kind === STOP_KINDS.blocked ? 1 : 0;
+}
+
+export function unavailable(host) {
+  return { unavailable: true, host };
+}
+
+// SP-BPRUN-046: 性能の記録は現在の run の分を状態から導く。費用だけは script が作ったオブジェクトをそのまま受ける。
+export function performance(view, runId, at, cost) {
+  const runRecord = view.runs.find((r) => r.id === runId);
+  const base = runRecord.base ?? emptyRunBase();
+  const untilPass = {};
+  for (const [stage, n] of view.repeats) {
+    const inc = n - (base.repeats?.[stage] ?? 0);
+    if (inc > 0) untilPass[stage] = inc;
+  }
+  return {
+    [PERFORMANCE_KEYS.durationMs]: Date.parse(at) - Date.parse(runRecord.at),
+    [PERFORMANCE_KEYS.interventions]: { answers: view.premises.filter((p) => p.kind === 'answer' && p.run === runId && view.lineOps.get(p.line) === OPS.start).length, resumes: resumes(view, runId) },
+    [PERFORMANCE_KEYS.retries]: {
+      [LIMIT_KEYS.attempts]: [...view.items.values()].flatMap((i) => i.fails).filter((f) => view.lineRuns.get(f.line) === runId).length,
+      [LIMIT_KEYS.iterations]: view.iterations - (base.iterations ?? 0),
+      [LIMIT_KEYS.untilPass]: untilPass,
+    },
+    [PERFORMANCE_KEYS.cost]: cost === undefined ? unavailable(runRecord.host) : cost,
+  };
 }
 
 export async function list(ctx, req) {

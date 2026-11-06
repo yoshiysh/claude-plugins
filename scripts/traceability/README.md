@@ -5,7 +5,7 @@ Node.js 22 以降で実行する。規約は [テスト指針](../../docs/guidel
 ```bash
 node scripts/traceability/cli.mjs --config traceability.config.json --output .artifacts/verification
 node scripts/traceability/cli.mjs --config traceability.config.json --output .artifacts/verification --complete
-node scripts/traceability/cli.mjs --config traceability.config.json --output .artifacts/verification -- tests/bp-author-cli.test.mjs
+node scripts/traceability/cli.mjs --config traceability.config.json --output .artifacts/verification -- tests/bp/cli/author-cli.test.mjs
 ```
 
 `--` 以降は実行するテストファイルの置き換えで、カレントディレクトリから解決する。置き換えても、仕様に結び付けるテストは設定のテストファイルの集合（`testFiles` と `testDirectories`）の中のものだけで、集合の外で範囲内の ID を名指すテストは結び付けずに `untracedTests` に載せる。仕様とソースの対象も設定のまま保持するため、部分実行で他の完了仕様を実行しなければ終了コード `1` になり得る。`--complete` は対象全仕様の完了と、成功した leaf test、採用済みの全シナリオを要求し、対応テストの skip を拒否する。通常実行では仕様先行の追加や作成中の行を認めるが、「完了」の検証行には成功した対応テストが必要になる（例外は下記の環境による skip だけ）。ID の対応だけでは、その検証行の内容を assert しているかまでは判定できず、結果の `semanticMatch` はレビュー待ちになる。
@@ -26,7 +26,7 @@ JSON 設定は次のフィールドを使う。パスは、設定ファイルか
 
 探索と明示対象は結合する。仕様は Markdown、テストは `.test.js` / `.test.mjs`、ソースは `.js` / `.mjs` を収集する。ソースからテストファイルを除き、全探索で `node_modules`、`.git`、fixture とテスト用のディレクトリを除く。除外名の正本は `specs.mjs` の `discover` にある。探索中の symlink は拒否する。各対象種別に一つ以上のファイルが必要で、対象仕様がゼロの場合も成功にはならない。実際の探索起点とファイル一覧は出力の `inventory` に残る。
 
-仕様は、見出しの先頭にある `SP-...` を定義として読み込む。検証表（トレーサビリティ表）は `tools/lib/bp-docs.mjs` の `traceTable` で読み、見出しの行・4 列・`\|` のエスケープ・状態の語彙（`TRACE_STATUSES`）・仕様項目 ID の形の検査はこの関数を正本とする。テスト名の仕様 ID は同じファイルの `specIds` で読み、範囲（`SP-X-027〜031`）の展開はテスト名にだけ掛かる。`tests/bp-trace-status.test.mjs` と `tools/` の試走の記録も同じ関数と状態の定数を使う。対象の仕様書はどれも検証表を持たなければならず、表が無い・列が合わない・状態が語彙に無い・仕様項目 ID の形が崩れた行は設定エラーになる（崩れた ID を範囲外として捨てると、未完了の行が見えないまま完了になり得る）。コードフェンスの中の見出しと表は読まない。全ファイルの定義を先に集めるので、他ファイルの仕様への参照も解決できる。重複定義と対象内の未知 ID は設定エラーになる。
+仕様は、見出しの先頭にある `SP-...` を定義として読み込む。検証表（トレーサビリティ表）は `tools/lib/bp-docs.mjs` の `traceTable` で読み、見出しの行・4 列・`\|` のエスケープ・状態の語彙（`TRACE_STATUSES`）・仕様項目 ID の形の検査はこの関数を正本とする。テスト名の仕様 ID は同じファイルの `specIds` で読み、範囲（`SP-X-027〜031`）の展開はテスト名にだけ掛かる。`tests/bp/trial/trace-status.test.mjs` と `tools/` の試走の記録も同じ関数と状態の定数を使う。対象の仕様書はどれも検証表を持たなければならず、表が無い・列が合わない・状態が語彙に無い・仕様項目 ID の形が崩れた行は設定エラーになる（崩れた ID を範囲外として捨てると、未完了の行が見えないまま完了になり得る）。コードフェンスの中の見出しと表は読まない。全ファイルの定義を先に集めるので、他ファイルの仕様への参照も解決できる。重複定義と対象内の未知 ID は設定エラーになる。
 
 シナリオ計画の一例:
 
