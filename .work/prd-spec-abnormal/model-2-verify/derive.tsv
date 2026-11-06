@@ -1,0 +1,15 @@
+table_line	row	source	derivable	reason
+3	Run S0 所在を示された文書を読めない → blocked（next_args なし）	decision:Q10	yes	Q10「読み取れない文書があれば run を始めずに止める」。始めていない run には戻る段が無いので next_args なしも一意
+12	Run decide 両立しない指摘は裁定役が決め、価値の判断なら問い → decide2	decision:Q12	yes	Q12 の選んだ記述そのもの
+28	Run judge blocking 0（低重大度と not_checked は数えず検査記録へ）→ report	decision:Q11	yes	Q11「終了は blocking 0 件で判定し、残った低重大度の指摘と実施しなかった検査は検査記録として引き渡しに載せる」。ただし QM-13 の帰結（consumer の D-023 の完了条件の改訂が要る）は、run_checks.py の DROPPED が「この行に残す」と書くのにこの行に無い
+32	Run report 固定の文書に開いた TBD があっても done。「完成しました」と言わず件数と ID → save	decision:Q2	yes	Q2 は「実装の振る舞い」を選び、記述は「開いている未確定事項が 1 件でもあれば『完成しました』と言わず残りの件数と ID を示す」。返り値は done のまま語で区別する。固定の文書は run の中で直せないので block の読みは外れる
+33	Run save 一致し git で戻せる → end（saved、not_checked を検査記録へ）	decision:Q11	yes+Q5	not_checked の記録は Q11 から一意。承認を待たずに保存する部分は Q5（待たずに保存し事後報告）が決めるので source は Q5・Q11 が正確
+51	Run 段の途中 script の不変条件に反する → blocked（next_args なし、reason の接頭辞）	decision:Q10	yes	Q10「実装の停止を異常系の正本にし workflow-io.md は参照」で、実装の停止の形（3161）と §5 の行動（prd-spec.js を直す）がそのまま決まる
+64	Issue a_content verifier 不合格（差し戻し 1 回）→ a_content（vfail+1）	decision:Q8	yes	Q8「回答を当てた結果が検証に落ちれば 1 回差し戻し」
+65	Issue a_content 差し戻し後も不合格 → canAsk なら版を変えた question、~canAsk なら hold	decision:Q8	yes	Q8「なお落ちれば問いに戻すか保持規則にする」に「実装どおり」で canAsk の分岐（resolver.md:91-92・prd-spec.js:2407-2412）が付く。同じ中身で聞き直すと Q8 が残す再質問禁止に当たるので版を変えるのも一意
+66	Issue a_empty → canAsk なら同じ版の question、~canAsk なら hold	decision:Q8	yes+Q2	Q8「答えなかった問い（空の回答行）は未回答として進む」と題の「実装どおり」で、未回答の問いは回答待ちに残り次のゲートで聞かれる（prd-spec.js:283-285）。model-1 はこの文を noask と読んだので文言だけでは割れうるが、「実装どおり」で一意になる。~canAsk の hold は Q2（回答の無い論点も保持規則）から来るので source に Q2 が要る
+67	Issue a_undecided → hold	decision:Q2	yes	「決まっていない」と答えた論点は保持規則（Q2 の問いの文が前提とする元の文書の規則で、Q2 はそれを広げた）。注意: Q7 は確定済みの事項への「決まっていない」を確認の問いにするので、その場合はこの行でなく a_conflict の行に当たる（模型は区別しない）
+68	Issue a_conflict → canAsk なら版を変えた確認の question、~canAsk なら hold	decision:Q7	yes+Q2	Q7「確定値と異なる回答…はどちらを採るかを確認の問いにする」。~canAsk の hold は Q2（回答の無い論点も保持規則）から。source は Q7・Q2 が正確。~canAsk の hold は Q2（回答の無い論点も保持規則）から来るので source に Q2 が要る
+69	Issue a_unmapped → canAsk なら版を変えた question、~canAsk なら hold	decision:Q7・Q8	yes+Q2	Q7「対応づけられない回答・保留の事項への回答は問いとして聞き直し」。版を変えるのは Q8 が残す再質問禁止（答えた問いを同じ中身で聞かない）から。Q7 の「聞き直し」だけを読むと同じ版とも読めるので、Q8 と合わせて初めて一意。~canAsk の hold は Q2（回答の無い論点も保持規則）から来るので source に Q2 が要る
+70	Issue a_insufficient → canAsk なら絞れた範囲の版の question、~canAsk なら hold	decision:Q6・Q8	yes+Q2	Q6「回答後もなお着手できない事項は、聞ける回数の上限まで後のゲートで聞き直す」と Q8 の再質問禁止で版を変える。上限の後の hold は Q2。~canAsk の hold は Q2（回答の無い論点も保持規則）から来るので source に Q2 が要る
+81	Seam ok・absent ~IMPL_A024 → rerun（段で止める）blocked + next_args	decision:Q4	yes	Q4「段で止め再実行させる」。記述が A-024（doc_check の欠けを 0 件扱い）を直す向きを名指ししている

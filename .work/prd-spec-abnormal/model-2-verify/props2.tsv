@@ -1,0 +1,7 @@
+property	decision	verdict	reason
+Q8	Q8「実装どおりに扱う」（記録の消失だけ例外・空の回答行は未回答）	faithful	reaskAns[i]=0: 中身のある回答を受け取った版のまま聞き直さない。記録の消失（LoseReask）は数えず、空の回答行は ansCur を立てない。決定の「再質問禁止の例外は記録の消失だけ」「答えなかった問いは未回答」を過不足なく表す。検出力の注意: 決定どおりの NextOf では同じ版に戻るのが a_empty だけなので、基礎ではほぼ構成上通る。破れるのは NextOf を変えたとき（mut-Q8）だけ
+Q10	Q10「全て異常系に置き再実行を区別」・workflow-io.md §5	faithful	返り値の形から文書が割り当てる行動がちょうど 1 つで、文書の閉集合に入り、原因を除く行動と一致する。決定の「段から再実行と最初からを区別」「Block の条件が文書で一意」を表し、model-1 の Q10set（決定に無い閉集合）の問題も解いた。impl で 4 種の食い違い（args_old・fixer_unknown・wlost・digest undef）を検出する。限界: Remedy は模型が置く表、例外の ObsSet は cause を直接読む。ReqBadArgs の 911 の原因の写し（rev2.tsv）が誤っているので、QM-16 の impl の args_fixed_* の反例は実装の経路ではない（impl の反例そのものは 907 の args_old）
+Term（impl-term.cfg）	Q3（上限と進展なしで止まる）	faithful	実装の定数の側でも非終端から終端に至る。VARY={} は not_checked が遷移の enabled に効かないので妥当
+ReachException	-	n/a	到達の確認。例外の状態に到達する（reach.cfg で 40 状態で破れる）
+ReachVerifyHard	-	n/a	到達の確認。verify_hard に到達する
+ReachEmptyReask	-	n/a	到達の確認。記録の消失なしに同じ版を 2 回聞く（空の回答行の聞き直し）に到達する。Q8 が空の回答行の聞き直しを許すことの裏付け

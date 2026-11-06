@@ -1,0 +1,534 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 113 and seed -6917678056349484032 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 28572] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Composed.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Run.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Issue.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Seam.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Run
+Semantic processing of module Issue
+Semantic processing of module Seam
+Semantic processing of module Composed
+Starting... (2026-11-06 14:49:15)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 14:49:15.
+Error: Invariant Q1 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "S0"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 2: <RunOnly line 43, col 6 to line 43, col 20 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "intake"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 3: <Internal line 46, col 6 to line 46, col 79 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "draft"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 4: <RunOnly line 49, col 6 to line 49, col 21 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "audit"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 5: <Internal line 50, col 6 to line 50, col 115 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "wait"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "audit"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 6: <Internal line 50, col 6 to line 50, col 115 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "ok"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "present"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "audit"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 7: <Internal line 51, col 6 to line 51, col 73 of module Composed>
+/\ docBlk = 1
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = TRUE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 1
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "decide"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 8: <Internal line 53, col 6 to line 53, col 60 of module Composed>
+/\ docBlk = 1
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = TRUE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 1
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "decide2"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 9: <Internal line 56, col 6 to line 56, col 105 of module Composed>
+/\ docBlk = 1
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = TRUE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 1
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "revise"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 10: <RunOnly line 62, col 34 to line 62, col 56 of module Composed>
+/\ docBlk = 1
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = TRUE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 1
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "report"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 11: <RunOnly line 67, col 6 to line 67, col 22 of module Composed>
+/\ docBlk = 1
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = TRUE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 1
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "save"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "done"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 12: <Internal line 68, col 6 to line 68, col 62 of module Composed>
+/\ docBlk = 1
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = TRUE
+/\ saveCond = "git"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 1
+/\ saved = TRUE
+/\ sameAsk = <<0>>
+/\ tree = "match"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "end"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = TRUE
+/\ status = "done"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+5351 states generated, 3136 distinct states found, 1108 states left on queue.
+The depth of the complete state graph search is 12.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 13 and the 95th percentile is 7).
+Finished in 00s at (2026-11-06 14:49:15)
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 80 and seed -592339159065485128 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 28573] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Composed.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Run.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Issue.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Seam.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Run
+Semantic processing of module Issue
+Semantic processing of module Seam
+Semantic processing of module Composed
+Starting... (2026-11-06 14:49:16)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 14:49:16.
+Progress(28) at 2026-11-06 14:49:19: 673,972 states generated (673,972 s/min), 288,794 distinct states found (288,794 ds/min), 30,938 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 2.0E-8
+  based on the actual fingerprints:  val = 4.3E-7
+1222266 states generated, 512210 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 51.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 13 and the 95th percentile is 6).
+Finished in 05s at (2026-11-06 14:49:21)

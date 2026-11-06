@@ -1,0 +1,221 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 10 and seed -5932094126746512032 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 29294] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Composed.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Run.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Issue.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Seam.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Run
+Semantic processing of module Issue
+Semantic processing of module Seam
+Semantic processing of module Composed
+Starting... (2026-11-06 14:59:53)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 14:59:53.
+Error: Invariant Q10 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "S0"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = FALSE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 2: <RunOnly line 43, col 6 to line 43, col 20 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "intake"
+/\ rework = 0
+/\ cause = "none"
+/\ deferred = FALSE
+/\ specOnly = FALSE
+/\ status = "running"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 3: <RunOnly line 69, col 6 to line 69, col 26 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "intake"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = FALSE
+/\ ncOut = FALSE
+/\ hasNext = TRUE
+/\ stopReason = "none"
+/\ rs = "intake"
+/\ rework = 0
+/\ cause = "notrun"
+/\ deferred = FALSE
+/\ specOnly = FALSE
+/\ status = "blocked"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+State 4: <RunOnly line 75, col 29 to line 75, col 49 of module Composed>
+/\ docBlk = 0
+/\ reaskAns = <<0>>
+/\ notChecked = FALSE
+/\ ver = <<0>>
+/\ unchecked = FALSE
+/\ from = "intake"
+/\ stops = 0
+/\ gates = 0
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ audited = FALSE
+/\ saveCond = "na"
+/\ ist = <<"none">>
+/\ aud = "idle"
+/\ filing = <<"na">>
+/\ saveWait = FALSE
+/\ wExists = TRUE
+/\ pluginUpd = FALSE
+/\ pass = 0
+/\ saved = FALSE
+/\ sameAsk = <<0>>
+/\ tree = "na"
+/\ ansCur = <<FALSE>>
+/\ redraft = FALSE
+/\ docOut = "na"
+/\ lost = <<0>>
+/\ argsBad = TRUE
+/\ ncOut = FALSE
+/\ hasNext = FALSE
+/\ stopReason = "none"
+/\ rs = "intake"
+/\ rework = 0
+/\ cause = "args_old"
+/\ deferred = FALSE
+/\ specOnly = FALSE
+/\ status = "exception"
+/\ vfail = <<0>>
+/\ reruns = 0
+
+46 states generated, 42 distinct states found, 24 states left on queue.
+The depth of the complete state graph search is 4.
+The average outdegree of the complete state graph is 3 (minimum is 1, the maximum 4 and the 95th percentile is 4).
+Finished in 00s at (2026-11-06 14:59:53)
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 26 and seed -1136209140654783035 with 4 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 29295] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Composed.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Naturals.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Run.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/FiniteSets.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Issue.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/run/Seam.tla
+Parsing file /Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616/.work/prd-spec-abnormal/model-2-verify/tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module Run
+Semantic processing of module Issue
+Semantic processing of module Seam
+Semantic processing of module Composed
+Starting... (2026-11-06 14:59:54)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 14:59:54.
+Checking temporal properties for the current state space with 41506 total distinct states at (2026-11-06 14:59:57)
+Finished checking temporal properties in 00s at 2026-11-06 14:59:58
+Progress(18) at 2026-11-06 14:59:58: 91,293 states generated (91,293 s/min), 41,506 distinct states found (41,506 ds/min), 10,420 states left on queue.
+Progress(51) at 2026-11-06 15:00:20: 1,127,446 states generated, 462,698 distinct states found, 0 states left on queue.
+Checking temporal properties for the complete state space with 462698 total distinct states at (2026-11-06 15:00:20)
+Finished checking temporal properties in 05s at 2026-11-06 15:00:26
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.7E-8
+  based on the actual fingerprints:  val = 8.5E-9
+1127446 states generated, 462698 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 51.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 13 and the 95th percentile is 6).
+Finished in 31s at (2026-11-06 15:00:26)

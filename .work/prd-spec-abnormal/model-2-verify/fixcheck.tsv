@@ -1,0 +1,39 @@
+ref	verdict	reason	evidence
+fwd:902	fixed	ReqBadArgs（status=exception・cause args_*）が起動の前の検査の例外を持つ。902 は対応がついた。ただし 911 の原因の分け方（typo・moved）は実装と合わない（rev2.tsv の ReqBadArgs）	model-2/Run.tla:238-245 ReqBadArgs / prd-spec.js:902
+fwd:907	fixed	ReqBadArgs（status=exception・cause args_*）が起動の前の検査の例外を持つ。907 は対応がついた。ただし 911 の原因の分け方（typo・moved）は実装と合わない（rev2.tsv の ReqBadArgs）	model-2/Run.tla:238-245 ReqBadArgs / prd-spec.js:907
+fwd:911	fixed	ReqBadArgs（status=exception・cause args_*）が起動の前の検査の例外を持つ。911 は対応がついた。ただし 911 の原因の分け方（typo・moved）は実装と合わない（rev2.tsv の ReqBadArgs）	model-2/Run.tla:238-245 ReqBadArgs / prd-spec.js:911
+fwd:928	fixed	ReqBadArgs（status=exception・cause args_*）が起動の前の検査の例外を持つ。928 は対応がついた。ただし 911 の原因の分け方（typo・moved）は実装と合わない（rev2.tsv の ReqBadArgs）	model-2/Run.tla:238-245 ReqBadArgs / prd-spec.js:928
+fwd:1598	fixed	FailVerifyHard（rs ∈ {apply, decide2}・next_args なし・cause verify_hard）が rerun:false の検証落ちを持つ。Q10 の Remedy は restart で next_args なしの形と合う。段 3 の ruleAndVerify は FailStages と同じ代表化で落としている	model-2/Run.tla:287-289 / prd-spec.js:1598
+fwd:1653	fixed	FailVerifyHard（rs ∈ {apply, decide2}・next_args なし・cause verify_hard）が rerun:false の検証落ちを持つ。Q10 の Remedy は restart で next_args なしの形と合う。段 3 の ruleAndVerify は FailStages と同じ代表化で落としている	model-2/Run.tla:287-289 / prd-spec.js:1653
+fwd:1769	fixed	FailVerifyHard（rs ∈ {apply, decide2}・next_args なし・cause verify_hard）が rerun:false の検証落ちを持つ。Q10 の Remedy は restart で next_args なしの形と合う。段 3 の ruleAndVerify は FailStages と同じ代表化で落としている	model-2/Run.tla:287-289 / prd-spec.js:1769
+fwd:1776	fixed	FailVerifyHard（rs ∈ {apply, decide2}・next_args なし・cause verify_hard）が rerun:false の検証落ちを持つ。Q10 の Remedy は restart で next_args なしの形と合う。段 3 の ruleAndVerify は FailStages と同じ代表化で落としている	model-2/Run.tla:287-289 / prd-spec.js:1776
+fwd:1779	fixed	FailVerifyHard（rs ∈ {apply, decide2}・next_args なし・cause verify_hard）が rerun:false の検証落ちを持つ。Q10 の Remedy は restart で next_args なしの形と合う。段 3 の ruleAndVerify は FailStages と同じ代表化で落としている	model-2/Run.tla:287-289 / prd-spec.js:1779
+rev:IntakeCarry	justified	entry=existing の段 5 直行を模型にしない抽象を @trace に明記。draft の失敗注入が増えるだけで、読む性質（Q1・Q4・Q6・Q9）の結果を変える経路は無い	model-2/Run.tla:91
+rev:Apply2Go	justified	IntakeCarry と同じ抽象を明記。3a→3b の組み直しを apply に畳むのも性質の結果を変えない	model-2/Run.tla:150
+rev:ReviseFinal	fixed	finalHold の中の next_args ありの終わりを FinalHoldFail として足した。ただし新しい action に小さなずれが残る（rev2.tsv の FinalHoldFail: 段 8 の再実行先が judge・stop_reason を落とす）	model-2/Run.tla:163-165 / prd-spec.js:3021・3025
+rev:JudgeNoProgress	justified	過大近似を @trace に明記。不変式には反例を増やす向きだけで、通った性質は実装でも通る	model-2/Run.tla:179
+rev:SaveDecline	justified	部分保存を「保存しない」に畳む理由を @trace に明記。保存される木は同じ監査済みの版で、saved を読む Q1・Q1nc の結果は変わらない	model-2/Run.tla:222
+rev:ReqWLost	fixed	W が無いときの形を OPT_WLOST の 2 択にし、loop を実装の推定として QM-18 に出した。実装を読むと loop は正しい: 入口の flow-check の doc_check が workspace の欠けで落ち（doc_check.mjs:4462）、enterFromDisk は blocked(…, from) で next_args を付ける。段 1 は resetEntry が blocked(…, '1')。flow_digest を要らない段 2・9 から呼び直す場合は確かめていない	prd-spec.js:enterFromDisk「if (!fc) return blocked(`flow-check（段 ${from} の入口）が doc_check flow の stdout を返しませんでした`, from)」・resetEntry 末尾
+rev:FailVerify	fixed	rerun:true の verify_soft（apply）と rerun:false の verify_hard（apply・decide2）に分けた	model-2/Run.tla:284-289
+rev:Issue!ApplyStep	fixed	空の回答行は ReQ(FALSE): canAsk なら同じ版のまま question に戻り、次のゲートで聞き直す。~canAsk なら hold。OPT_EMPTY を消し、impl・base の両方がこの遷移になる。実装（resolver.md:101「当てる回答が無い」・pendingQuestions に残る）と一致	model-2/Issue.tla:96 / resolver.md:101
+props:Q8	fixed	Q8 を reaskAns[i]=0（中身のある回答を受け取った版のまま聞き直した回数）に狭め、空の回答行は ansCur を立てない。impl.cfg で Q8 が通り（1473536 状態）、mut-Q8 で破れる。決定 Q8 の「記録の消失だけ例外」「空の回答行は未回答」を過不足なく表す	results.tsv impl.cfg Q8 pass / mut-Q8 violated
+props:Q10	fixed	Intended の表をやめ、返り値の形から文書（workflow-io.md §3・§5・SKILL.md 中継）が割り当てる行動の集合 ObsSet がちょうど 1 つで閉集合 DocActions に入り Remedy と一致する、に立て直した。next_args なしの検証落ち（verify_hard）と例外が入り、impl で args・fixer_unknown・wlost・digest の 4 種の食い違いを検出する。残る弱さ: Remedy は模型が置く表で、例外の ObsSet は cause を直接読む（例外の文が原因ごとに違うという前提）	model-2/Run.tla:297-346 / cex/impl-Q10.txt（args_old）・QM-17-impl・QM-18-loop・QM-04-undef
+props:Q1strict	fixed	決定 Q11 が退けた読みの性質を外した（DROPPED に理由）	model-2/tools/run_checks.py DROPPED
+props:Q2fixed	fixed	決定 Q2 が退けた読みを外した	model-2/tools/run_checks.py DROPPED
+props:Q10set	fixed	決定に無い 4 つの閉集合を外し、Q10 を文書の閉集合で立て直した	model-2/tools/run_checks.py DROPPED
+props:ConsumerAllZero	fixed	決定 Q11 が退けた読みを外した。ただし DROPPED の「D-023 の改訂が要る帰結は table.tsv の JudgeReport の行に残す」は守られていない（table.tsv に D-023 は 0 件、grep）	model-2/tools/run_checks.py DROPPED
+props:IssueTracked	justified	QM-14 の選択肢を見る性質として残し、PROP_NOTE で「決定に無い」と明記。基礎の INVARIANTS からは外れ options/QM-14 だけで回す	run_checks.py INV_OF・PROP_NOTE
+props:FilingLive	justified	IssueTracked と同じ扱い（QM-14 だけで回す）	run_checks.py PROPS_OF・PROP_NOTE
+qcheck:QM-01	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: Seam の行を decision:Q4 にし、基礎は IMPL_A024=FALSE。問いから外した	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-02	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: 基礎を OPT_NC=record にし Save の行を decision:Q11。問いから外した	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-07	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: a_empty を ReQ(FALSE)（reask）に固定し decision:Q8。問いから外した	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-08	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: a_insufficient を ReQ(TRUE)（版を変える）に固定し decision:Q6・Q8	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-09	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: a_unmapped を ReQ(TRUE) に固定し decision:Q7・Q8	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-10	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: 差し戻し後の a_content を ReQ(TRUE)（~canAsk なら hold）に固定し decision:Q8	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-11	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: FailScript の行を decision:Q10 にし ObsSet が reason の接頭辞（ScriptPrefix）を読む。前回指摘の残り（FIXERS_BY_CODE に無い符号の停止）は QM-17 として問いに出した	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-12	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: Report を無条件の done にし decision:Q2。OPT_FIXEDTBD を消した	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-13	fixed	derivable の指摘どおり問いから外し決定の遷移に固定: JudgeReport を decision:Q11 にし OPT_LOW を消した。consumer（D-023）の改訂が要る帰結は table.tsv に載っていない（DROPPED の記述と食い違う）	model-2/questions.tsv に無い・table.tsv
+qcheck:QM-06 文の欠け	fixed	選択肢 3 の文が「破れた性質 Q6・Q9」になり、results.tsv（QM-06-pregate: Q6・Q9 violated）と一致	model-2/questions.tsv QM-06
+qcheck:QM-13 文の欠け	justified	QM-13 自体を導出済みとして外したので、表に無い選択肢 3 への参照も消えた	model-2/questions.tsv
+props:ConsumerAllZero（D-023 の帰結）	not-fixed	性質を外したこと自体は正しいが、run_checks.py の DROPPED が「consumer の完了条件（D-023）の改訂が要るという帰結は QM-13 の答えとして table.tsv の JudgeReport の行に残す」と書くのに、table.tsv に D-023 が 0 件（grep）。帰結がどこにも残っていない	model-2/tools/run_checks.py DROPPED / model-2/table.tsv:28
+qcheck:QM-13（D-023 の帰結）	not-fixed	前回 qcheck が「導けるが、帰結として consumer の要求（D-023 の完了条件）の改訂が要る」とした部分が table.tsv・questions.tsv のどちらにも無い	model-1-verify/qcheck.tsv QM-13 / model-2/table.tsv:28

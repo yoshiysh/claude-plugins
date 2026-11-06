@@ -1,0 +1,340 @@
+cfg	property	model2_states	model2_result	rerun_states	rerun_result	match	note
+base.cfg	TypeOK	462698	pass	462698	pass	yes	
+base.cfg	Q1	462698	pass	462698	pass	yes	
+base.cfg	Q1nc	462698	pass	462698	pass	yes	
+base.cfg	Q2	462698	pass	462698	pass	yes	
+base.cfg	Q3a	462698	pass	462698	pass	yes	
+base.cfg	Q3b	462698	pass	462698	pass	yes	
+base.cfg	Q4	462698	pass	462698	pass	yes	
+base.cfg	Q5	462698	pass	462698	pass	yes	
+base.cfg	Q6	462698	pass	462698	pass	yes	
+base.cfg	Q7	462698	pass	462698	pass	yes	
+base.cfg	Q7W	462698	pass	462698	pass	yes	
+base.cfg	Q8	462698	pass	462698	pass	yes	
+base.cfg	Q9	462698	pass	462698	pass	yes	
+base.cfg	Q10	462698	pass	462698	pass	yes	
+base.cfg	Term	462698	pass	462698	pass	yes	
+impl-term.cfg	Term	619200	pass	619200	pass	yes	
+mut-Q7.cfg	Q7	806	violated	827	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ seed 5151 で選んだ変異
+mut-Q3pass.cfg	Q3a	71334	violated	70915	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ seed 5151 で選んだ変異
+mut-Q2.cfg	Q2	143998	violated	143780	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ seed 5151 で選んだ変異
+mut-Q1.cfg	Q1	3099	violated	3136	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ seed 5151 で選んだ変異
+mut-Q10.cfg	Q10	384	violated	379	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ seed 5151 で選んだ変異
+impl.cfg	Q10	42	violated	52	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q7W	45	violated	60	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q4	209	violated	221	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q1nc	5504	violated	6034	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q1	6974	violated	5684	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q3b	216650	violated	216692	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	TypeOK	1473536	pass	1473536	pass	yes	
+impl.cfg	Q2	1473536	pass	1473536	pass	yes	
+impl.cfg	Q3a	1473536	pass	1473536	pass	yes	
+impl.cfg	Q5	1473536	pass	1473536	pass	yes	
+impl.cfg	Q6	1473536	pass	1473536	pass	yes	
+impl.cfg	Q7	1473536	pass	1473536	pass	yes	
+impl.cfg	Q8	1473536	pass	1473536	pass	yes	
+impl.cfg	Q9	1473536	pass	1473536	pass	yes	
+QM-16-impl.cfg	Q10	42	violated	42	violated	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-count.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-impl.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q3b	92728	violated	93314	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-16-split.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q10	3048	violated	3266	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	TypeOK	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q1	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q1nc	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q2	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q3a	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q4	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q5	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q6	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q7	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q7W	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q8	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q9	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Q10	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-03-nocount.cfg	Term	637342	pass	637342	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q10	3158	violated	3122	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-impl.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-existing.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-17-prefix.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q7W	52	violated	58	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	TypeOK	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q1	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q1nc	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q2	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q3a	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q3b	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q4	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q5	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q6	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q7	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q7W	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q8	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q9	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Q10	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-rerun8.cfg	Term	477886	pass	477886	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	TypeOK	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q1	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q1nc	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q2	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q3a	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q3b	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q4	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q5	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q6	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q7	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q8	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q9	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Q10	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-check.cfg	Term	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q7W	52	violated	58	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q10	86	violated	127	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	TypeOK	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q1	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q1nc	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q2	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q3a	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q3b	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q4	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q5	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q6	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q7	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q8	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Q9	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-18-loop.cfg	Term	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-restart.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q10	3068	violated	3098	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-04-undef.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q3b	32975	violated	33049	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-ask.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-home.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q7W	52	violated	56	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	TypeOK	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q1	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q1nc	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q2	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q3a	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q3b	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q4	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q5	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q6	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q7	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q8	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q9	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Q10	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-05-skilldir.cfg	Term	307598	pass	307598	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-ask_end.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	TypeOK	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q1	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q1nc	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q2	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q3a	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q3b	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q4	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q5	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q6	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q7	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q7W	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q8	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q9	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Q10	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-defer.cfg	Term	462748	pass	462748	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q6	8	violated	16	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q9	12	violated	16	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	TypeOK	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q1	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q1nc	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q2	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q3a	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q3b	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q4	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q5	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q7	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q7W	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q8	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Q10	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-06-pregate.cfg	Term	711670	pass	711670	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	IssueTracked	33422	violated	33680	violated	yes	反例の状態数は worker 数（model-2 は 2、再検査は 4）で変わる。結果は一致 ／ 問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	Term	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-manual.cfg	FilingLive	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	FilingLive	462698	violated	462698	violated	yes	Term と分けて回し直した（Term だけなら通る 462698 状態）。問いの選択肢の再検査
+QM-14-retry.cfg	Term	462698	pass	462698	pass	yes	FilingLive を外して回した。問いの選択肢の再検査
+QM-14-retry.cfg	TypeOK	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q1	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q1nc	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q2	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q3a	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q3b	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q4	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q5	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q6	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q7	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q7W	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q8	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q9	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	Q10	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
+QM-14-retry.cfg	IssueTracked	462698	pass	462698	pass	yes	問いの選択肢の再検査（qcheck2 の (c)）
