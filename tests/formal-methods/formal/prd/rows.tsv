@@ -1,9 +1,0 @@
-完了	StopTable:Complete
-反復の上限	StopTable:IterLimit
-BLOCKED（状態に書いて止まる：対象の欠け）	StopTable:Defect
-BLOCKED（前の結果を返す）	Launch:prev
-BLOCKED（状態に書いて止まる：失敗）	StopTable:Failure
-BLOCKED（状態に書いて止まる：記録の保存の失敗）	StopTable:SaveFail
-BLOCKED（状態に書かずに止まる：入口）	Launch:reject+reject155
-BLOCKED（状態に書かずに止まる：停止の記録を書けない）	StopTable:StopRec
-停止の記録の無い終わり（host が run を終わらせた）	Launch:hostend
