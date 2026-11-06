@@ -1,0 +1,2 @@
+q	options	recommend
+Codex の model の変換表（codex.txt）の初期値を確定するか	A: 案のまま確定（opus→gpt-6.1-sol、sonnet→gpt-6.1-terra、effort は同名） / B: 判断役（opus 相当）を最上位の gpt-6-astra にする / C: 確定を保留し、生成 script の定数に未確定と書いて別 PR で実測して決める	A（codex.txt が Claude 側で判断役を最上位でなく opus に留める対応に合わせている。性能の対応は未検証のまま確定することになる）

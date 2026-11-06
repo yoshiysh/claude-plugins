@@ -1,0 +1,4 @@
+q	options	recommend
+「設計に戻る」ループに回数の上限と、戻す欠陥の重大度の閾値を置くか	(a) 上限を名前つき定数で置き、LOW は成果物の修正と再検証で済ませる (b) 上限だけ置く (c) どちらも置かない（今の設計）	(a)。(c) は「途中で止めない」と合わさって出口が決まらず、LOW 1 件ごとに約 18 体の周回が起きる
+fan-out の model・effort 明示の規則を AGENTS.md に 1 行残すか	(a) 作業ルール (5) に 1 行の規則と理由を残し、細則は multi-agent.md (b) multi-agent.md だけに置く（今の設計）	(a)。省略時は最上位 model × 体数の継承で、実測の事故は Workflow を書く場面と認識されない ad-hoc の fan-out で起きた
+Codex の model 変換表（opus→gpt-6.1-sol・sonnet→gpt-6.1-terra）をこのまま初期値にするか	(a) 案のまま確定 (b) 判断役を gpt-6-astra にする (c) 実測してから決める	利用者の判断。どれでも、表に無い値は生成 script が止める（fail-closed）ことを前提にする

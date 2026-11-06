@@ -1,0 +1,3 @@
+q	options	recommend
+「欠陥が出たら設計に戻る」と best-practices.md §13 のスコープの梯子（実装の欠陥は成果物の修正へ戻る）が食い違う。#207 でどう扱うか	A: #207 で best-practices §13 を workflow.md に合わせて改める（skill-creator の再配布が要る） / B: workflow.md が §13 の梯子を包含する形にする（「設計に戻る」は設計・前提の欠陥に限る） / C: #207 では AGENTS.md・workflow.md を優先と明記し、§13 の改稿は Q1 の別 PR に入れる	C（Q1 と同じ別 PR で揃え、それまでの優先を 1 行で書く）
+V5 の重複（AGENTS.md の要旨 3 つと workflow.md）の食い違いを、注意書きでなく構造で防ぐか	A: AGENTS.md の 3 行が workflow.md の該当文の逐語の抜粋であることを tests/ で照らす / B: 注意書きのまま、作業ルール (6) に V5 の例外を 1 行で書く	A

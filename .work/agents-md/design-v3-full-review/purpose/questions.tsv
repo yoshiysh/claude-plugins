@@ -1,0 +1,2 @@
+q	options	recommend
+Codex 用の agent 定義（.codex/agents/*.toml 10 ファイル・tools/sync-codex-agents.mjs・tests/codex-agents-sync.test.mjs）を #207 に含めるか	(a) #207 に含める（Codex も観点の agent を今すぐ使える）／(b) 観点の agent を既存スキルへ組み込む後の PR へ回す（#207 は .claude/agents/ と対応表まで）	(b)。目的の 3 項目に Codex 側の生成は無く、#207 では agent を呼ぶ側も置かないため

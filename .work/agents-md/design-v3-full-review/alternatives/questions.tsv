@@ -1,0 +1,3 @@
+q	options	recommend
+#207 で .codex/hooks.json の Stop の通知 hook も消すか	消す / PostToolUse だけ消して Stop は残す	PostToolUse だけ消して Stop は残す
+Codex 用の agent の生成（sync-codex-agents.mjs・.codex/agents/*.toml・テスト）を #207 に入れるか	#207 に入れる / caller を組み込む別 PR まで延ばし、#207 は review-lenses.md の 1 行に留める	caller を組み込む別 PR まで延ばす

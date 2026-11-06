@@ -1,0 +1,2 @@
+q	options	recommend
+「規範に守られないと何が壊れるかを添える」（main L128〜134）の正本をどこに置くか	docs/guidelines/documentation.md を正本にし best-practices は配布用の写し / best-practices を正本にし documentation.md は指すだけ / 両方を別の規範として持つ	documentation.md:11 の既存の行を正本にして機序と実測を足す。best-practices は install 先から docs/ を指せないので、スキル向けの短い写しを持ち、写しであることを書く

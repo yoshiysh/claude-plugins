@@ -1,0 +1,50 @@
+ref	verdict	severity	reason	evidence_ref	evidence_quote
+files:AGENTS.md（全体）	ok	-	keep。達成 2（約 100 行の地図）と防ぐ失敗 3 に直接対応する。	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする。
+files:AGENTS.md 節「冒頭」	ok	-	keep。(2) は「置く基準を正本として置く」の入口からの指し先。(1) は地図であることの宣言。	.work/agents-md/design-v3/purpose.txt:10	何を AGENTS.md に置くかの基準も、それ自体を正本の 1 つとして置く。
+files:AGENTS.md 節「リポジトリ概要」	ok	-	keep。地図の最小要素で、既存の 1 文のまま増やさない。	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする。
+files:AGENTS.md 節「現在の実体」	ok	-	keep。入口に残す配布の制約を 1 行ずつに縮め、詳細を distribution.md へ出す。達成 2 の「地図＋正本は docs/」に対応する。	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く。
+files:AGENTS.md 節「作業ルール」	ok	-	keep。(1)〜(3) は達成 1 の流れ・根本原因・形式検証、(4) は達成 3、(5)〜(10) は既存規則の要旨化で達成 2。	.work/agents-md/design-v3/purpose.txt:9	作業の流れを規範にする。
+files:AGENTS.md 節「規範の置き場」	ok	-	keep。地図の本体で、達成 2 そのもの。	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする。
+files:AGENTS.md 節「検証」	ok	-	keep。入口に残す合否ゲートを要旨にし、個別コマンドを testing.md へ出す（達成 2）。	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く。
+files:AGENTS.md 節「言語」	ok	-	keep。既存の 3 行を残すだけで、目的に反しない。	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする。
+files:AGENTS.md 節「インストール」「注意点」「Claude Code 固有」「Codex 固有」	ok	-	keep。install の手順・重複を入口から出す（防ぐ失敗 3）。hook の 2 文の削除は「削除だけを行う」に対応する。	.work/agents-md/design-v3/purpose.txt:6	人が行う install の手順・重複が混ざっている。
+files:docs/guidelines/workflow.md	ng	中	shrink。(1)(2)(4) は達成 1 に対応するが、(3) の Q5・Q6・Q10（作り手が作業中に走らせる検査、原因が環境にあり除けるならやり直す）は利用者への問いの答えを場面の条項として足したもので、防ぐ失敗 1 の形そのもの（この行自身も「端の場面の個別の条項」を置かないと書く）。また (5) の「各段の生成者が模型を書いて走らせ…その段のレビューが見る」は誰が形式検証を実行するかを決めており、#207 で参照するだけとした formal-methods の実行形態に踏み込む恐れがある。(3) は「設計に戻る／除けなければ報告して止まる」の 1 文に、(5) は「全層に掛ける・手順は formal-methods スキル」に縮める。	.work/agents-md/design-v3/purpose.txt:4	利用者への問いの答えをそのまま規範に足した。
+files:docs/guidelines/multi-agent.md	ok	-	keep。作業ルールの深い規範と実測（main L85〜127）を入口から出す受け皿（防ぐ失敗 3・達成 2）。	.work/agents-md/design-v3/purpose.txt:6	深い規範・経緯の実測
+files:docs/guidelines/review-lenses.md	ok	-	keep。達成 3 の「どの段でどの観点を当てるかを 1 か所に置く」そのもの。	.work/agents-md/design-v3/purpose.txt:11	どの段でどの観点を当てるかを 1 か所に置く。
+files:docs/guidelines/placement.md	ok	-	keep。達成 2 の「置く基準を正本として置く」そのもの。	.work/agents-md/design-v3/purpose.txt:10	それ自体を正本の 1 つとして置く。
+files:docs/guidelines/distribution.md	ok	-	keep。現在の実体・注意点・インストールの詳細を入口から出す受け皿（達成 2）。	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く。
+files:docs/guidelines/README.md	ok	-	keep。新しい正本 5 本の索引と、正本の向き（AGENTS.md が入口）を直す。達成 2 の帰結。	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く。
+files:docs/guidelines/documentation.md	ok	-	keep。コメント規則・why の添え方・sweep の再 grep を入口から出す受け皿（達成 2・防ぐ失敗 3）。	.work/agents-md/design-v3/purpose.txt:6	深い規範・経緯の実測
+files:docs/guidelines/testing.md	ok	-	keep。個別スキルのコマンドを入口から出す受け皿（達成 2）。	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く。
+files:docs/guidelines/javascript.md	ok	-	keep（変更なし）。閉集合の確認の行で費用が無い。	.work/agents-md/design-v3-full-review/views/files.decisions.tsv:19	変更なし
+files:REVIEW.md	ok	-	keep。節の移動で切れる指し先を直す（達成 2 の帰結で、直さないと古い写しが残る＝防ぐ失敗 3）。(6) は達成 3 の agent 定義の置き場をレビューの表に載せる分。	.work/agents-md/design-v3/purpose.txt:6	古い写しが残る
+files:tests/repo-review-workflow.test.mjs	ok	-	keep。節名の変更でテストの期待値が落ちるのを直す、達成 2 の帰結。	.work/agents-md/design-v3-full-review/views/files.decisions.tsv:21	「注意点」は消える
+files:README.md	ok	-	keep。人が行う install の手順を入口から出す受け皿（防ぐ失敗 3）。	.work/agents-md/design-v3/purpose.txt:6	人が行う install の手順
+files:.claude/agents/evidence-packer.md	ok	-	keep。観点を持たないが、多観点の検証（達成 3）の入力を 1 回で配る部品で、観点の体と対で要る。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+files:.claude/agents/purpose-auditor.md	ok	-	keep。防ぐ失敗 2 が名指しする死角「目的に要るか」を持つ。	.work/agents-md/design-v3/purpose.txt:5	「目的に要るか」
+files:.claude/agents/alternatives-auditor.md	ok	-	keep。防ぐ失敗 2 が名指しする死角「変更自体が要るか」を持つ。	.work/agents-md/design-v3/purpose.txt:5	「変更自体が要るか」
+files:.claude/agents/placement-auditor.md	ok	-	keep。防ぐ失敗 2 が名指しする死角「AGENTS.md に置くべきか」を持つ。	.work/agents-md/design-v3/purpose.txt:5	「AGENTS.md に置くべきか」
+files:.claude/agents/risk-auditor.md	ok	-	keep。達成 3 の「多角的な観点」の 1 つ（費用・失敗時の振る舞い）。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+files:.claude/agents/decision-verifier.md	ok	-	keep。達成 3 の観点の 1 つ（決定を満たすか）。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+files:.claude/agents/norm-auditor.md	ok	-	keep。達成 1 の「設計レビューは根本原因の除去を規範とする」の判定を持つ体。	.work/agents-md/design-v3/purpose.txt:9	設計と設計レビューは「根本原因の除去」を規範とする。
+files:.claude/agents/reader.md	ok	-	keep。達成 3 の観点の 1 つ（読み手が適用できるか）。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+files:.claude/agents/claim-checker.md	ok	-	keep。達成 3 の観点の 1 つ（事実の主張の裏付け）。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+files:.claude/agents/diff-verifier.md	ok	-	keep。指し先を review-lenses.md へ直すだけで、達成 3 の「1 か所に置く」の帰結。	.work/agents-md/design-v3/purpose.txt:11	1 か所に置く。
+files:.codex/agents/*.toml（9 体 + diff-verifier の 10 ファイル）	ng	中	shrink（#207 から外す候補）。目的の 3 項目はいずれも Codex 用の agent の生成を求めていない。#207 の agent は既存スキルへ組み込まない（定義と対応表まで）ので、Codex 側にも呼ぶ側が無い。生成物 10 ファイル＋生成 script＋照合テストの 12 ファイルは、組み込む PR で足せば足りる。ただし AGENTS.md を Codex も読む前提をどこまで #207 に含めるかは価値判断なので questions.tsv に挙げる。	.work/agents-md/design-v3/purpose.txt:19	#207 では agent 定義と段の対応表を置くまでにする。
+files:tools/sync-codex-agents.mjs	ng	中	shrink。.codex/agents/*.toml の行と同じ理由（目的に対応する項目が無い）。生成物を置かないなら要らない。	.work/agents-md/design-v3/purpose.txt:19	#207 では agent 定義と段の対応表を置くまでにする。
+files:tests/codex-agents-sync.test.mjs	ng	中	shrink。.codex/agents/*.toml の行と同じ理由。加えて make test に照合を足すのは、目的外とした機械の検査の追加に近い（規則の昇格ではなく生成物の一致の検査ではあるが、目的のどの項目にも対応しない）。	.work/agents-md/design-v3/purpose.txt:20	規則を機械の検査（lint・make test）へ昇格させること。
+files:.codex/hooks.json	ok	-	keep。目的が明示する「削除だけを行う」に対応する。	.work/agents-md/design-v3/purpose.txt:17	#207 では削除だけを行う。
+files:docs/design/develop-plugin.md	ok	-	keep。消える節を指す 1 行だけを直す（防ぐ失敗 3 の古い写しを残さない）。	.work/agents-md/design-v3/purpose.txt:6	古い写しが残る
+files:.agents/skills/manage-marketplace-plugin/SKILL.md	ok	-	keep（変更なし）。確認の行で費用が無い。	.work/agents-md/design-v3-full-review/views/files.decisions.tsv:38	変更しない。
+files:traceability.config.json	ok	-	keep（変更なし）。確認の行。.codex 側の照合テストを外すならこの行も要らなくなる。	.work/agents-md/design-v3-full-review/views/files.decisions.tsv:39	変更しない。
+agents:evidence-packer	ok	-	keep。達成 3 の観点の体へ入力を 1 回で配る部品。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+agents:purpose-auditor	ok	-	keep。防ぐ失敗 2 の死角「目的に要るか」。	.work/agents-md/design-v3/purpose.txt:5	「目的に要るか」
+agents:alternatives-auditor	ok	-	keep。防ぐ失敗 2 の死角「変更自体が要るか」。	.work/agents-md/design-v3/purpose.txt:5	「変更自体が要るか」
+agents:placement-auditor	ok	-	keep。防ぐ失敗 2 の死角「AGENTS.md に置くべきか」。	.work/agents-md/design-v3/purpose.txt:5	「AGENTS.md に置くべきか」
+agents:risk-auditor	ok	-	keep。達成 3 の観点の 1 つ。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+agents:decision-verifier	ok	-	keep。達成 3 の観点の 1 つ。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+agents:norm-auditor	ok	-	keep。達成 1 の根本原因の除去の判定。	.work/agents-md/design-v3/purpose.txt:9	設計と設計レビューは「根本原因の除去」を規範とする。
+agents:reader	ok	-	keep。達成 3 の観点の 1 つ。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+agents:claim-checker	ok	-	keep。達成 3 の観点の 1 つ。	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する。
+agents:diff-verifier（既存。V3 で変えない）	ok	-	keep（変更なし）。対応表に載せるだけ。	.work/agents-md/design-v3/purpose.txt:11	どの段でどの観点を当てるかを 1 か所に置く。
+agents:make test・make portability・verify_install.py（agent にしない）	ok	-	keep。agent を増やさず既存の script に format を持たせる。	.work/agents-md/design-v3/purpose.txt:11	どの段でどの観点を当てるかを 1 か所に置く。
