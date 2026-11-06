@@ -1,0 +1,60 @@
+main_lines	content	destination	how
+L1-3	見出しと導入文	AGENTS.md 冒頭	残して、地図であること・CLAUDE.md が symlink であること・規則を足すときは docs/guidelines/placement.md に従うことを足す
+L5-7	リポジトリ概要	AGENTS.md「リポジトリ概要」	逐語で残す
+L11-18	スキル実体の置き場・.claude/skills・marketplace の定義と名前・公開用 plugin	AGENTS.md「現在の実体」	残す（箇条を 1 行ずつに詰める）
+L19 前半	公開済みスキルの Workflow script の実体は plugins/<plugin>/workflows/<f>.js で、名前で呼ぶ	AGENTS.md「現在の実体」	1 行で残し、2 段の規則の正本として best-practices.md §13「script の置き場」を指す
+L19 後半	テストを workflows/ に置かない（runner が直下の .js を全て source として読む）。テストは scripts/*.test.mjs・tests/ に置く。別 plugin を読むテストは直下の tests/	AGENTS.md「現在の実体」	理由つきで 1 行に残す
+L21	公開の瞬間に register_plugin.py が実体と初公開の script を移し、callsite を書き換える	消す（manage-marketplace-plugin の SKILL.md「設計上の不変条件」が正本）	消す。AGENTS.md の登録の行（L62 の残し）がスキルを指す
+L23-27	実体が plugins/ 側にある理由（Codex は symlink を落とす・ディレクトリ名は実体名）	AGENTS.md「現在の実体」の下位の節（見出しを残す）	2〜3 行に縮める（Codex は plugin のサブツリーだけを取得して symlink を落とす。配布先に docs/ は入らない。ディレクトリ名は install 先のキャッシュ名になる）。機序の詳細は manage-marketplace-plugin の不変条件を指す
+L29-31	plugin 間でスキルを共有しない（実体は 1 箇所。コピーは exit 4）	AGENTS.md「現在の実体」	規則と 1 行の理由で残す。見出し「plugin 間でスキルは共有できない」は消す
+L33-37	共有の 3 手順（dependencies・スキル呼び出し・自前の references）と実例	消す（manage-marketplace-plugin の SKILL.md:120-128 と不変条件が正本）	消す。L31 の残しの 1 行が正本を指す
+L39-46	収録スキルの一覧は正本から得る（marketplace.json・ls・frontmatter の name・呼び出し名 <plugin>:<name>）	AGENTS.md「現在の実体」	2〜3 行で残す
+L48	frontmatter の name がディレクトリ名より優先する。呼び出し名はディレクトリ名から推測しない	AGENTS.md「現在の実体」（L39-46 の行に含める）	一覧の行の句として残す
+L50	install 手順は README.md。旧 plugin は tools/update-plugins が検出して uninstall する	README.md「インストール」	tools/update-plugins の文を README.md へ移す。AGENTS.md の規範の置き場は install の場面で README.md を指す
+L52-54	作業ルールの見出しとガイドラインへの指し先	AGENTS.md「作業ルール」の見出しと、規範の置き場の 1 行	見出しは残す（V2）。ガイドラインの指し先は規範の置き場へ移す
+L56	編集は .agents/skills/<name>/ から。.claude/skills/ に実体を増やさない。公開済みの Workflow script は plugins/<plugin>/workflows/ を直接編集する	AGENTS.md「作業ルール」	例外ごと残す（1〜2 行）
+L57	未リリースの改稿は Workflow({ scriptPath: <checkout の絶対パス> }) で起動する（名前では install 済みの旧版が走る）	AGENTS.md「作業ルール」	理由つきで残す
+L58	新規スキルは .agents/skills/<name>/ に実体で作り、plugins/ へ手で置かない	AGENTS.md「作業ルール」（L56 と 1 つの箇条に）	残す
+L59	plugins/ 配下に symlink を作らない	AGENTS.md「作業ルール」	残す。理由は「現在の実体」の下位の節を指す（AGENTS.md:25 の自己参照がそのまま効く）
+L60	SKILL.md は frontmatter の name と description を持つ	消す	quick_validate.py:69・85（make test）が検出する
+L61	処理は scripts/ に寄せ、SKILL.md はフロー中心	消す	best-practices.md §5 が正本。REVIEW.md の SKILL.md の行が既に §5 を指す
+L62	plugin 登録は manage-marketplace-plugin のスクリプトを使う	AGENTS.md「作業ルール」	残す（公開は人間ゲートで、登録はこのスキルが行うことも 1 句で書く）
+L63	plugin author の既定値は yoshiysh	消す	register_plugin.py:1012 の --author の既定値
+L64-66	説明的なコメントを書かない。理由は commit message・PR 本文へ	AGENTS.md「作業ルール」	残す（2 行）
+L67-69	後方互換性は不要。marketplace 配布の version bump は互換性管理ではなく配布機構なので対象外	AGENTS.md「作業ルール」	意味を落とさず残す（version bump の理由の句を残す）
+L70-71	途中で止めない。人間ゲート以外では止めない。Issue 化で先送りしない	AGENTS.md「作業ルール」（止まってよい場所の正本）	Q9 の決定で、止まってよい場所に「作り手が除けない失敗を理由とともに報告するとき」を足す。workflow.md はこの行を指すだけ
+L72-75	不在・網羅の断定に裏付けを付ける。sweep の後に再 grep で残 0 を確かめる	AGENTS.md「作業ルール」	前半・後半とも 1 つの箇条に残す（2 行）
+L76-78	生成と検証を分離する。修正差分も再検証を通す	AGENTS.md「作業ルール」	残す
+L79-81	検証は単一視点にしない	AGENTS.md「作業ルール」	残し、観点と段の正本として docs/guidelines/review-lenses.md を指す
+L82-84	同じ値・列挙・上限を 2 箇所に書かない（実例: cycle 上限・timeout）	AGENTS.md「作業ルール」	規則を残し、「写しが要るときは機械で一致を照らす」を規則の一部として書く。実例の実測は消す（commit の履歴にある）
+L85-94	役割の分担は構造で持つ。司令塔は振る・relay・コピーだけ。段の選択は司令塔、再検証は部品の側で強制。出口を役割の境界と一致させる	AGENTS.md「作業ルール」	3〜4 行に詰めて残す（実測は消す）
+L95-100	1 役割 1 責務はループの内外を問わず。メインセッションも成果物本文を書かず、生成は builder 役へ、検証は決定的テスト・形式検証・fresh 監査・PR レビューが持つ	AGENTS.md「作業ルール」（L85-94 と 1 つの箇条に）	残す。検証の手段の列挙に形式検証を足す。builder の例として repo-implement を規範の置き場で指す
+L101-107	解決は常に根本原因の除去を目指す	AGENTS.md「作業ルール」（規則と 1 行の理由）。機序の正本は best-practices.md §1「解決は根本原因の除去に置く」	規則と理由の 1 行を残し、機序と判定の目安は §1 を指す。実測は消す
+L108-117	fan-out する workflow は agent ごとに model と effort を明示し、抽出役 1 体が evidence pack を配り、共有部分を prompt の先頭に置く	AGENTS.md「作業ルール」（1〜2 行）。正本は best-practices.md §3・§13「体数は測れる値から段階的に決める」	規則と 1 行の理由（省くと最上位 model × 体数を消費する）を残し、§3・§13 を指す。実測は消す
+L118-127	上位 model へ渡す入力を絞る。絞る判断は選択にし、本文は script が逐語で写す。見ていないものを宣言する	AGENTS.md「作業ルール」（L108-117 の箇条に 1 句）	1 句で残す（250K tokens/分の実測は消す）
+L128-134	規範には守られないと何が壊れるかを添える	消す（docs/guidelines/documentation.md:11 が正本）	消す。規範の置き場の「文書を書く」の場面が docs/guidelines/README.md を指す
+L135-138	commit したら同じ作業単位で push する（/tmp の worktree の commit は清掃で消える）	AGENTS.md「作業ルール」	規則と理由の 1 行で残す（4 round 分の実測は消す）
+L142-146	Codex Desktop の Worktree のセットアップと .worktreeinclude	README.md「開発」	移す
+L148-154	Makefile が入口。make test・portability・check	AGENTS.md「検証」	残す
+L156	make test は check_references.py を含む	消す	Makefile の test target と L151 のコメントが持つ
+L158	make portability は合否ゲートでなく BLOCKER 行を人が読む（既知の false positive は skills-audit.md §4.1b）	AGENTS.md「検証」	残す
+L160-166	個別スキルの検証コマンド	docs/guidelines/testing.md「検査の入口」	移す。AGENTS.md「検証」は testing.md を指す
+L168-172	Marketplace 登録後の install 検証（verify_install.py）	消す（manage-marketplace-plugin が登録後の検証で走らせる。SKILL.md:18・75）	消す
+L174	make test は .codex/hooks.json の hook から呼ばれる	消す	Q8
+L176	ready 後の差分は fresh な検証役に REVIEW.md で見させる。観点を分けるかは呼び出し側。Claude Code は diff-verifier、Codex も同じ条件で	docs/guidelines/review-lenses.md（diff-verifier の行と、Codex での立て方の 1 行）	移す。AGENTS.md の作業ルールの「検証は単一視点にしない」が review-lenses.md を指す
+L180-182	/plugin install の手順	消す	README.md「インストール」に既にある
+L184	notion は Codex で research も install する	消す	README.md の Codex の手順（dependencies を推移的に辿る）から導ける
+L186-196	Workflow caller は Codex で runner を内部利用する。runner の実行条件と分類の正本	消す（runner の SKILL.md・runtime/README.md・claude-workflow-compatibility.md が正本）	消す。規範の置き場の「Codex で Workflow を使うスキルを書く」の場面が runner の SKILL.md を指す
+L198-199	performance plugin は opt-in	消す	plugins/performance/references/native-hooks.md が正本。L209 と重複
+L200	quick_validate.py が通っても全項目の合格ではない。SKIP: は公開前に設計レビューで見る	docs/guidelines/testing.md「検査の入口」	移す。語は「レビューで見る」とし、設計・実装のどちらの段かは書かない
+L204	marketplace.json の name を変えると install の marketplace 名も変わる	README.md「インストール」	1 文で移す
+L205	plugin.json は 2 箇所。共通フィールドは verify_install.py の L2 が検査する。専用フィールドの区別	消す（manage-marketplace-plugin の不変条件が 2 つの plugin.json を生成し、verify_install.py の L2 が区別を判定する）	消す。REVIEW.md:14 の指し先を manage-marketplace-plugin の SKILL.md へ付け替える
+L206	.agents/skills/ を find で走査するときは -L を付ける	AGENTS.md「現在の実体」	残す
+L207	Workflow caller は native-first。runner の参照の列挙の方法	消す（L186-196 と同じ正本）	消す
+L208	runner は意味保存できない graph を拒否する	消す	claude-workflow-compatibility.md が正本
+L209	performance plugin は opt-in	消す	L198-199 と同じ
+L211-213	返答は日本語	AGENTS.md「言語」	残す
+L215-218	Claude Code の install と dependencies の解決	消す	README.md「インストール」・manage-marketplace-plugin の不変条件
+L220-226	Codex の marketplace の登録	README.md「インストール」	移す
+L228-233	Codex は dependencies を自動で解決しないので手で辿る（jq）	README.md「インストール」	移す
+L235	.codex/hooks.json の hook は make test を実行する	消す	Q8

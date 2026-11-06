@@ -1,0 +1,14 @@
+bundle	files_affected
+B1	canon-inventory.tsv・files.tsv（AGENTS.md の作業ルールと現在の実体・documentation.md・manage-marketplace-plugin の確認の行）・agents.tsv・out-of-scope.tsv（cut の行）
+B2	files.tsv（AGENTS.md の規範の置き場・workflow.md・review-lenses.md・guidelines/README.md）・agents.tsv
+B3	files.tsv（AGENTS.md の作業ルール・workflow.md・tests/agents-md-excerpts.test.mjs）
+B4	files.tsv（AGENTS.md の作業ルールの抜粋・workflow.md）・out-of-scope.tsv
+B5	agents.tsv（decision-verifier）・files.tsv（workflow.md (5)・review-lenses.md・AGENTS.md の抜粋）
+B6	main-lines.tsv・files.tsv（AGENTS.md の全節・testing.md）・refs.tsv
+B7	agents.tsv・files.tsv（workflow.md (1)(3)・AGENTS.md の規範の置き場 (g)）・out-of-scope.tsv
+B8	files.tsv（review-lenses.md。.codex/agents・tools・tests の行を削除）・out-of-scope.tsv
+B9	files.tsv（.codex/hooks.json）・out-of-scope.tsv
+B10	files.tsv（AGENTS.md の規範の置き場）
+B11	files.tsv（共通の行・AGENTS.md の作業ルール・placement.md）・refs.tsv
+B12	out-of-scope.tsv
+B13	out-of-scope.tsv・files.tsv（review-lenses.md）

@@ -1,0 +1,22 @@
+kind	item	source	where_next
+out-of-scope	スキルの修正ループを「設計に戻る」と重大度の閾値に揃える（repo-implement・address-review・build_skill.js・pr-review-fix・prd-spec.js・review-document）	purpose.txt（Q1）	design-v2h/later.tsv の Q1 の行
+limit	上の改修までの間、repo-implement などの上限つきの修正ループと、AGENTS.md の「MEDIUM 以上は設計に戻る」が食い違う	設計レビュー（norm）	Q1 の PR
+out-of-scope	best-practices.md §13 のスコープの梯子と「設計に戻る」の食い違い	W3	best-practices の更新
+out-of-scope	formal-methods スキルの未決の解消（実行形態・契約の書式・取り込みの採否・忠実さの検証）	purpose.txt（Q2）	design-v2h/later.tsv の Q2 の行
+out-of-scope	quick_validate.py・address-review の evals.json の「設計レビュー」の語の揃え	purpose.txt（Q4）	design-v2h/later.tsv の Q4 の行
+out-of-scope	Codex の hook の再導入と、検査の時機の設計（make test をいつ走らせるかの規則を含む）	purpose.txt（Q8）・束 B12	design-v2h/later.tsv の hook の行
+limit	.codex/hooks.json を消すと、Stop の通知（macOS の通知音）の hook も消える	束 B9	利用者
+out-of-scope	Codex 用の agent 定義の生成（.codex/agents/*.toml・生成 script・照合テスト）	W1・束 B8	観点の agent を呼ぶ側を組み込む PR
+limit	Codex では、呼ぶ側が spawn のときに model と effort を渡さないと親の値を継承する。読み取り専用は指示でしか担保できない	束 B8・codex.txt	観点の agent を呼ぶ側を組み込む PR
+out-of-scope	観点の agent を既存のスキル（repo-review・pr-review・skill-creator の reviewer）や Workflow へ組み込むこと	purpose.txt	別 PR
+limit	#207 の観点の agent は、対象をパスと行範囲で受けて自分で読む。抽出を 1 回にして配る形（evidence pack）にはまだしない	束 B7	観点の agent を呼ぶ側を組み込む PR
+out-of-scope	規則を機械の検査へ昇格させること（plugins/ 配下の symlink の検査を make test に入れる・節名の参照の実在を check_references.py に入れる）	purpose.txt・束 B12	別 PR
+out-of-scope	docs/ の鮮度を定期的に検査する仕組み（文書整備の agent・CI）	purpose.txt	未定
+out-of-scope	develop-skills-redesign.md の AGENTS.md の引用（止めない）の照合	purpose.txt（later.tsv）	design-v2h/later.tsv の行
+limit	main の AGENTS.md から引き継ぐ曖昧さ（いつ commit し PR を誰が作るか・登録と公開の区別・ready 前の修正の検証役）	束 B13	未定
+cut	新しい docs/guidelines/multi-agent.md・distribution.md	束 B1	-
+cut	evidence-packer・claim-checker の agent	束 B1・B7	-
+cut	documentation.md への追記（規範の理由・同じ値の実例・コメント・sweep）	束 B1・B6	-
+cut	docs/specifications/ とその写しの AGENTS.md への参照の付け替え	refs.tsv	-
+cut	場面ごとの個別の条項（作業中の検査・環境の原因・除けない失敗・typo を、場面ごとの例外として列挙すること）	規範「端の場面を条項で閉じない」・束 B4	-
+cut	main の実測の経緯（cycle 上限・timeout・60 体のレート制限・250K tokens/分・4 round の消失・手修正 3/3）	束 B6	-
