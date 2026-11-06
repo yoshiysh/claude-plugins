@@ -1,0 +1,23 @@
+kind	item	source	where_next
+out-of-scope	スキルの修正ループを「設計に戻る」と重大度の閾値に揃える（repo-implement・address-review・build_skill.js・pr-review-fix・prd-spec.js・review-document）	purpose.txt（Q1）	直後の別 PR
+out-of-scope	best-practices.md §13 のスコープの梯子と「設計に戻る」の食い違い	W3	best-practices の更新
+out-of-scope	formal-methods スキルの未決の解消（実行形態・契約の書式・取り込みの採否）	purpose.txt（Q2）	design-v2h/later.tsv
+out-of-scope	quick_validate.py・address-review の evals.json の「設計レビュー」の語の揃え	purpose.txt（Q4）	直後の別 PR
+out-of-scope	Codex の hook の再導入と、検査の時機の設計	purpose.txt（Q8）	後で見直す
+out-of-scope	Codex 用の agent 定義の生成（.codex/agents/*.toml・生成 script・照合テスト）	W1	呼ぶ側を組み込む PR
+out-of-scope	観点の agent と severity-assigner を既存のスキル（repo-review・pr-review・skill-creator の reviewer）や Workflow へ組み込むこと	purpose.txt	直後の別 PR
+out-of-scope	規則を機械の検査へ昇格させること（plugins/ の深い階層の symlink の検査を make test に入れる・節名の参照の実在を check_references.py に入れる）	purpose.txt	別 PR
+out-of-scope	docs/ の鮮度を定期的に検査する仕組み	purpose.txt	未定
+out-of-scope	develop-skills-redesign.md の AGENTS.md の引用（止めない）の照合	purpose.txt（later.tsv）	design-v2h/later.tsv
+out-of-scope	この変更自身の目的・設計・模型を新しい置き場（docs/design/changes/）へ移すこと	この設計（目的の達成することに照らした）	利用者（作業用ディレクトリを PR に残すかの扱いを含む）
+cut	新しい docs/guidelines/multi-agent.md・distribution.md	束 B1	-
+cut	evidence-packer・claim-checker の agent	束 B1・B7・V2	-
+cut	norm-auditor の agent	V15	-
+cut	.claude/agents/diff-verifier.md の 11 行目の書き換え	V15	-
+cut	作り手の検査の指摘に重大度を付けて LOW を PR 本文に載せる経路	flow-model-2-verify の判定	-
+cut	人の指摘への重大度の付与	flow-model-2-verify の判定・X3	-
+cut	ready の後に設計へ戻るとき PR を draft に戻すこと	flow-model-2-verify の判定（C4 を外す）・V3	-
+cut	documentation.md への追記（規範の理由・同じ値の実例・コメント・sweep）	束 B1・B6	-
+cut	docs/specifications/ とその写しの AGENTS.md への参照の付け替え	refs.tsv	-
+cut	場面ごとの個別の条項（作業中の検査・環境の原因・除けない失敗・typo・利用者への問い）を例外として並べること	規範「端の場面を条項で閉じない」	-
+cut	main の実測の経緯（cycle 上限・timeout・60 体のレート制限・250K tokens/分・4 round の消失・手修正 3/3）	束 B6	-

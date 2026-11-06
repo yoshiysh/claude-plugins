@@ -1,0 +1,10 @@
+check	target	source_bundle	how
+地図の入口: PR やレビューの指摘に対応する場面から workflow.md の振り分けに辿れるか	AGENTS.md「規範の置き場」	V17	reader に場面「指摘に対応する」を渡して読ませる
+地図の入口: runner は caller の callsite から内部利用されるという見え方が、Codex の場面の行で読めるか	AGENTS.md「規範の置き場」	V17	reader に場面「Codex で Workflow caller を書く」を渡す
+未公開スキルの Workflow script の置き場が「現在の実体」(2) から読めるか（2 段の規則の指し先）	AGENTS.md「現在の実体」	V17	reader に場面「新規スキルを作る」を渡す
+スキルの呼び出し名（<plugin>:<name>）の解決が本文から読めるか	AGENTS.md「現在の実体」	V17	reader に場面全般で読ませる
+抜粋 C が 1 文のままで、AGENTS.md と workflow.md の 3 行が逐語で一致するか	AGENTS.md「作業ルール」・docs/guidelines/workflow.md	V4（D5）	tests/agents-md-excerpts.test.mjs の実行と目視
+行数の見込み（AGENTS.md 全体・作業ルール）が本文の実測と合うか。見込みの数え方は 1 項目 1 行・折り返しなし	AGENTS.md	V18	wc -l と節ごとの数え直し
+本文に作業用の参照（利用者の回答の番号・main の行番号・作業用ディレクトリのパス・模型の性質の番号）が無いか	files.tsv の create・modify の全ファイル	共通の行	grep で番号とパスの形を探す
+規則ごとに守られないと何が壊れるかの 1 行があるか。新しい docs/guidelines/ の文書の規則に「検査:」の行があるか	AGENTS.md・workflow.md・review-lenses.md・placement.md	共通の行・V12	diff-verifier と reader
+REVIEW.md の新しい表の節名が見出しと完全一致するか（括弧まで）	REVIEW.md	V18	tests/repo-review-workflow.test.mjs の実行
