@@ -1,0 +1,2 @@
+q	options	recommend
+.codex/hooks.json の Stop の通知（macOS の通知音）も Q8 の削除に含めるか	(a) ファイルごと消す（通知も消える） / (b) PostToolUse の make test だけを消し、Stop の通知は残す	(b)。Q8 が除く原因は検査の時機で、通知は無関係なため

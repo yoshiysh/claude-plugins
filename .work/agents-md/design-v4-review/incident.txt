@@ -1,0 +1,1 @@
+事故（v4 reader）: 共有 scratchpad の gen.py を取り違えて実行。.work/prd-spec-abnormal/questions/questions.json は git diff で差分なし（上書きされていない）。以後の brief では script も役ごとの出力先に置かせる。

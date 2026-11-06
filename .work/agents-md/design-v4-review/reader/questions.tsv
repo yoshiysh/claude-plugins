@@ -1,0 +1,5 @@
+q	options	recommend
+typo 級の変更で立てる fresh な 1 体は、どの観点の agent か（設計 1 行の設計レビューと、実装レビューのそれぞれ）	(a) 設計=norm-auditor・実装=diff-verifier で固定 (b) 変更の種類で呼び出し側が選ぶ (c) reader	(a)
+『公開は人間ゲート』の公開は、register_plugin.py の実行か、マージか	(a) 登録スクリプトの実行前で止まる (b) 登録まで進めて PR を出し、マージを人間が行う	(b)
+設計・レビュー指摘への重大度（MEDIUM/LOW）は誰が付けるか	(a) 各 auditor の出力に重大度の列を足す (b) 司令塔とは別の判定役を置く	(a)
+設計文書の置き場（commit するか、PR 本文か）	(a) docs/design/ に commit (b) PR 本文 (c) 規模で分ける	(c)

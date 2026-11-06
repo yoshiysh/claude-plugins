@@ -1,0 +1,45 @@
+ref	verdict	severity	reason	evidence_ref	evidence_quote
+files.tsv:（全ファイル共通の書き方）	ok	-	keep。作業用の参照を本文に入れないことと理由 1 行は、入口を軽く保つ目的に対応	.work/agents-md/design-v3/purpose.txt:6	入口の文書が重くなること
+files.tsv:AGENTS.md（全体）	ok	-	keep。約 100 行の地図にする目的そのもの	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする
+files.tsv:AGENTS.md 節「冒頭」	ok	-	keep。置き場の基準を入口から引かせ、再膨張を防ぐ	.work/agents-md/design-v3/purpose.txt:10	何を AGENTS.md に置くかの基準も、それ自体を正本の 1 つとして置く
+files.tsv:AGENTS.md 節「リポジトリ概要」	ok	-	keep。地図の最小要素で逐語維持（追加なし）	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする
+files.tsv:AGENTS.md 節「現在の実体」	ok	-	keep。置き場・共有・find -L・公開名の取得は地図の中身で、消える「注意点」の受け皿。縮小済み	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く
+files.tsv:AGENTS.md 節「作業ルール」(A)(B)(C)	ok	-	keep。流れ・生成後のレビュー・形式検証を AGENTS.md に含めるのは利用者の決定	.work/agents-md/design-review-1/answers.txt:17	目的の明確化と固定 / 生成後のレビュー（設計などの文書・実装）/ 形式検証の必須
+files.tsv:AGENTS.md 節「作業ルール」(1)〜(11)(13)〜(15)	ok	-	keep。main の規則を理由 1 行に縮めて残し、(7) は Q9、(10) は観点の対応表への入口	.work/agents-md/design-v3/purpose.txt:9	作業の流れを規範にする
+files.tsv:AGENTS.md 節「作業ルール」(12)	ng	低	shrink。正本を best-practices.md §3・§13 と明示しながら、抽出 1 回・prompt 先頭・閉集合の選択・見なかったものの宣言まで入口に書き写している。目的は深い規範と重複を入口から出すこと。規則 1 行（model と effort を明示する）と理由と正本の指し先に縮めれば足りる	.work/agents-md/design-v3/purpose.txt:6	深い規範・経緯の実測・人が行う install の手順・重複が混ざっている
+files.tsv:AGENTS.md 節「規範の置き場」	ok	-	keep。場面から正本を引く地図で、正本を外に置く目的の要	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く
+files.tsv:AGENTS.md 節「検証」	ok	-	keep。入口の Makefile と BLOCKER の読み方だけを残し、個別コマンドは testing.md へ出す	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする
+files.tsv:AGENTS.md 節「言語」	ok	-	keep。既存の最小要素	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする
+files.tsv:AGENTS.md 節「インストール」「注意点」「Claude Code 固有」「Codex 固有」	ok	-	keep（削除）。人が行う install の手順と重複を入口から出す目的に直結	.work/agents-md/design-v3/purpose.txt:6	人が行う install の手順・重複が混ざっている
+files.tsv:docs/guidelines/workflow.md	ok	-	keep。流れ・根本原因・形式検証の正本。(3) 設計の体裁は観点の agent が理由を外して読む入力の前提なので要る	.work/agents-md/design-v3/purpose.txt:9	設計と設計レビューは「根本原因の除去」を規範とする。形式検証は要求・仕様・実装の全てに掛ける
+files.tsv:docs/guidelines/review-lenses.md	ok	-	keep。段と観点の対応を 1 か所に置く目的そのもの。Codex の 1 行は W1	.work/agents-md/design-v3/purpose.txt:11	どの段でどの観点を当てるかを 1 か所に置く
+files.tsv:docs/guidelines/placement.md	ok	-	keep。置き場の基準を正本として置く目的そのもの	.work/agents-md/design-v3/purpose.txt:10	何を AGENTS.md に置くかの基準も、それ自体を正本の 1 つとして置く
+files.tsv:docs/guidelines/README.md	ok	-	keep。新しい 3 文書を一覧の正本へ載せ、AGENTS.md との関係の文の食い違いを直す（新文書を置く目的の帰結）	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書
+files.tsv:docs/guidelines/testing.md	ok	-	keep。AGENTS.md から出す個別コマンドと SKIP: の受け皿	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書
+files.tsv:docs/guidelines/documentation.md	ok	-	keep（変更なし）。確認の行で追加の作業を持ち込まない	.work/agents-md/design-v3/purpose.txt:4	作業が目的を見失って膨らむこと
+files.tsv:docs/guidelines/javascript.md	ok	-	keep（変更なし）。確認の行	.work/agents-md/design-v3/purpose.txt:4	作業が目的を見失って膨らむこと
+files.tsv:REVIEW.md	ok	-	keep。(1)〜(3) は消える節への参照の付け替えで必須。(4)(6) は流れと置き場の基準をレビューに届かせる。(5) は新設する .claude/agents/ の読むもの。いずれも目的の帰結	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する
+files.tsv:tests/repo-review-workflow.test.mjs	ok	-	keep。AGENTS.md の節を減らす変更で落ちる期待値の追随（必須）	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする
+files.tsv:tests/agents-md-excerpts.test.mjs	ok	-	keep。V5 で入口に写しを置く以上、写しが古くならない手段が要る（防ぐ失敗 3 の「古い写しが残る」）。ただし目的の「規則を機械の検査へ昇格させない」と読み分けが要る（questions.tsv）	.work/agents-md/design-v3/purpose.txt:6	古い写しが残る
+files.tsv:README.md	ok	-	keep。消す 4 節の人向け install・開発環境の手順の受け皿	.work/agents-md/design-v3/purpose.txt:6	人が行う install の手順
+files.tsv:.claude/agents/purpose-auditor.md	ok	-	keep。死角だった「目的に要るか」の観点	.work/agents-md/design-v3/purpose.txt:5	「目的に要るか」
+files.tsv:.claude/agents/alternatives-auditor.md	ok	-	keep。死角だった「変更自体が要るか」の観点	.work/agents-md/design-v3/purpose.txt:5	「変更自体が要るか」
+files.tsv:.claude/agents/placement-auditor.md	ok	-	keep。死角だった「AGENTS.md に置くべきか」の観点	.work/agents-md/design-v3/purpose.txt:5	「AGENTS.md に置くべきか」
+files.tsv:.claude/agents/risk-auditor.md	ok	-	keep。名指しの死角 3 つの外だが、費用・失敗の振る舞いは他の体が持たない別の観点で、多角化の目的に入る	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する
+files.tsv:.claude/agents/decision-verifier.md	ok	-	keep。形式検証の忠実さと結果をレビューが見る担い手（全層に掛ける目的の実行役）	.work/agents-md/design-v3/purpose.txt:9	形式検証は要求・仕様・実装の全てに掛ける
+files.tsv:.claude/agents/norm-auditor.md	ok	-	keep。設計レビューで根本原因の除去を見る担い手	.work/agents-md/design-v3/purpose.txt:9	設計と設計レビューは「根本原因の除去」を規範とする
+files.tsv:.claude/agents/reader.md	ok	-	keep。読み手の適用可能性という別の観点。sonnet・medium で費用も小さい	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する
+files.tsv:.claude/agents/diff-verifier.md	ok	-	keep。役を変えず指し先だけ対応表へ（V3）	.work/agents-md/design-review-1/answers.txt:15	そのまま残し、段の対応表に ready
+files.tsv:.codex/hooks.json	ok	-	keep（削除）。Q8 の決定。Stop の通知も消えるが Q8 は hooks 全体の削除	.work/agents-md/design-review-1/answers.txt:9	Codex の hooks をいったん削除し、後で
+files.tsv:docs/design/develop-plugin.md	ok	-	keep。消える見出しへの参照の付け替え（必須の帰結）	.work/agents-md/design-v3/purpose.txt:10	AGENTS.md を約 100 行の地図にする
+files.tsv:.agents/skills/manage-marketplace-plugin/SKILL.md	ok	-	keep（変更なし）。消す配布の詳細の正本の確認	.work/agents-md/design-v3/purpose.txt:10	正本は docs/ の構造化した文書・スキル・script・agent 定義に置く
+files.tsv:traceability.config.json	ok	-	keep（変更なし）。確認の行	.work/agents-md/design-v3/purpose.txt:4	作業が目的を見失って膨らむこと
+agents.tsv:purpose-auditor	ok	-	keep。目的に要るかの観点（opus・high）	.work/agents-md/design-v3/purpose.txt:5	「目的に要るか」
+agents.tsv:alternatives-auditor	ok	-	keep。変更自体が要るかの観点	.work/agents-md/design-v3/purpose.txt:5	「変更自体が要るか」
+agents.tsv:placement-auditor	ok	-	keep。置き場の観点	.work/agents-md/design-v3/purpose.txt:5	「AGENTS.md に置くべきか」
+agents.tsv:risk-auditor	ok	-	keep。tradeoff・failure-behavior の観点	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する
+agents.tsv:decision-verifier	ok	-	keep。decision-fit・verifiability・形式検証の結果	.work/agents-md/design-v3/purpose.txt:9	形式検証は要求・仕様・実装の全てに掛ける
+agents.tsv:norm-auditor	ok	-	keep。設計段の root-cause	.work/agents-md/design-v3/purpose.txt:9	設計と設計レビューは「根本原因の除去」を規範とする
+agents.tsv:reader	ok	-	keep。applicability	.work/agents-md/design-v3/purpose.txt:11	多角的なレビュー観点を agent として定義する
+agents.tsv:diff-verifier	ok	-	keep。既存の役のまま（V3）	.work/agents-md/design-review-1/answers.txt:15	そのまま残し、段の対応表に ready
+agents.tsv:make test・make portability・verify_install.py	ok	-	keep。agent にしない format の行で、対応表の網羅のために要る	.work/agents-md/design-v3/purpose.txt:11	どの段でどの観点を当てるかを 1 か所に置く

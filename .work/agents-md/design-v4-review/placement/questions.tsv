@@ -1,0 +1,2 @@
+q	options	recommend
+作業ルール (12) の fan-out の規則（と現在の実体 (3) のテストの置き場）を、placement.md の P1 に合わせて AGENTS.md から出すか	a: docs/guidelines/ の既存文書か best-practices.md §3 に正本を置き、AGENTS.md は指し先の 1 行にする / b: AGENTS.md に残し、P1 の問いをメインセッションの ad-hoc な fan-out を含む形に改める	a
