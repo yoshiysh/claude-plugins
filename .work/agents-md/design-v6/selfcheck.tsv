@@ -22,7 +22,7 @@ rules: model_transition が table.tsv の行と逐語で一致	L18 WF-16 bot の
 rules: model_transition が table.tsv の行と逐語で一致	L19 WF-17 人間ゲート: 人は PR 本	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L20 WF-17 人間ゲート: 人は PR 本	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L21 WF-18 人の指摘: 重大度を付けずに	一致	L の後が state・event・guard で始まるか
-rules: model_transition が table.tsv の行と逐語で一致	L22 WF-19 ready の後に戻った間に	一致	L の後が state・event・guard で始まるか
+rules: model_transition が table.tsv の行と逐語で一致	L22 WF-19 ready の後に設計へ戻っ	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L23 WF-20 終わり: マージか除けない環	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L15 WF-21 LOW と範囲と限界の記録:	一致	L の後が state・event・guard で始まるか
 rules: model_transition が table.tsv の行と逐語で一致	L18 WF-21 LOW と範囲と限界の記録:	一致	L の後が state・event・guard で始まるか
@@ -88,7 +88,7 @@ rules: actor が担い手の集合にある	WF-15 bot: 最初に ready にした
 rules: actor が担い手の集合にある	WF-16 bot の指摘の振り分け: 抜粋 B	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-17 人間ゲート: 人は PR 本文が指す	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-18 人の指摘: 重大度を付けずに設計へ戻	ある	英字の語の照合
-rules: actor が担い手の集合にある	WF-19 ready の後に戻った間に来た人・	ある	英字の語の照合
+rules: actor が担い手の集合にある	WF-19 ready の後に設計へ戻って作り直	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-20 終わり: マージか除けない環境の報告	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-21 LOW と範囲と限界の記録: age	ある	英字の語の照合
 rules: actor が担い手の集合にある	WF-22 形式検証の契約: 模型は tests	ある	英字の語の照合
