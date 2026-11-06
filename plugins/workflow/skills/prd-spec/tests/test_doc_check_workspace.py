@@ -38,15 +38,16 @@ def _run(ws, *args):
     return subprocess.run(["node", str(DOC_CHECK), *args, *_tx(args), "--workspace", str(ws)], capture_output=True, text=True)
 
 
-# STDOUT_FNV: doc_check が CLI の stdout に付ける digest の欄。中身の照合は test_prd_pure（prd-spec.js が計算し直して合う）が持つので、
-# ここでは欄があることだけを確かめて外し、各テストは本体を比べる。
-STDOUT_FNV = re.search(r"^const STDOUT_FNV = '(\w+)'$", DOC_CHECK.read_text(encoding="utf-8"), re.M).group(1)
+# STDOUT_FNV・STDOUT_MODE: doc_check が CLI の stdout に付ける digest とモードの欄。digest の中身の照合は test_prd_pure（prd-spec.js が
+# 計算し直して合う）が持つので、ここでは digest の欄があることとモードが呼んだモードであることだけを確かめて外し、各テストは本体を比べる。
+STDOUT_FNV, STDOUT_MODE = (re.search(rf"^const {name} = '(\w+)'$", DOC_CHECK.read_text(encoding="utf-8"), re.M).group(1) for name in ("STDOUT_FNV", "STDOUT_MODE"))
 
 
-def stdout_body(text):
+def stdout_body(text, mode):
     out = json.loads(text)
     if isinstance(out, dict):
         assert re.fullmatch(r"[0-9a-f]{8}", str(out.pop(STDOUT_FNV, ""))), f"stdout に {STDOUT_FNV} がありません: {text[:200]}"
+        assert out.pop(STDOUT_MODE, None) == mode, f"stdout の {STDOUT_MODE} が {mode} ではありません: {text[:200]}"
     return out
 
 
@@ -54,7 +55,7 @@ def _ok(ws, *args):
     r = _run(ws, *args)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
-    return stdout_body(r.stdout)
+    return stdout_body(r.stdout, args[0])
 
 
 def _rulings(ws):
@@ -80,7 +81,7 @@ def _put(ws, ledger, body, *args):
     r = _put_run(ws, ledger, body, *args)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
-    return stdout_body(r.stdout)
+    return stdout_body(r.stdout, "put")
 
 
 def _edit(ws, name, old, new):
@@ -222,7 +223,7 @@ class SnapshotAndDiff(_Workspace):
         out = _ok(self.ws, "diff", "--against", "audited-1", "--expect", out["digest"])
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
-        doc = stdout_body(r.stdout)
+        doc = stdout_body(r.stdout, "doc")
         self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
         del doc["flow_refs"]
@@ -1243,45 +1244,32 @@ class CarriedTbd(_Workspace):
         self.assertIn("answers", res_normal["removed"])
         self.assertFalse(answers_dir.exists(), "reset は古い answers ディレクトリを消去する")
 
-    def test_formal_model_generates_tla_and_bounded_checker(self):
-        ws = self.ws
-        spec_content = """# 認証仕様書
 
-## 状態とイベント
+class FixedDocsDoNotGrowStdout(unittest.TestCase):
+    """agent が手で写す stdout は固定の文書の数で伸びない。試走 wf_d3c7a067-468（21 文書のうち 15 が固定）では、文書ごとの欄で
+    doc が 2.6K 字・snapshot が 1.8K 字に伸び、crossDoc の写しが欄を落として run が止まった。"""
 
-```mermaid
-stateDiagram-v2
-    [*] --> ログイン待ち
-    ログイン待ち --> 認証成功 : E1 パスワード一致
-    認証成功 --> [*]
-```
+    def _stdouts(self, n):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "w"
+            shutil.copytree(FIXTURE, ws)
+            keys = [f"requirements/fx{chr(97 + i)}" for i in range(n)]
+            for key in keys:
+                topic = key.split("/")[1]
+                (ws / f"requirements-{topic}.md").write_text(f"# 固定\n\n## 要求一覧\n\n#### PR-{topic.upper()}-001 ログイン\n\nシステムは結果を返さなければならない。\n")
+                _put(ws, "meta", {"fixed": True, "trace": [{"item_id": f"PR-{topic.upper()}-001", "kind": "flow", "ref": "F-002"}]}, "--doc", key)
+            fixed = ",".join(keys)
+            out = {mode: _run(ws, *args).stdout for mode, args in (("doc", ("doc",)), ("snapshot", ("snapshot", "--save", "s", "--fixed", fixed)))}
+            out["reset"] = _run(ws, "reset", "--keep", ",".join([*keys, "requirements/auth", "specifications/auth"]), "--fixed", fixed).stdout
+            return out
 
-> 対象の状態: ログイン待ち / 認証成功
-> 対象のイベント: E1 パスワード一致
-
-| 現在の状態 | イベント | 種別 | 次の状態 | 定義済みか |
-|---|---|---|---|---|
-| ログイン待ち | E1 | 正常系 | 認証成功 | ✅ SP-1 |
-"""
-        (ws / "specifications-auth.md").write_text(spec_content)
-        res = _ok(ws, "formal-model", "--doc", "specifications/auth")
-        self.assertIn("formal_models", res)
-        models = res["formal_models"]
-        self.assertEqual(len(models), 1)
-        m = models[0]
-        self.assertEqual(m["topic"], "auth")
-        self.assertEqual(m["model"], "Auth")
-        formal_dir = ws / "formal" / "auth"
-        self.assertTrue((formal_dir / "Auth.tla").exists())
-        self.assertTrue((formal_dir / "Auth.cfg").exists())
-        self.assertTrue((formal_dir / "README.md").exists())
-        self.assertTrue((formal_dir / "check.test.mjs").exists())
-        tla_text = (formal_dir / "Auth.tla").read_text()
-        self.assertIn("MODULE Auth", tla_text)
-        self.assertIn("ログイン待ち", tla_text)
-        self.assertIn("認証成功", tla_text)
-        proc = subprocess.run(["node", "--test", str(formal_dir / "check.test.mjs")], capture_output=True, text=True)
-        self.assertEqual(proc.returncode, 0, f"check.test.mjs failed: {proc.stderr}")
+    def test_doc_snapshot_resetのstdoutは固定の文書を増やしても1文書あたり1字も伸びない(self):
+        few, many = self._stdouts(2), self._stdouts(20)
+        for mode in few:
+            with self.subTest(mode):
+                self.assertTrue(few[mode] and many[mode], mode)
+                self.assertLess(len(many[mode]) - len(few[mode]), 20 - 2)
+                self.assertNotIn("requirements/fxa", many[mode])
 
 
 if __name__ == "__main__":

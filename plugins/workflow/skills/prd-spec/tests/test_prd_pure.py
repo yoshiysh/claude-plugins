@@ -543,6 +543,7 @@ class ContractEnums(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(value(f"{name}.toString()"), _exported(f"m.{name}.toString()"))
         self.assertEqual(value("STDOUT_FNV"), _exported("m.STDOUT_FNV"))
+        self.assertEqual(value("STDOUT_MODE"), _exported("m.STDOUT_MODE"))
         for body in ({}, {"a": [1, "1", True, None, {"b": "日本語・F-001"}], "n": 0.5}, {"z": [], "y": {}, "x": [[{"k": "v"}]]}):
             with self.subTest(body=body):
                 self.assertEqual(value(f"fnv(canonicalText({json.dumps(body, ensure_ascii=False)}))"),
@@ -606,12 +607,17 @@ class ContractEnums(unittest.TestCase):
                 with self.subTest(args):
                     self.assertIsNotNone(value(expr.replace("T", json.dumps(cli(*args)))))
             # stage5・stage8 の readDesignated・fixedMoved・noteAudited・setPending が名前で読む欄。
-            reads = {("snapshot", "--save", "audited-1", "--role", "auditor", "--fixed", "requirements/auth"): ["digest", "fixed_sha256", "stray", "size_over"],
+            reads = {("snapshot", "--save", "audited-1", "--role", "auditor", "--fixed", "requirements/auth"): ["digest", "fixed_digest", "stray", "size_over"],
                      ("tree-digest",): ["digest"], ("doc",): ["blocking", "flow_refs"]}
             for args, keys in reads.items():
                 with self.subTest(args):
                     body = value(f"parseStdout({json.dumps(cli(*args))})")
                     self.assertEqual([k for k in keys if k not in body], [])
+            keep = ["specifications/auth", "requirements/auth", "requirements/auth"]
+            fixed = ["requirements/auth", "requirements/auth"]
+            reset = value(f"parseStdout({json.dumps(cli('reset', '--keep', ','.join(keep), '--fixed', ','.join(fixed)))})")
+            self.assertEqual(reset["keys_fnv"], value(f"keysFnvOf({json.dumps(keep)}, {json.dumps(fixed)})"), "script と doc_check が並びの違う重複つきの組から同じ keys_fnv を出す")
+            self.assertNotEqual(reset["keys_fnv"], value(f"fnv(canonicalText({{ kept: {json.dumps(keep)}, fixed: {json.dumps(fixed)} }}))"), "並べ替えと重複の除去をしない組とは別の値になる")
 
     def test_doc_checkのCLIのstdoutはそのまま受け取り一覧の要素を落とした写しは受け取らない(self):
         with tempfile.TemporaryDirectory() as tmp:

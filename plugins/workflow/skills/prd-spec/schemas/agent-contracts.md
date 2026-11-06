@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§flow-check](#flow-check) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
+**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§flow-check](#flow-check) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§formal-modeler](#formal-modeler) · [§formal-trace-check](#formal-trace-check) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
 
 各 agent が読むファイル・書くファイル・返す値の正本。役割と責務の境界は `schemas/role-map.md` を正とする。
 `agents/*.md` は振る舞いを書き、形はここを指す。
@@ -123,7 +123,8 @@
 | `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（固定の文書の meta と、`<kind>-<topic>.tbd.json` のある文書の meta は、段 1 の入口の `doc_check reset` が `existing_docs` の `fixed` とその写しから書く。文書は司令塔が S0 で `doc_check place` で逐語で置く） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `<kind>-<topic>.tbd.json` | 司令塔（S0 で、`doc_check place` が文書と一緒に、保存した文書の隣の `.tbd.json` を逐語で置く。誰も書き換えない。段 1 の入口の `doc_check reset` がこれを meta の `tbd` に写す） | `{ "tbd": [...] }`（要素は [§writer](#writer) の meta の `tbd`） | reset が形を検査し、合わなければ何も消さずに止まる |
-| `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
+| `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ。`fm` は doc_check） | [監査役の共通節](#監査役の共通節) | — |
+| `formal/*/*` | formal-modeler | §formal-modeler | formal-check |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
 | `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer の前に `backup` が文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
 | `tmp/<label>/` | その label の呼び出しの agent だけ。片付けは doc_check が持つ（put の `--input` は書けたら消え、監査の `snapshot --sweep` が `--live` に無い label のディレクトリを、run の後の `report` が残りのすべてを消して `swept` に出す）ので、agent は消さない（自分で消すと、消し忘れと、消した後に要る中身を W の外へ写す動きが出た）。他の label の tmp は読まない | 作業用の script・一時ファイル | 消えるまでは `snapshot`（`--sweep` なし）と `tree-digest` の `stray` に出る。消したものは `swept` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
@@ -590,14 +591,15 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 `backup` を実行し、writer が Edit で書く文書の本文の控えを段の token で取る（扱いはどれも references/workflow-io.md §3）。
 resume の args の `gates_answered` のゲートを越える前は、`flow-check:<ゲート>-answers` で `answers` を実行し、回答のファイルが問いのすべてに答えているかを返す。
 ほかの役か flow-check が返した doc_check の stdout の写しが checksum に合わなければ、`flow-check:<…>-recopy` でプロンプトの挙げたコマンドを実行し直し、
-プロンプトが名指しした欄に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
+それぞれの stdout をプロンプトが挙げた順に `stdouts` の配列に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
 段 2・`3b-reframe` の flow-framer の lint の差し戻しの前後は、`flow-check:<…>-lint-stash` で `stash` を、`flow-check:<…>-lint-unstash` で `unstash` と `flow --lint` を実行する（§flow-framer）。
+段 5・8 の監査の後は、formal-modeler の後に `flow-check:r<n>-formal`（起こし直しの後は `-<k>`）で `formal-check` だけを実行する（[§formal-modeler](#formal-modeler)）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` と `-lint-stash`・`-lint-unstash` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が書く）。
+入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` と `-lint-stash`・`-lint-unstash` ではプロンプトが挙げたものだけ、`-formal` では `formal-check` だけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が書く）。
 
 ```json
-{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）", "stash_check": "stash を挙げたときだけ（同上）", "unstash_check": "unstash を挙げたときだけ（同上）" }
+{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）", "stash_check": "stash を挙げたときだけ（同上）", "unstash_check": "unstash を挙げたときだけ（同上）", "formal_check": "formal-check を挙げたときだけ（同上）", "stdouts": ["取り直し（-recopy）のときだけ。プロンプトが挙げたコマンドの stdout をその順に（加工しない。失敗したコマンドは stderr）"] }
 ```
 
 resolver はどの呼び出しでも台帳を書く。台帳の `kind`・`supersedes`・`hold` は flow.json を変えずに指摘と `stale_refs` を変えるので、
@@ -695,7 +697,7 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 
 ### 指摘の形（`W/findings/r<n>-<役>-<文書>.json`）
 
-`<役>` は `im` / `gr` / `cd`、`<文書>` はキーを変換した名前（cross-doc は `all`）。段 8 で申告に無い変更のために追加で
+`<役>` は `im` / `gr` / `cd`（`fm` は doc_check `formal-check` が書く。[§formal-modeler](#formal-modeler)）、`<文書>` はキーを変換した名前（cross-doc は `all`）。段 8 で申告に無い変更のために追加で
 起動した監査役は、`<役>` に `x` を付けたファイル（`r2-grx-requirements__auth.json`）に書く（同じ段・同じ文書の 1 体目のファイルと、指摘の ID が重ならないため）。
 指摘の ID はファイル名（`.json` を除く）に `-001` からの連番を付けて振る。
 指摘を ID から読むときは、この振り方を逆にたどる: ID の末尾の `-<連番>` を除いた名前のファイル（`r1-im-requirements__auth-002` なら
@@ -840,6 +842,99 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 
 監査役の共通節に従う。入力は全文書と `plan.json`（`required_categories`・`covers`・`self_containment`）。
 段 5 では必ず指名される。
+
+## §formal-modeler
+
+段 5 の全体の監査と段 8 の範囲を絞った監査の後に、監査の版（`audited-<n>` の digest）の文書を、formal-methods スキルの手順で TLA+ のモデルにする。
+合否はその後の `flow-check:r<n>-formal` が実行する `doc_check formal-check --round <n> --doc <キー> …` が決める（モデルを書いた役に合否を
+申告させると生成者の自己判定になる）。cfg・変異は formal-check が manifest と SANY の構文木から作る（modeler に書かせると、cfg の置換や
+性質を書き換えた変異で違反を隠せる）。欠陥か、formal-trace-check が反例を文書から導けないとした違反が 1 件でもあれば、script は同じ巡で
+formal-modeler を `formal-modeler:r<n>-<k>` で起こし直す（止まり方は references/workflow-io.md の `stop_reason`）。
+
+- input.md と台帳は読まない（読むのは文書・モデル・checks と findings だけ）。共通の約束の表のこの役の行は、全ての役が読む共通の節の字数を使わないようにここに置く:
+
+  | 役 | input.md | 台帳 | grep・get の役が見ない部分を見る役 |
+  |---|---|---|---|
+  | formal-modeler | 読まない | 読まない | — |
+
+入力: プロンプトの「文書とモデルの置き場」（文書のファイル → `W/formal/<kind>-<topic>/`。プロンプトが挙げる `doc_check formal-dirs` を自分で実行し、その stdout の `dirs` から読む）。
+段 8 では `checks/diff-audited-<n>.json` の `by_doc` と、前の巡の最後の検査の記録 `checks/formal-r<k>-a<j>.json`。起こし直しでは、プロンプトが挙げる
+同じ巡の検査の記録の `defects` と、導けないとされた違反の `findings/r<n>-fm-*.json`。
+書くもの: 置き場の直下の `manifest.json` と `<module>.tla` だけ（ほかのファイルは `file_extra`。別のファイルを置けると、EXTENDS・INSTANCE で
+検査の外の定義を引き込める）。
+
+`manifest.json` は対応表を兼ねる:
+
+```json
+{
+  "doc": "<文書のキー>",
+  "module": "TLA+ モジュール名（状態・遷移として書ける項目が無ければ null）",
+  "abstraction": "抽象化と有限範囲（何をいくつに絞ったか）",
+  "init": "Init の演算子名（module が null なら null）",
+  "next": "Next の演算子名（module が null なら null）",
+  "constants": { "モジュールが CONSTANT と宣言した名前": "整数・真偽値・小文字で始まるモデル値、またはその重複の無い配列" },
+  "properties": [{ "name": "状態述語の演算子名", "items": ["その性質に形式化した項目 ID"] }],
+  "excluded": [{ "item": "形式化しない項目 ID", "why": "状態・遷移として書けない理由" }],
+  "constraints": [{ "name": "状態空間を刈る演算子名", "why": "刈る理由（abstraction のどの絞り込みか）" }],
+  "witnesses": [{ "id": "英数字と . _ -", "invariant": "前提の状態で破れる状態述語の演算子名", "property": "properties の name", "reaches": "到達を確かめる状態" }]
+}
+```
+
+- 決めたキー以外を持たせない（余分なキー・欠けたキー・値の形の誤りは `manifest_shape`）。`properties[].items` と `excluded[].item` を合わせた集合は、
+  文書の項目 ID の集合とちょうど一致させる（漏れは `coverage_missing`、余りは `coverage_extra`、両方に載せると `coverage_overlap`）。
+- 文書に状態の図か状態遷移の表があるのに module が null なら `state_unmodeled`、モデルがあるのに性質が 0 件なら `no_property`。
+- formal-check は SANY（tla2sany.xml.XMLExporter）で構文木を取り、次を構造で確かめる: 根のモジュールの名前が jar の同梱するモジュール（`TLC`・`Naturals` など。
+  集合は jar から導く）と重ならない（`module_reserved`。TLC はその名前のモジュールに Java の実装を当てるので、本文に書いた定義の検査が素通りになる）、init・next・制約・目撃・性質が最上位に定義され引数を
+  持たない（`definition_missing`・`definition_shape`）、性質が状態述語（SANY の level 1 以下。時相・action は `property_level`）、constants の名前が
+  モジュールの CONSTANT の宣言とちょうど一致し、モデル値がモジュールの名前と重ならない（`constant_mismatch`・`constant_shape`）、性質の参照の
+  閉包と Init・Next・制約の参照の閉包が本文の文字範囲を共有しない（`property_in_spec`）。
+- cfg は formal-check が書く: `INIT`・`NEXT`・`CONSTANT`（manifest の値）・`CONSTRAINT`・`ACTION_CONSTRAINT`（制約の段で分ける）・`INVARIANT`（性質）。
+  `SPECIFICATION` は書かない（Spec の公平性や時相の部分は検査に効かない）。使った制約は定義ごと検査の記録に出る。
+- 変異は formal-check が Init・Next・制約の閉包のうち、性質の閉包と本文を共有しない所から機械で作る（数の ±1、比較の境界の入れ替え、連言の項を
+  TRUE、選言の項を FALSE。件数の上限は doc_check の `MUTANT_CAP`）。性質ごとに、基の到達の深さ + 1 以内の反例で破る変異が無ければ
+  `mutant_survived`、変異の箇所が無ければ `no_mutant`。
+- 性質ごとに、その前提に到達する目撃を 1 つ以上置く（無ければ `no_witness`）。目撃は基のモジュールと生成した cfg に `INVARIANT <invariant>` だけを
+  置いて流し、遷移を 1 つ以上踏んだ状態で破れなければ空振り（`witness_unreached`。初期状態で破れるのは `witness_initial`）。
+- run の全試行で破れた性質と項目の組は、同じ名前の性質の `items` に残す（excluded へ移す・性質を消す・別の性質へ付け替えると
+  `violated_dropped`）。組の正本は script が持ち、`--violated` で formal-check に渡す（checks/ は控えで、消しても判定は変わらない）。
+  前の巡で破れ writer がその項目を改稿した組は `--revised` で渡り、外しても欠陥にせず `dropped` として done の返り値と report に載る（改稿で
+  項目の意味が変わりうるため。外したことが改稿に合うかは機械で確かめない）。
+  前に破れた性質の定義（閉包の本文と引く CONSTANT の値）が変わると `redefined` として done の返り値と report に載る（欠陥にはしない）。
+- 定義は TLC モジュールの演算子を `TLC_PURE`（doc_check）の外から引かない（`operator_forbidden`。Print・PrintT・Assert・TLCSet などは formal-check が
+  読む TLC の出力を偽れる）。
+- 基のモデルで性質が破れたら、formal-check はそれを性質の `items` への指摘（`findings/r<n>-fm-<文書>-a<k>.json`、`route: writer`・`blocking: true`。
+  `quote` に性質の定義、`repro` に反例）にする。欠陥は指摘にせず、件数で同じ巡の起こし直しに回る。
+
+返り値:
+
+```json
+{ "skill": "used | unavailable", "dirs": ["書いた・直した formal/<kind>-<topic>"], "note": "unavailable のときの理由" }
+```
+
+`skill` が `used` 以外なら script は検査せずに止まる。
+
+## §formal-trace-check
+
+formal-check の欠陥が 0 件で基のモデルが破れたとき（`formal-trace-check:r<n>`、起こし直しの後は `-<k>`）、プロンプトが挙げた違反の全件について、
+反例の遷移が文書の文から導けるかを返す。モデルを書いた役とは別の役にする（書いた役に照合させると、自分の違反を「導けない」として writer に
+届く前に消せる）。ファイルを書かない。
+
+- input.md と台帳は読まない。共通の約束の表のこの役の行:
+
+  | 役 | input.md | 台帳 | grep・get の役が見ない部分を見る役 |
+  |---|---|---|---|
+  | formal-trace-check | 読まない | 読まない | — |
+
+入力: プロンプトの「文書とモデルの置き場」（挙げられた `doc_check formal-dirs` を自分で実行し、その stdout の `dirs` から読む）と、違反の ID（`findings/r<n>-fm-<文書>-a<k>.json` の `quote` が性質の定義、`repro` が反例）と、その試行の
+検査の記録 `checks/formal-r<n>-a<k>.json`。
+
+```json
+{ "traces": [{ "finding": "違反の ID（プロンプトの全件を 1 件ずつ）", "derivable": true, "why": "反例のどの遷移が文書のどの文から来るか、または導けない遷移とそれを禁じる・欠く文書の文" }] }
+```
+
+`traces` が違反の全件をちょうど 1 件ずつ持たなければ script は段からやり直す。導けない違反は writer に渡らずに同じ巡の formal-modeler の起こし直しに回り、
+作り直しで消えた違反（欠陥のある試行で破れて消えたもの、前の巡で破れた項目が改稿されないまま消えたものも）は script が数え、done の返り値の
+`formal.unconfirmed` と report の「未確認の違反」に載る（notices には文を載せない）。
 
 ## §structural（doc_check が生成する finding）
 

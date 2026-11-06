@@ -14,7 +14,7 @@ jar=${TLA2TOOLS:?Set TLA2TOOLS to the pinned tla2tools.jar}
 JAVA=${JAVA:-java}
 export JAVA TLA2TOOLS
 rustc=${RUSTC:-rustc}
-expected_jar=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+expected_jar=$(node "$root/plugins/workflow/skills/prd-spec/scripts/doc_check.mjs" formal-tools | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d }).on("end", () => process.stdout.write(JSON.parse(s).sha256))')
 actual_jar=$(shasum -a 256 "$jar" | cut -d ' ' -f 1)
 [ "$actual_jar" = "$expected_jar" ] || { echo "Unexpected TLC jar SHA-256" >&2; exit 1; }
 sh "$base/prd_sections.sh" check "$root" "$base/PRD.sections"

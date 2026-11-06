@@ -120,6 +120,8 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>` で導出した `questions_path` の本文をそのまま見せ、
   要求文書の改訂（`entry: existing`）を先に走らせてから仕様書を起こし直すことを伝える。
   ここで答えをもらって仕様書の run に渡すと、要求文書に無い判断が仕様書にだけ入る。
+  `stop_reason` が `formal_unchecked` なら、形式検査が合否を出せなかった（`reason` に原因がある）。TLC が無いなら下の「## 実行環境」の jar と
+  java を整え、formal-methods スキルが呼べないならそれを入れてから、`next_args` で呼び直す。検査を外して done にする経路は無い。
 - **Workflow が例外で終わった、または `reason` が「script の不変条件に反しました」**: `references/workflow-io.md` §5 に従う。
 - **`done`**: 下の「保存」へ進む。
 
@@ -151,7 +153,8 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 不変条件（`.claude/rules/`・`CLAUDE.md`・PR のマージ・外部公開）に触れるとき、保存先が git 管理下でないとき、
 このランの生成物でない既存ファイルを上書きするとき（下の衝突）だけである。
 
-1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む。
+1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --formal '<done の返り値の formal を JSON で>'` で `W/report.md` を導出する（3・4・5 が読む。
+   形式検査の「未確認の違反」は W ではなく `--formal` から載る。checks/ は modeler が消せるので正本にしない。
    report は `tmp/` の作業用ディレクトリも消すので、後の tree-digest の `stray` に消えるファイルが載らない）。続けて
    `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
    `tree_digest` を文字列で比べる（digest は文書だけから取るので、report の後でも変わらない）。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
@@ -168,13 +171,18 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    次のランの「未解決」に戻る）。下の衝突で写さなかった文書の写しには触れない。
    - 新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
-4. **形式検証モデル**: 仕様書（`specifications/<topic>`）を書いたランでは、
-   `node [SKILL_DIR]/scripts/doc_check.mjs formal-model --workspace <W> --doc specifications/<topic>`
-   を実行し、出力の `formal_models[].files`（`W/formal/<topic>/` の TLA+ モデル・TLC 設定・README・有界モデル検査 `check.test.mjs`）を
-   保存先の `tests/formal/<topic>/` 配下へ逐語で写す。これにより、仕様書とともに多層防御（Layer 2 状態遷移モデル検査）のモデルが成果物として納品され、`node --test tests/formal/<topic>/check.test.mjs` で即座に機械検証できる。
+4. **形式検証モデル**: done の返り値の `formal.report`（`W/checks/formal-r<n>-a<k>.json`。最後の監査の版を TLC で検査し、欠陥 0 件で通った結果）の
+   `docs[]` の文書ごとに、`dir`（`formal/<kind>-<topic>`）のファイルを保存先のリポジトリの `tests/formal/<topic>/<kind>/` へ逐語で写す
+   （`mkdir -p <先> && cp <W>/<dir>/* <先>/`。`fixed` の文書のモデルは写さない）。先に既にファイルがあれば、3 の衝突と同じく差分を見せて判断を求めてから置き換える。
+   写したら `node [SKILL_DIR]/scripts/doc_check.mjs formal-digest --dir <先の絶対パス>` を実行し、stdout の `digest` が `docs[]` のその文書の
+   `digest` と文字列で一致することを確かめる。一致しなければ写しを納品物として報告せず、食い違いをそのまま伝える（検査したモデルと
+   違うものが残る。先に残っていた別のファイルも digest を変える）。検査の条件（TLC の版・抽象化と有限範囲・形式化しなかった項目の理由）は
+   写した `manifest.json` と `formal.report` にあり、要約して書き換えない。
 5. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
-   できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
+   できます」と件数と ID を示す。返り値の `formal.unconfirmed` が 1 件以上でも「完成しました」と言わず、その項目と性質を挙げて
+   「形式検査で破れた後、文書を直さないまま違反が消えたので、文書の矛盾が残っているかもしれません」と伝える（照合が「導けない」とした・
+   欠陥のある試行で破れた・前の巡で破れた文書が改稿されないまま、作り直したモデルで違反が消えたもの。誰も確かめていない）。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
    `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
 6. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。
@@ -195,6 +203,11 @@ native の Workflow で、名前付き workflow `/workflow:prd-spec-run` を呼�
 Claude Code で Workflow ツールが無いときは、有効にする方法（Pro は `/config` の Dynamic workflows の行、無効にしているのは
 `disableWorkflows` の設定か環境変数 `CLAUDE_CODE_DISABLE_WORKFLOWS`）を伝えて終える。runner には回さない（runner は Codex の前提で、
 Claude Code の中で混ぜると W を 2 つの経路で書く）。
+
+段 5・8 の形式検査は、formal-modeler が formal-methods スキルをスキル呼び出しで使い、doc_check が版と sha256 を固定した TLC の jar を
+PATH 上の `java` で実行する。jar の在り処（環境変数での指定と既定の置き場）・入手元・版・sha256 は
+`node [SKILL_DIR]/scripts/doc_check.mjs formal-tools` の stdout が示し、整っていなければ `fault` に理由が出る。どれかが無ければ
+run は `formal_unchecked`（条件は references/workflow-io.md の `stop_reason`）で止まる。
 
 1 run の agent は 25 体を超えることが多く、本家の進捗の行に `Large workflow` の警告が出ることがある（体数と費用の実測は
 `references/telemetry.md`）。

@@ -1,5 +1,5 @@
 ---
-description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前と、回答済みのゲートを越える前と、写しが checksum に合わなかった stdout の取り直し（-recopy）で doc_check を実行し、stdout をそのまま返す
+description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前と、回答済みのゲートを越える前と、段 5・8 の監査の後の形式検査（-formal）と、写しが checksum に合わなかった stdout の取り直し（-recopy）で doc_check を実行し、stdout をそのまま返す
 ---
 
 # flow-check
@@ -21,8 +21,10 @@ description: 台帳を書いた resolver の後と、run の入口と、段 4・
   doc_check で、あなたが回答を書き足したり直したりしない（script は answers の stdout でゲートを越えるかを決めるので、書き足すと、
   依頼者が答えていない問いに回答が当たる）。
 - 取り直し（label が `-recopy` で終わる）のプロンプトは、別の agent が写し損ねた stdout のコマンドを挙げる。挙げたコマンドだけを実行し、
-  プロンプトが名指しした欄に入れる（stdout の最後の `stdout_fnv` は script がほかの欄から計算し直すので、1 字でも変えると 2 回目も合わずに run が止まる）。
-- restore・reset・backup・answers・stash・unstash の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check・answers_check・stash_check・unstash_check に入れる。
+  それぞれの stdout をプロンプトが挙げた順に `stdouts` の配列に入れる（stdout の最後の `stdout_fnv` は script がほかの欄から計算し直すので、1 字でも変えると 2 回目も合わずに run が止まる）。
+- 監査の後の形式検査（label が `-formal` を含む）のプロンプトは `formal-check` だけを挙げる。TLC を回して合否を決めるのは doc_check で、
+  あなたがモデルを直したり TLC を別の引数で流し直したりしない（script はこの stdout だけで指摘と欠陥を数える）。
+- restore・reset・backup・answers・stash・unstash・formal-check の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check・answers_check・stash_check・unstash_check・formal_check に入れる。
 - ファイルを書かない・直さない。指摘が出ても直さない（直すのは flow-framer と resolver の仕事で、あなたが直すと
   その書き込みを誰も検証しない）。
-- コマンドが失敗したら、stdout の代わりに stderr を flow_check に入れる（script は形の合わない値を「返さなかった」と数える）。
+- コマンドが失敗したら、stdout の代わりに stderr を flow_check（取り直しでは `stdouts` のそのコマンドの位置）に入れる（script は形の合わない値を「返さなかった」と数える）。

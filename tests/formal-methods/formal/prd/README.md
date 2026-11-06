@@ -52,7 +52,7 @@
 
 ## 実行
 
-必要なものは、TLC `v1.7.4` の `tla2tools.jar`、Java 11 以降、`shasum`、`tests/formal/bp-prd/` の `tlc_cases.sh` と `prd_sections.sh` である。2 つの script は写さずにパスで参照する。jar の SHA-256 は、`tests/formal/bp-prd/check.sh` の `expected_jar` を正とする。
+必要なものは、TLC `v1.7.4` の `tla2tools.jar`、Java 11 以降、`shasum`、`tests/formal/bp-prd/` の `tlc_cases.sh` と `prd_sections.sh` である。2 つの script は写さずにパスで参照する。jar の版・入手元・SHA-256 は、`node plugins/workflow/skills/prd-spec/scripts/doc_check.mjs formal-tools` の stdout を正とする（`check.sh` はそこから読むので Node.js も要る）。
 
 ```bash
 TLA2TOOLS=/path/to/tla2tools.jar tests/formal-methods/formal/prd/check.sh

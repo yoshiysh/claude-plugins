@@ -55,7 +55,7 @@ def _ok(ws, mode, *args, stdin=None):
     r = _run(ws, mode, *args, stdin=stdin)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
-    return stdout_body(r.stdout)
+    return stdout_body(r.stdout, mode)
 
 
 def _sha(p):
@@ -307,22 +307,23 @@ class FreshRunReset(_Workspace):
         self.assertEqual(set(after), kept)
         self.assertEqual({k: after[k] for k in kept - {"requirements-auth.meta.json"}}, {k: before[k] for k in kept - {"requirements-auth.meta.json"}}, "S0 が書いたものと所有表の外は触らない")
         self.assertEqual(after["requirements-auth.meta.json"], self._s0_meta())
-        self.assertEqual((out["kept"], out["fixed"]), (["requirements/auth", "specifications/auth"], ["requirements/auth"]))
+        self.assertEqual(out["keys_fnv"], _exported('m.fnv(m.canonicalText({ kept: ["requirements/auth", "specifications/auth"], fixed: ["requirements/auth"] }))'))
+        self.assertNotIn("kept", out)
         self.assertEqual(out["removed"], sorted(["answers", "checks", "decisions.json", "findings", "flow.json", "open.json", "plan.json", "questions.json", "questions.md", "report.md",
                                                  "requirements-billing.md", "requirements-billing.meta.json", "resolutions.json", "specifications-auth.meta.json", "tx"]))
         self.assertEqual(_ok(self.ws, "reset", *self.KEEP, *self.FIXED)["removed"], [], "流し直しても同じ W になる")
         self.assertEqual(self._files(), after)
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が行う"}]})
 
-    def test_resetとsnapshotは固定の文書の本文とmetaのsha256を同じ値で返し書き換えで変わる(self):
+    def test_resetとsnapshotは固定の文書の本文とmetaのdigestを同じ値で返し書き換えで変わる(self):
         self._reused()
         plan = (self.ws / "plan.json").read_bytes()
-        base = _ok(self.ws, "reset", *self.KEEP, *self.FIXED)["fixed_sha256"]
+        base = _ok(self.ws, "reset", *self.KEEP, *self.FIXED)["fixed_digest"]
         (self.ws / "plan.json").write_bytes(plan)
-        self.assertEqual(list(base), ["requirements/auth"])
-        snap = lambda: _ok(self.ws, "snapshot", "--save", "s", "--fixed", "requirements/auth")["fixed_sha256"]
+        self.assertIsInstance(base, str)
+        snap = lambda: _ok(self.ws, "snapshot", "--save", "s", "--fixed", "requirements/auth")["fixed_digest"]
         self.assertEqual(snap(), base)
-        self.assertNotIn("fixed_sha256", _ok(self.ws, "snapshot", "--save", "s"))
+        self.assertNotIn("fixed_digest", _ok(self.ws, "snapshot", "--save", "s"))
         doc = self.ws / "requirements-auth.md"
         doc.write_text(doc.read_text() + "\n追記\n")
         moved = snap()

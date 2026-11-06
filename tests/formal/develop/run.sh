@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pass/fail is decided by three things only:
+# Pass/fail is decided by two things only:
 #   normal    every configuration ends with "No error has been found", and every
 #             action of the skill's table (printed by TLC from MC's ASSUME) fires
 #             in some configuration.
@@ -10,7 +10,8 @@
 # if the correct model reaches it, so the correct model must reach every one.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-jar="${TLA2TOOLS:-$HOME/.local/share/tla/tla2tools.jar}"
+jar="$(node "$here/../../../plugins/workflow/skills/prd-spec/scripts/doc_check.mjs" formal-tools | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d }).on("end", () => { const t = JSON.parse(s); if (t.fault || !t.jar) { console.error(t.fault || "formal-tools の stdout に jar が無い"); process.exit(1) } process.stdout.write(t.jar) })')" \
+  || { echo "TLC の jar を取り出せません（doc_check formal-tools の fault を見る）" >&2; exit 2; }
 tlc=(java -Xmx8g -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers auto)
 if command -v timeout >/dev/null 2>&1; then limit=(timeout 1200); elif command -v gtimeout >/dev/null 2>&1; then limit=(gtimeout 1200); else limit=(); fi
 work="$(mktemp -d)"

@@ -47,10 +47,10 @@ stateDiagram-v2
 
 ## 実行
 
-TLC `v1.7.4` の `tla2tools.jar`、Java 11 以降、Rust (`rustc`)、`shasum` が必要。TLC は公式リリースから取得する。jar の SHA-256 は `check.sh` の `expected_jar` を正とする。
+TLC の `tla2tools.jar`、Java 11 以降、Rust (`rustc`)、`shasum` が必要。TLC は公式リリースから取得する。jar の版・入手元・SHA-256 は `node plugins/workflow/skills/prd-spec/scripts/doc_check.mjs formal-tools` の stdout を正とし、`check.sh` はそこから SHA-256 を読む（Node.js も要る）。
 
 ```bash
-gh release download v1.7.4 --repo tlaplus/tlaplus --pattern tla2tools.jar --dir /path/to/tools
+curl -fL -o /path/to/tools/tla2tools.jar "$(node plugins/workflow/skills/prd-spec/scripts/doc_check.mjs formal-tools | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d }).on("end", () => process.stdout.write(JSON.parse(s).url))')"
 TLA2TOOLS=/path/to/tools/tla2tools.jar JAVA=/path/to/java RUSTC=/path/to/rustc tests/formal/bp-prd/check.sh
 ```
 

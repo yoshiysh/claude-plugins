@@ -2,7 +2,9 @@
 // 件数と digest だけを受け取る（本文を返り値で運ぶと、改稿のたびに文書全体を Write と返り値で 2 度出力させる）。
 
 import crypto from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -623,10 +625,7 @@ function namesIn(text, names) {
 }
 
 function stateCheck(d, sec, out, fallbackEdges) {
-  const tables = tablesOf(sec).filter((t) => {
-    const h = t.header
-    return h.includes('現在の状態') && h.includes('次の状態') && h.some((c) => c.includes('イベント'))
-  })
+  const tables = tablesOf(sec).filter(isStateTable)
   // 図が同じ節に無ければ、文書に 1 つだけある図を使う（図と表を別の ## 節に置いた文書で、到達・出口・
   // 表と図の突き合わせが黙って検査されなくなるのを防ぐ）。図が複数あって節で決まらないときは使わない。
   const edges = stateDiagramOf(sec) || fallbackEdges || null
@@ -1257,6 +1256,9 @@ function canonicalJson(value) {
 // canonicalText・fnv で計算し直し、合わない写し（壊れた JSON・要素の欠けた一覧）を受け取らない。canonicalText・fnv・STDOUT_FNV は
 // prd-spec.js と同じ（tests が照合する）。
 const STDOUT_FNV = 'stdout_fnv'
+// STDOUT_MODE: stdout を出したモード。digest に含めるので、写しを別のコマンドの欄に入れ違えると script が見分けられる（どの stdout にも digest があり、
+// 形だけでは doc と tree-digest を取り違えても通る）。
+const STDOUT_MODE = 'stdout_mode'
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -1269,9 +1271,9 @@ function fnv(text) {
   return h.toString(16).padStart(8, '0')
 }
 
-function stampStdout(value) {
+function stampStdout(value, mode) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value
-  const body = JSON.parse(JSON.stringify(value))
+  const body = { ...JSON.parse(JSON.stringify(value)), ...(mode ? { [STDOUT_MODE]: mode } : {}) }
   return { ...body, [STDOUT_FNV]: fnv(canonicalText(body)) }
 }
 
@@ -1662,7 +1664,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-model']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-check', 'formal-dirs', 'formal-digest', 'formal-tools']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -1834,7 +1836,7 @@ const LEDGERS = {
 // 経緯の印は prd-spec の工程にしか出ない形に限る。版・旧・v2・RS-232・G1 GC・§ 3a のような語は案件の分野にも
 // 出るので、裸の G1・3a は印にせず「段 3a」の接頭辞付きの形で拾う（偽陽性で put が止まるより、取りこぼしを選ぶ）。
 const HISTORY_FIELDS = ['flow.closure', 'flow.elements.label', 'flow.kinds.definition', 'decisions.decisions.why', 'resolutions.resolutions.why', 'verifications.items.reason']
-const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)x?-/, /回答の反映/]
+const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd|fm)x?-/, /回答の反映/]
 
 // SIZE_BUDGET: ファイルのバイト数の目安（合否ではない）。仮の値として 2026-09-27 の cleanup-branches の試走の台帳を
 // 正規形に直した実測を置いた。段 3・5 が意図して生成物を太らせるので、試走し直した実測で決め直す。
@@ -2075,6 +2077,8 @@ function writeAtomic(...pairs) {
 // token は prd-spec.js が段の入口で決める（t<段の通し番号> と、同じ段の再実行の r<回数>）。順序を持つのは、打ち間違えた token や止まった run の
 // 遅れた書き込みが、今の段の控えを消して restore を空振りさせないため。token の名前は所有表のパターン（tx/<token>/*）に合うよう . を含めない。
 const TX_DIR = 'tx'
+// FORMAL_DIR: formal-modeler が書く W/formal/。段 1 の入口の reset が消す（前の run のモデルが残ると、modeler が古い版を直して済ませる）。
+const FORMAL_DIR = 'formal'
 const TX_TOKEN = /^t(\d+)(?:r(\d+))?$/
 const TX_PRE = '.pre'
 const TX_ABSENT = '.absent'
@@ -2194,9 +2198,11 @@ function wsRestore(ws, opts) {
 // 回答を読まず、新しいランは RS- を 1 から振り直すので、残った回答の ID は別の問いを指す。--keep に無い文書も消す: 前のランの writer の
 // 文書が meta なしで残ると、index に載り、同じ topic の単位の writer に前の草稿が渡る。固定の文書の meta は S0 の依頼の写し
 // （existing_docs の fixed）なので、消した後に --fixed から書き直す。所有表に無いファイルと tmp/ は触らない（snapshot の stray に出る）。
-// fixedShas: 固定の文書（existing_docs の fixed）の本文と meta のバイトの sha256。reset が段 1 の入口の値を返し、監査の snapshot が同じ値を
-// 返して script が照合する。固定の文書は所有表の誰の書き込みでもないので、変わっていれば承認を迂回した書き込みである。meta も数えるのは、
-// fixed の印を外すと doc の検査がその文書を書き換えてよい文書として扱うから。
+// fixedDigest: 固定の文書（existing_docs の fixed）の本文と meta のバイトの sha256 を 1 つにした digest。reset が段 1 の入口の値を返し、監査の
+// snapshot が同じ値を返して script が照合する。固定の文書は所有表の誰の書き込みでもないので、変わっていれば承認を迂回した書き込みである。
+// meta も数えるのは、fixed の印を外すと doc の検査がその文書を書き換えてよい文書として扱うから。文書ごとの sha256 を stdout に出さないのは、
+// script は等しいかだけを見るのに、写す stdout が固定の文書の数で伸びて写し損ねで run が止まるから。
+const fixedDigest = (ws, keys) => digestOf(fixedShas(ws, keys))
 function fixedShas(ws, keys) {
   return Object.fromEntries(
     [...new Set(keys || [])].sort().map((key) => {
@@ -2206,7 +2212,7 @@ function fixedShas(ws, keys) {
   )
 }
 
-const RESET_REMOVES = ['plan.json', 'questions.md', 'questions.json', 'report.md', 'answers', 'findings', 'checks', TX_DIR]
+const RESET_REMOVES = ['plan.json', 'questions.md', 'questions.json', 'report.md', 'answers', 'findings', 'checks', FORMAL_DIR, TX_DIR]
 function wsReset(ws, opts) {
   const keep = [...new Set(opts.keep || [])].sort()
   const fixed = [...new Set(opts.fixed || [])].sort()
@@ -2237,7 +2243,8 @@ function wsReset(ws, opts) {
     writeAtomic([path.join(ws, ledgerOf('meta').file(key)), ledgerText(meta)])
   }
   const carriedIds = Object.fromEntries(Object.entries(carried).map(([key, tbd]) => [key, tbd.map((t) => t.id).sort()]))
-  return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed) }
+  // keys_fnv: 残した文書と固定の文書の組。script は自分が渡した引数と等しいかだけを見るので、一覧を写させない（写す stdout が文書の数で伸びる）。
+  return { reset: true, removed, keys_fnv: fnv(canonicalText({ kept: keep, fixed })), carried_tbd: carriedIds, fixed_digest: fixedDigest(ws, fixed) }
 }
 
 // place: S0 が既存文書を W に置く。文書と、その隣の開いている TBD の写しを 1 回でまとめて逐語で写す（写しを別の手順にすると置き忘れが起き、
@@ -2627,7 +2634,7 @@ function wsSha(ws, opts) {
 
 // STDOUT_BUDGET: CLI の 1 行の stdout の上限（バイト）。agent は stdout を返り値に写すので、超えると以後の全ターンに載る。
 const STDOUT_BUDGET = 50000
-const stdoutBytes = (value) => Buffer.byteLength(`${JSON.stringify(stampStdout(value))}\n`)
+const stdoutBytes = (value, mode) => Buffer.byteLength(`${JSON.stringify(stampStdout(value, mode))}\n`)
 
 // fieldPicker: --fields の欄だけを残す（キーは常に残す）。欄は台帳の型から選ばせ、打ち間違いを空の結果にしない。
 function fieldPicker(name, fields) {
@@ -2672,7 +2679,7 @@ function wsGet(ws, opts) {
   const out = { ledger: name, path: file, exists: value !== null, sha256: ledgerSha(ws, name, opts.doc[0]), ...Object.fromEntries(Object.keys(spec.lists).map((k) => [k, []])), missing: [], over_budget: [] }
   out.missing = hits.filter((h) => !h.rows.length).map((h) => h.id)
   const found = hits.filter((h) => h.rows.length)
-  let room = STDOUT_BUDGET - stdoutBytes({ ...out, over_budget: found.map((h) => h.id) })
+  let room = STDOUT_BUDGET - stdoutBytes({ ...out, over_budget: found.map((h) => h.id) }, 'get')
   if (room < 0) throw new Error(`get の --ids ${ids.length} 件は、ID の一覧（missing・over_budget）だけで stdout の上限 ${STDOUT_BUDGET} バイトを超える。ID を分けて読み直す`)
   for (const h of found) {
     const size = h.rows.reduce((n, [, el]) => n + Buffer.byteLength(JSON.stringify(el)) + 1, 0)
@@ -2995,6 +3002,9 @@ function wsReport(ws, opts) {
     '',
     ...(upstream.length ? [] : ['0 件。', '']),
     ...upstream.flatMap((r) => [`### ${r.id}`, '', ...block('改訂の文案', r.upstream_revision)]),
+    '## 形式検査',
+    '',
+    ...formalReportLines(ws, opts.formal ? parseFormalArg(opts.formal) : null),
   ].join('\n')
   writeAtomic([path.join(ws, 'report.md'), md])
   // report は司令塔が run の返った後に実行するので、動いている label は無い。
@@ -3789,8 +3799,9 @@ function wsDoc(ws, opts) {
   const counted = expanded.findings.filter((f) => !fixedKeys.has(f.document) || f.id.startsWith('ST-ORPHAN-REQ-'))
   const degraded = counted.filter((f) => f.severity === 'degraded').length
   // flow_refs: 項目 → trace が指す flow 要素。prd-spec.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
+  // 固定の文書は除く（reset が flow を消すので、その trace はこの run の flow を指さない。載せると写す stdout が固定の文書の数で伸びる）。
   const flowRefs = {}
-  for (const d of docs.filter((x) => selected.includes(x.key))) {
+  for (const d of docs.filter((x) => selected.includes(x.key) && !x.fixed)) {
     for (const { item_id: item, ref } of d.flow_refs) {
       const byItem = (flowRefs[d.key] ||= {})
       byItem[item] = [...new Set([...(byItem[item] || []), ref])].sort()
@@ -3837,6 +3848,8 @@ const CONTRACT_SECTIONS = {
   grounding: [...COMMON_SECTIONS, '監査役の共通節', '§grounding', '現物と既存実装の扱い'],
   'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§cross-doc'],
   'flow-check': ['§flow-check'],
+  'formal-modeler': [...COMMON_SECTIONS, '§formal-modeler'],
+  'formal-trace-check': [...COMMON_SECTIONS, '§formal-trace-check'],
 }
 
 // CONTRACT_BUDGET・CONTRACT_PARTS: contract の 1 回の stdout の上限（UTF-8 のバイト）と、役ごとの回数の上限。agent の Bash は 30000 バイトを
@@ -3987,7 +4000,7 @@ function wsSnapshot(ws, opts) {
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
   const rel = writeCheck(ws, `${label}.snapshot.json`, { label, digest, docs })
-  const fixed = opts.fixed ? { fixed_sha256: fixedShas(ws, opts.fixed) } : {}
+  const fixed = opts.fixed ? { fixed_digest: fixedDigest(ws, opts.fixed) } : {}
   return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, ...found, ...fixed }
 }
 
@@ -4175,244 +4188,880 @@ function wsIndex(ws, opts) {
   return { indexes: written, open_tbd_files: carry.map(({ doc, path: p }) => ({ doc, path: p })), open_tbd_clear: clear }
 }
 
-// wsFormalModel: 仕様書（specifications/<topic>）に書かれた状態機械（stateDiagram-v2 / 状態 × イベント表）から、
-// TLA+ 形式検証モデル（.tla, .cfg, README.md, check.test.mjs）を導出して W/formal/<topic>/ に置く。
-// 成果物として tests/formal/<topic>/ へ写され、Layer 2（TLA+ モデル検査）および有界モデル検査が実行可能になる。
-function wsFormalModel(ws, opts) {
-  const wsDocs = workspaceDocs(ws)
-  const docs = deriveDocs(wsDocs)
-  const specDocs = docs.filter((d) => d.kind === 'specifications' && (!opts.doc.length || opts.doc.includes(d.key)))
-  if (!specDocs.length) throw new Error('形式モデルを導出する仕様書（specifications/<topic>）がありません')
+// formal-check: formal-modeler が書いた W/formal/<kind>-<topic>/ を TLC で検査し、合否を決めるのはこの op だけにする（モデルを書いた
+// agent に合否を申告させると、生成者の自己判定になる）。正本は formal-methods スキルの手順 6・7（検査・変異・到達）。
+// modeler に書かせるのは manifest と 1 つのモジュールだけで、cfg と変異はこの op が作る。判定に要る事実（定義の段・参照の閉包・定数の宣言）は
+// SANY の AST から取り、TLA+ の本文を正規表現で読まない（本文の取り締まりは、書き方を少し変えるだけで迂回される）。
+const FORMAL_MANIFEST = 'manifest.json'
+const FORMAL_FINDING_TAG = 'fm'
+// TLA_TOOLS: 版と sha256 を固定するのは、版が変わると exit code と出力の形が変わり、判定が黙ってずれるため。jar の在り処・入手元・固定値を
+// 読む script（CI の TLC の取得、tests/formal の bp-prd・formal-methods の check.sh と develop の run.sh）は formal-tools の stdout から読む。
+// 文書の写し（docs/specifications/formal-methods.md の表と tests/formal の README の版）は残っていて、ここを変えたら手で揃える。
+// jar が無い・sha256 が違う・java が無いときは検査できないので unavailable を返し、合格にしない。
+const TLA_VERSION = '1.7.4'
+const TLA_TOOLS = {
+  version: TLA_VERSION,
+  sha256: '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88',
+  url: `https://github.com/tlaplus/tlaplus/releases/download/v${TLA_VERSION}/tla2tools.jar`,
+  env: 'TLA2TOOLS',
+  home: ['.local', 'share', 'tla', 'tla2tools.jar'],
+}
+const TLC_EXIT = { pass: 0, invariant: 12 }
+// TLC_TIMEOUT_MS は 1 回の TLC、FORMAL_BUDGET_MS は op 全体の上限。全体を agent の Bash の上限（600000 ms）より短くするのは、
+// Bash に切られると stdout が出ず、何を検査し残したかが残らないため。上限で走らなかった検査は unchecked（未検査）にして、合格に数えない。
+const TLC_TIMEOUT_MS = 120000
+// MUTANT_TIMEOUT_MS: ガードを外した変異は状態空間が有限でなくなりうる。時間切れの変異は殺したと数えず、殺されていない性質が残れば
+// mutant_survived でなく unchecked にする（時間切れは性質の弱さの証拠ではない）。
+const MUTANT_TIMEOUT_MS = 20000
+const SANY_TIMEOUT_MS = 60000
+const FORMAL_BUDGET_MS = 480000
+// FORMAL_TIMEOUT_SCALE: 1 回ごとの上限を整数倍に上げることにだけ使う（tests が負荷の高い機械で時間切れに依存しないため）。op 全体の上限
+// （FORMAL_BUDGET_MS と --budget-ms）は変えない。
+const FORMAL_TIMEOUT_SCALE = 'PRD_SPEC_FORMAL_TIMEOUT_SCALE'
+function timeoutScale() {
+  const v = process.env[FORMAL_TIMEOUT_SCALE]
+  if (v === undefined || v === '') return 1
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${FORMAL_TIMEOUT_SCALE} は 1 以上の整数です: ${v}`)
+  return n
+}
+const TLC_OUT_TAIL = 20000
+// TRACE_MAX_CHARS: 指摘に載せる反例の上限。writer と formal-trace-check は指摘のファイルから反例を読む（全文は checks の .out にある）。
+const TRACE_MAX_CHARS = 6000
+// MUTANT_CAP: 1 つのモデルに流す変異の上限。上限で切った変異は流さないので、性質を殺す変異がその先にしか無ければ mutant_survived になる
+// （検出力を多く見積もらない側）。
+const MUTANT_CAP = 32
+const TLA_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+// MODEL_VALUE: CONSTANT に書けるモデル値。小文字で始めるのは、モジュールの定義名（演算子）と取り違えて cfg が演算子を上書きしないため
+// （AST の名前と衝突しないことも別に確かめる）。文字列は cfg の注釈の区切りを含められるので値にしない。
+const MODEL_VALUE = /^[a-z][a-z0-9_]*$/
+// TLA_LEVEL: SANY の level。性質は状態述語（STATE 以下）だけを不変条件として検査する。時相の性質は Spec と公平性の書き方で空振りにでき、
+// それを構造で取り締まる手段を持たないので、検査せずに FORMAL_NOT_CHECKED で宣言する。
+const TLA_LEVEL = { state: 1, action: 2 }
+const RELATION_FLIP = { '<': { from: ['<'], to: '<=' }, '\\leq': { from: ['<=', '=<', '\\leq'], to: '<' }, '>': { from: ['>'], to: '>=' }, '\\geq': { from: ['>=', '\\geq'], to: '>' } }
+// FORMAL_STRUCTURAL: TLC を走らせる前に分かる欠陥。これがあると何を検査したかが manifest と食い違うので、TLC を走らせない。
+const FORMAL_STRUCTURAL = ['file_missing', 'file_extra', 'parse_error', 'module_reserved', 'operator_forbidden', 'definition_missing', 'definition_shape', 'property_level', 'property_in_spec', 'constant_mismatch', 'constant_shape']
+// TLA_MODULES・TLC_PURE: モデルの定義が引いてよい標準モジュールと、TLC モジュールのうち値だけを返す演算子。Print・PrintT・Assert は
+// TLC の出力に任意の行を書け（深さや違反の行を偽れる）、TLCSet・TLCGet・JavaTime・RandomElement・Any と Randomization は探索や値を
+// 実行ごとに変える。どれも状態機械の記述には要らない（`:>`・`@@` は関数の組み立てに使う）。
+const TLA_MODULES = ['Naturals', 'Integers', 'Reals', 'Sequences', 'FiniteSets', 'Bags', 'TLC']
+const TLC_PURE = [':>', '@@', 'Permutations', 'SortSeq', 'ToString', 'TLCEval']
+const FORMAL_DEFECTS = [
+  'manifest_missing',
+  'manifest_shape',
+  ...FORMAL_STRUCTURAL,
+  'state_unmodeled',
+  'no_property',
+  'violated_dropped',
+  'coverage_missing',
+  'coverage_extra',
+  'coverage_overlap',
+  'no_mutant',
+  'no_witness',
+  'model_error',
+  'mutant_survived',
+  'witness_unreached',
+  'witness_initial',
+  'witness_error',
+  'unchecked',
+]
+// FORMAL_NOT_CHECKED: 検査が合格でも確かめていないもの。返り値・checks・report に同じものを出す（合格を「全部確かめた」と読ませない）。
+const FORMAL_NOT_CHECKED = [
+  '時相の性質（SANY の level 3）と action の性質（level 2）は検査していない。検査するのは状態述語（level 1 以下）の不変条件だけ',
+  '目撃（witnesses）の到達が、対応づけた性質の前提に当たるかは機械で確かめていない（確かめるのは、遷移を踏んで到達することだけ）',
+  '文書に状態の図も状態遷移の表も無いときは、全項目を excluded にでき、excluded の理由（why）の妥当性は機械で確かめていない',
+  `Init・Next が文書の振る舞いを写しているか（性質の名前を使わずに同じ条件を Next に書き写した刈り込みを含む）は機械で確かめていない。変異は Init・Next の閉包から機械で作った最大 ${MUTANT_CAP} 件だけ`,
+  '反例が文書の文から導けるかは formal-trace-check（agent）の判定で、機械の確かめではない',
+  '前の検査で破れた性質の定義（閉包の本文と引く CONSTANT の値）が同じ名前のまま変わったことは redefined として返し report に載せるが、欠陥にはしない',
+  '前の巡で破れ writer が改稿した項目（--revised）を性質から外す・excluded へ移すことは欠陥にせず dropped として返し report に載せる。外したことが改稿の内容に合うかは機械で確かめていない',
+  '前の巡で破れた違反が改稿の後に消えたとき、その文書に改稿があれば、消えたのが文書の直しによるか Init・Next の書き換えによるかは機械で確かめていない（未確認として返すのは、文書に改稿が無いまま消えた前の巡の違反と、改稿の有無にかかわらず同じ巡の試行で破れて消えた違反）',
+  '性質の強さと項目の文との対応は機械で確かめていない。変異で殺せたことが示すのは性質が恒真でないことだけで、状態空間の深さを水増しすると、遠い反例でも殺したと数える',
+  'CONSTRAINT と CONSTANT の値による状態空間の刈り込みが文書の範囲を削っていないかは機械で確かめていない（制約の定義と定数の値は stdout・checks・report に出す）',
+]
 
-  const results = []
-  for (const d of specDocs) {
-    const topic = d.topic
-    const md = d.markdown || ''
-    const secs = sectionsOf2(md)
-    let edges = null
-    for (const sec of secs) {
-      const diag = stateDiagramOf(sec)
-      if (diag && diag.length) {
-        edges = diag
-        break
+const formalDirOf = (key) => docFileOf(key).replace(/\.md$/, '')
+const tlaJarPath = () => process.env[TLA_TOOLS.env] || path.join(os.homedir(), ...TLA_TOOLS.home)
+
+// formalDirDigest: ディレクトリ直下のファイルの名前と sha256 の組の digest。保存の写しの照合（formal-digest --dir）と同じ関数で計算する。
+// 下の階層は持たせない（所有表の formal/*/* は 1 階層しか覆わない）。
+function formalDirDigest(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  const nested = entries.filter((e) => !e.isFile()).map((e) => e.name)
+  if (nested.length) throw new Error(`${dir} にファイルでないもの（${nested.join(', ')}）があります。形式検証のディレクトリは 1 階層のファイルだけにします`)
+  return digestOf(entries.map((e) => e.name).sort().map((n) => [n, sha256Bytes(fs.readFileSync(path.join(dir, n)))]))
+}
+
+function tlaToolsFault() {
+  const jar = tlaJarPath()
+  const fetch = `${TLA_TOOLS.url} から取得し、${TLA_TOOLS.env} にパスを渡すか ${path.join('~', ...TLA_TOOLS.home)} に置く`
+  if (!fs.existsSync(jar)) return `TLC の jar がありません: ${jar}（tla2tools.jar v${TLA_TOOLS.version} を ${fetch}）`
+  const got = sha256Bytes(fs.readFileSync(jar))
+  if (got !== TLA_TOOLS.sha256) return `TLC の jar の sha256 が固定値と違います: ${jar}（期待 ${TLA_TOOLS.sha256} / 実際 ${got}。v${TLA_TOOLS.version} を ${fetch}）`
+  const java = spawnSync('java', ['-version'], { encoding: 'utf8' })
+  if (java.error) return `java を PATH から起動できません（${java.error.code || java.error.message}）`
+  return null
+}
+
+// reservedModules: jar が同梱するモジュールの名前（StandardModules の .tla と tlc2/module の Java の実装）。TLC はこの名前のモジュールの
+// 定義を Java の実装で上書きするので、modeler がこの名前でモジュールを書くと、forbidden が見る本文と TLC が評価する演算子が別物になる
+// （根を TLC にして TLCSet を自前で定義すると、本物の TLCSet が違反を隠す）。一覧は jar の中身から導く（写すと版を変えたときにずれる）。
+let reservedCache = null
+function reservedModules() {
+  if (reservedCache) return reservedCache
+  const buf = fs.readFileSync(tlaJarPath())
+  let end = buf.length - 22
+  while (end >= 0 && buf.readUInt32LE(end) !== 0x06054b50) end--
+  if (end < 0) throw new Error(`${tlaJarPath()} の zip の終端が読めません`)
+  const count = buf.readUInt16LE(end + 10)
+  let at = buf.readUInt32LE(end + 16)
+  const names = new Set()
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(at) !== 0x02014b50) throw new Error(`${tlaJarPath()} の zip の目録が読めません`)
+    const len = buf.readUInt16LE(at + 28)
+    const entry = buf.toString('utf8', at + 46, at + 46 + len)
+    const m = /^tla2sany\/StandardModules\/([A-Za-z0-9_]+)\.tla$/.exec(entry) || /^tlc2\/module\/([A-Za-z0-9_]+)\.class$/.exec(entry)
+    if (m) names.add(m[1])
+    at += 46 + len + buf.readUInt16LE(at + 30) + buf.readUInt16LE(at + 32)
+  }
+  if (!names.has('TLC')) throw new Error(`${tlaJarPath()} に TLC モジュールがありません`)
+  reservedCache = [...names].sort()
+  return reservedCache
+}
+
+function wsFormalTools() {
+  return { jar: tlaJarPath(), env: TLA_TOOLS.env, version: TLA_TOOLS.version, sha256: TLA_TOOLS.sha256, url: TLA_TOOLS.url, fault: tlaToolsFault() }
+}
+
+const uniqStrings = (xs) => [...new Set(xs)]
+const nonEmpty = (s) => typeof s === 'string' && s.trim().length > 0
+const isName = (s) => typeof s === 'string' && TLA_NAME.test(s)
+const exactKeys = (x, keys) => x && typeof x === 'object' && !Array.isArray(x) && Object.keys(x).sort().join(',') === [...keys].sort().join(',')
+
+const isStateTable = (t) => t.header.includes('現在の状態') && t.header.includes('次の状態') && t.header.some((c) => c.includes('イベント'))
+// hasStateModel: 文書に状態の図か状態遷移の表があるか。あれば形式化できる状態遷移が文書にあるので、モデル無し・性質 0 件を合格にしない。
+const hasStateModel = (md) => sectionsOf2(md).some((sec) => stateDiagramOf(sec) !== null || tablesOf(sec).some(isStateTable))
+
+const isScalarValue = (v) => Number.isSafeInteger(v) || typeof v === 'boolean' || (typeof v === 'string' && MODEL_VALUE.test(v))
+const isConstantValue = (v) => isScalarValue(v) || (Array.isArray(v) && v.every((x) => Number.isSafeInteger(x) || (typeof x === 'string' && MODEL_VALUE.test(x))) && new Set(v).size === v.length)
+const MANIFEST_KEYS = ['doc', 'module', 'abstraction', 'init', 'next', 'constants', 'properties', 'excluded', 'constraints', 'witnesses']
+
+function manifestShapeDefects(m, key) {
+  if (!exactKeys(m, MANIFEST_KEYS)) return [`manifest のキーは ${MANIFEST_KEYS.join('・')} だけ`]
+  const out = []
+  if (m.doc !== key) out.push(`doc が ${key} ではない`)
+  if (!nonEmpty(m.abstraction)) out.push('abstraction（抽象化と有限範囲）が空')
+  const arrays = ['properties', 'excluded', 'constraints', 'witnesses'].filter((k) => !Array.isArray(m[k]))
+  if (arrays.length) return [...out, `${arrays.join('・')} が配列ではない`]
+  if (!m.constants || typeof m.constants !== 'object' || Array.isArray(m.constants)) return [...out, 'constants がオブジェクトではない']
+  if (m.module === null) {
+    if (m.init !== null || m.next !== null || Object.keys(m.constants).length || m.properties.length || m.constraints.length || m.witnesses.length) out.push('module が null なら init・next は null、constants は空、性質・制約・目撃は 0 件')
+  } else if (!isName(m.module) || !isName(m.init) || !isName(m.next)) out.push('module・init・next は TLA+ の名前')
+  for (const [k, v] of Object.entries(m.constants)) {
+    if (!isName(k) || !isConstantValue(v)) out.push(`constants.${k} は 整数・真偽値・小文字で始まるモデル値か、その重複の無い配列`)
+  }
+  const names = m.properties.map((p) => p && p.name)
+  m.properties.forEach((p, i) => {
+    if (!exactKeys(p, ['name', 'items']) || !isName(p.name) || !Array.isArray(p.items) || !p.items.length || !p.items.every(nonEmpty)) out.push(`properties[${i}] は { name, items: [項目 ID, …] }`)
+  })
+  if (new Set(names).size !== names.length) out.push('properties の name が重複している')
+  m.excluded.forEach((x, i) => {
+    if (!exactKeys(x, ['item', 'why']) || !nonEmpty(x.item) || !nonEmpty(x.why)) out.push(`excluded[${i}] は { item, why }`)
+  })
+  m.constraints.forEach((x, i) => {
+    if (!exactKeys(x, ['name', 'why']) || !isName(x.name) || !nonEmpty(x.why)) out.push(`constraints[${i}] は { name, why }`)
+  })
+  const ids = m.witnesses.map((x) => x && x.id)
+  if (!ids.every((id) => typeof id === 'string' && LABEL.test(id)) || new Set(ids).size !== ids.length) out.push('witnesses の id は英数字と . _ - だけで、重複しない')
+  m.witnesses.forEach((x, i) => {
+    if (!exactKeys(x, ['id', 'invariant', 'property', 'reaches']) || !isName(x.invariant) || !names.includes(x.property) || !nonEmpty(x.reaches)) out.push(`witnesses[${i}] は { id, invariant, property: properties の name, reaches }`)
+  })
+  return out
+}
+
+function coverageDefects(m, ids) {
+  const covered = m.properties.flatMap((p) => p.items)
+  const excluded = m.excluded.map((x) => x.item)
+  const both = uniqStrings(covered.filter((id) => excluded.includes(id)))
+  const listed = new Set([...covered, ...excluded])
+  const missing = ids.filter((id) => !listed.has(id))
+  const extra = uniqStrings([...listed].filter((id) => !ids.includes(id))).sort()
+  return [
+    ...(missing.length ? [{ code: 'coverage_missing', detail: missing.join(', ') }] : []),
+    ...(extra.length ? [{ code: 'coverage_extra', detail: extra.join(', ') }] : []),
+    ...(both.length ? [{ code: 'coverage_overlap', detail: both.join(', ') }] : []),
+  ]
+}
+
+const XML_ENTITY = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" }
+const decodeXml = (s) => s.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-z]+);/g, (all, e) => (e[0] === '#' ? String.fromCodePoint(e[1] === 'x' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : XML_ENTITY[e] ?? all))
+
+// parseXml: SANY の XMLExporter の出力（属性を持たない要素と文字列だけ）を読む。読めない形が来たら止める（読み飛ばすと、閉包や段を
+// 欠いたまま判定する）。
+function parseXml(text) {
+  const root = { tag: '#root', kids: [], text: '' }
+  const stack = [root]
+  const token = /<\?[^>]*\?>|<!--[\s\S]*?-->|<(\/?)([A-Za-z_$][\w$.-]*)(\/?)>|([^<]+)/y
+  while (token.lastIndex < text.length) {
+    const at = token.lastIndex
+    const m = token.exec(text)
+    if (!m) throw new Error(`SANY の XML を読めません（${at} 文字目: ${text.slice(at, at + 40)}）`)
+    const top = stack[stack.length - 1]
+    if (m[4] !== undefined) top.text += decodeXml(m[4])
+    else if (m[2] && m[1]) {
+      if (stack.length < 2 || top.tag !== m[2]) throw new Error(`SANY の XML の閉じタグが合いません（${m[2]}）`)
+      stack.pop()
+    } else if (m[2]) {
+      const node = { tag: m[2], kids: [], text: '' }
+      top.kids.push(node)
+      if (!m[3]) stack.push(node)
+    }
+  }
+  if (stack.length !== 1) throw new Error('SANY の XML が閉じていません')
+  return root
+}
+const xChild = (n, tag) => (n && n.kids.find((k) => k.tag === tag)) || null
+const xText = (n, tag) => {
+  const c = xChild(n, tag)
+  return c ? c.text.trim() : null
+}
+const xWalk = (n, f) => {
+  f(n)
+  for (const k of n.kids) xWalk(k, f)
+}
+
+// tlaAst: 根のモジュールの最上位の定義・定数と、定義ごとの段・引数の数・位置・参照する定義（UID）。LET の定義と高階の引数（OpArgNode）も
+// UID の参照として本体に現れるので、閉包はそれを辿る。
+function tlaAst(xml, text) {
+  const doc = parseXml(xml)
+  const modules = xChild(doc, 'modules')
+  const rootName = xText(modules, 'RootModule')
+  const context = xChild(modules, 'context')
+  if (!rootName || !context) throw new Error('SANY の XML に RootModule か context がありません')
+  const entries = new Map()
+  for (const e of context.kids) entries.set(xText(e, 'UID'), e.kids.find((k) => k.tag !== 'UID'))
+  const starts = [0]
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1)
+  const span = (n) => {
+    const loc = xChild(n, 'location')
+    if (!loc || xText(loc, 'filename') !== rootName) return null
+    const line = xChild(loc, 'line')
+    const col = xChild(loc, 'column')
+    const at = (l, c) => starts[Number(xText(line, l)) - 1] + Number(xText(col, c)) - 1
+    return [at('begin', 'begin'), at('end', 'end') + 1]
+  }
+  const rootModule = [...entries.values()].find((n) => n.tag === 'ModuleNode' && xText(n, 'uniquename') === rootName)
+  if (!rootModule) throw new Error(`SANY の XML に根のモジュール ${rootName} がありません`)
+  // 根のモジュールの直下だけを見る。INSTANCE の WITH の置き換えの中には入れ子のモジュールの CONSTANT・VARIABLE が現れ、それを根の宣言に数えると
+  // cfg に値の要らない名前を求める。
+  const top = new Set(rootModule.kids.filter((n) => n.tag === 'UserDefinedOpKindRef' || n.tag === 'OpDeclNodeRef').map((n) => xText(n, 'UID')))
+  const defs = new Map()
+  const constants = new Map()
+  for (const uid of top) {
+    const n = entries.get(uid)
+    if (!n || !span(n)) continue
+    const name = xText(n, 'uniquename')
+    if (n.tag === 'UserDefinedOpKind') defs.set(name, { uid, name, level: Number(xText(n, 'level')), arity: Number(xText(n, 'arity')), span: span(n) })
+    else if (n.tag === 'OpDeclNode' && xText(n, 'kind') === '2') constants.set(name, { uid, name, arity: Number(xText(n, 'arity')) })
+  }
+  const refsOf = (n) => {
+    const out = []
+    xWalk(n, (k) => {
+      if (k.tag === 'UserDefinedOpKindRef') out.push(xText(k, 'UID'))
+    })
+    return out
+  }
+  const closure = (uids) => {
+    const seen = new Set()
+    const todo = [...uids]
+    while (todo.length) {
+      const u = todo.pop()
+      if (seen.has(u) || !entries.has(u)) continue
+      seen.add(u)
+      todo.push(...refsOf(entries.get(u)))
+    }
+    return seen
+  }
+  // textSpans: 定義の本文が占める文字範囲。INSTANCE で引いた定義は、定義の位置が INSTANCE の行で本文は元のモジュールの行にあるので、
+  // 定義の位置でなく本文の各節点の位置を集める。
+  const textSpans = (uids) => {
+    const out = []
+    for (const u of uids) {
+      const n = entries.get(u)
+      if (!n || n.tag !== 'UserDefinedOpKind') continue
+      xWalk(n, (k) => {
+        const s = k.kids.some((c) => c.tag === 'location') ? span(k) : null
+        if (s) out.push({ name: xText(n, 'uniquename'), span: s })
+      })
+    }
+    return out
+  }
+  const names = new Set([...entries.values()].map((n) => n && xText(n, 'uniquename')).filter(Boolean))
+  const fileOf = (n) => xText(xChild(n, 'location'), 'filename')
+  // originOf: 本文の最初の位置のファイル。INSTANCE で引いた定義は、定義の位置が根のファイルでも本文は元のモジュールにある。
+  const originOf = (n) => {
+    let found = null
+    const visit = (k) => {
+      for (const c of k.kids) {
+        if (found) return
+        if (c.tag === 'location') continue
+        found = fileOf(c)
+        if (!found) visit(c)
       }
     }
-    if (!edges || !edges.length) continue
-
-    const initial = (edges.find((e) => e.from === '[*]') || {}).to || null
-    const terminals = edges.filter((e) => e.to === '[*]').map((e) => e.from)
-    const validEdges = edges.filter((e) => e.from !== '[*]' && e.to !== '[*]')
-    const states = [...new Set([...validEdges.flatMap((e) => [e.from, e.to]), ...(initial ? [initial] : []), ...terminals])].sort()
-
-    const modelName = topic.split(/[-_]/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('') || 'Spec'
-    const outDir = path.join(ws, 'formal', topic)
-    fs.mkdirSync(outDir, { recursive: true })
-
-    // 1. TLA+ module (<ModelName>.tla)
-    const tlaLines = [
-      `------------------------------ MODULE ${modelName} ------------------------------`,
-      'EXTENDS Naturals, Sequences',
-      '',
-      `CONSTANTS MaxSteps`,
-      '',
-      `VARIABLES state, stepCount`,
-      '',
-      `vars == <<state, stepCount>>`,
-      '',
-      `States == { ${states.map((s) => JSON.stringify(s)).join(', ')} }`,
-      '',
-      `TypeOK ==`,
-      `    /\\ state \\in States`,
-      `    /\\ stepCount \\in 0..MaxSteps`,
-      '',
-      `Init ==`,
-      initial ? `    /\\ state = ${JSON.stringify(initial)}` : `    /\\ state \\in States`,
-      `    /\\ stepCount = 0`,
-      '',
-    ]
-
-    const transGroups = new Map()
-    for (const e of validEdges) {
-      if (!transGroups.has(e.from)) transGroups.set(e.from, [])
-      transGroups.get(e.from).push(e)
+    visit(n)
+    return found || fileOf(n)
+  }
+  // forbidden: 根のファイルに本文のある節点（定義・LET・ASSUME・INSTANCE の置き換え）が引く、TLA_MODULES の外か TLC_PURE の外の
+  // TLC の演算子。名前でなく本文の出どころで見るので、EXTENDS・INSTANCE・LOCAL INSTANCE・入れ子のモジュールのどれで引いても当たる。
+  const forbidden = () => {
+    const out = new Set()
+    for (const n of entries.values()) {
+      if (!n || n.tag === 'ModuleNode' || fileOf(n) !== rootName || originOf(n) !== rootName) continue
+      xWalk(n, (k) => {
+        if (k.tag !== 'UserDefinedOpKindRef') return
+        const t = entries.get(xText(k, 'UID'))
+        const from = t && originOf(t)
+        if (!t || from === rootName) return
+        const name = xText(t, 'uniquename')
+        if (!TLA_MODULES.includes(from) || (from === 'TLC' && !TLC_PURE.includes(name.slice(name.lastIndexOf('!') + 1)))) out.add(`${name}（${from}）`)
+      })
     }
+    return [...out].sort()
+  }
+  const constantsIn = (uids) => {
+    const out = new Set()
+    for (const u of uids) {
+      const n = entries.get(u)
+      if (n) xWalk(n, (k) => k.tag === 'OpDeclNodeRef' && out.add(xText(entries.get(xText(k, 'UID')), 'uniquename')))
+    }
+    return [...out].filter((c) => constants.has(c)).sort()
+  }
+  return { rootName, entries, defs, constants, closure, span, textSpans, names, text, forbidden, constantsIn }
+}
 
-    const actionNames = []
-    let actIdx = 1
-    for (const [fromState, toEdges] of transGroups) {
-      for (const edge of toEdges) {
-        const actName = `Trans_${actIdx++}`
-        actionNames.push(actName)
-        tlaLines.push(
-          `${actName} ==`,
-          `    /\\ state = ${JSON.stringify(fromState)}`,
-          `    /\\ stepCount < MaxSteps`,
-          `    /\\ state' = ${JSON.stringify(edge.to)}`,
-          `    /\\ stepCount' = stepCount + 1`,
-          ''
-        )
+// mutantsOf: 変異は doc_check が Init・Next（と制約）の閉包の中だけに機械で作る。性質と目撃の閉包の文字範囲に掛かる箇所は変えない
+// （性質を書き換えた変異が殺されても、基の性質の検出力は示さない。同じ本文を 2 つの INSTANCE で引く形も文字範囲で覆う）。
+function mutantsOf(ast, specUids, guardUids) {
+  const { entries, span, text } = ast
+  const guarded = ast.textSpans(guardUids).map((x) => x.span)
+  const free = ([a, b]) => !guarded.some(([c, d]) => a < d && c < b)
+  const sites = []
+  const add = (rank, a, b, to) => {
+    if (b > a && free([a, b])) sites.push({ rank, a, b, to })
+  }
+  const operatorName = (n) => {
+    const op = xChild(n, 'operator')
+    const ref = op && op.kids[0]
+    return ref ? xText(entries.get(xText(ref, 'UID')), 'uniquename') : null
+  }
+  const levelOf = (n) => Number(xText(n, 'level'))
+  for (const uid of specUids) {
+    const def = entries.get(uid)
+    if (!def || def.tag !== 'UserDefinedOpKind' || !span(def)) continue
+    xWalk(xChild(def, 'body') || { kids: [] }, (n) => {
+      const s = n.tag === 'NumeralNode' || n.tag === 'OpApplNode' ? span(n) : null
+      if (!s) return
+      if (n.tag === 'NumeralNode') {
+        const v = xText(n, 'IntValue')
+        if (text.slice(s[0], s[1]) !== v) return
+        add(0, s[0], s[1], String(BigInt(v) + 1n))
+        if (BigInt(v) > 0n) add(0, s[0], s[1], String(BigInt(v) - 1n))
+        return
       }
-    }
-
-    if (!actionNames.length) {
-      actionNames.push('Stutter')
-      tlaLines.push(`Stutter == /\\ UNCHANGED vars`, '')
-    }
-
-    tlaLines.push(
-      `Next ==`,
-      `    ${actionNames.map((a) => `\\/ ${a}`).join('\n    ')}`,
-      '',
-      `Spec == Init /\\ [][Next]_vars`,
-      '',
-      `DeadlockFree ==`,
-      terminals.length
-        ? `    (state \\notin { ${terminals.map((t) => JSON.stringify(t)).join(', ')} }) => (stepCount < MaxSteps => ENABLED Next)`
-        : `    stepCount < MaxSteps => ENABLED Next`,
-      '',
-      `ValidTerminal ==`,
-      terminals.length
-        ? `    (state \\in { ${terminals.map((t) => JSON.stringify(t)).join(', ')} }) => (stepCount <= MaxSteps)`
-        : `    TRUE`,
-      '',
-      `=============================================================================`
-    )
-
-    const tlaPath = path.join(outDir, `${modelName}.tla`)
-    fs.writeFileSync(tlaPath, tlaLines.join('\n') + '\n')
-
-    // 2. TLC Config (<ModelName>.cfg)
-    const cfgLines = [
-      'SPECIFICATION Spec',
-      'CONSTANTS',
-      '    MaxSteps = 10',
-      'INVARIANTS',
-      '    TypeOK',
-      '    DeadlockFree',
-      '    ValidTerminal',
-    ]
-    const cfgPath = path.join(outDir, `${modelName}.cfg`)
-    fs.writeFileSync(cfgPath, cfgLines.join('\n') + '\n')
-
-    // 3. README.md
-    const readmeLines = [
-      `# ${topic} 仕様の形式モデル`,
-      '',
-      `この形式モデルは \`${d.key}\` から \`doc_check.mjs formal-model\` により自動導出された TLA+ 状態機械モデルである。`,
-      '',
-      '## 状態遷移',
-      '',
-      '```mermaid',
-      'stateDiagram-v2',
-      ...(initial ? [`    [*] --> ${initial}`] : []),
-      ...validEdges.map((e) => `    ${e.from} --> ${e.to}${e.label ? ` : ${e.label}` : ''}`),
-      ...terminals.map((t) => `    ${t} --> [*]`),
-      '```',
-      '',
-      '## 検証する性質',
-      '',
-      '| 性質 | 内容 |',
-      '|---|---|',
-      '| `TypeOK` | 状態変数が仕様書で定義された状態集合に含まれる |',
-      '| `DeadlockFree` | 終端状態以外の状態において、ステップ上限に達するまで次の遷移が存在する |',
-      '| `ValidTerminal` | 終端状態に到達した実行パスの妥当性 |',
-      '',
-      '## 実行',
-      '',
-      '```bash',
-      `node --test check.test.mjs`,
-      '```',
-      '',
-      'または TLC によるモデル検査:',
-      '',
-      '```bash',
-      `java -cp /path/to/tla2tools.jar tlc2.TLC ${modelName}.tla -config ${modelName}.cfg`,
-      '```',
-    ]
-    const readmePath = path.join(outDir, 'README.md')
-    fs.writeFileSync(readmePath, readmeLines.join('\n') + '\n')
-
-    // 4. check.test.mjs (有界モデル検査器)
-    const checkTestLines = [
-      `import assert from 'node:assert/strict';`,
-      `import fs from 'node:fs';`,
-      `import path from 'node:path';`,
-      `import { fileURLToPath } from 'node:url';`,
-      `import test from 'node:test';`,
-      '',
-      `const here = path.dirname(fileURLToPath(import.meta.url));`,
-      `const tlaPath = path.join(here, '${modelName}.tla');`,
-      `const cfgPath = path.join(here, '${modelName}.cfg');`,
-      `const readmePath = path.join(here, 'README.md');`,
-      '',
-      `test('Formal model files exist and match structure', () => {`,
-      `  assert.ok(fs.existsSync(tlaPath));`,
-      `  assert.ok(fs.existsSync(cfgPath));`,
-      `  assert.ok(fs.existsSync(readmePath));`,
-      `  const tla = fs.readFileSync(tlaPath, 'utf8');`,
-      `  assert.match(tla, /MODULE ${modelName}/);`,
-      `  assert.match(tla, /TypeOK/);`,
-      `  assert.match(tla, /DeadlockFree/);`,
-      `});`,
-      '',
-      `test('Bounded Model Checking: explore state space and reachability', () => {`,
-      `  const states = ${JSON.stringify(states)};`,
-      `  const initial = ${JSON.stringify(initial)};`,
-      `  const terminals = new Set(${JSON.stringify(terminals)});`,
-      `  const transitions = ${JSON.stringify(validEdges.map((e) => ({ from: e.from, to: e.to })))};`,
-      '',
-      `  const transMap = new Map();`,
-      `  for (const t of transitions) {`,
-      `    if (!transMap.has(t.from)) transMap.set(t.from, []);`,
-      `    transMap.get(t.from).push(t.to);`,
-      `  }`,
-      '',
-      `  const visited = new Set();`,
-      `  const queue = initial ? [initial] : [...states];`,
-      `  let reachedTerminal = terminals.size === 0;`,
-      '',
-      `  while (queue.length > 0) {`,
-      `    const curr = queue.shift();`,
-      `    if (visited.has(curr)) continue;`,
-      `    visited.add(curr);`,
-      `    assert.ok(states.includes(curr), \`State \${curr} must be in declared states\`);`,
-      `    if (terminals.has(curr)) reachedTerminal = true;`,
-      `    const nexts = transMap.get(curr) || [];`,
-      `    if (!terminals.has(curr)) {`,
-      `      assert.ok(nexts.length > 0, \`Non-terminal state \${curr} must have outgoing transitions\`);`,
-      `    }`,
-      `    for (const n of nexts) {`,
-      `      if (!visited.has(n)) queue.push(n);`,
-      `    }`,
-      `  }`,
-      `  assert.ok(visited.size > 0, 'Explored non-empty state space');`,
-      `  assert.ok(reachedTerminal, 'Must be able to reach terminal state');`,
-      `});`,
-    ]
-    const testPath = path.join(outDir, 'check.test.mjs')
-    fs.writeFileSync(testPath, checkTestLines.join('\n') + '\n')
-
-    results.push({
-      topic,
-      doc: d.key,
-      model: modelName,
-      output_dir: path.relative(ws, outDir),
-      files: [
-        path.join('formal', topic, `${modelName}.tla`),
-        path.join('formal', topic, `${modelName}.cfg`),
-        path.join('formal', topic, 'README.md'),
-        path.join('formal', topic, 'check.test.mjs'),
-      ],
-      states_count: states.length,
-      transitions_count: validEdges.length,
+      const op = operatorName(n)
+      const operands = (xChild(n, 'operands') || { kids: [] }).kids
+      if (Object.hasOwn(RELATION_FLIP, op) && operands.length === 2) {
+        const [l, r] = operands.map(span)
+        if (!l || !r) return
+        const gap = text.slice(l[1], r[0])
+        const m = /^([\s)]*)(\S+?)([\s(]*)$/.exec(gap)
+        if (m && RELATION_FLIP[op].from.includes(m[2])) add(0, l[1] + m[1].length, l[1] + m[1].length + m[2].length, RELATION_FLIP[op].to)
+        return
+      }
+      if (op === '\\land' || op === '$ConjList') {
+        for (const x of operands) if (levelOf(x) <= TLA_LEVEL.state && span(x)) add(1, ...span(x), 'TRUE')
+      } else if (op === '\\lor' || op === '$DisjList') {
+        for (const x of operands) if (span(x)) add(2, ...span(x), 'FALSE')
+      }
     })
   }
+  const seen = new Set()
+  return sites
+    .sort((x, y) => x.rank - y.rank || x.a - y.a || x.b - y.b || (x.to < y.to ? -1 : 1))
+    .map((x) => ({ ...x, src: `${text.slice(0, x.a)}${x.to}${text.slice(x.b)}` }))
+    .filter((x) => (seen.has(x.src) ? false : seen.add(x.src)))
+    .map((x, i) => ({ id: `m${i + 1}`, change: `${text.slice(x.a, x.b)} → ${x.to}（${text.slice(0, x.a).split('\n').length} 行目）`, src: x.src }))
+}
 
-  return { formal_models: results }
+// runJava: argv は固定し、変えるのはモジュールと cfg だけにする（検査の条件を agent やモデルに選ばせない）。予算切れ・timeout・シグナルでの
+// 終了は exit を持たないので、どれも未検査（unchecked）にする。JVM は SIGTERM を受けると exit 143 を返すので、exit の有無でなく
+// ETIMEDOUT・シグナル・経過時間で見分ける（見分けないと、時間切れが parse_error や model_error に化ける）。
+function runJava(dir, args, clock, timeoutMs) {
+  const left = clock.budget - (Date.now() - clock.start)
+  if (left <= 0) return { exit: null, unchecked: 'budget', out: '' }
+  const limit = Math.min(timeoutMs * clock.scale, left)
+  const began = Date.now()
+  // TLC は標準 module を java.io.tmpdir に展開して終了時に消すので、共有すると並列の検査が互いの写しを消し、偽の parse_error になる。
+  const javaTmp = fs.mkdtempSync(path.join(dir, 'java-tmp-'))
+  const r = spawnSync('java', [`-Djava.io.tmpdir=${javaTmp}`, '-XX:+UseParallelGC', '-cp', tlaJarPath(), ...args], { cwd: dir, encoding: 'utf8', timeout: limit, maxBuffer: 64 * 1024 * 1024 })
+  const out = `${r.stdout || ''}${r.stderr || ''}`
+  const cut = limit === left ? 'budget' : 'timeout'
+  if (r.error && r.error.code === 'ETIMEDOUT') return { exit: null, unchecked: cut, out, stdout: r.stdout || '' }
+  if (r.error) throw new Error(`java を起動できません（${r.error.code || r.error.message}）`)
+  if (r.status === null || r.signal) return { exit: null, unchecked: `signal ${r.signal}`, out, stdout: r.stdout || '' }
+  if (Date.now() - began >= limit) return { exit: null, unchecked: cut, out, stdout: r.stdout || '' }
+  return { exit: r.status, out, stdout: r.stdout || '' }
+}
+
+// -deadlock はデッドロックを検査しない指定で、終端の状態を持つ流れを違反にしないため。
+function runTlc(dir, module, cfgText, runName, clock, timeoutMs = TLC_TIMEOUT_MS) {
+  fs.writeFileSync(path.join(dir, `${runName}.cfg`), cfgText)
+  const r = runJava(dir, ['tlc2.TLC', '-workers', '1', '-deadlock', '-config', `${runName}.cfg`, '-metadir', path.join(dir, `meta-${runName}`), `${module}.tla`], clock, timeoutMs)
+  clock.runs += 1
+  return r
+}
+
+const cfgValue = (v) => (Array.isArray(v) ? `{${v.map(cfgValue).join(', ')}}` : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : String(v))
+// cfgOf: cfg は manifest と AST からこの op が書く。CONSTANT は AST が CONSTANT と宣言した名前にだけ値を与え（定義名に値を書くと演算子を
+// 上書きできる）、`<-`・SYMMETRY・VIEW などは書かない。SPECIFICATION でなく INIT・NEXT を書くのは、Spec の時相の連言や公平性が検査の
+// 対象を変えないようにするため。
+function cfgOf(m, ast, invariants) {
+  const level = (n) => ast.defs.get(n).level
+  return [
+    `INIT ${m.init}`,
+    `NEXT ${m.next}`,
+    ...Object.entries(m.constants).map(([k, v]) => `CONSTANT ${k} = ${cfgValue(v)}`),
+    ...m.constraints.map((x) => `${level(x.name) <= TLA_LEVEL.state ? 'CONSTRAINT' : 'ACTION_CONSTRAINT'} ${x.name}`),
+    ...invariants.map((n) => `INVARIANT ${n}`),
+    '',
+  ].join('\n')
+}
+
+// TLC の出力は行頭に固定した形でだけ読む。モデルの文字列の値は引用符と escape つきで出るので行頭に来ず、Print・PrintT は
+// operator_forbidden で拒むので、モデルが偽の行を書けない。
+const traceStates = (out) => Math.max(0, ...[...out.matchAll(/^State (\d+):/gm)].map((x) => Number(x[1])))
+const distinctStates = (out) => {
+  const m = /^\d+ states generated, (\d+) distinct states found/m.exec(out)
+  return m ? Number(m[1]) : null
+}
+const searchDepth = (out) => {
+  const m = /^The depth of the complete state graph search is (\d+)\.$/m.exec(out)
+  return m ? Number(m[1]) : null
+}
+const violationLine = (out) => /^Error: Invariant (\S+) is violated( by the initial state)?[.:]?$/m.exec(out)
+const violatedOf = (out, names) => {
+  const m = violationLine(out)
+  return m && names.includes(m[1]) ? m[1] : null
+}
+const violatedInitially = (out, name) => {
+  const m = violationLine(out)
+  return Boolean(m && m[1] === name && m[2])
+}
+// traceOf: 反例の本文（最初の Error: から状態数の行の前まで）。writer と formal-trace-check が反例を文書の文と照らすために指摘へ載せる。
+function traceOf(out) {
+  const lines = out.split('\n')
+  const from = lines.findIndex((ln) => ln.startsWith('Error:'))
+  if (from < 0) return ''
+  const to = lines.findIndex((ln, i) => i > from && /states generated/.test(ln))
+  const text = lines.slice(from, to < 0 ? lines.length : to).join('\n').trim()
+  return text.length > TRACE_MAX_CHARS ? `${text.slice(0, TRACE_MAX_CHARS)}\n…（以下は全文の .out にある）` : text
+}
+
+function writeCheckText(ws, name, text) {
+  const rel = `checks/${name}`
+  fs.mkdirSync(path.join(ws, 'checks'), { recursive: true })
+  writeAtomic([path.join(ws, rel), text])
+  return rel
+}
+
+// 試行の記録（控え）は追記だけにする。判定の正本ではない（違反の和集合は呼び出し側が --violated で渡す）が、指摘のファイルは writer と
+// formal-trace-check が読むので、同じ名前に書き直させない。
+const FORMAL_ATTEMPT_FILE = /^formal-r(\d+)-a(\d+)\.json$/
+const formalAttemptFile = (round, attempt) => `formal-r${round}-a${attempt}.json`
+const formalFindingsFile = (round, doc, attempt) => `r${round}-${FORMAL_FINDING_TAG}-${indexName(doc)}-a${attempt}`
+function formalAttempts(ws) {
+  const dir = path.join(ws, 'checks')
+  if (!fs.existsSync(dir)) return []
+  return fs
+    .readdirSync(dir)
+    .map((f) => FORMAL_ATTEMPT_FILE.exec(f))
+    .filter(Boolean)
+    .map((m) => ({ round: Number(m[1]), attempt: Number(m[2]), report: readJsonFile(path.join(dir, m[0])) }))
+    .sort((a, b) => a.round - b.round || a.attempt - b.attempt)
+}
+function writeOnce(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, text, { flag: 'wx' })
+}
+
+// VIOLATED: 呼び出し側が渡す、この run で破れた性質と項目（<文書>:<項目>:<性質>:<閉包の digest>）。正本は呼び出し側の state で、checks/ は
+// 控えにとどめる（checks/ は modeler が消せるので、そこから読むと違反の記録ごと消せる）。--violated は外すと欠陥にする違反、--revised は
+// 前の巡で破れ、その後に writer が項目を改稿した違反（項目の文が変わったので、性質から外すことは正当でありうる。外したら dropped に記録する）。
+const VIOLATED = /^([^:\s]+):([^:\s]+):([A-Za-z_][A-Za-z0-9_]*):([0-9a-f]{12})$/
+const violatedToken = (doc, item, property, digest) => `${doc}:${item}:${property}:${digest}`
+function parseViolated(tokens, flag) {
+  return tokens.map((t) => {
+    const m = VIOLATED.exec(t)
+    if (!m) throw new Error(`${flag} は <文書>:<項目>:<性質>:<digest 12 桁> です: ${t}`)
+    return { doc: m[1], item: m[2], property: m[3], digest: m[4] }
+  })
+}
+
+const droppedOf = (m, ids, prior) =>
+  prior
+    .filter((v) => ids.includes(v.item) && !m.properties.some((p) => p.name === v.property && p.items.includes(v.item)))
+    .map((v) => ({ item: v.item, property: v.property }))
+    .filter((x, i, xs) => xs.findIndex((y) => y.item === x.item && y.property === x.property) === i)
+    .sort((a, b) => (a.property + a.item < b.property + b.item ? -1 : 1))
+function droppedDefects(m, ids, prior) {
+  const dropped = droppedOf(m, ids, prior).map((v) => `${v.property}（${v.item}）`)
+  return dropped.length ? [{ code: 'violated_dropped', detail: `前の検査で破れた性質と項目が、同じ名前の性質から外れた: ${dropped.join(', ')}` }] : []
+}
+
+// defineDefects: manifest が名前で指す定義は、根のモジュールの最上位にあり、引数を持たず、役に合う段にある。
+function defineDefects(m, ast) {
+  const out = []
+  const want = [
+    { name: m.init, role: 'init', max: TLA_LEVEL.state },
+    { name: m.next, role: 'next', max: TLA_LEVEL.action },
+    ...m.constraints.map((x) => ({ name: x.name, role: 'constraint', max: TLA_LEVEL.action })),
+    ...m.witnesses.map((x) => ({ name: x.invariant, role: `witness ${x.id}`, max: TLA_LEVEL.state })),
+    ...m.properties.map((p) => ({ name: p.name, role: 'property', max: TLA_LEVEL.state })),
+  ]
+  for (const w of want) {
+    const d = ast.defs.get(w.name)
+    if (!d) out.push({ code: 'definition_missing', detail: `${w.role} ${w.name} が ${ast.rootName}.tla の最上位に無い` })
+    else if (d.arity !== 0) out.push({ code: 'definition_shape', detail: `${w.role} ${w.name} が引数を持つ` })
+    else if (d.level > w.max) out.push({ code: w.role === 'property' ? 'property_level' : 'definition_shape', detail: `${w.role} ${w.name} の段が ${d.level}（${w.max} 以下が要る）${w.role === 'property' ? '。時相・action の性質は検査しないので、状態述語の不変条件に書き直すか、項目を excluded へ移して理由を書く' : ''}` })
+  }
+  const declared = [...ast.constants.keys()].sort()
+  const given = Object.keys(m.constants).sort()
+  const missing = declared.filter((k) => !given.includes(k))
+  const extra = given.filter((k) => !declared.includes(k))
+  if (missing.length || extra.length) out.push({ code: 'constant_mismatch', detail: `constants は ${ast.rootName}.tla が CONSTANT と宣言した名前だけ（値が無い: ${missing.join(', ') || 'なし'} / 宣言が無い: ${extra.join(', ') || 'なし'}）` })
+  for (const c of ast.constants.values()) if (c.arity !== 0) out.push({ code: 'constant_shape', detail: `CONSTANT ${c.name} が引数を持つ（演算子の定数は値を書けない）` })
+  const values = Object.values(m.constants).flatMap((v) => (Array.isArray(v) ? v : [v])).filter((v) => typeof v === 'string')
+  const clash = uniqStrings(values.filter((v) => ast.names.has(v)))
+  if (clash.length) out.push({ code: 'constant_shape', detail: `モデル値がモジュールの名前と同じ: ${clash.join(', ')}` })
+  return out
+}
+
+// checkFormalDoc: 形の検査を全部通ってから TLC を走らせ、基のモデルが違反なく通ってから変異と目撃を走らせる。基で破れている性質を
+// 殺す変異は、変異の検出力を示さない。
+function checkFormalDoc(ws, round, attempt, d, tmpRoot, clock, strict, revised) {
+  const prior = [...strict, ...revised]
+  const dir = formalDirOf(d.key)
+  const dirAbs = path.join(ws, FORMAL_DIR, dir)
+  const res = { doc: d.key, dir: `${FORMAL_DIR}/${dir}`, digest: null, cfg: null, constraints: [], constants: {}, violations: [], redefined: [], dropped: [], mutants: null, defects: [], runs: [] }
+  const defect = (code, detail) => res.defects.push({ code, detail })
+  const manifestPath = path.join(dirAbs, FORMAL_MANIFEST)
+  if (!fs.existsSync(manifestPath)) return { ...res, defects: [{ code: 'manifest_missing', detail: `${res.dir}/${FORMAL_MANIFEST}` }] }
+  let m
+  try {
+    res.digest = formalDirDigest(dirAbs)
+    m = readJsonFile(manifestPath)
+  } catch (e) {
+    return { ...res, defects: [{ code: 'manifest_shape', detail: e.message }] }
+  }
+  const shape = manifestShapeDefects(m, d.key)
+  if (shape.length) return { ...res, defects: shape.map((detail) => ({ code: 'manifest_shape', detail })) }
+  res.defects.push(...coverageDefects(m, d.ids), ...droppedDefects(m, d.ids, strict))
+  res.dropped = droppedOf(m, d.ids, revised)
+  // モデルのディレクトリは manifest とモジュール 1 つだけにする。別のファイルを置けると、EXTENDS・INSTANCE で判定の外の定義を引き込める。
+  const files = fs.readdirSync(dirAbs).sort()
+  const want = [FORMAL_MANIFEST, ...(m.module === null ? [] : [`${m.module}.tla`])]
+  for (const f of files.filter((f) => !want.includes(f))) defect('file_extra', f)
+  for (const f of want.filter((f) => !files.includes(f))) defect('file_missing', f)
+  if (m.module === null) {
+    if (hasStateModel(d.markdown)) defect('state_unmodeled', '文書に状態の図か状態遷移の表があるのに、モデルが無い（module が null）')
+    return res
+  }
+  if (!m.properties.length) defect('no_property', 'モデルがあるのに性質が 0 件')
+  for (const p of m.properties) if (!m.witnesses.some((x) => x.property === p.name)) defect('no_witness', p.name)
+  if (res.defects.some((x) => FORMAL_STRUCTURAL.includes(x.code))) return res
+  const tmp = fs.mkdtempSync(path.join(tmpRoot, `${dir}-`))
+  const text = fs.readFileSync(path.join(dirAbs, `${m.module}.tla`), 'utf8')
+  fs.writeFileSync(path.join(tmp, `${m.module}.tla`), text)
+  const kept = (r, runName) => writeCheckText(ws, `formal-r${round}-a${attempt}-${dir}-${runName}.out`, r.out.length > TLC_OUT_TAIL ? r.out.slice(-TLC_OUT_TAIL) : r.out)
+  const sany = runJava(tmp, ['tla2sany.xml.XMLExporter', '-o', `${m.module}.tla`], clock, SANY_TIMEOUT_MS)
+  if (sany.unchecked) {
+    defect('unchecked', `SANY（${sany.unchecked}）`)
+    return res
+  }
+  if (sany.exit !== 0) {
+    defect('parse_error', `${m.module}.tla を SANY が読めない: exit ${sany.exit}（${kept(sany, 'sany')}）`)
+    return res
+  }
+  const ast = tlaAst(sany.stdout, text)
+  if (ast.rootName !== m.module) defect('parse_error', `${m.module}.tla の根のモジュールの名前が ${ast.rootName}`)
+  // 入れ子のモジュールには当てない: 固定した jar の TLC は入れ子に上書きを当てず（tests が固定する）、SANY の XML は標準と同じ名前の入れ子を出さない。
+  // 大文字小文字を区別しない FS（macOS の既定）では naturals.tla が Naturals の EXTENDS を横取りし、予約の理由が見えない parse_error に化ける。
+  if (reservedModules().some((m) => m.toLowerCase() === ast.rootName.toLowerCase())) defect('module_reserved', `根のモジュールの名前 ${ast.rootName} が jar の同梱するモジュールと同じ（TLC がその名前のモジュールの定義を Java の実装で上書きし、本文と評価が別物になる。使えない名前: ${reservedModules().join('・')}）`)
+  const banned = ast.forbidden()
+  if (banned.length) defect('operator_forbidden', `${banned.join(', ')} を引く（引けるのは ${TLA_MODULES.join('・')} の演算子で、TLC からは ${TLC_PURE.join(' ')} だけ）`)
+  res.defects.push(...defineDefects(m, ast))
+  if (res.defects.some((x) => FORMAL_STRUCTURAL.includes(x.code))) return res
+  const uidOf = (n) => ast.defs.get(n).uid
+  const specUids = ast.closure([m.init, m.next, ...m.constraints.map((x) => x.name)].map(uidOf))
+  const propUids = ast.closure(m.properties.map((p) => uidOf(p.name)))
+  // 同じ本文を 2 つの INSTANCE で引くと UID は別になるので、共有は本文の文字範囲の重なりで見る。
+  const specSpans = ast.textSpans(specUids)
+  const shared = ast.textSpans(propUids).filter((p) => specSpans.some((q) => p.span[0] < q.span[1] && q.span[0] < p.span[1]))
+  if (shared.length) {
+    defect('property_in_spec', `性質の閉包の定義を Init・Next・制約も引く: ${uniqStrings(shared.map((x) => x.name)).sort().join(', ')}（性質で状態空間を刈ると違反が出なくなる。共有する値は CONSTANT にする）`)
+    return res
+  }
+  const definition = (n) => text.slice(...ast.defs.get(n).span)
+  // closureDigest: 性質の閉包の本文（補助の定義を含む）と、閉包が引く CONSTANT の値。補助の定義だけを変えても性質の意味は変わる。
+  const closureDigest = (n) => {
+    const uids = ast.closure([uidOf(n)])
+    const body = uniqStrings(ast.textSpans(uids).map((x) => `${x.name}\u0000${text.slice(...x.span)}`)).sort()
+    return sha256Bytes(Buffer.from(JSON.stringify([body, ast.constantsIn(uids).map((c) => [c, m.constants[c]])]))).slice(0, 12)
+  }
+  res.constraints = m.constraints.map((x) => ({ name: x.name, definition: definition(x.name), why: x.why }))
+  res.constants = m.constants
+  res.redefined = m.properties
+    .filter((p) => prior.some((v) => v.property === p.name) && !prior.some((v) => v.property === p.name && v.digest === closureDigest(p.name)))
+    .map((p) => ({ property: p.name, digest: closureDigest(p.name), definition: definition(p.name) }))
+  const names = m.properties.map((p) => p.name)
+  res.cfg = cfgOf(m, ast, names)
+  const run = (kind, id, module, invariants, runName, timeoutMs) => {
+    const r = runTlc(tmp, module, cfgOf(m, ast, invariants), runName, clock, timeoutMs)
+    res.runs.push({ kind, id, exit: r.exit, ...(r.unchecked ? { unchecked: r.unchecked } : {}), distinct: distinctStates(r.out) })
+    return r
+  }
+  const base = run('base', 'all', m.module, names, 'base')
+  if (base.unchecked) {
+    defect('unchecked', `基のモデル（${base.unchecked}）`)
+    return res
+  }
+  if (base.exit !== TLC_EXIT.pass) {
+    if (base.exit !== TLC_EXIT.invariant) {
+      defect('model_error', `基のモデル: exit ${base.exit}（${kept(base, 'base')}）`)
+      return res
+    }
+    for (const p of m.properties) {
+      const one = run('property', p.name, m.module, [p.name], `prop-${p.name}`)
+      if (one.unchecked) defect('unchecked', `性質 ${p.name}（${one.unchecked}）`)
+      else if (one.exit === TLC_EXIT.invariant && violatedOf(one.out, [p.name])) res.violations.push({ property: p.name, items: p.items, exit: one.exit, digest: closureDigest(p.name), definition: definition(p.name), trace: traceOf(one.out), out: kept(one, `prop-${p.name}`) })
+      else if (one.exit !== TLC_EXIT.pass) defect('model_error', `性質 ${p.name}: exit ${one.exit}（${kept(one, `prop-${p.name}`)}）`)
+    }
+    if (!res.violations.length && !res.defects.some((x) => ['model_error', 'unchecked'].includes(x.code))) defect('model_error', `基のモデルは exit ${base.exit} だが、性質を 1 つずつ検査するとどれも破れない（${kept(base, 'base')}）`)
+    return res
+  }
+  // 変異が性質を破っても、反例が基の到達の深さ + 1 より長ければ殺したと数えない。ガードを外した変異は状態を際限なく伸ばすので、文書の
+  // 条件よりずっと弱い性質（x # 99 など）でも遠くで破れる。殺したと数えるのは、基の振る舞いの 1 歩先で見分けたものだけにする。
+  const depth = searchDepth(base.out)
+  if (depth === null) {
+    defect('model_error', `基のモデルの到達の深さを TLC の出力から読めない（${kept(base, 'base')}）`)
+    return res
+  }
+  const reach = depth + 1
+  const all = mutantsOf(ast, specUids, propUids)
+  const mutants = all.slice(0, MUTANT_CAP)
+  res.mutants = { generated: all.length, run: 0, killed: {}, list: mutants.map(({ id, change }) => ({ id, change })) }
+  if (!mutants.length) defect('no_mutant', `Init・Next の閉包に、性質の閉包に掛からない変異の箇所が無い`)
+  let alive = [...names]
+  let cut = null
+  let timedOut = 0
+  for (const x of mutants) {
+    if (!alive.length || cut) break
+    const mdir = path.join(tmp, x.id)
+    fs.mkdirSync(mdir)
+    fs.writeFileSync(path.join(mdir, `${m.module}.tla`), x.src)
+    res.mutants.run += 1
+    let left = [...alive]
+    while (left.length) {
+      const r = runTlc(mdir, m.module, cfgOf(m, ast, left), 'mutant', clock, MUTANT_TIMEOUT_MS)
+      const hit = r.exit === TLC_EXIT.invariant ? violatedOf(r.out, left) : null
+      const near = hit !== null && traceStates(r.out) <= reach
+      res.runs.push({ kind: 'mutant', id: x.id, exit: r.exit, ...(r.unchecked ? { unchecked: r.unchecked } : {}), distinct: distinctStates(r.out), ...(hit ? { [near ? 'killed' : 'far']: hit } : {}) })
+      if (r.unchecked === 'budget') cut = 'budget'
+      else if (r.unchecked) timedOut += 1
+      if (!hit) break
+      left = left.filter((n) => n !== hit)
+      if (!near) continue
+      res.mutants.killed[hit] = x.id
+      alive = alive.filter((n) => n !== hit)
+    }
+  }
+  if (cut) defect('unchecked', `変異（予算切れ。殺されていない性質: ${alive.join(', ')}）`)
+  else if (timedOut && alive.length) defect('unchecked', `変異（${timedOut} 回が時間切れ。殺されていない性質: ${alive.join(', ')}）`)
+  else if (mutants.length) for (const n of alive) defect('mutant_survived', `${n} を基の到達の深さ + 1（${reach}）以内の反例で殺す変異が無い（${mutants.length} 件を流した。生成 ${all.length} 件）`)
+  // 目撃は基のモジュールと基の cfg に固定する。初期状態で破れる目撃は、遷移を 1 つも踏まずに「到達」するので数えない。
+  for (const x of m.witnesses) {
+    const runName = `witness-${x.id}`
+    const r = run('witness', x.id, m.module, [x.invariant], runName)
+    if (r.unchecked) defect('unchecked', `目撃 ${x.id}（${r.unchecked}）`)
+    else if (r.exit === TLC_EXIT.invariant && violatedInitially(r.out, x.invariant)) defect('witness_initial', `目撃 ${x.id}（${x.invariant} が初期状態で破れる。遷移を踏んだ到達ではない）`)
+    else if (r.exit === TLC_EXIT.invariant && violatedOf(r.out, [x.invariant]) && traceStates(r.out) >= 2) continue
+    else if (r.exit === TLC_EXIT.pass) defect('witness_unreached', `目撃 ${x.id}（性質 ${x.property} の前提に到達しない）`)
+    else defect('witness_error', `目撃 ${x.id}: exit ${r.exit}（${kept(r, runName)}）`)
+  }
+  return res
+}
+
+// formalFindings: 違反は文書の項目への指摘にする（文書が許す振る舞いが、文書の項目から形式化した性質を破る）。モデルの欠陥は
+// 指摘にしない。writer は本文しか直せず、モデルの欠陥を writer に渡すと直せない指摘が再発して経路を変え尽くすだけになる。欠陥は
+// 件数で返り、呼び出し側が同じ巡のうちに modeler へ差し戻す。反例と性質の定義は指摘に載せる（writer と formal-trace-check が読む）。
+function formalFindings(round, attempt, docResult) {
+  const name = formalFindingsFile(round, docResult.doc, attempt)
+  let seq = 0
+  const findings = docResult.violations.flatMap((v) =>
+    v.items.map((item) => ({
+      id: `${name}-${String(++seq).padStart(3, '0')}`,
+      doc: docResult.doc,
+      item_id: item,
+      quote: `形式モデル ${docResult.dir} の性質 ${v.property}（不変条件）:\n${v.definition}`,
+      issue: `この項目から形式化した性質 ${v.property} を、文書の他の項目が許す振る舞いが破る（TLC exit ${v.exit}）。`,
+      repro: `反例（全文は W/${v.out}）:\n${v.trace}`,
+      blocking: true,
+      route: 'writer',
+      direction: 'choose_one',
+      origin: 'text',
+    }))
+  )
+  return { name, findings }
+}
+
+function wsFormalCheck(ws, opts) {
+  const round = Number(opts.round)
+  if (!Number.isInteger(round) || round < 1) throw new Error(`--round は 1 以上の整数です: ${opts.round}`)
+  if (!opts.doc.length) throw new Error('formal-check には --doc <文書のキー> が 1 つ以上要ります')
+  // --budget-ms は上限を下げることにだけ使える（上げると Bash の上限を超えて stdout が失われる）。
+  const budget = opts.budgetMs === undefined ? FORMAL_BUDGET_MS : Number(opts.budgetMs)
+  if (!Number.isInteger(budget) || budget < 1 || budget > FORMAL_BUDGET_MS) throw new Error(`--budget-ms は 1 以上 ${FORMAL_BUDGET_MS} 以下の整数です: ${opts.budgetMs}`)
+  const fault = tlaToolsFault()
+  if (fault) return { status: 'unavailable', round, reason: fault }
+  const docs = deriveDocs(workspaceDocs(ws))
+  const unknown = opts.doc.filter((k) => !docs.some((d) => d.key === k))
+  if (unknown.length) throw new Error(`W に無い文書です: ${unknown.join(', ')}`)
+  const prior = parseViolated(opts.violated, '--violated')
+  const revised = parseViolated(opts.revised, '--revised')
+  // 試行の番号は指摘のファイルからも数える（checks/ を消されても、前の試行の番号を使い直して止まらない）。
+  const findingAttempt = new RegExp(`^r${round}-${FORMAL_FINDING_TAG}-.+-a(\\d+)\\.json$`)
+  const findingsDir = path.join(ws, 'findings')
+  const used = [
+    ...formalAttempts(ws).filter((a) => a.round === round).map((a) => a.attempt),
+    ...(fs.existsSync(findingsDir) ? fs.readdirSync(findingsDir).map((f) => findingAttempt.exec(f)).filter(Boolean).map((m) => Number(m[1])) : []),
+  ]
+  const attempt = 1 + Math.max(0, ...used)
+  const clock = { start: Date.now(), runs: 0, budget, scale: timeoutScale() }
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'prd-formal-'))
+  let results
+  try {
+    results = docs.filter((d) => opts.doc.includes(d.key)).map((d) => checkFormalDoc(ws, round, attempt, d, tmpRoot, clock, prior.filter((v) => v.doc === d.key), revised.filter((v) => v.doc === d.key)))
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  }
+  const replaces = formalFindingsBefore(ws)
+  const findings = []
+  for (const r of results) {
+    const { name, findings: list } = formalFindings(round, attempt, r)
+    writeOnce(path.join(ws, 'findings', `${name}.json`), `${JSON.stringify({ findings: list, checked: `formal-check r${round} a${attempt}: ${r.dir}（${r.runs.length} 回の TLC）` }, null, 1)}\n`)
+    findings.push(...list.map(({ id, doc, item_id, blocking, route, direction, origin }) => ({ id, doc, item_id, blocking, route, direction, origin })))
+  }
+  const defects = results.flatMap((r) => r.defects.map((x) => ({ doc: r.doc, ...x })))
+  const violated = results.flatMap((r) => r.violations.flatMap((v) => v.items.map((item) => violatedToken(r.doc, item, v.property, v.digest))))
+  const redefined = results.flatMap((r) => r.redefined.map((x) => ({ doc: r.doc, property: x.property })))
+  const dropped = results.flatMap((r) => r.dropped.map((x) => ({ doc: r.doc, ...x })))
+  const models = Object.fromEntries(results.map((r) => [r.doc, { dir: r.dir, digest: r.digest }]))
+  const pruning = Object.fromEntries(results.map((r) => [r.doc, { constraints: r.constraints.map(({ name, definition }) => ({ name, definition })), constants: r.constants }]))
+  const tree = digestOf(snapshotOf(workspaceDocs(ws)))
+  const rel = `checks/${formalAttemptFile(round, attempt)}`
+  writeOnce(path.join(ws, rel), `${JSON.stringify({ round, attempt, tool: { version: TLA_TOOLS.version, sha256: TLA_TOOLS.sha256 }, tree_digest: tree, violated_before: opts.violated, revised_before: opts.revised, docs: results, defects, not_checked: FORMAL_NOT_CHECKED }, null, 1)}\n`)
+  return { status: 'checked', round, attempt, findings, replaces, violated, redefined, dropped, pruning, defects: defects.length, path: rel, models, runs: clock.runs, tree_digest: tree, not_checked: FORMAL_NOT_CHECKED }
+}
+
+// formalFindingsBefore: この試行より前の formal-check の指摘の ID。形式検査は毎回全文書を検査し直すので、呼び出し側は前の試行の指摘を
+// 持ち越さない（ID の形を知るのはこの op だけにする。呼び出し側に指摘のファイル名の形を写すと、片方だけ変えたときに持ち越しが黙って戻る）。
+// この op の指摘のファイルを書く前に呼ぶ。findings/ は modeler も書けるので、ID はファイルの名前に -NNN を足した形のものだけを返す（監査役の
+// 指摘の ID を混ぜられると、呼び出し側がそれを持ち越しと再出の判定から外す）。
+function formalFindingsBefore(ws) {
+  const dir = path.join(ws, 'findings')
+  if (!fs.existsSync(dir)) return []
+  const prior = new RegExp(`^(r\\d+-${FORMAL_FINDING_TAG}-.+-a\\d+)\\.json$`)
+  return fs
+    .readdirSync(dir)
+    .map((f) => prior.exec(f))
+    .filter(Boolean)
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .flatMap(([f, name]) => readJsonFile(path.join(dir, f)).findings.map((x) => x.id).filter((id) => typeof id === 'string' && id.startsWith(`${name}-`) && /^\d{3}$/.test(id.slice(name.length + 1))))
+}
+
+// formalReportLines: report.md の「## 形式検査」。未確認の違反（writer が確かめないまま消えた違反）・定義の変わった性質・改稿の後に外した
+// 項目は、done の返り値の formal（--formal）から載せる。正本は prd-spec.js の state で、checks/ は modeler が消せるので数えない。
+function formalReportLines(ws, formal) {
+  const attempts = formalAttempts(ws)
+  if (!attempts.length && !formal) return ['検査の記録なし。', '']
+  const last = formal ? attempts.find((a) => a.round === formal.round && a.attempt === formal.attempt) : attempts[attempts.length - 1]
+  const shown = (v) => JSON.stringify(v)
+  const summary = last
+    ? last.report.docs.flatMap((x) => [
+        `- ${x.doc}: 違反 ${x.violations.length} 件・欠陥 ${x.defects.length} 件・変異 ${x.mutants ? `${x.mutants.run}/${x.mutants.generated} 件を流し、殺した性質 ${Object.keys(x.mutants.killed).length} 件` : 'なし'}`,
+        `  - 制約（CONSTRAINT）: ${(x.constraints || []).length ? x.constraints.map((c) => `\`${c.definition}\``).join('、') : 'なし'}`,
+        `  - 定数（CONSTANT）: ${Object.keys(x.constants || {}).length ? Object.entries(x.constants).map(([k, v]) => `${k} = ${shown(v)}`).join('、') : 'なし'}`,
+      ])
+    : [`- checks/${formalAttemptFile(formal.round, formal.attempt)} がありません`]
+  const notGiven = ['done の返り値の formal を --formal で渡していないので載せない（checks/ の控えからは数えない）。']
+  return [
+    `最後の検査: checks/${formal ? formalAttemptFile(formal.round, formal.attempt) : formalAttemptFile(last.round, last.attempt)}`,
+    '',
+    ...summary,
+    '',
+    '### 未確認の違反',
+    '',
+    ...(!formal ? notGiven : formal.unconfirmed.length ? formal.unconfirmed.map((x) => `- ${x.doc} ${x.item}: 性質 ${x.properties.join(', ')}（この run の検査で破れ、writer がその文書を改稿しないまま、または同じ巡のモデルの作り直しの間に違反が消えた。writer が直したと確かめていない）`) : ['0 件。']),
+    '',
+    '### 破れた後に定義が変わった性質',
+    '',
+    ...(!formal ? notGiven : formal.redefined.length ? formal.redefined.map((x) => `- ${x.doc} ${x.property}`) : ['0 件。']),
+    '',
+    '### 改稿の後に性質から外した項目',
+    '',
+    ...(!formal ? notGiven : formal.dropped.length ? formal.dropped.map((x) => `- ${x.doc} ${x.item}: 性質 ${x.property}（前の巡で破れ、writer が改稿した後に modeler が外した）`) : ['0 件。']),
+    '',
+    '### 機械で確かめていないもの',
+    '',
+    ...FORMAL_NOT_CHECKED.map((x) => `- ${x}`),
+    '',
+  ]
+}
+
+// parseFormalArg: done の返り値の formal（JSON 1 行）。形が合わなければ止める（読み飛ばすと未確認の違反が report から黙って落ちる）。
+function parseFormalArg(text) {
+  let f
+  try {
+    f = JSON.parse(text)
+  } catch (e) {
+    throw new Error(`--formal は done の返り値の formal の JSON です（${e.message}）`)
+  }
+  const ok =
+    f && Number.isInteger(f.round) && Number.isInteger(f.attempt) && Array.isArray(f.unconfirmed) && Array.isArray(f.redefined) && Array.isArray(f.dropped) &&
+    f.unconfirmed.every((x) => x && nonEmpty(x.doc) && nonEmpty(x.item) && Array.isArray(x.properties) && x.properties.every(nonEmpty)) &&
+    f.redefined.every((x) => x && nonEmpty(x.doc) && nonEmpty(x.property)) &&
+    f.dropped.every((x) => x && nonEmpty(x.doc) && nonEmpty(x.item) && nonEmpty(x.property))
+  if (!ok) throw new Error('--formal は { round, attempt, unconfirmed: [{ doc, item, properties }], redefined: [{ doc, property }], dropped: [{ doc, item, property }] } を持つ done の返り値の formal です')
+  return f
+}
+
+// formal-dirs: 文書のファイルと形式モデルの置き場（W からの相対）。formal-modeler・formal-trace-check が自分で実行して読む。名前の決め方は
+// formalDirOf だけが持ち、prd-spec.js は文書のキーを渡すだけにする（script に写すと片方だけ変わる。agent が写す stdout に載せると、文書の数で
+// 伸びた写しを落として run が止まる）。
+function wsFormalDirs(ws, opts) {
+  if (!opts.doc.length) throw new Error('formal-dirs には --doc <文書のキー> が 1 つ以上要ります')
+  selectDocs(workspaceDocs(ws).map((d) => d.key), opts.doc)
+  return { dirs: Object.fromEntries([...new Set(opts.doc)].map((k) => [k, { doc: docFileOf(k), dir: `${FORMAL_DIR}/${formalDirOf(k)}` }])) }
+}
+
+function wsFormalDigest(opts) {
+  if (!opts.dir || !path.isAbsolute(opts.dir)) throw new Error('formal-digest には --dir <形式検証のディレクトリの絶対パス> が要ります')
+  if (!fs.existsSync(opts.dir) || !fs.statSync(opts.dir).isDirectory()) throw new Error(`ディレクトリではありません: ${opts.dir}`)
+  return { dir: opts.dir, digest: formalDirDigest(opts.dir) }
 }
 
 function parseWorkspaceArgs(argv) {
-  const o = { doc: [] }
+  const o = { doc: [], violated: [], revised: [] }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const take = () => {
@@ -4427,6 +5076,9 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--role') o.role = take()
     else if (a === '--part') o.part = take()
     else if (a === '--doc') o.doc.push(take())
+    else if (a === '--violated') o.violated.push(take())
+    else if (a === '--revised') o.revised.push(take())
+    else if (a === '--formal') o.formal = take()
     else if (a === '--req-dir') o.reqDir = take()
     else if (a === '--spec-dir') o.specDir = take()
     else if (a === '--open-tbd') o.openTbd = take().split(',').map((s) => s.trim()).filter(Boolean)
@@ -4447,6 +5099,9 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--file') o.file = take()
     else if (a === '--input') o.input = take()
     else if (a === '--sweep') o.sweep = true
+    else if (a === '--round') o.round = take()
+    else if (a === '--budget-ms') o.budgetMs = take()
+    else if (a === '--dir') o.dir = take()
     else if (a === '--keep') o.keep = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
@@ -4457,6 +5112,8 @@ function runWorkspace(mode, argv) {
   const opts = parseWorkspaceArgs(argv)
   if (mode === 'describe') return describeLedgers()
   if (mode === 'contract') return wsContract(opts)
+  if (mode === 'formal-digest') return wsFormalDigest(opts)
+  if (mode === 'formal-tools') return wsFormalTools()
   if (!opts.workspace) throw new Error('--workspace <W> が要ります')
   const ws = path.resolve(opts.workspace)
   if (!fs.existsSync(ws) || !fs.statSync(ws).isDirectory()) throw new Error(`workspace がディレクトリではありません: ${opts.workspace}`)
@@ -4482,7 +5139,8 @@ function runWorkspace(mode, argv) {
   if (mode === 'report') return wsReport(ws, opts)
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
-  if (mode === 'formal-model') return wsFormalModel(ws, opts)
+  if (mode === 'formal-check') return wsFormalCheck(ws, opts)
+  if (mode === 'formal-dirs') return wsFormalDirs(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -4501,7 +5159,7 @@ if (invokedDirectly && WS_MODES.includes(process.argv[2])) {
   const mode = process.argv[2]
   try {
     const out = runWorkspace(mode, process.argv.slice(3))
-    process.stdout.write(typeof out === 'string' ? out : `${JSON.stringify(stampStdout(out))}\n`)
+    process.stdout.write(typeof out === 'string' ? out : `${JSON.stringify(stampStdout(out, mode))}\n`)
   } catch (e) {
     process.stderr.write(`doc_check ${mode}: ${e && e.message ? e.message : e}\n`)
     process.exit(e instanceof DigestMismatch ? 3 : 1)
@@ -4544,6 +5202,7 @@ export {
   canonicalText,
   fnv,
   STDOUT_FNV,
+  STDOUT_MODE,
   stampStdout,
   rulingsCompact,
   runChecks,
@@ -4566,5 +5225,8 @@ export {
   carryShapeOk,
   carryPathOf,
   CARRY_SUFFIX,
-  wsFormalModel,
+  FORMAL_DEFECTS,
+  TLA_TOOLS,
+  TLC_EXIT,
+  formalDirDigest,
 }

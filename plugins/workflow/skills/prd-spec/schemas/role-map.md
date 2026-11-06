@@ -21,7 +21,7 @@
 | 最初の段 | role | 種別 | 責務（1 つ） | やらないこと | なぜ（破ると何が壊れるか） |
 |---|---|---|---|---|---|
 | S0 | 司令塔（SKILL.md） | 中継 | 依頼と回答を逐語で書く、`doc_check questions`・`doc_check report` で問いと事後報告を導出し、questions.md と report.md をそのまま見せる、SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す、保存の前の digest の文字列比較 | 決定・問い・回答・文書の文面を書くこと | 司令塔が書くと、生成と検証の分離が最後の工程で破れる |
-| 1 | flow-check | 検証（決定的な検査の実行） | 台帳を書いた resolver の後に doc_check flow を実行し、stdout をそのまま返す。blocked の後の同じ段の再実行の入口では、その前に doc_check restore を実行する。段 1 の入口では doc_check reset を、段 4・7 の writer の前では doc_check backup を、回答済みのゲートを越える前では doc_check answers を、flow-framer の lint の差し戻しの前後では doc_check stash・unstash を実行する | ファイルの書き込み（restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が行う。回答の書き足しを含む）・指摘の修正・stdout の加工 | 台帳を書いた resolver の stdout だけで進むと、少なく申告した指摘が誰にも見えないまま次の段へ届く |
+| 1 | flow-check | 検証（決定的な検査の実行） | 台帳を書いた resolver の後に doc_check flow を実行し、stdout をそのまま返す。blocked の後の同じ段の再実行の入口では、その前に doc_check restore を実行する。段 1 の入口では doc_check reset を、段 4・7 の writer の前では doc_check backup を、段 5・8 の formal-modeler の後では doc_check formal-check を、回答済みのゲートを越える前では doc_check answers を、flow-framer の lint の差し戻しの前後では doc_check stash・unstash を実行する | ファイルの書き込み（restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が行う。回答の書き足しを含む）・指摘の修正・stdout の加工 | 台帳を書いた resolver の stdout だけで進むと、少なく申告した指摘が誰にも見えないまま次の段へ届く |
 | 1 | intake | 生成（仕分けと決定の起票） | 依頼を確定・決定・未決に仕分け、観点・分割・writer の単位・自己完結の方針を決定として起票する | 問い・要求文の起草 | 問いを先に作ると流れの抜けと重複し、要求文を書くと検証されない文が決定の顔で文書に入る |
 | 2 | flow-framer | 生成（流れの起草） | 出典付きの流れ図を描き、決まらない分岐を未決に足し、doc_check で閉じる | 組の判定・要求の文面 | 流れを持たずに書くと、書かれなかった工程と分岐が初稿の後に問いとして戻る |
 | 3 | resolver | 生成（裁定と問い） | 未決・組・決定が要る指摘・新しい TBD を裁定の種類（agents/resolver.md）で閉じ、問い・保持規則を書く。回答反映後の domain 軸は、agent-contracts.md「決定の台帳」の後段 domain assessment 規則に従い、初期 verdict にかかわらず、新しい signal が有効判定を変える場合に `about.domain` の構造化 resolution として評価・記録する | 本文の改稿・裁定の自己承認・指摘の真偽の裁定 | 本文を直すと監査を迂回し、自己承認すると価値の判断が方法論として黙って決まる。初期状態だけを保存して後段の signal を評価しないと、その axis の必須カテゴリが文書へ届かない |
@@ -30,16 +30,18 @@
 | 5 | implementer | 検証 | 1 項目の中: 着手可能性・項目自身の目的に対する過不足・曖昧さ | 文案・根拠の判定・項目間 | 観点が重なると同じ箇所に 2 つの指摘が付き、writer が逆向きに直す |
 | 5 | grounding | 検証 | 1 文の根拠: 捏造・偽装・未決の断定・入力への違反 | 文案・着手可能性・項目間 | 同上 |
 | 5 | cross-doc | 検証 | 項目の間: 矛盾・重複・用語・上位の要求と照らした範囲・依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱・紐付け・必須の欠け。段 5 で監査の基準（audited-1）を保存する | 文案・1 項目で完結する問題 | 同上 |
+| 5 | formal-modeler | 生成（形式モデル） | 監査の版の文書を formal-methods スキルの手順で TLA+ のモジュールと対応表（manifest）にする（改稿の後は変わった項目に触れる所だけ直す） | 合否の申告・cfg と変異の作成・反例の照合・文書の書き換え・スキルを呼べないときの即興のモデル | 合否を申告させると生成者の自己判定になる。cfg と変異を書かせると、置換や性質を書き換えた変異で違反を隠せる。照合させると、自分の違反を導けないとして消せる。文書を書くと監査した版と検査した版が別物になる |
+| 5 | formal-trace-check | 検証（反例の照合） | 形式検査の違反ごとに、反例の遷移が文書の文から導けるかを返す | モデル・文書・指摘の書き込み | モデルを書いた役が照合すると、自分のモデルで出た違反を writer に届く前に消せる |
 | 全段 | doc_check（script） | 検証（決定的） | 語尾・曖昧語・ID・trace・表と流れの網羅・開いた TBD の断定・snapshot と diff | 意味の判定 | 算術を LLM に載せると揺れ、落ちた agent が「0 件」に化ける |
 | 全段 | prd-spec.js（Workflow script） | 制御 | 段の順序・起動の条件・上限・返り値の検査と引き継ぎ | ファイルの読み書き（できない） | 実行経路を agent に任せると、段が飛ばされても誰も気づかない |
 
 ## 責務の重複・空白の確認
 
 - **文を書くのは生成側だけ**: writer（本文と meta）、resolver（裁定・問い・保持規則）、intake（決定の値）、
-  flow-framer（流れ）。検証側（3 監査役・resolver-verifier・doc_check）は文を持たない。
+  flow-framer（流れ）、formal-modeler（形式モデル。合否は doc_check formal-check）。検証側（3 監査役・resolver-verifier・formal-trace-check・doc_check）は文を持たない。
 - **監査の観点は排他**: 1 項目の中・1 文の根拠・項目の間、に分け、機械で判定できるものは doc_check に置く
   （`schemas/agent-contracts.md` §監査役の共通節）。
-- **指摘の一生**: 監査役が起票（route を付ける）→ `writer` は script が束ねて改稿へ、`decision` は resolver が裁定 →
+- **指摘の一生**: 監査役か doc_check formal-check（形式モデルの性質の違反）が起票（route を付ける）→ `writer` は script が束ねて改稿へ、`decision` は resolver が裁定 →
   resolver-verifier → 改稿 → 範囲を絞った監査。残れば次のパスを回し、収束しなければ blocked。
 - **論点の一生**: intake・flow-framer が未決に起票（writer は TBD の候補を meta に起票）→ resolver が裁定 →
   resolver-verifier → 合格すれば決定台帳に入って writer が使う。`question` は依頼者の回答で決まり、`hold` は保持規則と
