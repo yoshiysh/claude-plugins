@@ -1,0 +1,23 @@
+canon	location	holds	scope	used_in_v4_for
+best-practices.md §1「Orchestratorの純粋性」	plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md:55-72	SKILL.md は誰に何を渡すかだけを定義し、判断は sub-agent が持つ	スキルの SKILL.md（メインセッションの振る舞いは含まない）	AGENTS.md 作業ルールの司令塔の規則は残す。メインセッションとループの外を含む範囲は best-practices に無いため
+best-practices.md §1「解決は根本原因の除去に置く」	同 :74-87	構造で誤りを不可能にする・構造化の後に防御コメントを消す・構造で防げないときだけ why の 1 行。判定の目安	文面は一般的（スキルに限らない）	根本原因の規範の機序の正本にする。AGENTS.md には規則と 1 行の理由を残し、workflow.md は機序を写さずここを指す
+best-practices.md §1「文書は 1 つの正本を型の中で更新する」	同 :106-117	1 つの事実は 1 箇所。説明的なコメントを書かない（スキル内の文書と生成物）	スキル内の文書	コメントの規則のうちスキルの分はここが持つ。リポジトリ全体のコードのコメントは AGENTS.md の規則として残す
+best-practices.md §3「model と effort は役割ごとに組で選ぶ」	同 :160-193	agent() の model・effort を全 callsite で明示する。継承の費用。登録済み subagent は frontmatter に書く	Workflow の script と登録済み subagent	fan-out の規則の正本の一部。AGENTS.md には 1 行で残す（ad-hoc の fan-out はメインセッションで起きる）
+best-practices.md §3「Why-driven prompt design」	同 :201-224	理由を説明し、MUST/NEVER を並べない	スキルの指示（配布物。配布先に docs/ が無い）	規範の書き方は docs/guidelines/documentation.md:11 を正本とし、こちらは配布物向けの独立した形として触れない
+best-practices.md §5	同 :253-268	確定的処理を scripts/ に寄せる	スキル	main L61 を AGENTS.md から消す（REVIEW.md の SKILL.md の行が §5 を既に指す）
+best-practices.md §13「script の置き場」	同 :676-704	未公開・公開後の 2 段・名前の呼び出し・公開後の script は workflows/ を直接編集	Workflow script	AGENTS.md の公開済み script の直接編集の例外はここを指す。テストの置き場（workflows/ に置かない）は §13 に無い（grep で 0 件）ので AGENTS.md に残す
+best-practices.md §13「体数は測れる値から段階的に決める」	同 :774-795	evidence pack を 1 回作って配る・抽出は script が望ましい・入れなかったファイルを宣言する（参照実装 scripts/review-snapshot.mjs）	作るスキルの設計指針	fan-out の抽出の規則の正本。review-lenses.md は体数と抽出をここで指す。観点の agent の抽出役は作らない
+best-practices.md §13「品質パターン」	同 :753-772	Perspective-diverse verify・No silent caps・スコープの梯子など	Workflow	観点を分ける根拠として review-lenses.md から指す。スコープの梯子と workflow.md の食い違いは W3 により扱わない
+manage-marketplace-plugin SKILL.md「設計上の不変条件」	plugins/*/skills/manage-marketplace-plugin/SKILL.md（.agents/skills/manage-marketplace-plugin の実体）:170-186 と :20-26・:120-128	配布サブツリーに symlink を置かない機序・公開は実体の移動・初公開の Workflow script の移動・ディレクトリ名は実体名・本体は単一ソース（exit 4）・plugin 間依存は宣言と呼び出し（Codex は手動 install）・2 つの plugin.json の生成	登録・公開	main L23〜37・L205・L168〜172 の詳細の正本にする。AGENTS.md は規則と 1 行の理由だけを残してここを指す。新しい distribution.md は作らない
+verify_install.py の L2	.agents/skills/manage-marketplace-plugin/scripts/verify_install.py:300-310 付近	2 つの plugin.json の共通フィールドの一致・専用フィールドの混入の拒否・配布サブツリーの symlink の検出	登録後の検証	main L205 のフィールドの区別を散文に写さない
+register_plugin.py	同 scripts/register_plugin.py:1012	--author の既定値 yoshiysh	登録	main L63 を消す
+quick_validate.py	plugins/skill-creator/skills/skill-creator-best-practices/scripts/quick_validate.py:69・85	frontmatter の name・description の欠落を検出する	make test	main L60 を消す
+dynamic-workflow-runner SKILL.md と runtime/README.md・claude-workflow-compatibility.md	plugins/workflow/skills/dynamic-workflow-runner/	Codex での native-first・拒否の基準・実行条件	Workflow caller	main L186〜196・L207・L208 の正本。AGENTS.md の規範の置き場から場面（Codex で Workflow を使う）で指す
+docs/guidelines/documentation.md:11	docs/guidelines/documentation.md	規則の理由は破ると何が壊れるかに絞る	README・要求・仕様・規約・スキル指示	main L128〜134 の正本にする。AGENTS.md から消し、追記もしない
+docs/guidelines/testing.md「検査の入口」	docs/guidelines/testing.md:54-	検査コマンドの入口	テスト	main L160〜166（個別スキルのコマンド）と L200（SKIP: の読み方）の受け皿
+REVIEW.md「観点」	REVIEW.md:27-38	役割分担と正本の一意性・生成と検証の分離・根本解決と対症療法・不在・網羅の断定・スクリプトの境界値と失敗	PR（実装レビュー）	実装段の norm-consistency・root-cause・evidence・failure-behavior の担い手は diff-verifier・repo-review（REVIEW.md）にし、新しい agent を実装段に当てない
+.claude/agents/diff-verifier.md	.claude/agents/diff-verifier.md	REVIEW.md の基準で差分を読む読み取り専用の検証役（opus・high）	差分	V3 によりそのまま残し、review-lenses.md の表で実装段の REVIEW.md 観点の担い手（ready 後の差分を含む）にする
+claim-gate の claim-judge	plugins/claim-gate/agents/claim-judge.md	Stop hook が flag した応答の不在・網羅の断定の裏付け	応答	成果物の主張は REVIEW.md「不在・網羅の断定」を当てる担い手（設計段は norm-auditor、実装段は diff-verifier）に任せ、claim-checker を作らない
+repo-review の方針の束	.agents/skills/repo-review/scripts/review-core.mjs:623-760	REVIEW.md の「読むもの」の表から文書・節を行番号つきで 1 つにする	repo-review の run	観点の agent への組み込み（別 PR）で再利用する候補。#207 の agent は束を前提にしない
+skill-creator の scripts/review-snapshot.mjs	plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs	evidence pack の参照実装	skill-creator の review	同上
+repo-implement の implementer	.agents/skills/repo-implement/agents/implementer.md	このリポジトリの実装の生成役（builder）	repo-implement の run	AGENTS.md の司令塔の規則の「生成は builder 役へ振る」の担い手として規範の置き場から指す

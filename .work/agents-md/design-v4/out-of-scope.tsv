@@ -1,0 +1,22 @@
+kind	item	source	reason	where_next
+out-of-scope	スキルの修正ループを「設計に戻る」と重大度の閾値に揃える（repo-implement・address-review・build_skill.js・pr-review-fix・prd-spec.js・review-document）	purpose.txt（Q1）	規範を先に入れ、スキルは直後の別 PR で直す	design-v2h/later.tsv の Q1 の行
+limit	上の改修までの間、repo-implement などの上限つきの修正ループと、AGENTS.md の「MEDIUM 以上は設計に戻る」が食い違う	設計レビュー（norm）	改修は直後の別 PR で、相手の側を直すので #207 では優先の規則を書かない（best-practices §13 と同じ扱い。W3）	Q1 の PR
+out-of-scope	best-practices.md §13 のスコープの梯子と「設計に戻る」の食い違い	W3	best-practices を更新するので #207 では扱わず、優先の 1 行も書かない	best-practices の更新
+out-of-scope	formal-methods スキルの未決の解消（実行形態・契約の書式・取り込みの採否・忠実さの検証）	purpose.txt（Q2）	#207 では手順の正本として参照するだけ	design-v2h/later.tsv の Q2 の行
+out-of-scope	quick_validate.py・address-review の evals.json の「設計レビュー」の語の揃え	purpose.txt（Q4）	スキルの改修と同じ別 PR。testing.md の SKIP: の文は段を名指さず、ツールの出力と食い違わない	design-v2h/later.tsv の Q4 の行
+out-of-scope	Codex の hook の再導入と、検査の時機の設計（make test をいつ走らせるかの規則を含む）	purpose.txt（Q8）・束 B12	#207 では削除だけを行う	design-v2h/later.tsv の hook の行
+limit	.codex/hooks.json を消すと、Stop の通知（macOS の通知音）の hook も消える	束 B9	削除は Q8 の字義どおり。通知は利用者個人の設定に属し、要るなら利用者の個人設定（~/.codex など）に置く	利用者
+out-of-scope	Codex 用の agent 定義の生成（.codex/agents/*.toml・生成 script・照合テスト）	W1・束 B8	呼ぶ側を組み込む PR へ回す。#207 は review-lenses.md に Codex での立て方を 1 行だけ置く	観点の agent を呼ぶ側を組み込む PR
+limit	Codex では、呼ぶ側が spawn のときに model と effort を渡さないと親の値を継承する。読み取り専用は指示でしか担保できない	束 B8・codex.txt	review-lenses.md の 1 行で model・effort を渡すことを書く。読み取り専用の担保は生成と同じ PR で決める	観点の agent を呼ぶ側を組み込む PR
+out-of-scope	観点の agent を既存のスキル（repo-review・pr-review・skill-creator の reviewer）や Workflow へ組み込むこと	purpose.txt	#207 は agent の定義と段の対応表を置くまで	別 PR
+limit	#207 の観点の agent は、対象をパスと行範囲で受けて自分で読む。抽出を 1 回にして配る形（evidence pack）にはまだしない	束 B7	抽出を作る script を呼ぶ側が #207 に無い。呼ぶ側が抽出を組み立てると、司令塔が内容を生成することになる。組み込む PR で既存の script（repo-review の方針の束・skill-creator の review-snapshot.mjs）の再利用を比べる。それまでは体数ぶん同じ文書を読む費用がかかる	観点の agent を呼ぶ側を組み込む PR
+out-of-scope	規則を機械の検査へ昇格させること（plugins/ 配下の symlink の検査を make test に入れる・節名の参照の実在を check_references.py に入れる）	purpose.txt・束 B12	候補を挙げるだけ。#207 で足す機械の検査は、V5 の抜粋の一致を照らす tests/agents-md-excerpts.test.mjs だけ（V5 で受け入れた重複を構造で保つため）	別 PR
+out-of-scope	docs/ の鮮度を定期的に検査する仕組み（文書整備の agent・CI）	purpose.txt	目的の 3 項目に要らない	未定
+out-of-scope	develop-skills-redesign.md の AGENTS.md の引用（止めない）の照合	purpose.txt（later.tsv）	3 スキルの再設計に入るときに照らす	design-v2h/later.tsv の行
+limit	main の AGENTS.md から引き継ぐ曖昧さ（いつ commit し PR を誰が作るか・登録と公開の区別・ready 前の修正の検証役）	束 B13	目的の 3 項目のどれにも当たらず、#207 で新たに生じたものではない。体数の基準は review-lenses.md で規模に比例させる規則として持つ	未定
+cut	新しい docs/guidelines/multi-agent.md・distribution.md	束 B1	既存の正本（best-practices §1・§3・§13、manage-marketplace-plugin の不変条件、runner の文書、verify_install.py）が既に持つ。持たない分（メインセッションの役割分担・上位 model への入力の絞り込み・テストの置き場・scriptPath の起動）は AGENTS.md に残す	-
+cut	evidence-packer・claim-checker の agent	束 B1・B7	抽出は script が望ましく（best-practices §13）、#207 に呼ぶ側も script も無い。主張の裏付けは REVIEW.md「不在・網羅の断定」を設計段は norm-auditor、実装段は diff-verifier が当てる	-
+cut	documentation.md への追記（規範の理由・同じ値の実例・コメント・sweep）	束 B1・B6	規範の理由は documentation.md:11 が既に持つ。実例の実測は経緯で、commit の履歴にある。コメントと sweep はコードにも掛かるので AGENTS.md に残す	-
+cut	docs/specifications/ とその写しの AGENTS.md への参照の付け替え	refs.tsv	規則が「作業ルール」に残るか、地図から 1 段で辿れる。写しを変えると skill-creator plugin の再配布が要る	-
+cut	場面ごとの個別の条項（作業中の検査・環境の原因・除けない失敗・typo を、場面ごとの例外として列挙すること）	規範「端の場面を条項で閉じない」・束 B4	欠陥の扱いの 1 つの規則（重大度の閾値・環境の原因・止まる場所の指し先）と、規模に比例させる 1 つの規則にまとめる	-
+cut	main の実測の経緯（cycle 上限・timeout・60 体のレート制限・250K tokens/分・4 round の消失・手修正 3/3）	束 B6	規則と 1 行の理由だけを残し、経緯は commit の履歴に任せる	-
