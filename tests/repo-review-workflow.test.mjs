@@ -588,8 +588,9 @@ test('このリポジトリの REVIEW.md から作る方針の束は、表が挙
   assert.deepEqual(unparsed, [], '表の参照を全て解析できる')
   // 期待する文書の集合は REVIEW.md の「読むもの」の表を読んで決めたもの（表を変えたらここも見直す）。
   const BP = 'plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md'
-  assert.deepEqual(docs.map((d) => d.path).sort(), ['AGENTS.md', BP, 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'scripts/traceability/README.md'].sort())
-  assert.deepEqual(docs.find((d) => d.path === 'AGENTS.md').titles.map((x) => x.title).sort(), ['作業ルール', '注意点', '現在の実体'].sort())
+  assert.deepEqual(docs.map((d) => d.path).sort(), [BP, 'docs/guidelines/agent-work.md', 'docs/guidelines/repository-operations.md', 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'scripts/traceability/README.md'].sort())
+  assert.equal(docs.find((d) => d.path === 'docs/guidelines/agent-work.md').whole, true)
+  assert.deepEqual(docs.find((d) => d.path === 'docs/guidelines/repository-operations.md').titles.map((x) => x.title).sort(), ['実行と環境', '配置と配布'].sort())
   assert.deepEqual(docs.find((d) => d.path === BP).titles.map((x) => x.num).sort((a, b) => a - b), [1, 2, 3, 5, 10, 11, 12, 13, 13], '§13 は表の左の列の「script の置き場」と右の列の節の 2 つ')
   for (const d of docs) {
     assert.ok(existsSync(path.join(ROOT, d.path)), d.path)
@@ -603,4 +604,34 @@ test('このリポジトリの REVIEW.md から作る方針の束は、表が挙
   assert.match(bpLines[s1.start - 1], /^## 1\. /)
   assert.match(bpLines[s1.end], /^## 2\. /)
   assert.ok(bpLines.slice(s1.start, s1.end).some((l) => l === '# 悪い例'), 'フェンスの中の見出しを含んだまま')
+})
+
+
+test('実表をCLIへ通すと移動した作業・配布・runtime規則が方針束へ届く', (t) => {
+  const fx = fixture(t)
+  const review = readFileSync(path.join(ROOT, 'REVIEW.md'), 'utf8')
+  const { docs } = parseReadingTable(review)
+  write(fx.repo, 'REVIEW.md', review)
+  for (const doc of docs) write(fx.repo, doc.path, readFileSync(path.join(ROOT, doc.path), 'utf8'))
+  git(fx.repo, 'add', '-A')
+  git(fx.repo, 'commit', '-q', '-m', 'current policy')
+  const policyRef = git(fx.repo, 'rev-parse', 'HEAD')
+  write(fx.repo, 'docs/a.md', 'a3\n')
+  write(fx.repo, 'docs/b.md', 'b2\n')
+  git(fx.repo, 'add', '-A')
+  git(fx.repo, 'commit', '-q', '-m', 'review target')
+  const head = git(fx.repo, 'rev-parse', 'HEAD')
+  const args = planArgs({ repo: fx.repo, mode: 'diff', baseRef: policyRef, headSha: head, policyRef, reviewers: REVIEWERS, stateDir: fx.stateDir })
+  assert.deepEqual(args.plan.target.files.slice().sort(), ['docs/a.md', 'docs/b.md'])
+  assert.deepEqual(args.plan.policyPack.missing, [])
+  const pack = readFileSync(args.plan.policyPack.path, 'utf8')
+  for (const [doc, phrase] of [
+    ['agent-work.md', '上限を自動更新しない'],
+    ['agent-work.md', '成果物本文（コード・hook・文書）の生成・修正・採点をしない'],
+    ['repository-operations.md', '`plugins/` 配下に symlink を作らない'],
+    ['repository-operations.md', '秘密情報を含むため'],
+    ['repository-operations.md', '最初の execution agent の dispatch 前に拒否する'],
+  ]) {
+    assert.ok(pack.split('\n').some((line) => line.startsWith(`docs/guidelines/${doc}:`) && line.includes(phrase)), phrase)
+  }
 })

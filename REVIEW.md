@@ -1,6 +1,6 @@
 # Review Guidelines
 
-PR をレビューする AI 向けの指示。実装・テスト・文書の共通規約は `docs/guidelines/README.md`、配布と作業の規則は `AGENTS.md`「作業ルール」、スキル固有の基準は `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md`（以下 best-practices.md）が正本で、ここでは写さない。
+PR をレビューする AI 向けの指示。実装・テスト・文書の共通規約は `docs/guidelines/README.md`、作業の規則は `docs/guidelines/agent-work.md`、配布・実行の規則は `docs/guidelines/repository-operations.md`、スキル固有の基準は `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md`（以下 best-practices.md）が正本で、ここでは写さない。
 
 ## 読むもの
 
@@ -8,17 +8,17 @@ PR をレビューする AI 向けの指示。実装・テスト・文書の共�
 
 | 変更 | 読むもの |
 |---|---|
-| `plugins/*/skills/` `.agents/skills/` の `SKILL.md`・`agents/*.md`・`references/*.md` | `AGENTS.md`「現在の実体」、best-practices.md §1「SKILL.md の設計原則」・§2「description の設計」・§3「Sub-agent 設計」・§5「確定的処理はスクリプトに追い出す」・§10「チェックリスト（スキル公開前の確認）」・§11「Claude 5 世代の指示設計 — 世代共通の原則」・§12「制約の較正 — right altitude と代理指標の排除」 |
+| `plugins/*/skills/` `.agents/skills/` の `SKILL.md`・`agents/*.md`・`references/*.md` | `docs/guidelines/repository-operations.md`「配置と配布」、best-practices.md §1「SKILL.md の設計原則」・§2「description の設計」・§3「Sub-agent 設計」・§5「確定的処理はスクリプトに追い出す」・§10「チェックリスト（スキル公開前の確認）」・§11「Claude 5 世代の指示設計 — 世代共通の原則」・§12「制約の較正 — right altitude と代理指標の排除」 |
 | Workflow script（best-practices.md §13「script の置き場」の置き場にある、先頭の文が `export const meta` の `.js`） | `docs/guidelines/javascript.md`・`docs/guidelines/testing.md`、best-practices.md §13「オーケストレーション層の決定化 — Workflow 実行型」 |
-| スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `docs/guidelines/README.md`・`docs/guidelines/testing.md`、JavaScript では `docs/guidelines/javascript.md`。`AGENTS.md`「注意点」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
-| `plugins/*/.claude-plugin/plugin.json`・`plugins/*/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json` | `AGENTS.md`「注意点」（2 つの `plugin.json` の同期、Claude 専用の `dependencies` と Codex 専用の `interface`、marketplace 名） |
-| `plugins/` 配下の配置 | `AGENTS.md`「現在の実体」「作業ルール」（`plugins/` 配下の symlink 禁止、実体の置き場、plugin 間のパス参照・スクリプト直接実行の禁止。plugin 間の利用はスキル呼び出しと `dependencies`） |
+| スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `docs/guidelines/README.md`・`docs/guidelines/testing.md`、JavaScript では `docs/guidelines/javascript.md`。`docs/guidelines/repository-operations.md`「配置と配布」「実行と環境」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
+| `plugins/*/.claude-plugin/plugin.json`・`plugins/*/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json` | `docs/guidelines/repository-operations.md`「配置と配布」「実行と環境」（2 つの `plugin.json` の同期、Claude 専用の `dependencies` と Codex 専用の `interface`、marketplace 名） |
+| `plugins/` 配下の配置 | `docs/guidelines/repository-operations.md`「配置と配布」（`plugins/` 配下の symlink 禁止、実体の置き場、plugin 間のパス参照・スクリプト直接実行の禁止。plugin 間の利用はスキル呼び出しと `dependencies`） |
 | `*.md` | `docs/guidelines/documentation.md`。事実の誤り、存在しないファイルやコマンドへの参照、正本との重複 |
 | 仕様・ケース計画・トレーサビリティの設定やツール | `docs/guidelines/testing.md` と `scripts/traceability/README.md`。仕様の状態・検証方法、ケースの不足、参照誤り、計測対象・除外の変更 |
 | `.github/workflows/` | 権限が必要以上に広い、Secret の露出、SHA で固定していない Action |
-| すべて | `docs/guidelines/README.md`、`AGENTS.md`「作業ルール」 |
+| すべて | `docs/guidelines/README.md`、`docs/guidelines/agent-work.md` |
 
-スキルを探すときは `plugins/` と、`.agents/skills/` のうち symlink でない entry（未公開スキルの実体）を検索する。`.agents/skills/` の公開済みスキルは `plugins/` の実体への symlink で、symlink を辿らない検索では中身が出ない（`AGENTS.md`「現在の実体」「注意点」）。
+スキルを探すときは `plugins/` と、`.agents/skills/` のうち symlink でない entry（未公開スキルの実体）を検索する。`.agents/skills/` の公開済みスキルは `plugins/` の実体への symlink で、symlink を辿らない検索では中身が出ない（`docs/guidelines/repository-operations.md`「配置と配布」）。
 
 `CLAUDE.md` と `.claude/skills` は `AGENTS.md` と `.agents/skills` への symlink なので、基底ブランチから戻された後も PR 側の実体を指す。`AGENTS.md` とスキルは実パス（`AGENTS.md`、`plugins/`、`.agents/skills/`）で読み、`CLAUDE.md`・`.claude/skills`・`.claude-pr/` 経由では読まない。PR がこの symlink 自体を変えたときは、その変更は差分（必要なら `.claude-pr/` のスナップショット）で確かめる。
 
@@ -32,7 +32,7 @@ PR をレビューする AI 向けの指示。実装・テスト・文書の共�
 - **根本解決と対症療法**：注意書き・例外条項・監視だけで症状を塞ぎ、構造（正本参照・script による配達・型 / スキーマ検査）で防げる原因を残していないか。注意書きを読まない経路が一つでもあれば再発する
 - **不在・網羅の断定**：「〜は無い」「全て〜」「〜のみ」に、閉集合の全列挙・全文読み・形を変えた複数回の検索のいずれかの裏付けがあるか、手段でスコープされているか。裏付けの無い断定は検証済みとして下流の判断に使われる
 - **スキル構造**：frontmatter の `name`・`description`、SKILL.md がフロー・分岐・完了条件に留まり処理を `scripts/` に寄せているか、参照の深さ。基準は上の表の best-practices.md の節
-- **コメントと後方互換**：コードから読めない制約・根拠以外のコメント、旧形式の migration や fallback を新たに持ち込んでいないか。経緯は commit message / PR 本文に置くもので、互換層は合わない旧データを黙って通す。対象外の範囲は `AGENTS.md`「作業ルール」
+- **コメントと後方互換**：コードから読めない制約・根拠以外のコメント、旧形式の migration や fallback を新たに持ち込んでいないか。経緯は commit message / PR 本文に置くもので、互換層は合わない旧データを黙って通す。対象外の範囲は `docs/guidelines/agent-work.md`
 - **検証の意味と範囲**：仕様とケース計画を照らし、正常・準正常・異常・境界の必要なケース、不適用理由、期待値と assertion が妥当か。ケース対応率や行・分岐・関数のカバレッジの高さだけで意味の網羅を合格にしない。機械検査は参照・実行・計測の整合を持ち、ケース選択と期待結果の意味はレビューが持つ。レポートの未計画・skip・未実行・未計測・除外を読み、通常ゲートの成功を全体完了と混同しない
 - **構造と testability**：共通ガイドラインの責務・依存・副作用の境界が、振る舞いの独立検証を可能にしているか。抽象化や DRY の好みではなく、変更の波及や検証不能な契約を根拠に判断する
 - **スクリプト**：バグ（境界値・off-by-one・None・例外の握りつぶし・競合）、セキュリティ、性能。設計の好みや書式は対象外
