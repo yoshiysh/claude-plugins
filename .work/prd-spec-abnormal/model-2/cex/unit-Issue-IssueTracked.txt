@@ -1,0 +1,51 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 58 and seed 6177527297980557829 with 2 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 26938] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-06 14:41:50)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-06 14:41:50.
+Error: Invariant IssueTracked is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ reaskAns = <<0>>
+/\ vfail = <<0>>
+/\ ansCur = <<FALSE>>
+/\ sameAsk = <<0>>
+/\ ist = <<"none">>
+/\ ver = <<0>>
+/\ filing = <<"na">>
+/\ lost = <<0>>
+
+State 2: <AriseAndRule line 42, col 3 to line 44, col 70 of module Issue>
+/\ reaskAns = <<0>>
+/\ vfail = <<0>>
+/\ ansCur = <<FALSE>>
+/\ sameAsk = <<0>>
+/\ ist = <<"hold">>
+/\ ver = <<0>>
+/\ filing = <<"na">>
+/\ lost = <<0>>
+
+State 3: <Approve line 132, col 15 to line 133, col 79 of module Issue>
+/\ reaskAns = <<0>>
+/\ vfail = <<0>>
+/\ ansCur = <<FALSE>>
+/\ sameAsk = <<0>>
+/\ ist = <<"hold">>
+/\ ver = <<0>>
+/\ filing = <<"approved">>
+/\ lost = <<0>>
+
+State 4: <FileFail line 140, col 16 to line 142, col 80 of module Issue>
+/\ reaskAns = <<0>>
+/\ vfail = <<0>>
+/\ ansCur = <<FALSE>>
+/\ sameAsk = <<0>>
+/\ ist = <<"hold">>
+/\ ver = <<0>>
+/\ filing = <<"manual">>
+/\ lost = <<0>>
+
+133 states generated, 27 distinct states found, 10 states left on queue.
+The depth of the complete state graph search is 5.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 7 and the 95th percentile is 7).
+Finished in 00s at (2026-11-06 14:41:50)

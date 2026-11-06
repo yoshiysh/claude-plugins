@@ -1,0 +1,29 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 81 and seed -2133094146669039948 with 2 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 26942] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-06 14:41:52)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-06 14:41:52.
+Error: Invariant SeamQ4 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ ncOut = FALSE
+/\ tree = "na"
+/\ aud = "idle"
+/\ docOut = "na"
+
+State 2: <Dispatch line 22, col 13 to line 22, col 78 of module Seam>
+/\ ncOut = FALSE
+/\ tree = "na"
+/\ aud = "wait"
+/\ docOut = "na"
+
+State 3: <Return line 28, col 3 to line 31, col 19 of module Seam>
+/\ ncOut = FALSE
+/\ tree = "na"
+/\ aud = "ok"
+/\ docOut = "absent"
+
+15 states generated, 13 distinct states found, 5 states left on queue.
+The depth of the complete state graph search is 4.
+The average outdegree of the complete state graph is 2 (minimum is 1, the maximum 3 and the 95th percentile is 3).
+Finished in 00s at (2026-11-06 14:41:52)

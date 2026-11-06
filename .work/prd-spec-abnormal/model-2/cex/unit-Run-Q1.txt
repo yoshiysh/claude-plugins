@@ -1,0 +1,291 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 123 and seed 1066950424504563849 with 2 workers on 8 cores with 5461MB heap and 64MB offheap memory [pid: 26935] (Mac OS X 27.2 aarch64, Homebrew 11.0.32.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-06 14:41:42)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-06 14:41:42.
+Error: Invariant Q1 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "S0"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 2: <S0Go line 73, col 9 to line 75, col 72 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "intake"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 3: <IntakeCarry line 93, col 3 to line 95, col 65 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "draft"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 4: <Draft line 101, col 10 to line 101, col 90 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = FALSE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "audit"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 0
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = FALSE
+/\ redraft = FALSE
+
+State 5: <Audit line 112, col 3 to line 115, col 94 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "decide"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+State 6: <Decide line 119, col 11 to line 119, col 94 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "decide2"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+State 7: <Decide2Go line 129, col 14 to line 129, col 97 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "revise"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+State 8: <ReviseReport line 159, col 17 to line 159, col 131 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "report"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "running"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+State 9: <Report line 192, col 11 to line 193, col 84 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "save"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = FALSE
+/\ saveCond = "na"
+/\ status = "done"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = FALSE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+State 10: <Save line 201, col 3 to line 215, col 106 of module Run>
+/\ cause = "none"
+/\ saveWait = FALSE
+/\ stopReason = "none"
+/\ reruns = 0
+/\ stops = 0
+/\ deferred = FALSE
+/\ unchecked = TRUE
+/\ from = "S0"
+/\ wExists = TRUE
+/\ hasNext = FALSE
+/\ rework = 0
+/\ pluginUpd = FALSE
+/\ rs = "end"
+/\ gates = 0
+/\ argsBad = FALSE
+/\ notChecked = FALSE
+/\ docBlk = 0
+/\ pass = 1
+/\ specOnly = FALSE
+/\ saveCond = "git"
+/\ status = "done"
+/\ ncRecorded = FALSE
+/\ blk = 0
+/\ saved = TRUE
+/\ audited = TRUE
+/\ redraft = FALSE
+
+4635 states generated, 2789 distinct states found, 1283 states left on queue.
+The depth of the complete state graph search is 10.
+The average outdegree of the complete state graph is 2 (minimum is 0, the maximum 13 and the 95th percentile is 7).
+Finished in 00s at (2026-11-06 14:41:42)
