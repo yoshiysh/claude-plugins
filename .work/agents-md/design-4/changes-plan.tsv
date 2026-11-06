@@ -1,0 +1,43 @@
+finding	root_cause	resolution	how
+[review-1 高] 道具の正本が SP-FORMALMETHODS-204 と check.sh の expected_jar で二重	A: 手順（道具の版）を AGENTS.md に書き正本を宣言した	原因の除去で消える（#207 が持ち込んだ衝突に限る）	X6。spec の表と check.sh の 2 箇所に値がある状態は #207 の前からの構造で対象外（SHA-256 は両方 936a2620…e88 で一致）。
+[review-1 中] 要求・仕様が流れのどの段か読み手で割れる	B: 作業段階が何に掛かるかを定義していない	規範の文で解く	N1。作業段階を成果物の層と独立に定義する。
+[review-1 中] 差し戻しの経路に設計レビューが無い	C: 差し戻しを流れと別の短い経路として書いた（AGENTS.md 内）。同じ短い経路が repo-implement の修正ループに構造として実在する（スキル側）	AGENTS.md 内は原因の除去で消える。スキル側は利用者の回答 Q1 により直後の別 PR（R1）	N2 で経路を 1 本にする。repo-implement 側は R1。
+[review-1 中] 高・中の判定を模型に限る文が diff-verifier・REVIEW.md と衝突	A: 判定の限定（手順）を書き、判定の正本を二つにした	原因の除去で消える	X3・X9。
+[review-1 中] 小さな変更（typo・文書だけ）に流れと形式検証を掛けるか	B: 流れと形式検証が何に・どの作業段階で掛かるかを定義していない	規範の文で解く	N1（大きさで省かない、決定 1 の徹底から導く）と N8（どの作業段階で誰が走らせ誰が見るか）。意味の変わらない変更で検査対象が無いかの仕分けと記録はスキルの手順が持つ。
+[review-1 中] 状態を持たない対象を誰が判定するか	A+G: 手順を書き、かつ形式検証をどの段の誰が走らせるかを決めていない	手順は外し、判定者は規範の文で決める	X4 と N8。走らせる生成者がスキルで仕分けて記録し、各レビューが記録を見る。
+[review-1 中] 利用者が決めていない義務（変異・両方向照合・README・判定の限定・対象外の記録）	A: 手順を AGENTS.md に列挙した	原因の除去で消える	X1〜X8。手順は外し、参照 1 文（N5）にする。
+[review-1 低] 実測の主語（33 項目は requester の要求だけ）	F: 実測の材料を縮めたときに主語を広げた	規範の文で解く	N1 の実測を requester の要求を主語にした 1 文にする。
+[review-1 低] 既存規範との重複（見ていないものの宣言、手段でスコープ）	A: 手順を書いた結果、既存規範を書き直した	原因の除去で消える	X7。
+[review-1 低] 検証節の「公開前にはそこを設計レビューで見る」の「設計レビュー」が別の意味	E: 同じ語が既存の出力（quick_validate.py）と AGENTS.md の説明行で別の意味を持つ	語を一義にする（AGENTS.md と quick_validate.py を同時に直す）	N7。
+[review-1 低] 「1 役割 1 責務」の検証の列挙に形式検証が無い	D: 検証の手段を 2 箇所で列挙した	原因の除去で消える	N6 で列挙を 1 箇所にし形式検証を加える。N2 は列挙しない。
+[review-1 低] 置き場の規則が既存配置と合わない	A: 模型の置き場（手順）を書き、規則を二つ目に作った	原因の除去で消える	X5。
+[design-review-1 中] N2 が repo-implement の修正ループ（確定指摘を implementer の修正の回へ直接渡す）と矛盾	C': 指摘から修正へ直行する経路がスキルに構造として実在する	利用者の回答 Q1 により、AGENTS.md の規範を先に入れ、スキルは直後の別 PR（R1）	AGENTS.md に例外や注意書きは足さない。食い違いの所在は R1。
+[design-review-1 中] N2 が検証の種類を列挙し N6 と食い違う	D: 列挙を 2 箇所に置いた（設計の内部で再発）	原因の除去で消える	N2 は「検証」とだけ書く。
+[design-review-1 高] 手順の正本に指名した formal-methods に実装と模型の対応の step が無い	H: 原則の正本（skill-design-patterns.md の「機械で確かめる」節の「実装がモデルに対応することは別に確かめる」）が求める step がスキルに欠けている（原因はスキル側）	利用者の回答 Q2 により今のスキルを参照して先に入れ、step の追加は直後の別 PR（R2）	N5 は原則の正本と手順の正本を分けて参照する。X2 は正本がある体を取らない。AGENTS.md に手順を足して補わない。
+[design-review-1 高] X2 が実装と模型の照合の正本を formal-methods と書いたが、名指しの「step 5: 忠実さの検証（モデルと対象文書の対応）」は対象文書との対応だけ（参照切れの規範）	H: 上の formal-methods に実装の step が無い行と同根	利用者の回答 Q2 により直後の別 PR（R2）	X2 を、原則の正本（skill-design-patterns.md の「機械で確かめる」節の「実装がモデルに対応することは別に確かめる」）だけを指し、スキルの step の欠けを R2 として明示する形に改めた。
+[design-review-1 中] formal-methods が未公開・実行形態未定・発火条件が N5 と合わない・実例が古い	H: 手順の正本にするスキルが作りかけ	利用者の回答 Q2 により参照して先に入れ、スキルの完成は直後の別 PR（R3）	AGENTS.md に注意書きは足さない。残る所在は R3。
+[design-review-1 中] どの段で何を形式検証し誰が走らせるかが未定	G: N1 で段を定義したのに段と形式検証の対応を規範の水準で決めていない	規範の文で解く	N8（利用者の回答 Q3）。
+[design-review-1 低] 重大度の 1 句が再発防止という防御の理由づけ	I: 原因を除いた後の文を防御として位置づけた	design-3 で名指し自体をやめる	X9（N9 を取り下げ）。
+[design-review-1 低] N7 で AGENTS.md だけ言い換えても quick_validate.py に同じ意味の語が残る	E: 二義の原因が出力側にあるのに説明の行だけを直した	語を一義にする	N7 で AGENTS.md の検証節の「設計レビューで見る」と quick_validate.py のコメント 2 箇所・出力 1 箇所を「実装レビュー」に揃える。
+[design-review-1 中] 差し戻しに設計レビューが無い（原因の半分がスキル側に残る）	C': 上の repo-implement の行と同根	同上（R1）	R1。
+[design-review-1 中] 状態を持たない対象の判定者が未定のまま	G: 段の誰が走らせるかが未定	規範の文で解く	N8。
+[design-review-1 低] 検証節の「設計レビューで見る」の語（N7 と同根）	E	語を一義にする	N7。
+[design-review-1 低] 「1 役割 1 責務」の検証の列挙（N2 の列挙と同根）	D	原因の除去で消える	N2・N6。
+[design-review-1 低] review-1 の件数が要点（低 6・計 13）と brief（低 5・計 12）で食い違う	J: brief を作る段で指摘の全文と照合していない	照合済み（review-1/summary.relay.txt 末尾）。13 件目は内容不明のため扱えない	下の [review-1 低 13 件目] の行。
+[PR 4489787985 中] #207 の「道具（TLC の `tla2tools.jar` 等）の版」の文: 道具の版の正本を SP-FORMALMETHODS-204 と断定し、読む検査が無く、check.sh を正とする README と食い違う	A: 手順（道具の版）を AGENTS.md に書き正本を宣言した	原因の除去で消える	X6。review-1 の高と同根。
+[PR 4489788308 中] #207 の「文ごとの軽い検査は文言の確認」の文: 軽い検査を文言の確認に限る文が docs/requirements/formal-methods.md（PR-FORMALMETHODS-322・100・240 など）と食い違う	A: 手順（軽い検査の位置づけ・判定の限定）を AGENTS.md に書き、要求文書と別の正本を作った	原因の除去で消える	X3・X8。位置づけの正本は要求文書のまま。
+[PR 4489788520 低] #207 の「高・中の判定は模型の探索」の文: 「高・中」に定義も参照先も無い	A: 判定の限定（手順）を書いた	原因の除去で消える	X3・X9。AGENTS.md は重大度を名指さず、尺度は REVIEW.md と docs/requirements/formal-methods.md の用語「重大度」のそれぞれの正本だけに残る。
+[review-1 低 13 件目] 内容不明の低 1 件	diff-verifier の出力が REVIEW.md の「LOW は 1 回のレビューで 5 件まで、超えた分は件数だけ」に従い、中身を出していない（規則どおりの挙動で欠陥ではない）	対象外 + 理由: 中身が記録に無く、原因も解き方も特定できない	review-1 の指摘のうち扱ったのは中身の分かる 12 件。13 件目は design-3 に基づく実装の後の実装レビューで同じ低が再び出れば、その回の指摘として扱う。
+[design-review-2 中] N9 の「指摘の重大度は REVIEW.md が決める」の範囲が無限定で formal-methods の高・中・低（docs/requirements/formal-methods.md の用語「重大度」）と衝突	I': AGENTS.md が重大度を名指し、尺度を 2 つ並べた（範囲を決めずに一方を正と宣言した）	原因の除去で消える	X9。N9 を取り下げ、AGENTS.md は重大度を名指さない。
+[design-review-2 低] 重大度の 1 句が新しい衝突を持ち込んだ	I': 同上	原因の除去で消える	X9。
+[design-review-2 低] PR 4489788520 の核心（尺度の取り違え）が N9 で形を変えて残る	I': 同上	原因の除去で消える	X9。
+[design-review-2 低] N1 の「大きさで省かない」に理由が無い	K: 既存規範で説明できる理由を参照していない	規範の文で解く（既存箇条を名前で参照）	N1 の rationale。「役割の分担は構造で持つ」の自己申告の文を参照し、文を書き足さない。
+[design-review-2 低] 「段」の語が既存の workflow の段（段の選択・repo-implement の次の段）と衝突	E': 同じ語に 2 つの意味を持たせた	語を分ける	N1・N2・N8 で 4 つを「作業段階」と呼ぶ。
+[design-review-2 低] review-1 の件数の照合が入力に無い	J: brief を作るときに全文と照合していない	照合の記録を入力に置いた（review-1/summary.relay.txt 末尾）	[review-1 低 13 件目] の行。
+[design-review-2 低] R1〜R3 の配達経路が無い	L: 別 PR に残すものの所在が #207 と別ブランチの .work だけにある	配達先を決める	N10。#207 の PR 本文に R1〜R3 を載せる。
+[design-review-3 低] 「工程」も skill-design-patterns.md の「用語」（pipeline() の 1 item の手順）と prd-spec・performance で別の意味に定義済み	E'': 語の衝突を確かめる grep の範囲を AGENTS.md・REVIEW.md・docs/guidelines に限り、参照先（docs/design・各スキル）を外した	語を分ける（範囲を広げて確かめた語を選ぶ）	N1・N2・N4・N8 で 4 つを「作業段階」と呼ぶ。worktree 全体を `grep -Rn` で見た範囲で 0 件。
+[design-review-3 低] 行番号の引用がずれている（skill-design-patterns.md の 427 は 418、repo-implement の 170 は 173）	M: PR 本文に載る成果物を、ずれやすい行番号で参照した	引用の形を変える	design.tsv・changes-plan.tsv の全行で、行番号を見出しか引用句に置き換えた（skill-design-patterns.md は「機械で確かめる」節の引用句、formal-methods は step の見出し、repo-implement は `next` の表の **repair** の行の引用、quick_validate.py は出力とコメントの引用、AGENTS.md は箇条名と引用句）。PR コメントの指す #207 の行も引用句にした。
+[design-review-3 低] review-2 の「段」の語の衝突が「工程」で残る	E'': 上と同根	語を分ける	上の「工程」の行と同じ。
+R1 残存（直後の別 PR）: 修正ループを持つスキルが N2 と食い違う	利用者の回答 Q1 で、規範を先に入れスキルは後に回す	直後の別 PR の範囲	grep（修正の回・repair・修正ループ・fix loop）で SKILL.md を見た範囲では `.agents/skills/repo-implement/SKILL.md`（`next` の表の **repair** の行「`"repair": "review"` で次の回を開く」）と `.agents/skills/address-review/SKILL.md`。別 PR の設計で、指摘を直接修正する経路を持つスキル（workflow:pr-review-fix など語の違うものを含む）を全列挙してから、確定指摘を設計の作業段階（planner・plan-reviewer 相当）へ戻す形に改める。それまで AGENTS.md の規範とスキルの挙動は食い違う。
+R2 残存（直後の別 PR）: formal-methods に実装と模型の対応の step が無い	利用者の回答 Q2 で、今のスキルを参照して先に入れる	直後の別 PR の範囲	`.agents/skills/formal-methods/SKILL.md` に、skill-design-patterns.md の「機械で確かめる」節の「実装がモデルに対応することは別に確かめる」 が求める実装と模型の対応の step を足す。それまで決定 3 の「実装」の層は、原則の正本だけがあり手順の正本が無い。
+R3 残存（直後の別 PR）: formal-methods の作りかけ（「## 1. 目的と位置づけ」の「（未定：このスキルの実行形態。…）」・description の「形式手法を適用しない通常の実装・レビュー・文書作成には発火しない」が N5 と合わない・「## 5. 実例」の「唯一の実例は `tests/formal/bp-prd/`」が古い・置き場の 2 系統）	利用者の回答 Q2 で、今のスキルを参照して先に入れる	直後の別 PR の範囲	実行形態を決め、description の発火条件を「要求・仕様・実装の全てを形式検証にかける」に合わせ、実例を tests/formal/bp-prd・tests/formal/develop・tests/formal-methods/formal/prd まで直す。置き場の 2 系統の扱いも同じ PR で決める。
