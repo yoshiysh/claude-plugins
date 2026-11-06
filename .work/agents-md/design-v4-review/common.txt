@@ -6,3 +6,4 @@ R=/Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-gen
 出力: 起動文で指定する出力先の findings.tsv（列: ref	verdict	severity	reason	evidence_ref	evidence_quote）だけ。ref は設計の行（ファイル名と item/path）。verdict は ok / ng。severity は 高=規範が同時に満たせない・目的に反する・結論が決まらない、中=読み手の推測が要り振る舞いが割れる、低=文言だけ。evidence_quote は逐語（空白を除いて原文の部分文字列）。利用者に聞くべき価値判断があれば questions.tsv（列: q	options	recommend）。.md は書かない。書き込みが拒否されたら迂回せず報告して止まる。git 操作をしない。prd-spec・formal-methods スキル・Workflow は使わない。
 最終報告は短く日本語で: ok・ng の件数、ng の要点（3 件まで）。
 利用者の決定は R/.work/agents-md/design-review-1/answers.txt（Q1〜Q10、V1〜V5、W1・W3〜W5。Q8 は Q7 を置き換える）。過去のレビューの記録（design-v3-full-review/ など）は読まない。全範囲を見る（差分だけを見ない）。
+スクリプトは自分の出力先にだけ書く。この run で自分が書いていないスクリプトは実行しない。/private/tmp/claude-501/scratch や共有の scratchpad の既存ファイル（gen.py・mk.py など）は使わない（他の役のスクリプトを取り違えて実行し、別の成果物を上書きする事故が 2 件起きた）。
