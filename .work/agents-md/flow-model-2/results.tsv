@@ -1,0 +1,84 @@
+check	cfg	states	result	cex	note
+decided_P1	cfg/decided_P1.cfg	91844	pass		性質（決定）
+decided_P2	cfg/decided_P2.cfg	91844	pass		性質（決定）
+decided_P3	cfg/decided_P3.cfg	91844	pass		性質（決定）
+decided_P4	cfg/decided_P4.cfg	91844	pass		性質（決定）
+decided_P5	cfg/decided_P5.cfg	91844	pass		性質（決定）
+decided_P6	cfg/decided_P6.cfg	91844	pass		性質（決定）
+decided_P7	cfg/decided_P7.cfg	91844	pass		性質（決定）
+decided_P8	cfg/decided_P8.cfg	91844	pass		性質（決定）
+decided_P9	cfg/decided_P9.cfg	91844	pass		性質（決定）
+decided_P10	cfg/decided_P10.cfg	91844	pass		性質（決定）
+decided_P11	cfg/decided_P11.cfg	91844	pass		性質（決定）
+decided_P13	cfg/decided_P13.cfg	91844	pass		性質（決定）
+decided_P14	cfg/decided_P14.cfg	91844	pass		性質（決定）
+decided_P15	cfg/decided_P15.cfg	91844	pass		性質（決定）
+decided_C1	cfg/decided_C1.cfg	91844	pass		実行可能性の制約
+decided_C2	cfg/decided_C2.cfg	91844	pass		実行可能性の制約
+decided_C3	cfg/decided_C3.cfg	91844	pass		実行可能性の制約
+decided_C4	cfg/decided_C4.cfg	1367	fail	cex/decided_C4.txt	実行可能性の制約; Invariant C4 is violated; 決定から一意に導けない: FQ1
+decided_I1	cfg/decided_I1.cfg	2283	fail	cex/decided_I1.txt	残るリスクの測定; Invariant I1 is violated; 残るリスク: 重大度の付け間違い（SevErr）で真の MEDIUM が LOW として PR 本文に載ったままマージされうる。PR 本文に見えるので人の指摘（X3）で直る経路は残るが、強制はされない
+decided_I2	cfg/decided_I2.cfg	83	fail	cex/decided_I2.txt	残るリスクの測定; Action property I2 is violated; 残るリスク: 欠陥を除けない環境と誤分類すると報告して止まる。分類と理由は報告に載り（Y3）、利用者が次の読み手になる
+decidedSelfDesign_P1	cfg/decidedSelfDesign_P1.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P2	cfg/decidedSelfDesign_P2.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P3	cfg/decidedSelfDesign_P3.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P4	cfg/decidedSelfDesign_P4.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P5	cfg/decidedSelfDesign_P5.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P6	cfg/decidedSelfDesign_P6.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P7	cfg/decidedSelfDesign_P7.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P8	cfg/decidedSelfDesign_P8.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P9	cfg/decidedSelfDesign_P9.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P10	cfg/decidedSelfDesign_P10.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P11	cfg/decidedSelfDesign_P11.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P13	cfg/decidedSelfDesign_P13.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P14	cfg/decidedSelfDesign_P14.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_P15	cfg/decidedSelfDesign_P15.cfg	22048	pass		性質（決定）; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C1	cfg/decidedSelfDesign_C1.cfg	22048	pass		実行可能性の制約; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C2	cfg/decidedSelfDesign_C2.cfg	22048	pass		実行可能性の制約; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C3	cfg/decidedSelfDesign_C3.cfg	22048	pass		実行可能性の制約; 自己検査の LOW も全て設計に戻す読み（SelfLow=design）
+decidedSelfDesign_C4	cfg/decidedSelfDesign_C4.cfg	1492	fail	cex/decidedSelfDesign_C4.txt	実行可能性の制約; Invariant C4 is violated; 決定から一意に導けない: FQ1
+decidedRedraft_C4	cfg/decidedRedraft_C4.cfg	91844	pass		実行可能性の制約; FQ1 (a)（Redraft=TRUE）で通過
+decidedRedraft_P4	cfg/decidedRedraft_P4.cfg	91844	pass		性質（決定）; FQ1 (a) でも P4 は保たれる
+decidedRedraft_P14	cfg/decidedRedraft_P14.cfg	91844	pass		性質（決定）; FQ1 (a) でも終端に到達
+assume_F1off_P14	cfg/assume_F1off_P14.cfg	72194	fail	cex/assume_F1off_P14.txt	性質（決定）; Temporal properties were violated; F1（修正が欠陥を持ち込むのは有限回）を外すと終端に到達しない。W4 は回数の上限を置かないので、決定のもとでの終了はこの仮定に依る
+assume_F2off_P14	cfg/assume_F2off_P14.cfg	86056	fail	cex/assume_F2off_P14.txt	性質（決定）; Temporal properties were violated; F2（環境の失敗は有限回）を外すと終端に到達しない（除ける環境の失敗のやり直しが続く）
+assume_F3off_P14	cfg/assume_F3off_P14.cfg	91844	pass		性質（決定）; F3 は決定どおりの版では要らない: 人の指摘は必ず直る（X3）ので、同じ欠陥を繰り返し指摘する経路が無い
+assume_F5off_P14	cfg/assume_F5off_P14.cfg	82676	fail	cex/assume_F5off_P14.txt	性質（決定）; Temporal properties were violated; F5（誤分類は有限回）を外すと終端に到達しない（除けない原因や欠陥を除ける環境と判じ続ける）
+assume_F6off_P8	cfg/assume_F6off_P8.cfg	2621	fail	cex/assume_F6off_P8.txt	性質（決定）; Invariant P8 is violated; F6（記録を読んだレビュー役が誤分類を見落とさない）を外すと P8 が破れる。Y3 の記録と次のレビューは、読み手が見落とさない限りでだけ効く
+decidedNoSevErr_I1	cfg/decidedNoSevErr_I1.cfg	32236	pass		残るリスクの測定; 付け間違いが無ければ I1 は通る（I1 の破れの原因は SevErr だけ）
+decidedNoMis_I2	cfg/decidedNoMis_I2.cfg	32414	pass		残るリスクの測定; 誤分類が無ければ I2 は通る
+v4_assume_F3off_P14	cfg/v4_assume_F3off_P14.cfg	165238	fail	cex/v4_assume_F3off_P14.txt	性質（決定）; Temporal properties were violated; v4 では F3 が要る: 人の LOW を直さず PR 本文に載せるので、同じ指摘が繰り返されうる
+v4_P1	cfg/v4_P1.cfg	115	fail	cex/v4_P1.txt	性質（決定）; Action property P1 is violated; 未定ゆえ非決定: 設計段・自己検査・人の指摘に重大度を付ける者が無い（agents.tsv:2-8・V1）
+v4_P2	cfg/v4_P2.cfg	102	fail	cex/v4_P2.txt	性質（決定）; Invariant P2 is violated; v4 より後の決定（Y2）。v4 は専用の agent を持たず、実装段は diff-verifier（reviewer）、他は付けるなら司令塔
+v4_P3	cfg/v4_P3.cfg	165238	pass		性質（決定）
+v4_P4	cfg/v4_P4.cfg	165238	pass		性質（決定）
+v4_P5	cfg/v4_P5.cfg	165238	pass		性質（決定）; 通過: 性質は付いた重大度で書くので、重大度の無い指摘は対象外。v4 の欠陥は P1 に出る
+v4_P6	cfg/v4_P6.cfg	165238	pass		性質（決定）; 通過: 同上
+v4_P7	cfg/v4_P7.cfg	4043	fail	cex/v4_P7.txt	性質（決定）; Action property P7 is violated; 明示: files.tsv:7 (B) は人の指摘にも W4 を当てる。X3 は v4 より後の決定
+v4_P8	cfg/v4_P8.cfg	6980	fail	cex/v4_P8.txt	性質（決定）; Invariant P8 is violated; 未定ゆえ非決定: v4 は環境の判定の記録を持たない（V7）ので、誤分類で覆われた欠陥が ready まで残る
+v4_P9	cfg/v4_P9.cfg	165238	pass		性質（決定）
+v4_P10	cfg/v4_P10.cfg	170	fail	cex/v4_P10.txt	性質（決定）; Action property P10 is violated; 未定: 除けない失敗の報告に分類の記録が無い（Y3 は v4 より後の決定）
+v4_P11	cfg/v4_P11.cfg	1191	fail	cex/v4_P11.txt	性質（決定）; Invariant P11 is violated; 未定ゆえ非決定: (7) の「マージ・公開」で登録の前が停止点になりうる（V16）。X2 は v4 より後の決定
+v4_P13	cfg/v4_P13.cfg	165238	pass		性質（決定）; 通過するが空虚な部分あり: v4 に記録が無いので、記録の読みの条件は常に成り立つ。誤分類の影響は P8 に出る
+v4_P14	cfg/v4_P14.cfg	165238	pass		性質（決定）
+v4_P15	cfg/v4_P15.cfg	28	fail	cex/v4_P15.txt	性質（決定）; Invariant P15 is violated; 明示: files.tsv:12 (1) の置き場は規模で分かれない。X1 は v4 より後の決定
+v4_C1	cfg/v4_C1.cfg	4	fail	cex/v4_C1.txt	実行可能性の制約; Invariant C1 is violated; 明示: 目的の置き場が PR から辿れる場所だが、作業の最初に PR が無い（V7）
+v4_C2	cfg/v4_C2.cfg	111	fail	cex/v4_C2.txt	実行可能性の制約; Invariant C2 is violated; 明示: 設計段の LOW も PR 本文に載せるが PR が無い（V7）
+v4_C3	cfg/v4_C3.cfg	165238	pass		実行可能性の制約
+v4_C4	cfg/v4_C4.cfg	4539	fail	cex/v4_C4.txt	実行可能性の制約; Invariant C4 is violated; 決定どおりの版と同じ欠落（FQ1）
+mut_TriageNoSev_P1	cfg/mut_TriageNoSev_P1.cfg	67	fail	cex/mut_TriageNoSev_P1.txt	性質（決定）; Action property P1 is violated; 変異を検出（狙いの性質で破れた）
+mut_OrchSev_P2	cfg/mut_OrchSev_P2.cfg	61	fail	cex/mut_OrchSev_P2.txt	性質（決定）; Invariant P2 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipDR_P3	cfg/mut_SkipDR_P3.cfg	6	fail	cex/mut_SkipDR_P3.txt	性質（決定）; Invariant P3 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipIR_P4	cfg/mut_SkipIR_P4.cfg	153	fail	cex/mut_SkipIR_P4.txt	性質（決定）; Invariant P4 is violated; 変異を検出（狙いの性質で破れた）
+mut_MedPass_P5	cfg/mut_MedPass_P5.cfg	105	fail	cex/mut_MedPass_P5.txt	性質（決定）; Action property P5 is violated; 変異を検出（狙いの性質で破れた）
+mut_LowFix_P6	cfg/mut_LowFix_P6.cfg	114	fail	cex/mut_LowFix_P6.txt	性質（決定）; Action property P6 is violated; 変異を検出（狙いの性質で破れた）
+mut_HumanLowNotFixed_P7	cfg/mut_HumanLowNotFixed_P7.cfg	6226	fail	cex/mut_HumanLowNotFixed_P7.txt	性質（決定）; Action property P7 is violated; 変異を検出（狙いの性質で破れた）
+mut_NoRecord_P8	cfg/mut_NoRecord_P8.cfg	2220	fail	cex/mut_NoRecord_P8.txt	性質（決定）; Invariant P8 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvRToDesign_P9	cfg/mut_EnvRToDesign_P9.cfg	526	fail	cex/mut_EnvRToDesign_P9.txt	性質（決定）; Action property P9 is violated; 変異を検出（狙いの性質で破れた）
+mut_NoRecord_P10	cfg/mut_NoRecord_P10.cfg	80	fail	cex/mut_NoRecord_P10.txt	性質（決定）; Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_EnvURetry_P10	cfg/mut_EnvURetry_P10.cfg	82	fail	cex/mut_EnvURetry_P10.txt	性質（決定）; Action property P10 is violated; 変異を検出（狙いの性質で破れた）
+mut_AskStop_P11	cfg/mut_AskStop_P11.cfg	92	fail	cex/mut_AskStop_P11.txt	性質（決定）; Invariant P11 is violated; 変異を検出（狙いの性質で破れた）
+mut_SelfReview_P13	cfg/mut_SelfReview_P13.cfg	66	fail	cex/mut_SelfReview_P13.txt	性質（決定）; Invariant P13 is violated; 変異を検出（狙いの性質で破れた）
+mut_SkipRecReview_P13	cfg/mut_SkipRecReview_P13.cfg	380	fail	cex/mut_SkipRecReview_P13.txt	性質（決定）; Invariant P13 is violated; 変異を検出（狙いの性質で破れた）
+mut_PlaceAny_P15	cfg/mut_PlaceAny_P15.cfg	23	fail	cex/mut_PlaceAny_P15.txt	性質（決定）; Invariant P15 is violated; 変異を検出（狙いの性質で破れた）
+mut_ResumeAfterReport_C3	cfg/mut_ResumeAfterReport_C3.cfg	79	fail	cex/mut_ResumeAfterReport_C3.txt	実行可能性の制約; Invariant C3 is violated; 変異を検出（狙いの性質で破れた）
