@@ -1,0 +1,58 @@
+item	judgement	note
+IW-227	not-abnormal:restore の前の flow.json が版と違っても段の入口へ戻して続行し integrity に 1 行足すだけで、停止・保留・失敗にならない	prd-spec.js:3092
+IW-065	not-abnormal:指定外 hold の数え方の述語。停止は呼び出し側（L1194 など、A-019・A-004）	prd-spec.js:1252
+IW-121	not-abnormal:lint の差し戻しが flow を壊したら前の版へ戻して続行（notices に 1 行）。戻せないときの停止 L1914 は seam で A-017	prd-spec.js:1917
+IW-147	covered:A-006	持ち越した問いで書いた初稿を 3a から書き直す（collecting / deferred）
+IW-171	covered:A-018	回答の逐語が無いとき answersUnchecked → 聞き直しの needs_answers
+IW-017	covered:A-024	null は失敗側へ行くが doc_check の null は doc_blocking 0 になる。A-024 の decision で消える
+IW-133	covered:A-017	書き直した保持規則が再び検証に落ちると止まる（L2104）
+IW-051	covered:A-015	budget の停止
+IW-016	covered:A-007	差し戻しの回数 MAX_CHECK_REWORK = 3
+IW-283	covered:A-003	no_progress・pass_limit で blocked
+IW-044	covered:A-014	境界。try は数えるが上限が無い。flow.md:552 は次の行動を「依頼者が実行し直す」とし回数を縛らないので、blocked を終了・next_args の呼び直しを実行し直しと読めば残る差は段から／S0 からの区別だけで A-014 の decision に入る
+IW-291	covered:A-014	境界。全件応答しないときは解除してから呼び直す。IW-044 と同じ判断
+IW-095	covered:A-017	convertFailed の error（domain assessment は rerun: false）
+IW-117	covered:A-007	rework（MAX_CHECK_REWORK）の後も flow が閉じない
+IW-174	not-abnormal:回答の反映で出た続きの問いを次のゲートで聞く正常系の中断点（回数の上限は A-002）	prd-spec.js:2492
+IW-149	covered:A-018	gates_answered と今の問いの食い違いで聞き直す
+IW-042	not-abnormal:resumable の既定値を決める返り値の組み立て	prd-spec.js:962
+IW-083	covered:A-004	decidable で落ちた問い・保持規則は差し戻し後に変換か停止へ行く（変換は A-004、domain の停止は A-017）
+IW-194	not-abnormal:改稿の対象も blocking も無いときに段 9 へ進む正常系。blocking が残る分岐は A-003	prd-spec.js:2847
+IW-088	not-abnormal:検証するものが無ければ verifier を起動しない省略	prd-spec.js:1547
+IW-035	covered:A-016	args.gates_answered の検査で throw
+IW-264	covered:A-016	from ごとの state の欠けで最初に止まる（args の検査）
+IW-154	doc-ok:SP-FLOW-033 docs/specifications/flow.md:403-406	flow-check の返り値が無ければ段で止める（E4 → 終了。next_args の区別は A-014）
+DX-033	covered:A-011	判定に迷って確認した後の扱いが無い
+DX-056	covered:A-011	終了の意思の判定に迷って確認した後の扱いが無い
+DX-042	covered:A-018	回答済みの問いの再質問の禁止と、実装の聞き直し
+DX-020	covered:A-007	上限の値と数え方の食い違い（待つ時間の上限は A-023）
+DX-026	covered:A-001	SP-FLOW-045 との矛盾
+DX-010	covered:A-001	上限到達で残したまま完了を許す側。A-001 の decision で決まる
+DX-045	not-abnormal:提示済みの記録は正常系の引き継ぎで、停止・保留・失敗の条件を持たない	flow.md:247-250
+DX-046	doc-ok:SP-FLOW-020 docs/specifications/flow.md:252-255	実装は W の answers と next_args.state で引き継ぐ。中断終了後の実行し直しの引き継ぎは A-014
+DX-039	covered:A-006	回答を受け取る前に初稿へ進む
+DX-001	doc-ok:PR-REQUESTER-001 docs/requirements/requester.md:155-159	SKILL.md:33-34 が挙動説明・文書を伴わない実装（生成文書に基づく実装を含む）・適合性評価で作成に入らない。文書に無い追加の非着手は A-020
+DX-164	not-abnormal:モードの決まり方の TBD で、停止・保留・失敗の条件ではない（仕様書だけの run の停止は A-013）	flow.tbd.json:5
+DX-168	not-abnormal:決めないと決めた事項を後から反映する経路の TBD で、停止・保留・失敗の条件ではない	flow.tbd.json:30
+prd-spec.js:2814	covered:A-004	再発が続いた項目を hold にする（seam の P1 は hold\( なのでこの行は seam に無い。自分で判定）
+prd-spec.js:963	not-abnormal:resumable の組み立て	-
+prd-spec.js:3025	covered:A-003	finalHold の中の flow-check の失敗
+prd-spec.js:1729	covered:A-004	変換で hold にする項目の順序付け
+prd-spec.js:1296	doc-ok:SP-FLOW-033 docs/specifications/flow.md:403-406	返り値の無い呼び出しで段を止める
+prd-spec.js:237	not-abnormal:コメント行	-
+prd-spec.js:2614	doc-ok:SP-FLOW-033 docs/specifications/flow.md:403-406	監査役の欠けで段を止める（seam は A-007）
+prd-spec.js:389	not-abnormal:コメント行	-
+prd-spec.js:902	covered:A-016	state_hash の不一致で起動前に止まる
+prd-spec.js:2374	doc-ok:SP-FLOW-033 docs/specifications/flow.md:403-406	intake の単位から既存文書が漏れたら段 1 から。やり直さずに止めるのは SP-FLOW-047 の許容内（seam は A-007。境界）
+prd-spec.js:2981	covered:A-003	pass_limit
+prd-spec.js:266	not-abnormal:コメント行	-
+prd-spec.js:1246	not-abnormal:holdOrders の記録	-
+prd-spec.js:866	covered:A-016	args が文字列なら throw
+prd-spec.js:3032	covered:A-003	finalHold の blocked
+prd-spec.js:1242	not-abnormal:コメント行	-
+prd-spec.js:2098	not-abnormal:コメント行（挙動 L2104 は A-017）	-
+prd-spec.js:161	not-abnormal:返り値の項目の集め方	-
+prd-spec.js:3079	not-abnormal:コメント行（挙動 L3088 は A-014）	-
+prd-spec.js:3157	doc-ok:SP-FLOW-033 docs/specifications/flow.md:403-406	rerunStage の例外を段からの blocked にする
+prd-spec.js:1720	not-abnormal:コメント行	-
+prd-spec.js:2131	covered:A-004	回答済み・保持規則済みの再発を hold にした後の settle

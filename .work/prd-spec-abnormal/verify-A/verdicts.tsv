@@ -1,0 +1,26 @@
+id	verdict	new_class	new_severity	new_decision	reason	evidence_ref	evidence_quote
+A-001	holds	-	-	-	SP-FLOW-045（上限到達で着手不能を残したまま完成）と PR-CONSUMER-007（引き渡す文書に残さない）は同時に満たせず、authoring.md SP-AUTHORING-055 は着手不能が INDEX に残る前提で書かれており文書内の矛盾は成立。ただし rationale 末尾の「実装は 0 件にする側を採っている」は不正確で、上限到達時の実装は finalHold で保持規則と Issue の文案を作るが blocked を返し保存しない（A-003 と同じ事象）。	docs/specifications/authoring.md:357-358; plugins/workflow/workflows/prd-spec.js:3032	要求文書の着手不能に区分した未確定事項は、その要求文書の保存先の INDEX に全件を並べなければ
+A-002	holds	-	-	-	flow.md:113・292-298 は作り直しの実施回数に 2 回の上限を置き、実装は MAX_GATES = 2 + MAX_AUDIT_PASSES（=6）と MAX_AUDIT_PASSES = 4 で数える単位も値も違う。flow.md:609 の計数テストは実装で落ちる。	-	-
+A-003	holds	-	-	-	prd-spec.js:2978-2981 の no_progress・pass_limit は finalHold を経て L3032 で blocked を返し、SKILL.md:118 は blocked のまま保存しない。flow.md:443・557 の「完成と判定して保存の承認待ちへ」と結末が分かれる。	-	-
+A-004	holds	-	-	-	grep「Issue」を requester・consumer・flow・elicitation・authoring・verification・INDEX 2 本にかけ 0 件、「起票」は未確定事項の起票だけ（再確認）。flow.md:270-272 が唯一とする経路の外で、実装は holdLeft（L2124-2131）・検証落ちの変換・再発項目の hold（L2814）・finalHold で保持規則を作る。	-	-
+A-005	holds	-	-	-	SKILL.md:150 は承認を待たずに保存し、flow.md の保存の承認待ちの状態と SP-FLOW-027・028・041 は実装に対応物が無い。	-	-
+A-006	holds	-	-	-	SKILL.md:50 と prd-spec.js:2198（collecting）・2208-2212（deferred）は回答待ちの問いを持ち越して初稿と監査へ進み、SP-FLOW-015 の禁止と flow.md:599 の検証方法に反する。	-	-
+A-007	holds	-	-	-	実装で 1 回なのは recopy（prd-spec.js:1265-1282 の取り直し 1 回）だけで、差し戻しは MAX_CHECK_REWORK = 3（rework の呼び出し側）、settle は MAX_SETTLE_ROUNDS = 3、応答なしは出し直さない。SP-FLOW-047 の「現行の実装が既に採る値」は事実と合わない。	-	-
+A-008	holds	-	-	-	flow.md:81 は検査の結果の再実施と回数の上限を verification.md へ委ねるが、終了の結末（SP-FLOW-033 の実行の終了）と SP-VERIFICATION-044 の未実施として記録し続行は委任の外で両立せず、1 回の出所も SP-FLOW-047「依頼者の回答による決定ではない」と SP-VERIFICATION-039「回答（人間ゲート②）E」で食い違う。照合役は flow.md:81 に触れていないが結論は変わらない。	docs/specifications/flow.md:81	検査の結果が定めた形式に合わないときの、その検査の再実施と、その再実施の回数の上限
+A-009	holds	-	-	-	結論は成立するが、根拠の grep 0 件は字面どおりでは偽: 同じ語で requirements/INDEX.md:911（TBD-RCONSUMER-007）と specifications/INDEX.md:790（SP-VERIFICATION-004）がヒットする。どちらも flow の状態遷移やイベントを定めないので、検査不能・反復の上限で終えた後の flow の遷移が無いことは変わらない。	docs/requirements/INDEX.md:911	引き渡す文書に、実施した検査と実施していない検査の区別を載せるかどうか
+A-010	holds	-	-	-	3 状態の E3 が ❌ 未定義のまま TBD-SFLOW-008 は flow.tbd.json で blocking=false。PR-CONSUMER-008 の判定条件自体が TBD-RCONSUMER-003 で未定なので「合わない」は弱めだが、未定義の遷移を進行可能に区分した点は文書内で説明が無く、指摘は成立。	docs/specifications/flow.tbd.json:54-56	依頼者が中断点で応答しないまま時間が経過したときの振る舞いが決まっていない
+A-011	holds	-	-	-	flow.md:41-42 の 6 項目が依頼者への確認を必須とする一方、L488・493 は起動判定中に応答を待たないとし、確認を待つ状態も確認への応答のイベントも E1〜E8 に無い。	-	-
+A-012	holds	-	-	-	grep「PR-CONSUMER-0(14|16|32)」を 8 文書にかけ、ヒットは authoring.md:547・592 と verification.md:432 の参照 3 行だけ。consumer.md の見出しは 013 の次が 015、015 の次が 017 で定義が無い。	-	-
+A-013	holds	-	-	-	prd-spec.js:2210・2245-2254 は仕様書だけの run で問いを聞かず upstream_gap の blocked（next_args 無し）で止める。SP-FLOW-014 はモードを問わず中断点を設けるとし、この停止は flow の表に無い。	-	-
+A-014	holds	-	-	-	prd-spec.js:2334（rerun: false）・1440・1673 などは所有表の外の書き込みで next_args の無い blocked、restored の pruned_by（L3088）は S0 からのやり直しを求める。flow.md:552 の「依頼者が実行し直す」は段からの再実行と S0 からのやり直しを区別しない。	-	-
+A-015	holds	-	-	-	grep「token|予算|budget|費用」を 8 文書にかけ、budget に当たる停止条件は無い（上限の語のヒットは聞き返しの周回・範囲の上限だけ）。	-	-
+A-016	holds	-	-	-	prd-spec.js:866-907（args の検査で throw）・3161-3163（不変条件違反の blocked）は 8 文書のどのイベントにも当たらない。flow.md:481 はイベントの集合が閉じていないと申告している。	-	-
+A-017	holds	-	-	-	prd-spec.js:1598・1653・1776・1779 は rerun: false、2104 は rerun: true で、内容の検証に落ち続けて止まる。flow の中断終了は規定の形式の結果を得られないとき（E4）だけ。	-	-
+A-018	holds	-	-	-	prd-spec.js:2225（gates_answered の食い違い）と 2282（回答のファイルの欠け）は「問いを聞き直して」と返し、SP-FLOW-017 に回答の記録が失われた場合の例外は無い。	-	-
+A-019	merge:A-014	-	-	-	直し先が workflow-io.md §3 で 8 文書ではない。8 文書の側では resolver が求めた ID・種類に反した返り値は E4（規定の形式の結果を得られない）で、止まることは SP-FLOW-033 と一致し、残る差は next_args（段からの再実行）が付くか付かないかで、A-014 の decision に含まれる。なお finalHold の中（L3021・3025）は rerun 未設定を next_args 無しと読み、他の受け側（rerun === false ? null : 段）と逆になる。	docs/specifications/flow.md:552	内部の処理単位から規定の形式の結果を得られない状態が定めた上限を超える
+A-020	holds	-	-	-	grep「空入力|空の|単語のみ|一般ドキュメント|提案書|何の文書」を requester・consumer・flow・elicitation・INDEX 2 本にかけ、該当は specifications/INDEX.md:715 の「空の縦」だけ（再確認）。SKILL.md:15-17・35-40 の非着手は文書に無い。	-	-
+A-021	holds	-	-	-	grep「失敗|書き込めな」を SKILL.md にかけ、保存の節（L148-188）にヒットなし。SP-FLOW-043・044 は失敗時の振る舞いを一意に定めるので derived で足りる。	-	-
+A-022	holds	-	-	-	SKILL.md:157 と workflow-io.md:222 は保存しないとだけ書き、その後の行動（再監査・中断・提示）が無い。flow の保存の状態にもこの事象は無い。	-	-
+A-023	holds	-	-	-	native 経路（prd-spec.js の call の 1 箇所）では grep「900|timeout|期限|打ち切」のヒットがコメント 2 行だけで、待つ時間の上限が無い。ただし SKILL.md:204 は Codex runner の host に期限の明示を求めており、範囲は native 経路に限る（Codex 側の期限も 900 秒とは定まっていない）。	plugins/workflow/skills/prd-spec/SKILL.md:204	と call 数・並行数・期限を明示する
+A-024	holds	-	-	-	designatedCmds（prd-spec.js:2603）の取り直しは recopy の copyFault（JSON の行があるのに合わない）のときだけで、値が無いか JSON の行が無ければ parseStdout が null になり setPending で doc_blocking が 0 になる。段 9（L3036-3038）と SKILL.md の保存 1〜4 に doc_check doc を流し直す箇所は無い（grep「doc_check.mjs (doc|report|index|tree-digest)」で SKILL.md のヒットは report・tree-digest・index だけ）。doc_check.mjs の report・index が blocking で止まるかは未読。	plugins/workflow/workflows/prd-spec.js:2603	const designatedCmds = () => ({ doc_check: cli('doc'
+A-025	holds	-	-	-	SP-FLOW-022 は進行可能の件数にかかわらず完成とし、SKILL.md:23・176-177 と workflow-io.md:221 は開いている TBD が 1 件以上なら完成と言わない。	-	-
