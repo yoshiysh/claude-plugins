@@ -1,0 +1,48 @@
+cfg	property	model1_states	model1_result	rerun_states	rerun_result	match	note
+base.cfg	Q10set	24	violated	28	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+base.cfg	IssueTracked	12847	violated	12725	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+base.cfg	TypeOK	71406	pass	71406	pass	yes	
+base.cfg	Q1	71406	pass	71406	pass	yes	
+base.cfg	Q1nc	71406	pass	71406	pass	yes	
+base.cfg	Q1strict	71406	pass	71406	pass	yes	
+base.cfg	Q2	71406	pass	71406	pass	yes	
+base.cfg	Q2fixed	71406	pass	71406	pass	yes	
+base.cfg	Q3a	71406	pass	71406	pass	yes	
+base.cfg	Q3b	71406	pass	71406	pass	yes	
+base.cfg	Q4	71406	pass	71406	pass	yes	
+base.cfg	Q5	71406	pass	71406	pass	yes	
+base.cfg	Q6	71406	pass	71406	pass	yes	
+base.cfg	Q7	71406	pass	71406	pass	yes	
+base.cfg	Q7W	71406	pass	71406	pass	yes	
+base.cfg	Q8	71406	pass	71406	pass	yes	
+base.cfg	Q9	71406	pass	71406	pass	yes	
+base.cfg	Q10	71406	pass	71406	pass	yes	
+base.cfg	ConsumerAllZero	71406	pass	71406	pass	yes	
+base.cfg	Term	71406	pass	71406	pass	yes	
+base.cfg	FilingLive	71406	pass	71406	pass	yes	
+impl.cfg	Q10	44	violated	48	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q7W	62	violated	84	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q4	324	violated	343	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q2fixed	4772	violated	4377	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q10set	7170	violated	6673	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q1nc	6309	violated	6435	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q1strict	6377	violated	6400	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q1	7121	violated	6529	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	IssueTracked	70880	violated	71374	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	Q3b	160163	violated	160620	violated	yes	反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+impl.cfg	TypeOK	505680	pass	505680	pass	yes	
+impl.cfg	Q2	505680	pass	505680	pass	yes	
+impl.cfg	Q3a	505680	pass	505680	pass	yes	
+impl.cfg	Q5	505680	pass	505680	pass	yes	
+impl.cfg	Q6	505680	pass	505680	pass	yes	
+impl.cfg	Q7	505680	pass	505680	pass	yes	
+impl.cfg	Q8	505680	pass	505680	pass	yes	
+impl.cfg	Q9	505680	pass	505680	pass	yes	
+impl.cfg	ConsumerAllZero	505680	pass	505680	pass	yes	
+impl.cfg	Term	505680	pass	505680	pass	yes	
+impl.cfg	FilingLive	505680	pass	505680	pass	yes	
+mutants/mut-Q7W.cfg	Q7W	42	violated	61	violated	yes	変異（seed 4242 の 5 本の 1 つ）。検出された。反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+mutants/mut-Q2.cfg	Q2	5727	violated	5993	violated	yes	変異（seed 4242 の 5 本の 1 つ）。検出された。反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+mutants/mut-Q1.cfg	Q1	1484	violated	1697	violated	yes	変異（seed 4242 の 5 本の 1 つ）。検出された。反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+mutants/mut-Q4.cfg	Q4	161	violated	172	violated	yes	変異（seed 4242 の 5 本の 1 つ）。検出された。反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致
+mutants/mut-Q3gates.cfg	Q3a	28063	violated	28395	violated	yes	変異（seed 4242 の 5 本の 1 つ）。検出された。反例の状態数は worker 数（model-1 は 2、再検査は 4）で変わる。結果は一致

@@ -1,0 +1,23 @@
+property	decision	verdict	reason
+TypeOK	-	n/a	型の不変式。決定に対応しない
+Q1	Q1「止めて保存しない」	faithful	saved ⇒ 直せていない指摘（blk）・doc_check の blocking（docBlk）・検査できなかった箇所（unchecked=A-024 の 0 扱い）が 0。決定の「着手不能の未確定事項」は blk に畳まれ、未決の論点は Q2 が持つ。not_checked を含めないのは Q11 の「実施しなかった検査は検査記録」に合う
+Q1nc	Q11「実装を正とし残件を記録」	faithful	実施しなかった検査（not_checked）を残して保存するなら記録されている。Q11 の「実施しなかった検査は検査記録として引き渡しに載せる」をそのまま表す
+Q1strict	（選択肢 QM-02 strict）	not-decision	決定に無い読み（not_checked で止める）。Q11 を選んだので決定の性質ではない。QM-02 の選択肢を見るための性質としては正しい
+Q2	Q2「保持規則にし TBD 0 で完成」	faithful	done ⇒ 論点がすべて none・confirmed・hold。回答の無い論点も保持規則にするという前半を表す。後半（開いた TBD が残れば「完成しました」と言わない）は返り値の語の規則で、状態の性質ではないので式に入らないのは妥当
+Q2fixed	（選択肢 QM-12 block）	not-decision	done ⇒ 固定の文書に開いた TBD が無い。Q2 の本文は done と「完成」の語を分け、開いた TBD があっても done を返して件数を示すとするので、決定の性質ではない
+Q3a	Q3「実装の定数を正本に」	faithful	gates・pass・rework・vfail が実装の定数（模型では関係 MAX_GATES = 2 + MAX_AUDIT_PASSES を保った小さい値 2・4・1・1）を超えない。進展なしの停止は Term が持つ
+Q3b	Q3「実装の定数を正本に」	faithful	stops（依頼者を止めた回数）≤ MAX_GATES。Q3 の問いは「依頼者を止める回数…の上限」で、実装の定数の注記（prd-spec.js:56）も MAX_GATES を「依頼者を止める回数の上限」とする。この素直な読みで決定を表す。記録の消失での止め直しは同じゲート名で gates を増やさず（2281-2282）この上限の外に出るので、実装が決定に届いていない箇所（QM-03）。別の読み（Q3 の説明「数える単位も実装に揃う」で単位をゲートとみなす）を採ると決定に無い制約になる
+Q4	Q4「段で止め再実行させる」	faithful	~unchecked（結果の無い doc_check を 0 として進まない）。監査役が全く返さない経路は FailNotRun が持つ
+Q5	Q5「待たずに保存し事後報告」	faithful	承認待ちになるのは止まる条件（不変条件・git 管理外・上書き）のときだけ
+Q6	Q6「初稿まで進めまとめて聞く」	faithful	gates > 0 ⇒ audited（最初のゲートは初稿の監査の後）
+Q7	Q7「ゲートにまとめ時間で切らない」	faithful	needs_answers は必ず next_args を持つ（いつでも続けられる）
+Q7W	Q7（「next_args でいつでも続けられる」）	faithful	next_args を持つ返り値の間は W がある。Q7 の「いつでも続けられる」の前提を明示した派生の性質
+Q8	Q8「実装どおりに扱う」	too-strong	sameAsk ≤ 1 + lost は「同じ版の問いを聞いた回数」を全論点で抑える。決定（と A-018・PR-REQUESTER-007）の再質問禁止は「既に回答した論点」に掛かり、空の回答行で答えなかった問いは回答していないので、次のゲートで聞き直しても禁止に当たらない。実装はまさにそう振る舞う（rev.tsv の Issue!ApplyStep）ので、この式は実装＝決定（「実装どおり」）の振る舞いを違反と数える。impl.cfg に OPT_EMPTY="reask"（実装の振る舞い）を入れて回すと Q8 が破れる（12261 状態。Q2 は 1257200 状態で通る。run/impl-reask.cfg）
+Q9	Q9「聞かず止め要求を先に直す」	faithful	specOnly ⇒ gates = 0、upstream_gap は監査の後で next_args なし
+Q10	Q10「全て異常系に置き再実行を区別」	too-weak	Obs = Intended(cause)。Intended の表（どの原因が段から／最初から）は模型が置いたもので、各 Block が同じ原因に hasNext を付けるので、基礎ではほぼ構成上通る。破れうるのは返り値の形に原因が載らない場合（script・digest）だけで、next_args なしの検証落ち（A-017 の rerun:false）は模型に無いので見ていない。決定の「段から再実行（next_args あり）と最初から（なし）を区別」は表せているが、検出力は限られる
+Q10set	（模型の閉集合。決定に無い）	not-decision	Obs ∈ {rerun_stage, restart, fix_requirements, answer}。決定 Q10 は区別を 2 つ（段から・最初から）しか定めず、4 つの閉集合はどの決定の選択肢にも無い。基礎（決定どおり）でも破れる（OPT_SCRIPT=own の fix_script）
+ConsumerAllZero	（選択肢 QM-13 allzero・D-023）	not-decision	saved ⇒ 低重大度の残りなし。Q11 は「終了は blocking 0 件、残った低重大度の指摘は検査記録」と決め、これを退けた（「実装を正、終了だけ全件0」を選ばなかった）
+IssueTracked	（選択肢 QM-14 retry）	not-decision	filing ≠ manual。どの決定にも対応しない。OPT_FILE=manual のとき定義上破れる
+Term	Q3（上限と進展なしで止まる）	faithful	(~Terminal) ~> Terminal。上限で必ず終わることを表す
+FilingLive	（選択肢 QM-14）	not-decision	承認した起票は filed か manual に至る。決定に無い。retry の選択肢の帰結を見る性質
+SeamQ4	Q4	faithful	Seam 単体で結果の無い doc_check を zero にしない
