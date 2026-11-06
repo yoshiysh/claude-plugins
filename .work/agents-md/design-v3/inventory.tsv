@@ -1,0 +1,68 @@
+item	source	verdict	destination	reason
+D1 作業の流れ（目的の固定 → 設計 → 設計レビュー → 実装 → 実装レビュー。欠陥が出たら設計に戻る）	利用者の決定	agents-md	AGENTS.md「作業の進め方」に流れの 1〜2 行。各段の入出力・戻り方の細則は docs/guidelines/workflow.md	P1: 題材を問わず全ての変更が通る。P3: AGENTS.md には段の並びと、守らないと壊れること（誰も決めていない変更が増える）だけを置き、戻り方の細則は正本へ
+D2 設計と設計レビューの規範は「根本原因の除去」	利用者の決定	agents-md	AGENTS.md「作業の進め方」の流れの行に句として足す（main 101〜107 行の箇条を短くしたものと 1 行にまとめる）。判定のしかたは docs/guidelines/workflow.md と root-cause 観点の agent	P1。既存の箇条（101〜107 行）と同じ規範なので、新しい行を足さずに既存の規範の適用先として書く（P9 の重複を作らない）
+D3 形式検証を要求・仕様・実装の全てに掛ける	利用者の決定	agents-md	AGENTS.md「作業の進め方」に 1 行（全層に掛ける・手順は formal-methods スキル）。どの段で誰が走らせるかは docs/guidelines/workflow.md。手順・道具の版は formal-methods スキルと docs/specifications/formal-methods.md	P1・P2・P6。手順を写すと正本が 2 つになる（design-v2h の X2 と同じ判断）
+D4 目的を固定する	利用者の決定	agents-md	AGENTS.md「作業の進め方」の流れの先頭に 1 行（防ぐ失敗・達成すること・やらないことを先に書き、以後の追加はそれに要るかで判定する）。目的文の書き方は docs/guidelines/workflow.md	P1: 今回の失敗（端の場面を 1 件ずつ塞いで膨らむ）は題材を問わず起きる。判定の観点は purpose-necessity の agent が持つ
+D5 AGENTS.md に何を置くかの基準	利用者の決定	elsewhere	docs/guidelines/placement.md（このファイルの基準の正本）。AGENTS.md の冒頭に「この文書は地図。足すときは placement.md の基準に従う」の 1 行	P5: AGENTS.md や文書を書くときにだけ要る。冒頭の 1 行は P2 の指し先として置く。REVIEW.md の「読むもの」の *.md の行にも足し、レビューで当たるようにする
+D6 多角的なレビュー観点を agent として定義する	利用者の決定	elsewhere	.claude/agents/ に観点ごとの agent 定義（structure.txt）。段と観点の対応は docs/guidelines/review-lenses.md。AGENTS.md は main 79〜81 行の箇条を、指し先つきの 1 行に置き換える	P7。観点の一覧を AGENTS.md に写すと、呼び出し側の prompt に写されて全員が同じ観点になる元の構造が残る
+Q5 作業中の検査（hook の make test・作業段階の中の形式検証）で出た、まだレビューに出していないものの欠陥も「設計に戻る」に含める	answers.txt Q5	elsewhere	docs/guidelines/workflow.md の「欠陥が出たとき」	P1 に当たらない: 流れの細則で、欠陥が出た場面でだけ要る。AGENTS.md の流れの行は「欠陥が出たら設計に戻る」までにし、範囲は正本で定める
+Q6 編集途中の失敗も含めてよい。往復が終わらない原因は検査の時機	answers.txt Q6	elsewhere	docs/guidelines/workflow.md の「欠陥が出たとき」（Q5 と同じ箇所）。時機の設計は hook の見直し（later）	規範としては Q5 と同じ範囲の定め。時機は hook の再導入のときに決めることで、purpose.txt の「やらないこと」に入る
+Q7 hook の順序の修正を #207 に含める	answers.txt Q7	drop	規範の置き場なし（#207 の作業: Q8 の削除で実施される）	規範ではなく作業。Q8 で hook を削除するので、順序を直す対象が残らない
+Q8 Codex の hooks をいったん削除し、後で見直す	answers.txt Q8	drop	規範の置き場なし（#207 の作業: .codex/hooks.json の削除と、AGENTS.md 174 行・235 行の削除。見直しは later）	規範ではなく作業。AGENTS.md に「hook は無い」とは書かない（無いものの説明は要らない）
+Q9 除けない失敗は報告して止める（止まってよい場所に含める）	answers.txt Q9	agents-md	AGENTS.md「作業の進め方」の「止めない」の行（main 70〜71 行）を、止まってよい場所に「除けない失敗の報告」を含める形にして 1 行で置く	P1: 止まるかどうかは全ての作業で踏む。既存の行の置き換えで、行は増やさない
+Q10 除ける環境の原因は、作り手が除いて同じ検査をその場でやり直す（設計に戻らない）	answers.txt Q10	elsewhere	docs/guidelines/workflow.md の「欠陥が出たとき」	P1 に当たらない: 検査が環境の原因で落ちた場面でだけ要る細則
+main L1〜3 見出しと導入文	AGENTS.md	agents-md	AGENTS.md 冒頭。「Claude Code と Codex が共通に読む地図」と、D5 の指し先の 1 行を足す	P2。CLAUDE.md が symlink であることもここで 1 回だけ言う
+main L5〜7 リポジトリ概要	AGENTS.md	agents-md	AGENTS.md「リポジトリ概要」（そのまま 1 行）	P1: 全作業の前提
+main L11〜18 スキル実体の置き場（公開済み・未公開・.claude/skills・marketplace の定義と名前・plugins/）	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に約 5 行へ縮める	P1: 編集の置き場はほぼ全ての作業で踏む。REVIEW.md の表と review-core.mjs:7 が「現在の実体」を名前で指すので、見出しを変えるなら参照元も直す（P10）
+main L19・L21 Workflow script の置き場と、公開時の移動	AGENTS.md	elsewhere	正本は best-practices.md §13「script の置き場」（L21 自身がそう言っている）。AGENTS.md の「スキルの置き場」に指し先 1 行	P9: 正本が既にある。register_plugin.py が移動を行う（P4）
+main L23〜27 実体が plugins/ 側にある理由	AGENTS.md	elsewhere	docs/guidelines/distribution.md	P3: 機序の説明。P10: 「実体が plugins/ 側にある理由」は grep で見た範囲で 4 件の参照があり、参照元を移動の範囲に含める
+main L31 plugin 間でスキルを共有しない（実体は 1 箇所。コピー禁止）	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に 1 行（別 plugin のスキルは dependencies とスキル呼び出しで使う）	P1 に近い: スキルを書く作業で頻繁に踏み、誤ると install 先で壊れる。コピーは register_plugin.py が exit 4 で止めるが、パス参照は make test では止まらない
+main L33〜37 共有の手順と実例（notion-organize-knowledge）	AGENTS.md	elsewhere	docs/guidelines/distribution.md	P3・P5。「plugin 間でスキルは共有できない」は 1 件の参照があり、参照元を直す（P10）
+main L41〜46 収録スキルの正本の一覧（marketplace.json・ls・frontmatter の name）	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に 2〜3 行の指し先として畳む	P2: 既に地図の形（正本の指し先）をしている
+main L48 frontmatter の name がディレクトリ名より優先される	AGENTS.md	elsewhere	docs/guidelines/distribution.md（呼び出し名を書くとき）	P5: 呼び出し名を書くときだけ要る
+main L50 install 手順と tools/update-plugins	AGENTS.md	elsewhere	README.md（install。tools/ は README.md「self-hosted runner」と同じ節の並び）	P8
+main L54 ガイドラインへの指し先	AGENTS.md	agents-md	AGENTS.md「規範の置き場」の 1 行（docs/guidelines/README.md）	P2
+main L56・L58 編集は .agents/skills/ から。新規スキルも .agents/skills/ に実体で作る	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に 1〜2 行へまとめる	P1。2 つの箇条は同じ置き場の規則なので 1 つにする
+main L57 Workflow を checkout の版で走らせるときは scriptPath で起動する	AGENTS.md	elsewhere	docs/guidelines/distribution.md（Workflow の実行）。AGENTS.md の「規範の置き場」に指し先	P5: Workflow を手で走らせるときだけ要る
+main L59 plugins/ 配下に symlink を作らない	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に 1 行（理由は distribution.md を指す）	P1。verify_install.py:306 が検出するが make test には入っておらず（Makefile の test target に verify_install が無い）、機械の強制は登録後になる。make test への昇格は later の候補
+main L60 SKILL.md は frontmatter の name と description を持つ	AGENTS.md	drop	quick_validate.py（make test の一部）	P4: quick_validate.py:69・85 が欠落を検出する
+main L61 処理は scripts/ に寄せ、SKILL.md はフロー中心	AGENTS.md	elsewhere	best-practices.md §5（REVIEW.md の「読むもの」が既に指す）	P5・P9: スキルを書くときだけ要り、正本が既にある
+main L62 plugin 登録は manage-marketplace-plugin のスクリプトを使う	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に 1 行	P6 の指し先。手で plugins/ へ移すと置き場の規則が崩れる
+main L63 plugin author の既定値は yoshiysh	AGENTS.md	drop	register_plugin.py:1012（--author の既定値）	P4: 既定値は script が持つ
+main L64〜66 説明的なコメントを書かない	AGENTS.md	elsewhere	docs/guidelines/documentation.md（理由・変更経緯の節）と javascript.md	P5: コードや文書を書くときに当たり、REVIEW.md「コメントと後方互換」が観点として既に持つ
+main L67〜69 後方互換性は不要	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行。対象外（version bump）の詳細は docs/guidelines/README.md の共通の設計原則	P1: agent の既定の振る舞い（fallback を足す）と逆で、題材を問わず踏む。REVIEW.md が「対象外の範囲は AGENTS.md「作業ルール」」と指すので参照元を直す（P10）
+main L70〜71 途中で止めない（人間ゲート以外）。Issue 化で先送りしない	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行（Q9 の置き換えを含む）	P1。address-core.mjs:48 が「作業ルール」を名前で指すので、節名を変えるなら参照元を直す（P10）
+main L72〜75 不在・網羅の断定に裏付けを付ける	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行。rename・削除の sweep の手順は docs/guidelines/documentation.md	P1: 報告・文書の全てに当たる。REVIEW.md「不在・網羅の断定」がレビュー側の正本
+main L76〜78 生成と検証を分離する	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行（D1 の流れの行と並べる）	P1
+main L79〜81 検証は単一視点にしない	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行（docs/guidelines/review-lenses.md を指す）	P1・P2。D6 の観点の agent への入口になる
+main L82〜84 同じ値・列挙・上限を 2 箇所に書かない	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行。実例（cycle 上限 3/5・timeout 3 箇所）は docs/guidelines/documentation.md の正本の節へ	P1・P3。docs/guidelines/README.md が「DRY の正本規則は AGENTS.md に従う」と指しているので、正本をどちらにするかを決めて参照を直す
+main L85〜94 役割の分担は構造で持つ（司令塔は生成・修正・採点をしない。段の選択と再検証の強制）	AGENTS.md	elsewhere	docs/guidelines/multi-agent.md。AGENTS.md には「司令塔は成果物を書かない」の 1 行（L95〜100 と共通）	P3・P5: 段の選択・ループの出口条件は multi-agent workflow を組むときの細則。核の 1 文だけが全作業に当たる
+main L95〜100 1 役割 1 責務（司令塔は本文を書かない。builder へ dispatch）	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行（L85〜94 の核と合わせて 1 行）。合理化の例と検証の手段の列挙は docs/guidelines/multi-agent.md	P1: メインセッションが毎回踏む。検証の手段の列挙（design-v2h の N6）は 1 か所にする必要があるので正本へ
+main L101〜107 解決は常に根本原因の除去を目指す	AGENTS.md	agents-md	AGENTS.md「作業の進め方」の流れの行（D2）。防御パッチの説明と実測は docs/guidelines/workflow.md	P1・P3
+main L108〜127 fan-out する workflow は model・effort を明示し、evidence pack を配る	AGENTS.md	elsewhere	docs/guidelines/multi-agent.md。REVIEW.md の「読むもの」の Workflow script の行に足す	P5: Workflow や agent 定義を書くときだけ要る。20 行の箇条で、入口を最も圧迫している。review.js:16・plan.js:12 が「作業ルール」を名前で指すので参照元を直す（P10）
+main L128〜134 規範には「守られないと何が壊れるか」を添える	AGENTS.md	elsewhere	docs/guidelines/documentation.md（規範・スキル指示を書くとき）	P5: 規範や指示を書くときに要る。best-practices（why-driven）と重なるので、どちらを正本にするかを決める
+main L135〜138 commit したら同じ作業単位で push する	AGENTS.md	agents-md	AGENTS.md「作業の進め方」に 1 行（実測の経緯は落とす）	P1・P3
+main L142〜146 Codex Desktop の Worktree セットアップと .worktreeinclude	AGENTS.md	elsewhere	README.md「開発」	P8: 人が 1 回行う設定
+main L148〜154 検証の入口は Makefile（make test・portability・check）	AGENTS.md	agents-md	AGENTS.md「検証」（見出しは残す）	P1・P2。「検証」は grep で見た範囲で 29 件の参照があるので、見出しを残して参照元を保つ（P10）。implement-core.mjs:12 も「検証」の合否ゲートを指す
+main L156 make test は check_references.py を含む	AGENTS.md	drop	Makefile（60〜61 行のコメントと test target）	P4・P9: make test の中身は Makefile が正本で、L151 のコメントとも重なる
+main L158 make portability は合否ゲートでなく、BLOCKER 行を人が読む	AGENTS.md	agents-md	AGENTS.md「検証」に 1 行	P1: exit 0 を合格と読み違えると、install 先で壊れるものが通る。機械が教えない読み方なので P4 で消せない
+main L160〜166 個別スキルの検証コマンド	AGENTS.md	elsewhere	docs/guidelines/testing.md（または Makefile の target）	P5: 1 つのスキルだけを見るときの補助
+main L168〜172 Marketplace 登録後の install 検証（verify_install.py）	AGENTS.md	elsewhere	manage-marketplace-plugin スキル（登録の手順の中で走らせる）	P6
+main L174 make test は .codex/hooks.json の hook からも呼ばれる	AGENTS.md	drop	なし（Q8 で hook ごと削除）	Q8
+main L176 ready 後に足した差分は fresh な検証役（diff-verifier）に REVIEW.md を基準に見させる	AGENTS.md	elsewhere	docs/guidelines/workflow.md（実装レビューの段）と docs/guidelines/review-lenses.md	P5・P7: D1 の実装レビューの段の 1 場面になる。diff-verifier は観点の agent の 1 つとして段の表に入る
+main L180〜182 /plugin install の手順	AGENTS.md	drop	README.md「インストール」（既にある）	P8・P9: README.md 20〜27 行と重複
+main L184 notion は Codex で research も install する	AGENTS.md	drop	README.md（Codex の依存の解決手順）と plugin.json の dependencies	P9: L228〜233 の jq の手順で導ける個別の例
+main L186〜196 Workflow caller と dynamic-workflow-runner の扱い	AGENTS.md	elsewhere	正本は runtime/README.md と claude-workflow-compatibility.md（文中で既にそう言っている）。docs/guidelines/distribution.md に指し先	P5・P9: Workflow caller を書くときだけ要り、正本が既にある
+main L198〜199 performance plugin は opt-in	AGENTS.md	drop	plugins/performance/references/native-hooks.md（既に正本）	P9: L209 と同じ文の重複で、正本も既にある
+main L200 quick_validate.py の SKIP: は合格ではない	AGENTS.md	elsewhere	docs/guidelines/workflow.md（実装レビューの段で SKIP: を見る）	P5: 公開前の確認でだけ要る。Q4 の語の揃え（設計レビュー → 実装レビュー）は、移す先の文で D1 の語に合わせて書けば済む
+main L204 marketplace.json の name を変えると install の marketplace 名も変わる	AGENTS.md	elsewhere	docs/guidelines/distribution.md	P5: marketplace.json を触るときだけ要る
+main L205 plugin.json は 2 箇所にあり、共通フィールドは verify_install.py の L2 が検査する	AGENTS.md	elsewhere	docs/guidelines/distribution.md（専用フィールドの区別）。一致の検査は verify_install.py	P4・P5。REVIEW.md の plugin.json の行が「注意点」を名前で指すので、参照元を直す（P10）
+main L206 .agents/skills/ を find で走査するときは -L を付ける	AGENTS.md	agents-md	AGENTS.md「スキルの置き場」に 1 行	P1: 検索は題材を問わず踏み、誤ると結果が黙って 0 件になる。REVIEW.md が「注意点」を指すので参照元を直す（P10）
+main L207 Workflow caller は native Workflow を優先し、Codex では runner を使う	AGENTS.md	elsewhere	docs/guidelines/distribution.md（L186〜196 と同じ箇所）	P5・P9: L186〜196 と同じ主題の重複
+main L208 runner は意味保存できない graph を dispatch 前に拒否する	AGENTS.md	drop	claude-workflow-compatibility.md（既に正本）	P9: 文自体が正本を指すだけで、runner を触るときはその正本を読む
+main L209 performance plugin は opt-in	AGENTS.md	drop	plugins/performance/references/native-hooks.md	P9: L198〜199 と重複
+main L213 返答は日本語	AGENTS.md	agents-md	AGENTS.md「言語」（1 行）	P1
+main L217〜218 Claude Code の install と dependencies の解決	AGENTS.md	drop	README.md「インストール」	P8・P9・P12: 人の手順で、dependencies の解決は L33 と重複
+main L222〜226 Codex の marketplace の登録	AGENTS.md	elsewhere	README.md「インストール」に Codex の手順として足す	P8・P12: README.md には今 Codex の手順が無いので、消すのでなく移す
+main L228〜233 Codex は dependencies を自動で解決しないので手で辿る	AGENTS.md	elsewhere	README.md「インストール」（Codex の手順）	P8・P12
+main L235 .codex/hooks.json の hook は編集のたびに make test を実行する	AGENTS.md	drop	なし（Q8 で hook ごと削除）	Q8。L174 と重複でもある

@@ -1,0 +1,91 @@
+#207 後の形の骨組み（案。文面は書かない。行数は空行を含む目安）
+
+## 1. AGENTS.md（約 95〜100 行。main は 235 行）
+
+節（行数の目安）と、入る inventory の agents-md の行:
+- 冒頭（約 4 行）: main L1〜3、D5 の指し先（placement.md）。
+- リポジトリ概要（約 3 行）: main L5〜7。
+- スキルの置き場（約 16 行）: main L11〜18（縮約）、L19・L21 の指し先、L31、L41〜46（指し先に畳む）、L56・L58、L59、L62、L206。
+  - 見出しの扱いは未決。「現在の実体」の名前を残すか、改名して REVIEW.md の表と review-core.mjs:7 を直すかを決める（P10）。
+- 作業の進め方（約 28 行。規則 1 つにつき 1〜2 行、理由は 1 行）: D4（目的の固定）、D1（流れ）、D2（根本原因。main L101〜107 を畳む）、D3（形式検証）、main L76〜78、L79〜81（review-lenses.md を指す）、L95〜100（L85〜94 の核を含む）、L82〜84、L67〜69、L70〜71（Q9 で置き換える）、L72〜75、L135〜138。
+  - 見出しの扱いは未決。「作業ルール」の名前を残すか、改名して参照元を直すかを決める。参照元は REVIEW.md の表、review.js:16、plan.js:12、address-core.mjs:48（P10）。
+- 規範の置き場（約 12 行。地図）: main L54 と、docs/guidelines/ の各文書・REVIEW.md・best-practices.md・formal-methods スキル・README.md の指し先を 1 行ずつ。
+- 検証（約 12 行）: main L148〜154、L158。
+  - 見出し「検証」は残す（grep で見た範囲で 29 件の参照がある）。
+- 言語（約 3 行）: main L213。
+- 消える節: インストール・注意点・Claude Code 固有・Codex 固有。中身は README.md・docs/guidelines/distribution.md へ移すか、消す。
+
+対応の確認:
+- inventory の agents-md の行は 27 行ある（D1〜D4・Q9 の 5 行と、main の 22 行）。全てが上のいずれかの節に入っている。
+- 規則 1 つを 2 行とすると、作業の進め方の 12 規則で約 24 行。これが全体の 4 分の 1 を占める。
+- 100 行を超えそうなら、作業の進め方の規則のうち P1 の当たりが弱いものから docs へ出す（候補: L82〜84、L72〜75。REVIEW.md 側にも観点がある）。
+
+## 2. docs/ に新しく置く文書（全て docs/guidelines/ の下）
+置き場を docs/guidelines/ に限る理由:
+- repo-implement は AGENTS.md・REVIEW.md・docs/guidelines/ を方針として読む（plan.js:200、implement.js:139）。
+- repo-review は REVIEW.md の「読むもの」の表から方針の束を組む（review-core.mjs:623〜631）。
+- そのため、外に置くと script の変更が #207 に入る。
+
+新しい文書:
+- docs/guidelines/workflow.md: 作業の流れ（目的の固定・4 つの段・各段の入出力）、欠陥が出たとき（Q5・Q6・Q10、設計への戻り方）、止まってよい場所の詳細（Q9）、形式検証をどの段で誰が走らせるか（design-v2h の N5）、根本原因の判定のしかた（main L101〜107 の機序と実測）、ready 後の差分の検証（main L176）、quick_validate.py の SKIP:（main L200）。
+  - #207 ブランチで AGENTS.md に足していた N1〜N9 の中身は、AGENTS.md の 1〜2 行に残すもの以外は、ほぼここに入る。
+- docs/guidelines/multi-agent.md: 役割の分担（main L85〜100 の細則）、検証の手段の列挙（design-v2h の N6）、fan-out の model・effort・evidence pack（main L108〜127）。
+- docs/guidelines/review-lenses.md: 段と観点の対応表（research/stages.tsv）。agent の名前と、どの段で当てるかだけを書き、観点の中身は agent 定義を指す。呼び出し側の決め方（観点を分けるか、何体立てるか）もここに置く。
+- docs/guidelines/placement.md: placement-criteria.tsv の基準の正本。AGENTS.md に足すときと文書を書くときに読む。
+- docs/guidelines/distribution.md: 配布の制約の詳細。
+  - 実体が plugins/ 側にある理由（main L23〜27）と、plugin 間の共有の手順（L33〜37）。
+  - frontmatter の name（L48）と、Workflow の scriptPath による実行（L57）。
+  - Workflow caller・runner の指し先（L186〜196・L207）。
+  - marketplace 名（L204）と、2 つの plugin.json（L205）。
+
+既存の文書に足すもの:
+- documentation.md: コメント（L64〜66）、規範に理由を添える（L128〜134）、正本の実例（L82〜84）、sweep 後の再 grep（L72〜75）。
+- testing.md: 個別スキルの検証コマンド（L160〜166）。
+- README.md:
+  - 「インストール」に Codex の手順（L222〜233）を足す。
+  - 「開発」に Codex Desktop の Worktree セットアップ（L142〜146）を足す。
+
+連動して直すもの（規範の追加ではなく、移動に伴う参照の付け替え）:
+- docs/guidelines/README.md:
+  - 文書表に新しい文書を足す。
+  - 「AGENTS.md の作業ルールはここに写さない」と「DRY の正本規則は AGENTS.md に従う」の向きを直す。
+- REVIEW.md:
+  - 「読むもの」の表の、AGENTS.md の節名を指す行を新しい置き場へ付け替える。対象は「現在の実体」「作業ルール」「注意点」。
+  - Workflow script の行・*.md の行・すべての行に新しい文書を足す。
+- 節名で AGENTS.md を指す参照元のうち、移す節を指すものを直す。対象は「実体が plugins/ 側にある理由」の 4 件と「plugin 間でスキルは共有できない」の 1 件（grep で見た範囲）。
+- .codex/hooks.json の削除（Q8）。
+
+## 3. 観点の agent（.claude/agents/）
+research/agents-plan.tsv の 9 体を、観点ごとの定義として置く。
+- 抽出役: evidence-packer（sonnet。観点を持たず、行範囲の選択だけを返す）。
+- 監査役（opus）:
+  - purpose-auditor（目的への必要性）
+  - alternatives-auditor（変更の必要性）
+  - placement-auditor（置き場）
+  - risk-auditor（費用と失敗時の挙動）
+  - decision-verifier（決定への適合と検証可能性）
+  - norm-auditor（規範との整合と根本原因）
+- 読み手と主張の検査（sonnet）:
+  - reader（初見の読み手）
+  - claim-checker（事実主張の裏付け）
+- format の観点は agent にせず、make test・make portability・verify_install.py が持つ。
+- 各定義の正本は agent のファイル 1 つにする。AGENTS.md と呼び出し側の prompt には観点の中身を写さない。
+- 渡す入力の制限（理由づけを渡さない等）は定義の側に書く。
+- 既存の diff-verifier（REVIEW.md 全般の基準で差分を読む）の扱いは未決で、次の 2 案がある。
+  - (a) そのまま残し、review-lenses.md の段の表に「ready 後の差分」の役として載せる。
+  - (b) norm-auditor に吸収する。
+  - #207 の目的（観点の死角をなくす）にはどちらでも足りる。小さい変更は (a)。
+
+Codex 側の扱い（未確認。利用者に確認する）:
+- 今あるのは、AGENTS.md の「Codex でも同じ条件で検証役を立てる」という文だけである。
+- Codex にネイティブの agent 定義ファイルの仕組みがあるかは、Codex の公式文書で確かめていない。
+- 案 1: Codex の呼び出し側が .claude/agents/<観点>.md の本文を読み、立てる agent への指示として渡す。正本は 1 つのままになる。
+- 案 2: Codex に agent 定義の仕組みがあれば、.claude/agents/ から script で生成する。手で写さない。
+- どちらにするかは、仕組みの有無を確かめてから決める。
+
+## 4. #207 に入れないもの
+purpose.txt の「目的に入らないもの」を参照。
+
+規則の機械の検査への昇格は、候補を挙げるだけにする。候補は次の 2 つ。
+- plugins/ 配下の symlink の検査を make test に入れる。
+- 節名の参照の実在を check_references.py に入れる（今の check_references.py が節名を見るかは未確認）。
