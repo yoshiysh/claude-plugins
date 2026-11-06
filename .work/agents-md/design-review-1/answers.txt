@@ -2,3 +2,4 @@
 Q1 修正ループとの矛盾: 規範だけ先、スキル（repo-implement 等）は直後の別 PR
 Q2 形式検証の手順: 今の formal-methods スキルを参照し先に入れる
 Q3 段と形式検証: AGENTS.md に 1 文置く（推奨）
+Q4 #207 の範囲（N7）: AGENTS.md の 1 行（236 行の「設計レビュー」）だけ揃える。quick_validate.py・evals.json の語は直後の別 PR（修正ループを持つスキルの改修と同じ PR）
