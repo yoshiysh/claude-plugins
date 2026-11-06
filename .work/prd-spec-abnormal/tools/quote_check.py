@@ -14,7 +14,7 @@ def text(p):
 def files(ref):
     out = []
     for part in ref.split(';'):
-        m = re.match(r'\s*([^\s:]+\.(?:md|js|mjs|json))', part)
+        m = re.match(r'\s*([^\s:]+\.(?:md|json|mjs|js))(?![\w.])', part)
         if m: out.append(m.group(1))
     return out
 bad = 0; n = 0
