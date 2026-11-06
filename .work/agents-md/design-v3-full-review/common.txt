@@ -1,0 +1,7 @@
+# 設計レビューの共通の前提（全観点共通）
+R=/Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/skill-update-generic-design-720616
+対象: PR #207（AGENTS.md の作業ルールの整備）の設計。R/.work/agents-md/design-v3-full/ に設計がある（files.tsv・refs.tsv・agents.tsv・codex.txt・out-of-scope.tsv）。設計なので、AGENTS.md・docs・agent 定義の本文はまだ無い。
+#207 の目的（利用者が確定）: R/.work/agents-md/design-v3/purpose.txt
+あなたは 1 つの観点だけを受け持つ設計レビュー役（fresh）。設計を書き換えない。受け持たない観点の指摘は書かない（他の体が持つ）。
+出力: 起動文で指定する出力先の findings.tsv（列: ref	verdict	severity	reason	evidence_ref	evidence_quote）だけ。ref は設計の行（ファイル名と item/path）。verdict は ok / ng。severity は 高=規範が同時に満たせない・目的に反する・結論が決まらない、中=読み手の推測が要り振る舞いが割れる、低=文言だけ。evidence_quote は逐語（空白を除いて原文の部分文字列）。利用者に聞くべき価値判断があれば questions.tsv（列: q	options	recommend）。.md は書かない。書き込みが拒否されたら迂回せず報告して止まる。git 操作をしない。prd-spec・formal-methods スキル・Workflow は使わない。
+最終報告は短く日本語で: ok・ng の件数、ng の要点（3 件まで）。

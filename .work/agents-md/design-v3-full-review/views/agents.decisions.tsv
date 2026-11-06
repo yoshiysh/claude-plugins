@@ -1,0 +1,12 @@
+agent	lenses	input	excluded_input	output	model
+evidence-packer	-（観点を持たない抽出役）	対象（設計文書か差分）・目的文・照らす正本の一覧・置き場の目録・既存の仕組みの目録	観点の判断に使う情報（観点の一覧・前回の指摘）	行番号つきの evidence pack を返す。中身は、行範囲の選択（対象の抜粋・関係する正本の該当行・変更していないが参照している箇所）と、観点ごとの切り出し（決定の節・本文・利用場面の節）。pack に入れなかったものを一覧で添える。本文は返さず、script が正本から逐語で写す	sonnet・low
+purpose-auditor	purpose-necessity	目的文と、対象の要素一覧（行範囲つき）。設計レビューでは設計文書の「決定」の節だけを渡す	設計者の理由づけ・過去のレビューの履歴・前回の指摘（渡すと、設計の前提に引き寄せられて同じ死角が再生される）	要素ごとに keep / cut / shrink を返し、目的のどの文と対応するかを path:line で示す。「決定」と「理由」の節に分かれていない文書では、理由を外せなかったことを宣言する	opus・high
+alternatives-auditor	change-necessity	目的文・既存の仕組みの目録（scripts・hook・lint・make の target・既存の規範文書の見出し）・対象の「決定」の節	設計の理由づけ	変更の全体について、無変更・削除・既存の仕組みの再利用・より小さい変更のそれぞれで目的が満たせるかを比べる（根拠は path:line）。実装段では、実装が設計より大きくなったときだけ呼ぶ	opus・high
+placement-auditor	placement	対象の内容の単位（行範囲つき）・置き場の目録（AGENTS.md の見出しと行数・docs/ の構成・REVIEW.md・scripts と hook と lint の一覧）・docs/guidelines/placement.md	設計の理由づけ。記事の含意のメモ（判断の材料であり物差しではない）	内容の単位ごとに、今の置き場・置くべき置き場・正本か写しかを返し、当てた placement.md の基準の番号を添える（path:line）	opus・high
+risk-auditor	tradeoff・failure-behavior	evidence pack（対象と、変更していない呼び出し元）・script が測った値（行数の増減・agent の体数・トークンの見積もり）・実装段では差分とテスト結果	得るものの主張（設計の利点の説明。渡すと費用の見積もりが甘くなる）	悪化する性質とその程度、得るものとの比較を返す。あわせて、境界・失敗・権限の下で誤る条件を返す（path:line と条件）	opus・high
+decision-verifier	decision-fit・verifiability	照らす正本（設計段では要求・利用者の決定、実装段では承認済みの設計）・evidence pack・テスト結果	目的への必要性の判断（purpose-auditor の担当。兼ねると「満たすか」が「要るか」を上書きする）	決定ごとに、満たす / 満たさない / 検証不能を返し、検証の手段があるかを添える（path:line）	opus・high
+norm-auditor	norm-consistency・root-cause	evidence pack と方針の束（REVIEW.md・AGENTS.md・docs/guidelines/・best-practices の該当節を、行番号つきで 1 つにしたもの）	設計の理由づけ（指摘が消えたかではなく、原因が除かれたかを見るため）	規範との矛盾・古い写し・対症療法の箇所を返す（path:line と、照らした節）。設計レビューの規範「根本原因の除去」の判定はこの体が持つ	opus・high
+reader	applicability	成果物の本文と、想定場面の一覧。場面の一覧は設計文書の「利用場面」の節を script が切り出す。その節が無ければ evidence-packer が選ぶ	規範の束・設計の理由・目的文（渡すと書いた側の文脈で読めてしまう）	場面ごとに、読み手が取る行動・迷う箇所・複数の解釈ができる箇所を返す（path:line）	sonnet・medium
+claim-checker	evidence	成果物の本文（事実の主張を含む文）	作者の確信度・推論の説明	主張ごとに supported / scoped / unsupported を返し、根拠を添える	sonnet・low
+diff-verifier（既存。V3 で変えない）	REVIEW.md の観点の全般（ready 後に足した差分の役）	差分（diff か変更ファイルの一覧）・テストの結果・あれば追加の観点	修正案の本文（書かせない）	問題を file:line・何が誤りか・重大度で返す。見た差分の範囲と、問題が無かった観点の確かめ方を添える	opus・high（今の定義のまま）
+make test・make portability・verify_install.py（agent にしない）	format	作業ツリー	-	合否と BLOCKER 行	none（script）
