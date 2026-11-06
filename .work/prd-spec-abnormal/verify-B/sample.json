@@ -151,6 +151,20 @@
  "grep_sample": [
   "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:1696:    throw new Error(`${path.basename(file)} を JSON として読めません: ${e.message}`)",
   "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2246:  if (opts.doc.length !== 1 || !opts.source) throw new Error('place には --doc <requirements|specifications>/<topic> と --source <元の文書のパス> が要ります')",
-  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3982:  if (opts.sweep && !opts.live) throw new Error('--sweep には --live <今動いている label,…> が要ります（挙げなかった label の作業用ディレクトリを消すため）')"
- ]
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3982:  if (opts.sweep && !opts.live) throw new Error('--sweep には --live <今動いている label,…> が要ります（挙げなかった label の作業用ディレクトリを消すため）')",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2943:// report: 事後報告は resolutions.json の method・answered_by・measured・hold・upstream_revision から導出する。answered_by は依頼者の回答を",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3539:// 関連性と根拠を再検証するまで保持）と、検証した候補の decision_text を value に写しただけの候補の選択。合格は、保持規則の文（hold）・問いの形の修正で変えた候補の文・",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2676:  if (room < 0) throw new Error(`get の --ids ${ids.length} 件は、ID の一覧（missing・over_budget）だけで stdout の上限 ${STDOUT_BUDGET} バイトを超える。ID を分けて読み直す`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2794:  if (shapeBad.length) throw new LedgerRejected(`欄の検査に落ちました（何も書いていません）:\\n${shapeBad.join('\\n')}`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3980:    throw new Error('audited- で始まるラベルは --role auditor のときだけ保存できます（監査の基準は監査役だけが保存する）')",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:1705:const OTHER_RULING = { never: ['question', 'options', 'answer', 'hold'] }",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:1895:  if (bad.length) throw new Error(`${file} に台帳の形に合わない要素があります。put で直してください（${STORED_FIX}）:\\n${bad.join('\\n')}`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:3854:  if (missing.length) throw new Error(`契約（${CONTRACT_FILE}）に見出しがありません: ${missing.map((n) => `「## ${n}」`).join('・')}`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2968:    const h = r.hold || {}",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2284:  if (!carryShapeOk(data)) throw new LedgerRejected(`${file} の形が ${CARRY_SHAPE} ではありません（何も消していません）`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2155:  if (!saved || !saved.files || typeof saved.files !== 'object') throw new LedgerRejected(`unstash の --against ${label} の控え（checks/${label}.stash.json）がありません（何も戻していません）`)",
+  "plugins/workflow/skills/prd-spec/scripts/doc_check.mjs:2117:// 段の token で本文の控えを取る（無い文書は無い印）。blocked の後の同じ段の再実行の入口の restore が、台帳と一緒に本文を段に入った時点へ戻す。"
+ ],
+ "extra_seed": 20261107,
+ "doccheck_grep_total": 121
 }
