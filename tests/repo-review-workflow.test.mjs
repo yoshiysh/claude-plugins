@@ -228,9 +228,19 @@ test('全ての agent 呼び出しが model と effort を明示し、運搬役�
   }
   for (const c of b.calls.filter((x) => x.options.label.startsWith('carrier:'))) {
     assert.ok(!c.prompt.includes('"target"'), '運搬役は計画の本体を写さない')
+    for (const phrase of ['目的', '合格条件', '所有範囲', '読む外部正本はない', '実行前に読む', '再委譲をしない', '返すもの']) assert.ok(c.prompt.includes(phrase), `${c.options.label}: ${phrase}`)
   }
   for (const c of b.calls.filter((x) => /^(review|verify)/.test(x.options.label))) {
     assert.ok(c.prompt.includes(args.plan.policyPack.path), `${c.options.label}: 方針の束の path を渡す`)
+    for (const phrase of ['目的:', '合格条件:', '継承・自動読了を仮定しない', '作業前に読む', 'ファイルを変更しない', '別のスキル・Workflow・agent を起動しない', '返答の参照と範囲:']) assert.ok(c.prompt.includes(phrase), `${c.options.label}: ${phrase}`)
+    assert.ok(c.prompt.includes(JSON.stringify(args.plan.policyPack.index)), `${c.options.label}: 版を固定した節ID・元参照を渡す`)
+    if (c.options.label.startsWith('review:')) {
+      assert.ok(c.prompt.includes('読めなかったpath/節と理由を limitations'))
+      assert.ok(c.prompt.includes('担当ファイル'))
+    } else {
+      assert.ok(c.prompt.includes('読めなかったpath/節と理由・範囲内/逸脱/未確認を reason'))
+      assert.ok(c.prompt.includes('割り当てられた主張'))
+    }
     assert.ok(!c.prompt.includes(':REVIEW.md'), `${c.options.label}: 方針を各体に git show で読み直させない`)
     assert.ok(!c.prompt.includes(args.plan.policyPack.token), `${c.options.label}: 読取りトークンを prompt に出さない（束を開かずに返せてしまう）`)
     assert.ok(!c.prompt.includes('shasum'), `${c.options.label}: 追加のコマンドに頼らない`)
@@ -588,8 +598,9 @@ test('このリポジトリの REVIEW.md から作る方針の束は、表が挙
   assert.deepEqual(unparsed, [], '表の参照を全て解析できる')
   // 期待する文書の集合は REVIEW.md の「読むもの」の表を読んで決めたもの（表を変えたらここも見直す）。
   const BP = 'plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md'
-  assert.deepEqual(docs.map((d) => d.path).sort(), ['AGENTS.md', BP, 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'scripts/traceability/README.md'].sort())
-  assert.deepEqual(docs.find((d) => d.path === 'AGENTS.md').titles.map((x) => x.title).sort(), ['作業ルール', '注意点', '現在の実体'].sort())
+  assert.deepEqual(docs.map((d) => d.path).sort(), [BP, 'docs/guidelines/agent-work.md', 'docs/guidelines/repository-operations.md', 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'scripts/traceability/README.md'].sort())
+  assert.equal(docs.find((d) => d.path === 'docs/guidelines/agent-work.md').whole, true)
+  assert.deepEqual(docs.find((d) => d.path === 'docs/guidelines/repository-operations.md').titles.map((x) => x.title).sort(), ['実行と環境', '配置と配布'].sort())
   assert.deepEqual(docs.find((d) => d.path === BP).titles.map((x) => x.num).sort((a, b) => a - b), [1, 2, 3, 5, 10, 11, 12, 13, 13], '§13 は表の左の列の「script の置き場」と右の列の節の 2 つ')
   for (const d of docs) {
     assert.ok(existsSync(path.join(ROOT, d.path)), d.path)
@@ -603,4 +614,62 @@ test('このリポジトリの REVIEW.md から作る方針の束は、表が挙
   assert.match(bpLines[s1.start - 1], /^## 1\. /)
   assert.match(bpLines[s1.end], /^## 2\. /)
   assert.ok(bpLines.slice(s1.start, s1.end).some((l) => l === '# 悪い例'), 'フェンスの中の見出しを含んだまま')
+})
+
+
+test('実表をCLIへ通すと移動した作業・配布・runtime規則が方針束へ届く', (t) => {
+  const fx = fixture(t)
+  const review = readFileSync(path.join(ROOT, 'REVIEW.md'), 'utf8')
+  const { docs } = parseReadingTable(review)
+  write(fx.repo, 'REVIEW.md', review)
+  for (const doc of docs) write(fx.repo, doc.path, readFileSync(path.join(ROOT, doc.path), 'utf8'))
+  git(fx.repo, 'add', '-A')
+  git(fx.repo, 'commit', '-q', '-m', 'current policy')
+  const policyRef = git(fx.repo, 'rev-parse', 'HEAD')
+  write(fx.repo, 'docs/a.md', 'a3\n')
+  write(fx.repo, 'docs/b.md', 'b2\n')
+  git(fx.repo, 'add', '-A')
+  git(fx.repo, 'commit', '-q', '-m', 'review target')
+  const head = git(fx.repo, 'rev-parse', 'HEAD')
+  const args = planArgs({ repo: fx.repo, mode: 'diff', baseRef: policyRef, headSha: head, policyRef, reviewers: REVIEWERS, stateDir: fx.stateDir })
+  assert.deepEqual(args.plan.target.files.slice().sort(), ['docs/a.md', 'docs/b.md'])
+  assert.deepEqual(args.plan.policyPack.missing, [])
+  const pack = readFileSync(args.plan.policyPack.path, 'utf8')
+  for (const [doc, phrase] of [
+    ['agent-work.md', '上限を自動更新しない'],
+    ['agent-work.md', '各子agentのpromptに次のbriefを必ず渡す'],
+    ['agent-work.md', '成果物本文（コード・hook・文書）の生成・修正・採点をしない'],
+    ['repository-operations.md', '`plugins/` 配下に symlink を作らない'],
+    ['repository-operations.md', '秘密情報を含むため'],
+    ['repository-operations.md', '最初の execution agent の dispatch 前に拒否する'],
+  ]) {
+    assert.ok(pack.split('\n').some((line) => line.startsWith(`docs/guidelines/${doc}:`) && line.includes(phrase)), phrase)
+  }
+})
+
+
+test('準正常: 検証役の未読票は成功にせず、残る独立2票の多数決は維持する', async (t) => {
+  for (const first of ['unverified', 'pack_unread', 'forbidden_evidence']) {
+    await t.test(first, async (t) => {
+      const fx = fixture(t)
+      const reviewers = [...REVIEWERS, { id: 'third', focus: '別の観点', files: ['docs/a.md'] }]
+      const args = planArgs({ repo: fx.repo, mode: 'diff', baseRef: fx.base, headSha: fx.head, policyRef: fx.base, reviewers, stateDir: fx.stateDir })
+      const decide = verifyAll(fx.head, (lens) => lens === 'correctness' && first === 'unverified' ? 'unverified' : 'confirmed')
+      const b = backend({
+        review: (id) => reviewOk(fx.head, id, { findings: id === 'correctness' ? [finding()] : [] }),
+        verify: (lens, round, prompt) => {
+          const value = decide(lens, round, prompt)
+          if (lens !== 'correctness') return value
+          if (first === 'pack_unread') return { ...value, policy_pack_token: 'unreadable' }
+          if (first === 'forbidden_evidence') value.results[0].evidence = [{ path: 'deps.lock', line: 1, claim: 'x' }]
+          return value
+        },
+      })
+      const result = await runWorkflow(t, args, b)
+      assert.equal(result.status, 'completed', JSON.stringify(result.reasons))
+      assert.equal(result.findings.length, 1)
+      assert.deepEqual(labels(b, 'verify'), ['verify1:correctness', 'verify2:docs', 'verify2:third'])
+      assert.ok(b.calls.filter((c) => c.options.label.startsWith('verify2:')).every((c) => c.prompt.includes('返答の参照と範囲:')))
+    })
+  }
 })

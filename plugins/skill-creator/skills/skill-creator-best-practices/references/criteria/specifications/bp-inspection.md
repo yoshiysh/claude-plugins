@@ -1,5 +1,8 @@
 # 仕様書: review と audit の観点と流れ
 
+[設計時点の出典／旧規約 @ c7759f1]: https://github.com/yoshiysh/claude-plugins/blob/c7759f152c1e51369818f21e34a98cb0146e5e76/AGENTS.md
+[agent-work の現行案内]: https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/agent-work.md
+
 本文書は次の文書と同じ一式として扱う。相互に参照する記述は、この一式が揃っていることを前提とする。
 
 - `docs/requirements/bp-operations.md`
@@ -265,7 +268,7 @@ CLI は、組ごとに担当 ID を付けて状態に書き、組の順を担当
 #### SP-BPINSPECTION-017 検証役に渡すもの
 台帳の作成と資産の束の段で、script は運搬役を通じて CLI に、台帳の資産から資産の束を作業ファイルとして書かせなければならない。台帳を列挙し直したとき（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）は、資産の束も書き直させなければならない。
 
-script は、抽出役・検証役・反証役の prompt に、資産の束と照らす先のパスを渡し、内容を写してはならない。prompt は、全ての起動に共通する部分（照らす先のパス、資産の束のパス、役の指示と理由）を先頭に置き、起動ごとに違う部分（観点、担当の資産 ID、指摘の種類の閉集合、適用の判定）を後ろに置かなければならない（同じ対象を多数の agent が読むので、各体に冷読みさせず、prompt の先頭を揃えて cache を効かせる：AGENTS.md の作業ルール）。
+script は、抽出役・検証役・反証役の prompt に、資産の束と照らす先のパスを渡し、内容を写してはならない。prompt は、全ての起動に共通する部分（照らす先のパス、資産の束のパス、役の指示と理由）を先頭に置き、起動ごとに違う部分（観点、担当の資産 ID、指摘の種類の閉集合、適用の判定）を後ろに置かなければならない（同じ対象を多数の agent が読むので、各体に冷読みさせず、prompt の先頭を揃えて cache を効かせる：[agent-work の現行案内]、設計時点の出典／旧規約：[設計時点の出典／旧規約 @ c7759f1]）。
 
 検証役は、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-007 の形に、同項が許す足した欄として、未検査の観点の候補（SP-BPINSPECTION-007・SP-BPINSPECTION-012・SP-BPINSPECTION-013）を加えて返さなければならない。候補は SP-BPINSPECTION-025 の観点・範囲・理由を持つ。範囲が SP-BPINSPECTION-025 の 3 種のどれでもない候補か、観点が run の観点の集合に無い候補を含む結果の記録を、CLI は拒否しなければならない（拒否された結果の扱いは SP-BPFINDINGS-034 と同じ）。
 

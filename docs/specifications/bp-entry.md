@@ -1,5 +1,8 @@
 # 仕様書: 依頼の振り分け・機能の連鎖・Workflow callsite
 
+[設計時点の出典／旧規約 @ c7759f1]: https://github.com/yoshiysh/claude-plugins/blob/c7759f152c1e51369818f21e34a98cb0146e5e76/AGENTS.md
+[repository-operations の現行案内]: https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/repository-operations.md
+
 ## 表記規約
 
 仕様項目の語尾の区分は `docs/requirements/bp-operations.md` の「表記規約」に従う（必須 = 〜しなければならない、推奨 = 〜することが望ましい、許容 = 〜してもよい、禁止 = 〜してはならない）。主体「best-practices」「利用者」の意味も同文書に従う。
@@ -176,7 +179,7 @@ callsite は、best-practices の Workflow に次の入力を渡さなければ�
 callsite は、入力を CLI の `launch-args` の操作（`docs/specifications/bp-run.md` の SP-BPRUN-031）に作らせ、出力の `args` を書き換えずに Workflow に渡さなければならない（綴りと起動の種類ごとの項目を SKILL.md に書き写すと、表と食い違う）。`launch-args` は、起動の種類で渡さない項目を持つ入力を拒否する。
 
 #### SP-BPENTRY-014 経路の選び方
-callsite は、Workflow を起動するたびに、次の判定表で経路を選ばなければならない（native-first の経路の契約：AGENTS.md、`references/claude-workflow-compatibility.md` の目的の節）。この規則は再開の起動にも当てる。
+callsite は、Workflow を起動するたびに、次の判定表で経路を選ばなければならない（native-first の経路の契約：[設計時点の出典／旧規約 @ c7759f1]、`references/claude-workflow-compatibility.md` の目的の節）。この規則は再開の起動にも当てる。
 
 > 条件の値: native Workflow = 今の道具の一覧にある / 無い
 > 条件の値: この起動での native の試行 = 未試行 / 試行して失敗した
@@ -241,7 +244,7 @@ runner の `requirements` の照合と workspace の mode（runtime README の E
 機能の run が返り値を返さずに終わったとき（機能の列の長さを問わず、native Workflow と Codex runner のどちらの経路でも、起動の失敗・error・timeout・不正な結果を含む）、入口は後続の機能の run を起動してはならない。native Workflow の経路の失敗では、入口は Codex runner の経路で起動し直してはならない（SP-BPENTRY-014）。入口は、止まった機能が返す報告の代わりに host が返した失敗の内容を書き換えずに利用者に返し、後続の機能があればそれを未実行の機能として返さなければならない。run が状態を書いた後に失敗したことがあるので、入口は、CLI が列挙する未完了の状態（SP-BPRUN-018）から状態 ID と next_args を得て再開できることを併せて返さなければならない（再開の手順は SP-BPRUN-018）。
 
 #### SP-BPENTRY-018 どの経路も無い
-native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-runner` も使えないとき、入口は run を起動してはならず、`workflow` plugin の install が要ることを利用者に返さなければならない（Codex は plugin の依存を自動で入れない：AGENTS.md）。
+native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-runner` も使えないとき、入口は run を起動してはならず、`workflow` plugin の install が要ることを利用者に返さなければならない（Codex は plugin の依存を自動で install しない。依存は利用者が個別に導入する：[repository-operations の現行案内]、設計時点の出典：[設計時点の出典／旧規約 @ c7759f1]）。
 
 #### SP-BPENTRY-019 create を列の先頭以外に置く依頼
 依頼が、他の機能の後に create を求めるとき、入口は run を 1 つも起動してはならず、その機能の列を組めないことと、組めない理由（create の入力は依頼文だけで、前の機能の結果を渡す形が無い：PR-BPOPERATIONS-003）を利用者に返さなければならない。

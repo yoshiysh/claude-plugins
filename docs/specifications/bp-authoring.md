@@ -1,5 +1,8 @@
 # 仕様書: create と update の流れ
 
+[設計時点の出典／旧規約 @ c7759f1]: https://github.com/yoshiysh/claude-plugins/blob/c7759f152c1e51369818f21e34a98cb0146e5e76/AGENTS.md
+[repository-operations の現行案内]: https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/repository-operations.md
+
 ## 表記規約
 
 仕様項目の語尾の区分は `docs/requirements/bp-operations.md` の「表記規約」に従う（必須 = 〜しなければならない、推奨 = 〜することが望ましい、許容 = 〜してもよい、禁止 = 〜してはならない）。主体「best-practices」「利用者」の意味も同文書に従う。
@@ -54,14 +57,14 @@
 ### 対象スキルと run の入力
 
 #### SP-BPAUTHORING-001 create の対象スキルのパス
-create の対象スキルのパスの一覧は、`.agents/skills/<name>/` のディレクトリ 1 つでなければならない（未公開のスキルの実体の置き場：AGENTS.md）。`<name>` は、依頼文がスキル名として名指しする文字列とする。callsite は、この一覧を run の起動前に作り、入力に渡さなければならない（SP-BPENTRY-013）。依頼文がスキル名を名指ししないとき、callsite は create の run を起動してはならず、スキル名を利用者に尋ねなければならない（名前を推測で決めると、依頼文に無い制約を足すことになる：PR-BPOPERATIONS-004）。
+create の対象スキルのパスの一覧は、`.agents/skills/<name>/` のディレクトリ 1 つでなければならない（未公開のスキルの実体の置き場：[repository-operations の現行案内]、設計時点の出典：[設計時点の出典／旧規約 @ c7759f1]）。`<name>` は、依頼文がスキル名として名指しする文字列とする。callsite は、この一覧を run の起動前に作り、入力に渡さなければならない（SP-BPENTRY-013）。依頼文がスキル名を名指ししないとき、callsite は create の run を起動してはならず、スキル名を利用者に尋ねなければならない（名前を推測で決めると、依頼文に無い制約を足すことになる：PR-BPOPERATIONS-004）。
 
 `<name>` は、空でなく、`/` を含まず、`.` でも `..` でもない 1 つのパスの要素でなければならない。callsite は、名指しされた文字列が次のどれかに当たるとき、名指ししないときと同じく create の run を起動してはならず、スキル名を利用者に尋ねなければならない（`/` や `..` を含む文字列は `.agents/skills/` の外を指す：PR-BPOPERATIONS-037）。
 
 - 名指しされた文字列が `<name>` の条件に当たらない。callsite は文字列を書き換えて名前を作ってはならない。
 - 依頼文がスキル名として 2 つ以上の文字列を名指しする。callsite は、1 つ目を取ることを含め、推測で 1 つを選んではならない。
 
-create が作る Workflow script は、このディレクトリの中に置かなければならない。`plugins/` の下へ置いてはならない（`plugins/` への移動は marketplace への登録の仕事であり、create の範囲の外にある：AGENTS.md）。
+create が作る Workflow script は、このディレクトリの中に置かなければならない。`plugins/` の下へ置いてはならない（`plugins/` への移動は marketplace への登録の仕事であり、create の範囲の外にある：[repository-operations の現行案内]、設計時点の出典：[設計時点の出典／旧規約 @ c7759f1]）。
 
 #### SP-BPAUTHORING-002 書き換えてよい範囲
 create・update の書き手は、対象スキルのパスの一覧の中（「一覧の中」の意味は `docs/specifications/bp-run.md` の用語定義）のファイルだけを作り・書き換え・消してよい。一覧の外にある既存のファイルを書き換えてはならず、一覧の外に新しいファイルを作ってはならない（PR-BPOPERATIONS-037・020）。run の作業記録・証拠・記録台帳はこの制限の外とし、作業ファイルの置き場は SP-BPRUN-007・008 に従う。
@@ -508,7 +511,7 @@ create・update の run は、状態を作る前に、入力を次の判定表�
 |---|---|---|
 | create | 依頼文が空 | agent の起動の前に、needs_input と理由（依頼文が要ること）を返す |
 | create | 修正の根拠として扱う根拠が 0 件 | 起こりえない（create は修正の根拠を受け取らない） |
-| create | 対象スキルのディレクトリが既にある | 開始の操作で、BLOCKED と理由（既にあるパスと、既存のスキルを直すなら update を使うこと）を返す。既にあるものに書いてはならず、消してもならない（PR-BPOPERATIONS-037）。`.agents/skills/<name>` に何かが在るとき（ディレクトリ・symlink（公開済みのスキル：AGENTS.md）・通常のファイルを含め、種類を問わない）を既にあるとし、理由に在るものの種類も書く |
+| create | 対象スキルのディレクトリが既にある | 開始の操作で、BLOCKED と理由（既にあるパスと、既存のスキルを直すなら update を使うこと）を返す。既にあるものに書いてはならず、消してもならない（PR-BPOPERATIONS-037）。`.agents/skills/<name>` に何かが在るとき（ディレクトリ・symlink（公開済みのスキル：[repository-operations の現行案内]、設計時点の出典：[設計時点の出典／旧規約 @ c7759f1]）・通常のファイルを含め、種類を問わない）を既にあるとし、理由に在るものの種類も書く |
 | create | 対象スキルのディレクトリが無い | 起こりえない（create はディレクトリを新しく作る。「無い」は `.agents/skills/<name>` に何も無いときを指す） |
 | update | 依頼文が空 | 起こりえない（update は依頼文を受け取らない：SP-BPENTRY-013） |
 | update | 修正の根拠として扱う根拠が 0 件 | agent の起動の前に、needs_input と理由（受け取った修正の根拠の件数と、SP-BPFINDINGS-031 で扱わなかった件数と、1 件以上の修正の根拠が要ること）を返す（PR-BPOPERATIONS-015） |

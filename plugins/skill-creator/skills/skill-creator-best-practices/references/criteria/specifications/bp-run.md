@@ -1,5 +1,8 @@
 # 仕様書: best-practices の実行基盤
 
+[設計時点の出典／旧規約 @ c7759f1]: https://github.com/yoshiysh/claude-plugins/blob/c7759f152c1e51369818f21e34a98cb0146e5e76/AGENTS.md
+[repository-operations の現行案内]: https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/repository-operations.md
+
 ## 表記規約
 
 仕様項目の語尾の区分は `docs/requirements/bp-operations.md` の「表記規約」に従う（必須 = 〜しなければならない、推奨 = 〜することが望ましい、許容 = 〜してもよい、禁止 = 〜してはならない）。主体「best-practices」「利用者」の意味も同文書に従う。
@@ -53,7 +56,7 @@
 | 書いたファイルの一覧 | create・update の run が対象スキルに書いたファイルと消したファイルのパス、書いたか消したかの印、それぞれが検証を通ったかの記録 |
 | 判定基準の写し | run の中の agent と CLI が判定基準として読む文書の、plugin の中の写し（SP-BPRUN-036） |
 | 対象スキルのパスの一覧 | 対象スキルを指す記録。根のディレクトリのパス 1 つと、列挙したときの対象スキルのファイルのパスの並び（根の中の全てのファイルと、callsite が起動する自分の plugin の workflow script）からなる。列挙の規則は `docs/specifications/bp-entry.md` の SP-BPENTRY-022。create の最初の一覧は根だけを持つ |
-| 一覧の中 | あるパスが、対象スキルのパスの一覧の根のディレクトリの配下にあるか、一覧のパスのうち根の外にあるもの（自分の plugin の workflow script）と一致すること。パスは symlink を辿った実体のパスに正規化してから比べる（公開済みのスキルは `.agents/skills/` の symlink 越しに編集される：AGENTS.md） |
+| 一覧の中 | あるパスが、対象スキルのパスの一覧の根のディレクトリの配下にあるか、一覧のパスのうち根の外にあるもの（自分の plugin の workflow script）と一致すること。パスは symlink を辿った実体のパスに正規化してから比べる（公開済みのスキルは `.agents/skills/` の symlink 越しに編集される：[repository-operations の現行案内]、設計時点の出典／旧規約：[設計時点の出典／旧規約 @ c7759f1]） |
 | 項目の ID | 段の項目を指す ID。CLI が決定的に作る（SP-BPRUN-038） |
 | 作業記録の担当 | 作業記録を 1 つ書く単位。run の中で起動した役の名前と、その起動が処理する項目の ID の組（SP-BPRUN-041）。`docs/specifications/bp-findings.md` の用語「担当」（検証役に割り当てる資産の組）とは別のもの |
 | 記録台帳 | 状態の `log.jsonl` に CLI が足す記録の種類のうち、作業記録と証拠への参照を持つもの（SP-BPRUN-042）。`docs/specifications/bp-findings.md` の台帳（資産台帳）とは別のもの |
@@ -181,7 +184,7 @@ script は、run の最初の起動として運搬役を起動し、CLI に run 
 #### SP-BPRUN-039 作業場所を残す場所
 作業場所は、run をまたいで残る場所に置かなければならない。次の場所に置いてはならない。
 
-- `/tmp` 系の清掃で消える場所（未 push の成果が `/tmp` の清掃で失われた実測がある：AGENTS.md）
+- `/tmp` 系の清掃で消える場所（未 push の成果が `/tmp` の清掃で失われた実測：設計時点の出典／旧規約：[設計時点の出典／旧規約 @ c7759f1]）
 - Codex runner が run ごとに作る workspace（`<cwd>/dynamic-workflows/workspace/<workflow-slug>/<run-id>`。run ごとにパスが変わるので、次の run が同じ状態を指せない）
 
 CLI は、`/tmp`・`/private/tmp`・`/var/tmp`・`/private/var/tmp`・`/var/folders`・`/private/var/folders`・`os.tmpdir()` とその実体のパスの配下を `/tmp` 系とする（macOS の `$TMPDIR` は `/var/folders` の配下で、OS が定期的に消す）。実体のパスに `dynamic-workflows`・`workspace` の連続する 2 つの要素を含むものを Codex runner の workspace とする。
@@ -484,7 +487,7 @@ review の最小の起動数は 33、audit は 28 とする。最も大きくな
 ### 判定基準の写し
 
 #### SP-BPRUN-036 判定基準の写し
-run の中の agent と CLI が判定基準として読む文書は、次の写しでなければならない（配布先には repository の `docs/` が入らない：AGENTS.md「実体が plugins/ 側にある理由」。依頼者の裁定）。
+run の中の agent と CLI が判定基準として読む文書は、次の写しでなければならない（配布先には repository の `docs/` が入らない：[repository-operations の現行案内]、設計時点の出典／旧規約：[設計時点の出典／旧規約 @ c7759f1]。依頼者の裁定）。
 
 - `docs/specifications/bp-conformance.md`
 - `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する全ての文書。`docs/requirements/bp-designed-skill.md` と設計方針文書（`docs/design/skill-design-patterns.md`）のほか、bp-conformance が対象スキルの判定基準として参照する項目（本文書の SP-BPRUN-035・SP-BPRUN-037、`docs/specifications/bp-entry.md` の SP-BPENTRY-014、`docs/specifications/bp-findings.md` の指摘の形）を持つ仕様書を含む
