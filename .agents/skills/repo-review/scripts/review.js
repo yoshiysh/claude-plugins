@@ -168,7 +168,7 @@ function sharedContext() {
   return [
     `リポジトリ: ${plan.repo}`,
     modeLine(),
-    '役割と適用規約の継承・自動読了を仮定しない。下の役割文書と方針の束を作業前に読む。',
+    '役割と適用規約の継承・自動読了を仮定しない。役割文書と方針の束を作業前に読む。',
     `適用規約の参照（節ID・元path・元行範囲・束の行範囲）: ${JSON.stringify(plan.policyPack.index)}`,
     `レビュー方針は方針の束 ${plan.policyPack.path} から読む。policy ref ${plan.policyRef} の REVIEW.md の全体と、その「読むもの」の表が挙げる文書・節を、元のファイルの行番号つきで 1 つにしたもの。先頭の索引で節の ID（P1 など）と行の範囲を見て、要る節だけを開く。方針の文書を git show や作業ツリーで別に読まない（束が全員の共通の版）。根拠は元のファイルの path:line で書く。`,
     `束に入れなかった文書・節（見ていない。参照と不足の理由は各役割の返答欄に書く）: ${JSON.stringify(plan.policyPack.missing)}`,

@@ -26,6 +26,17 @@ claude plugin install <plugin>@yoshiysh-claude-plugins
 
 Claude Code のセッション内なら `/plugin install <plugin>@yoshiysh-claude-plugins`。
 
+Codex CLI では marketplace を追加し、必要な plugin を個別に install する。Codex は plugin の依存を自動で install しないため、使う plugin の `.claude-plugin/plugin.json` にある `dependencies` も確認して追加する（例: `notion` は `research` に依存する）。
+
+```bash
+codex plugin marketplace add yoshiysh/claude-plugins
+codex plugin add notion@yoshiysh-claude-plugins
+jq -r '.dependencies[]?' plugins/notion/.claude-plugin/plugin.json
+codex plugin add research@yoshiysh-claude-plugins
+```
+
+他の plugin を使う場合は、同様に `.claude-plugin/plugin.json` の `dependencies` を `jq -r '.dependencies[]?' plugins/<plugin>/.claude-plugin/plugin.json` で調べ、各依存を `codex plugin add <dependency>@yoshiysh-claude-plugins` で追加する。
+
 ## License
 
 [MIT](LICENSE)
