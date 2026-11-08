@@ -71,15 +71,7 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 
 拒否は作用の前に起こる。拒否で run の状態は変わらない。
 
-**司令塔の対応**（SKILL.md の手順の正本は設計書。ここには外から見える対応だけを置く）
-
-- `E_STALE`、又は CLI の出力が JSON でない: `salvage` を呼ぶ。
-- `E_RESULT_UNREADABLE`: 結果を作らずに、`detail.path` と出力をそのまま伝えて終える。
-- `terminal` の結果が `provisional: true`: 結果を提示するときに、仮の結果であること（記録を保存できなかったこと）と `run_dir` を必ず添え、`<run_dir>/result.json` があればそれが正の結果であることを伝える。
-- `E_BUSY` で `holder_role: "run-daemon"`: `wait` に戻る。
-- `E_BUSY` で `holder_role: "salvage"`: `SALVAGE_RETRY_MS` 待って、`detail.run_dir` で `salvage` を呼び直す（`start` が返した場合も同じ）。`SALVAGE_RETRY_MAX` 回までで、上限に達したら結果を作らずに出力をそのまま伝える。
-- `liveness: "unknown"`（`wait` の `still_waiting` か `E_BUSY`）が `LIVENESS_UNKNOWN_MAX` 回続いたら、結果を作らずに、「生死を判定できない」誤りとして `run_dir` と出力をそのまま伝えて終える（依頼者の決定。限界として記録する）。理由: `ps` が使えない環境では生死が分からないまま待ち続けるので、司令塔の側で終わらせる。
-- 司令塔は、CLI を呼ぶたびにホストのコマンドの timeout を明示する。値は `CALL_MAX_MS` + `CALL_MARGIN_MS` ≤ timeout ≤ ホストの上限 を満たす。
+司令塔の対応の正本は SKILL.md である（各 code と出力が JSON でないときは [誤りと止まり方](../SKILL.md#誤りと止まり方)、仮の結果の提示は [結果の提示](../SKILL.md#結果の提示)、timeout の明示は [CLI の呼び方と timeout](../SKILL.md#cli-の呼び方と-timeout)）。
 
 ## status.json
 
@@ -99,7 +91,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 ```
 
 - `started_at` は OS が報告する process の開始時刻の文字列（`ps -o lstart=` を `LC_ALL=C` で読んだ値の前後の空白を除いたもの）。比べるときも、読んだ値の前後の空白を除いてから比べる。
-- `action: "run_agents"`: 司令塔は `workflow_script` を Workflow で background に起動する。args は `tasks_path` の `batch_id` と `tasks` をそのまま渡す。返ったら、又は `deadline_wall_ms` を過ぎたら、`submit` を呼ぶ。
+- `action: "run_agents"`: 司令塔は担当を起動し、返ったら、又は `deadline_wall_ms` を過ぎたら、`submit` を呼ぶ。起動する script と args の正本は SKILL.md の [担当の起動](../SKILL.md#担当の起動) で、司令塔は起動に `workflow_script` の値を使わない。
 - `action: "working"`: 司令塔は `wait` を呼ぶ。
 - `action: "terminal"`: `result` が結果の正本で、司令塔はそれを提示する。保存できたかは `result.records` が示す。
 
@@ -114,7 +106,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 4. **`run-daemon` の作成**: `run-daemon` は一時の領域に `run.lock` を排他作成し、`<run_id>/` へ rename する。その後に最初の `status.json`（`seq: 1`）を書く。依頼の検査（[依頼](artifact-formats.md#依頼request)）はその後に行い、受け付けない依頼なら受付の段の `停止` の結果を、通常の保存（[結果と台帳の保存の失敗](#結果と台帳の保存の失敗)）で保存して返す。
 5. **待つ**: `start` は `START_WAIT_MS` を上限に、次を順に評価する。
    1. 起動そのものに失敗したか、起動した process が終わったと観測した。
-      - `<run_id>/` があれば、[salvage の手順](#salvage-の手順)と同じ規則で結果を作って返す。規則が `E_BUSY` になれば、`start` は `E_BUSY`（`detail.run_dir` 付き）を返す（終了コード 1）。司令塔は、`salvage` の `E_BUSY` と同じに扱う。
+      - `<run_id>/` があれば、[salvage の手順](#salvage-の手順)と同じ規則で結果を作って返す。規則が `E_BUSY` になれば、`start` は `E_BUSY`（`detail.run_dir` 付き）を返す（終了コード 1）。
       - 無ければ、受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、`daemon: null`）。停止の理由は `起動の失敗`。`records.unsaved` に全ての記録を載せる。
    2. `<run_id>/` と `status.json` が現れたら、その `Status` を返す。
    3. `START_WAIT_MS` に達したとき:
@@ -148,7 +140,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 4. `ps` を実行できないか値を読めなければ、**判定できない**（`liveness: "unknown"`）。生きている側として扱い、何も書かない。
 
 - pid だけでは判定しない（pid の再利用で、終わった process を生きていると誤るため）。
-- 判定できない状態が続く場合の終わり方は、司令塔の `LIVENESS_UNKNOWN_MAX` による（[誤りと終了コード](#誤りと終了コード)）。
+- 判定できない状態が続く場合の終わり方は、司令塔の `LIVENESS_UNKNOWN_MAX` による（[SKILL.md の誤りと止まり方](../SKILL.md#誤りと止まり方)）。
 - client（`wait`・`salvage`）が判定に読むのは `run.lock`（保持者の識別）と `status.json` だけである。`salvage` は加えて `salvage.mark`（勝者の識別）を読む。
 
 ## salvage の手順

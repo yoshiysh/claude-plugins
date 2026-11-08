@@ -135,8 +135,10 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 |---|---|---|---|
 | `start` | 依頼（SP-001 の項目）。作業ツリーは `start` を呼んだ process の現在のディレクトリとし、入力に含めない | 保存先の能力を確かめ（一時のディレクトリを作って書込みと fsync を試し、消す）、`run-daemon` を detach して起動し、[起動の手順](#起動の手順)に従って待つ | `status`（下記）、又は `terminal` の結果（保存先に書けない、起動に失敗した、起動の途中で落ちた） |
 | `submit` | `run_dir`、`batch_id`、`workflow_output_path`（又は `timed_out: true`） | 受け箱を「一時ファイル → link」で公開する（下記）。既にあれば何もせず `duplicate` を返す | `accepted` か `duplicate` |
-| `wait` | `run_dir`、前に受け取った `status_seq` | `status.json` の `seq` が増えるか、`run-daemon` の終了を観測するまで、`CALL_MAX_MS` を上限に待つ | 新しい `status`、`still_waiting`、又は `E_STALE` |
-| `salvage` | `run_dir` | [保存と排他](#保存と排他)の salvage の規則 | `terminal`、又は `E_BUSY`（保持者の役 `run-daemon` か `salvage` を付ける） |
+| `wait` | `run_dir`、前に受け取った `status_seq` | `status.json` の `seq` が増えるか、`run-daemon` の終了を観測するまで、`CALL_MAX_MS` を上限に待つ | 新しい `status`、又は `still_waiting` |
+| `salvage` | `run_dir` | [保存と排他](#保存と排他)の salvage の規則 | `terminal` |
+
+誤り（`ok: false`）の code と、どのコマンドがどの場合に返すかは、[CLI 契約の誤りと終了コード](cli-contract.md#誤りと終了コード) が正本である（`start` も、[起動の手順](cli-contract.md#起動の手順) の 5-1 で `E_BUSY` と `E_RESULT_UNREADABLE` を返す）。
 
 `status.json` は `run-daemon` が rename で置き換える。持つ欄は次のとおり。
 
@@ -180,31 +182,11 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - 不変条件: `CALL_MAX_MS` + `CALL_MARGIN_MS`（30000ms）≤ 司令塔がホストに指定するコマンドの timeout ≤ ホストの上限。`CALL_MARGIN_MS` が CLI の後始末と出力の時間を含むので、左の等号を許す。
   - Claude Code の Bash の上限は 600000ms である。
   - Codex のコマンドの上限は、`docs/guidelines/repository-operations.md` の「実行と環境」に記載が無い。確かめられていない。
-- 司令塔は、CLI を呼ぶたびに、ホストのコマンドの timeout を明示する。値は上の不変条件を満たすものとする（SKILL.md に書く）。
-  - 理由: timeout を省くとホストの既定値（短いことがある）になり、CLI が返る前に殺される。
+  - この不変条件の左辺がホストの上限以下であることと、`WAIT_POLL_MS` < `CALL_MAX_MS` は、`schemas.mjs` の unit で検査する。
+- 司令塔がホストに指定する timeout は、SKILL.md の [CLI の呼び方と timeout](../SKILL.md#cli-の呼び方と-timeout) が正本である。
 - 長い処理（担当の batch と検査）は、`run-daemon` と Workflow が background で行う。前景は待つだけである。
 
-**司令塔の手順**（SKILL.md に書く）
-
-1. 依頼を受ける。
-   - 別のスキルが依頼の JSON を渡したら、そのまま使う。
-   - 人の自然文なら、文に書かれた値だけで依頼の下書きを作り、依頼元の確認を得る。
-   - 対象か目標を特定できなければ、作らずに尋ねる。
-   - どちらの経路でも同じ項目の JSON を `start` に渡す（AC-01、外部インタフェース）。
-2. `start` を呼ぶ。
-3. 返った `status` の `action` ごとに、次のどれかをする。
-   - `run_agents`: Workflow を background で起動する。その終了か `deadline` を待って `submit` を呼び、`wait` に進む。
-   - `working`: `wait` を呼ぶ。
-   - `terminal`: 結果を提示する。提示は、結果の構造に無い成功を足さない（SP-003）。
-     - 結果が `provisional: true`（仮の結果）なら、提示の最初に「記録を保存できなかった仮の結果である」ことと `run_dir` を示し、`<run_dir>/result.json` があればそれが正の結果であると伝える（依頼者の決定）。依頼元は、あとで `result.json` を読めば正の結果を得られる。
-     - 呼び出し元がスキルなら、結果をそのまま返す（`provisional` の欄で仮であることが伝わる）。
-4. `wait` が `still_waiting` なら、もう一度 `wait` を呼ぶ。`E_STALE`（`run-daemon` が結果を出さずに終わった）か、CLI の出力が JSON でなければ、`salvage` を呼ぶ。
-5. `salvage` が `E_BUSY` を返したら、付いた保持者の役を見る。
-   - 役が `run-daemon` なら、保持者は生きているので `wait` に戻る。
-   - 役が `salvage` なら、別の salvage が結果を作っている。`SALVAGE_RETRY_MS`（10000ms）待って、`salvage` を呼び直す。勝者が死ねば、次の salvage が規則 5・6 で結果を返す。
-   - 呼び直しは `SALVAGE_RETRY_MAX`（30 回）までとする。上限に達したら、結果を作らずに、`run_dir` と CLI の出力をそのまま依頼元へ伝えて終える。理由: 勝者の生死の判定が誤ったまま続く場合に、司令塔が終わらなくなるのを防ぐ。
-- 前の稿の `BUSY_RETRY_*`（E_BUSY のやり直しの回数と間隔）は除いた。理由: client は lock を取らないので、`E_BUSY` は salvage からしか返らない。その場合は、保持者の役に応じて `wait` か `salvage` に戻れば、保持者の終わりを待てる。
-- そのため、`BUSY_RETRY_MAX × BUSY_RETRY_INTERVAL_MS > CALL_MAX_MS` の関係の検査も要らなくなった。代わりに、上の timeout の不変条件と、`WAIT_POLL_MS < CALL_MAX_MS` を `schemas.mjs` の unit で検査する。
+**司令塔の手順**: 正本は SKILL.md の [手順](../SKILL.md#手順)・[誤りと止まり方](../SKILL.md#誤りと止まり方)・[結果の提示](../SKILL.md#結果の提示) である。
 
 **決めたこと: 古い返り値と二重の呼出しは、受け箱の公開の排他で拒む。**
 
@@ -223,7 +205,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 理由: `agent-work.md`「検証の入力と証拠を絞る」が、fan-out の agent ごとの明示を求める。
   - 照合が主の役（抽出の検証者・合成の検証者）は、中位のモデルにする。
   - 意味の判断が重い役（モデル作成役・忠実さの検証者・保証の検証者・原因の分類役）は、上位のモデルにする。
-- `scripts/formal-method-agents.js` は判断しない（旧版を流用）。
+- Workflow script は判断しない（旧版を流用）。
   - task を並列に起動し、task_id ごとの `returned`・`missing`・`error` と、受け取った task の値を返す。
   - `run-daemon` は、受け取った値を `tasks.json` と照合する。食い違えば、その batch の返り値を全て `未確認` の扱いにする。
   - 担当の結論は、Workflow の返り値からではなく、`return_path` を `run-daemon` が直接読んで得る。
@@ -747,7 +729,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | adapt | `lib/roles.mjs` | 新しい役の集合で作り直す |
 | adapt | `stages.mjs` の fetchTarget と文書規約の固定 | `lib/intake.mjs` に移す |
 | adapt | `formal-method-cli.mjs` の main と probeEnvironment | コマンドを作り直す。能力の確認を、run の領域を作る前に行う |
-| adapt | `formal-method-agents.js`、agents の 8 文書、`agent-obligations.md`、`artifact-formats.md`、`formal-method-knowledge.md` | 参照する仕様の ID と値を直す。形の正本を `schemas.mjs` にする。旧状態機械の語を消す。counterexample-analyst は原因の分類役（反例・組合せ・問い）に作り直す |
+| adapt | Workflow script、agents の 8 文書、`agent-obligations.md`、`artifact-formats.md`、`formal-method-knowledge.md` | 参照する仕様の ID と値を直す。形の正本を `schemas.mjs` にする。旧状態機械の語を消す。counterexample-analyst は原因の分類役（反例・組合せ・問い）に作り直す |
 | 新規 | `lib/run.mjs`（段の進行の決定）、`lib/store.mjs`（排他・状態の保存・salvage）、`lib/daemon.mjs`（`run-daemon` の入口と受け箱・status の処理）、`lib/performance.mjs`（記録、候補の比較の条件の照合、改善の候補）、`lib/worklog.mjs`（CLI の作業記録と台帳）、`lib/checks/compose.mjs`、`references/document-rules.md`（規約の同梱の写し） | この文書の各節 |
 | drop | `lib/state-table.mjs`、`lib/spec-table.mjs`、`lib/halts.mjs`、`lib/restart.mjs`、controller の制御の本体、`stages.mjs` の段の進行・修正・再開・回収・後着、`storage.mjs` の所有札・lease・lock・イベントの鎖、`checks/plan.mjs` の reuseKey・reuseCheck、`references/cli-contract.md`（作り直す）、evals の id 1、`formal-method-cli.test.mjs`、`tests/formal/formal-method-skill/` の旧モデル一式 | 消す。検査の観点は [検証計画](verification-plan.md) が引き継ぐ |
 
@@ -757,7 +739,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 
 | 担当 | 作るファイル |
 |---|---|
-| A: スキル・担当・Workflow の作成役 | `SKILL.md`、`agents/*.md`、`references/agent-obligations.md`、`references/formal-method-knowledge.md`、`scripts/formal-method-agents.js`、`references/document-rules.md`（正本の写し） |
+| A: スキル・担当・Workflow の作成役 | `SKILL.md`、`agents/*.md`、`references/agent-obligations.md`、`references/formal-method-knowledge.md`、Workflow script、`references/document-rules.md`（正本の写し） |
 | B: 決定的な CLI（Node）の作成役 | `scripts/formal-method-cli.mjs`、`scripts/lib/**/*.mjs`（テストを除く）、`references/cli-contract.md`（作り直す。旧版に残る `cpu_slots`・`memory_bytes`・`FORMAL_METHOD_HOST_CONFIG`・`FORMAL_METHOD_Z3`・seq・lease・`release-lock` の記述は全て消す）、`references/artifact-formats.md` |
 | T: テストの作成役（仕様だけを見る） | `scripts/*.test.mjs`、`scripts/lib/**/*.test.mjs`、`scripts/test-fixtures/**`、`tests/formal/formal-method-skill/*.test.mjs`、`evals/evals.json`、同梱の規約と正本の一致の検査、`run.lock` を消す呼出しの所在の走査 |
 | F: 形式検証の作成役 | `tests/formal/formal-method-skill/` の TLA+ モデルと入口、`tests/formal/formal-method-requirements/`、旧 `tests/formal/formal-method/` と旧 `tests/formal/formal-method-skill/` のモデル一式の削除、`.github/workflows/verification.yml` と `Makefile` の formal の入口の更新（未 commit の旧 job は外す）、オラクルの Z3 のパスを環境から読む修正と対応表、`tests/formal/formal-method-spec/` を repo に残すための commit への同梱（今は未追跡）、Linux（CI の ubuntu）での Z3 の出力の流れと終了コードの実測と `cli-contract.md` の表への追記 |
