@@ -16,11 +16,6 @@
    "text": "生成文書の記述が文書外の知識に依存していると判定する境界（PR-CONSUMER-026 に関係する）"
   },
   {
-   "blocking": true,
-   "id": "TBD-RCONSUMER-010",
-   "text": "仕様書が「実装が一意に決まる水準」に達したと判定する基準（PR-CONSUMER-031 に関係する）"
-  },
-  {
    "blocking": false,
    "id": "TBD-RCONSUMER-004",
    "text": "要求文書の分量を決めるにあたり、利用形態（個人が単独で使うのか、複数の関係者がいる案件か）を把握する方法（PR-CONSUMER-030 に関係する）"

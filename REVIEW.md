@@ -13,6 +13,7 @@ PR をレビューする AI 向けの指示。実装・テスト・文書の共�
 | スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `docs/guidelines/README.md`・`docs/guidelines/testing.md`、JavaScript では `docs/guidelines/javascript.md`。`docs/guidelines/repository-operations.md`「配置と配布」「実行と環境」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
 | `plugins/*/.claude-plugin/plugin.json`・`plugins/*/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json` | `docs/guidelines/repository-operations.md`「配置と配布」「実行と環境」（2 つの `plugin.json` の同期、Claude 専用の `dependencies` と Codex 専用の `interface`、marketplace 名） |
 | `plugins/` 配下の配置 | `docs/guidelines/repository-operations.md`「配置と配布」（`plugins/` 配下の symlink 禁止、実体の置き場、plugin 間のパス参照・スクリプト直接実行の禁止。plugin 間の利用はスキル呼び出しと `dependencies`） |
+| `docs/requirements/*.md`（要求文書）・`docs/specifications/*.md`（仕様書） | `plugins/workflow/skills/prd-spec/references/prd-and-spec.md` の、要求文書は §3「要求と仕様を分ける軸は 2 つある」（軸 B）・§4「目的側に書くもの」、仕様書は §5「手段側に書くもの」（とくに §5「どこまで書けば十分か（下限）」・§5「書きすぎとは何か（上限）」） |
 | `*.md` | `docs/guidelines/documentation.md`。事実の誤り、存在しないファイルやコマンドへの参照、正本との重複 |
 | 仕様・ケース計画・トレーサビリティの設定やツール | `docs/guidelines/testing.md` と `scripts/traceability/README.md`。仕様の状態・検証方法、ケースの不足、参照誤り、計測対象・除外の変更 |
 | `.github/workflows/` | 権限が必要以上に広い、Secret の露出、SHA で固定していない Action |
@@ -34,6 +35,7 @@ PR をレビューする AI 向けの指示。実装・テスト・文書の共�
 - **スキル構造**：frontmatter の `name`・`description`、SKILL.md がフロー・分岐・完了条件に留まり処理を `scripts/` に寄せているか、参照の深さ。基準は上の表の best-practices.md の節
 - **コメントと後方互換**：コードから読めない制約・根拠以外のコメント、旧形式の migration や fallback を新たに持ち込んでいないか。経緯は commit message / PR 本文に置くもので、互換層は合わない旧データを黙って通す。対象外の範囲は `docs/guidelines/agent-work.md`
 - **検証の意味と範囲**：仕様とケース計画を照らし、正常・準正常・異常・境界の必要なケース、不適用理由、期待値と assertion が妥当か。ケース対応率や行・分岐・関数のカバレッジの高さだけで意味の網羅を合格にしない。機械検査は参照・実行・計測の整合を持ち、ケース選択と期待結果の意味はレビューが持つ。レポートの未計画・skip・未実行・未計測・除外を読み、通常ゲートの成功を全体完了と混同しない
+- **要求文書・仕様書の責務**：判定の前に、その文書の主題・想定する利用者と利用場面・上位文書との関係を文書自身から特定し、その責務に照らして、上の表で読む prd-and-spec.md の基準で必要な内容の不足と書きすぎを見る。どちらの文書でも、書きすぎとする内部の実現の選択と、それに含めない外から観測できる振る舞いは §5「書きすぎとは何か（上限）」を正とする。語の表面（ある語が出ること）で判定しない。責務を確かめずに判定すると、必要な内容を書きすぎと誤り、責務外の内容を見逃す
 - **構造と testability**：共通ガイドラインの責務・依存・副作用の境界が、振る舞いの独立検証を可能にしているか。抽象化や DRY の好みではなく、変更の波及や検証不能な契約を根拠に判断する
 - **スクリプト**：バグ（境界値・off-by-one・None・例外の握りつぶし・競合）、セキュリティ、性能。設計の好みや書式は対象外
 
