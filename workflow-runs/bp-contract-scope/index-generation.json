@@ -1,0 +1,16 @@
+{
+  "indexes": {
+    "requirements": {
+      "path": "checks/INDEX.requirements.md",
+      "save_to": "docs/requirements/INDEX.md",
+      "digest": "81687a106a770cbe6fb913553cbf2b38015e84d5631355fccd7e1f9cdfbff8eb"
+    },
+    "specifications": {
+      "path": "checks/INDEX.specifications.md",
+      "save_to": "docs/specifications/INDEX.md",
+      "digest": "fd3932fbc6a4f676378b954fe17d4af369363a2cd597b90ea8828bac6a5d1889"
+    }
+  },
+  "workspace": "temporary mechanical input removed after generation",
+  "existing_tbd_metadata": "read from adjacent .tbd.json; no prior BP meta present"
+}

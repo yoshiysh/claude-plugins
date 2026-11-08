@@ -1,0 +1,25 @@
+{
+  "method": "Reapply the declared old-to-current ID map to HEAD text, expand abbreviated ranges, then compare bytes; no rule text is substituted.",
+  "checks": [
+    {
+      "path": "docs/design/skill-design-patterns.md",
+      "equals_only_ID_reference_substitution": true
+    },
+    {
+      "path": "docs/design/develop-plugin.md",
+      "equals_only_ID_reference_substitution": true
+    },
+    {
+      "path": "docs/design/develop-skills-redesign.md",
+      "equals_only_ID_reference_substitution": true
+    },
+    {
+      "path": "docs/requirements/formal-method.md",
+      "equals_only_ID_reference_substitution": true
+    },
+    {
+      "path": "docs/specifications/formal-method.md",
+      "equals_only_ID_reference_substitution": true
+    }
+  ]
+}

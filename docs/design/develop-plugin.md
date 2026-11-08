@@ -90,7 +90,7 @@ Workflow source の名前（`meta.name`）は `implement-plan`・`implement-run`
 - 役の prompt は `agents/*.md` をパスで読ませ、subagent として登録しない。plugin から読む agent で無視される frontmatter は `hooks`・`mcpServers`・`permissionMode` で、`tools` は効く（subagents の docs）。それでも登録しないのは、`agent()` から登録した型を指定できるかが未確認で、指定できても道具の制限が Bash 経由の書き込みを止めず、run の境界の検出が要ることに変わりがないため。指定できると確かめられたら、書き込ませない役に Edit・Write を外した型を使うのは、検出に足す守りとして段 1b で検討する。
 - 「残る危険」の列の内容は、各スキルの結果に毎回書く（PR-015）。
 
-### 起動数の上限（PR-016・017・019〜023）
+### 起動数の上限（PR-016・019・021・022）
 
 fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `parallel(`・`pipeline(` で grep した範囲では、呼んでいるのは `repo-review/scripts/review.js` だけ（reviewer の段と検証の段）だった。plan・implement・triage は agent を順に起動するので、これらの要求は当たらない。
 
@@ -98,9 +98,9 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 |---|---|
 | PR-016 受け取り | args に起動数の上限を取る。値の検査（不正・最小に満たない値）は `docs/specifications/bp-run.md` の起動数の上限の規則に合わせる |
 | PR-021 渡されないとき | 今の固定の上限（`review.js` の `MAX_REVIEWERS`）を外す。観点の数を決め打ちしない。超えたら観点をまとめるという SKILL.md の指示も消す |
-| PR-017・019 渡されたとき | 項目を起動する前に残りの枠を数える。運搬役も起動数に数える（今の `review.js` の `meta.limits` の式が運搬役の段と試行の回数を含めている）。そのため枠からは、項目の分に加えて、起動した項目の後に要る運搬役（統合・判定）の分を先に取っておく。取っておけない項目は起動せず、順位つきの未着手として、それまでの結果と一緒に run の返り値に入れて止まる。状態に書くのは、run が返った後にセッションが流す CLI の `record-run`（下記）。順位は観点の順、同じ観点の中では担当の順（`docs/specifications/bp-inspection.md` の review の項目の順位と同じ決め方） |
-| PR-020 再開 | `record-run` が状態を書き、`next_args`（計画の path と sum、状態の path と sum）を返す。次の run は、運搬役が CLI の読み出しの op で状態を読み（今の運搬役が計画のファイルを読むのと同じ read-only の操作）、未着手の項目から続け、結果のある項目を処理し直さない。pin が崩れていたら再開せず計画からやり直す |
-| PR-022・023 起動の経路 | Codex runner で起動するときだけ上限を渡す。native Workflow では渡さない |
+| PR-016・019 渡されたとき | 項目を起動する前に残りの枠を数える。運搬役も起動数に数える（今の `review.js` の `meta.limits` の式が運搬役の段と試行の回数を含めている）。そのため枠からは、項目の分に加えて、起動した項目の後に要る運搬役（統合・判定）の分を先に取っておく。取っておけない項目は起動せず、順位つきの未着手として、それまでの結果と一緒に run の返り値に入れて止まる。状態に書くのは、run が返った後にセッションが流す CLI の `record-run`（下記）。順位は観点の順、同じ観点の中では担当の順（`docs/specifications/bp-inspection.md` の review の項目の順位と同じ決め方） |
+| PR-019 再開 | `record-run` が状態を書き、`next_args`（計画の path と sum、状態の path と sum）を返す。次の run は、運搬役が CLI の読み出しの op で状態を読み（今の運搬役が計画のファイルを読むのと同じ read-only の操作）、未着手の項目から続け、結果のある項目を処理し直さない。pin が崩れていたら再開せず計画からやり直す |
+| PR-022 起動の経路 | Codex runner で起動するときだけ上限を渡す。native Workflow では渡さない |
 
 **上限の値の置き場。** 今は `meta.limits.maxAgents` を `MAX_REVIEWERS` から導き、その式を `tests/repo-review-workflow.test.mjs` が照らしている。`MAX_REVIEWERS` を消した後は次のようにする。
 - runner の天井の値は source の `meta.limits` に置かず、review の CLI に 1 つだけ置く。Codex の callsite は CLI の出力から、runner request の `limits.maxAgents` と args の上限の両方を入れる。
@@ -129,11 +129,11 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 
 | 単位 | 問いへの答え | 形と部品 | 資産台帳 | 形を強いた条件 |
 |---|---|---|---|---|
-| `implement-plan` | 人間の入力（needs_human_decision）は run の境界にできる。項目は 1 つの計画で、作り直しに要るのはその計画のレビュー結果だけ | 固定パイプライン型＋項目ごとの until-pass。上限で止まったときの `revisions_exhausted` が、until-pass の「通らなかったことと理由を返す」に当たる | 持たない（fan-out が無い。PR-018） | — |
-| `implement-run` | 戻りが無い | 固定パイプライン型（implementer 1 体） | 持たない（PR-018） | — |
+| `implement-plan` | 人間の入力（needs_human_decision）は run の境界にできる。項目は 1 つの計画で、作り直しに要るのはその計画のレビュー結果だけ | 固定パイプライン型＋項目ごとの until-pass。上限で止まったときの `revisions_exhausted` が、until-pass の「通らなかったことと理由を返す」に当たる | 持たない（fan-out が無い。PR-001） | — |
+| `implement-run` | 戻りが無い | 固定パイプライン型（implementer 1 体） | 持たない（PR-001） | — |
 | implement の外側（run の並び） | 実装 → check → review → 修正、の戻りを run をまたいで持つ | 固定集合の反復型。修正の回の上限は `implement-run` の source の定数 | 持たない | 書き込める run には implementer だけを置く必要がある。runner は役ごとに書き込みの権限を分けられない（`repo-implement` SKILL.md の「目的と段」）。Codex runner では run の権限で他の役の書き込みを止め、native Workflow では道具の制限で止まらない書き込みを run の境界の snapshot で事後に検出する（「権限」）。check は shell を要し、script は shell に触れない |
-| `review-run` | 戻りが無い（2 段目の検証は、1 段目で決着しなかった主張に当てる段で、戻りではない） | 固定パイプライン型＋観点ごとの検証・反証の部品。最初の段に focus を書く 1 体を置く（「contextual-code-review の置き換え」） | 持つ（PR-005。下記） | — |
-| `address-review-triage` | 戻りが無い（食い違えば止まる） | 固定パイプライン型（分類 1 体 → 検証 1 体） | 持たない（全件を 1 つの context で読み、fan-out しない。PR-018） | — |
+| `review-run` | 戻りが無い（2 段目の検証は、1 段目で決着しなかった主張に当てる段で、戻りではない） | 固定パイプライン型＋観点ごとの検証・反証の部品。最初の段に focus を書く 1 体を置く（「contextual-code-review の置き換え」） | 持つ（PR-001。下記） | — |
+| `address-review-triage` | 戻りが無い（食い違えば止まる） | 固定パイプライン型（分類 1 体 → 検証 1 体） | 持たない（全件を 1 つの context で読み、fan-out しない。PR-001） | — |
 | address-review の外側 | 収集 → 分類 → 修正 → push → required checks の待ち → 返信 → resolve（PR の無い形は修正まで）。needs_decision は run の境界にし、次の run で `decisions` として入れる。checks の待ちは、待つ回数の上限つきの同じ op の流し直しで、段の間の戻りではない | 固定パイプライン型（1 run は 1 周） | 持たない | — |
 
 - implement の外側は、人間の入力ではなく権限の分離で run に分かれている。設計方針文書「形の判定」の図の、書き込む役と書き込ませない役が同じ区間に要るかの問いと、同節の原則の表・例の着地の表の行が、これに当たる（決定 8 (i) で足した）。
@@ -427,7 +427,7 @@ develop:review で置き換え、次を取り込む。
 **段 0 の範囲。** 「1 つのスキルに 1 つの形（または判定表の 1 つの行）を前提にする全ての箇所」と定義する。一覧で範囲を決めない。列挙は必ず漏れ、`make test` が落ちない経路（下の create・update の経路）の漏れは見つからない。段 0 の作業の最初に、create・update・review の 3 つの経路の入口から、形と判定表の行を運ぶ値を辿って、この定義に当たる箇所を探し直す。
 
 **定義に当たる箇所の例。** 見つけた手段：検証役と PR #176 の CI のレビューが、grep（語は `APPLICABILITY_QUESTIONS`・`applicability`・`shape`・`row`・`SHAPES`・「形の判定」・「最初に到達」）と該当の行の読み出しで挙げた。このうち `bp_author.js:265`・`:759`、`bp/units.mjs:109-125`、`bp/ops-inspect.mjs:99`・`:165`、`bp/ops-author.mjs:18`・`:234`、`bp_inspect.js:719-720`、`bp/constants.mjs:273`、`docs/specifications/bp-run.md:111` は、この文書を書く側も読んで確かめた。path の基点は 2 つ：`docs/`・`tests/` で始まるものはリポジトリ直下から、それ以外は `plugins/skill-creator/skills/skill-creator-best-practices/scripts/` から。
-- 要求：`docs/requirements/bp-designed-skill.md:20`・`:47`・`:50`・`:53`・`:56`（PR-001〜004。形を 1 つ決める書き方）。
+- 要求：`docs/requirements/bp-designed-skill.md:20`・`:47`・`:50`・`:53`・`:56`（PR-001・002。形を 1 つ決める書き方）。
 - 仕様：
   - `docs/specifications/bp-conformance.md` の用語の表（問い A・Q1・Q2・Q3、重い形）と SP-BPCONFORMANCE-003・004（形は最初に到達した 1 つ）、`:73-78`（SP-BPCONFORMANCE-006・007）、`:275`、`:294`
   - `docs/specifications/bp-inspection.md:109`・`:113-121`（受理する並びの表）、`:123`、`:245`

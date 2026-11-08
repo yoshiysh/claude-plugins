@@ -25,17 +25,7 @@
 
 ### 本文書が実現する要求
 
-- 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-024〜030・PR-BPOPERATIONS-047・PR-BPOPERATIONS-050
-- 併せて実現: PR-BPOPERATIONS-031・PR-BPOPERATIONS-033・PR-BPOPERATIONS-034（検証役と反証役をいつ起動するか、担当の作り方。`docs/specifications/bp-findings.md` の「他の仕様書との境界」が本文書に任せた分）、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-051（review での判断点の表の照合の結果の返し方。主担当は `docs/specifications/bp-conformance.md`）
-
-### 他の仕様書との境界
-
-| 事項 | 正となる文書 |
-|---|---|
-| 判定基準（フローの観点が当てる基準と、仕様の観点が照らす確定値） | `docs/specifications/bp-conformance.md`（SP-BPCONFORMANCE-001。本文書は ID で参照し、書き写さない） |
-| 資産・台帳・指摘の ID・反証の記録・指摘の状態・カバレッジ・skip 一覧・skip 一覧への追加の起動・結果に載せる指摘と台帳の項目 | `docs/specifications/bp-findings.md` |
-| run の境界・状態・停止の種類・再開・CLI の操作・役ごとのモデルと effort と権限・起動数の上限・共通の異常系 | `docs/specifications/bp-run.md` |
-| 依頼の振り分けと、review・audit の結果を update へ渡す手順 | `docs/specifications/bp-entry.md` |
+本書の各仕様項目と要求の対応は、末尾のトレーサビリティ表を正とする。
 
 ## 用語定義
 
@@ -54,27 +44,13 @@
 
 ### 形と段
 
-#### SP-BPINSPECTION-001 段の並び
-review と audit の Workflow script は、固定パイプライン型に、観点ごとの検証と反証の部品と資産台帳を足した形で組まなければならない（設計方針文書「形の判定」の例の着地の表：review は段と段の間に戻りが無い）。段は次の順に 1 回ずつ行わなければならない。段は「段」の列の名前で呼ぶ（「順」の列は並びを示すだけ）。段の agent が結果を返さなかったときの扱いは、段が fan-out の項目（`docs/specifications/bp-run.md` の用語定義）を持つかで決まる（SP-BPRUN-027・SP-BPRUN-028）。
+#### SP-BPINSPECTION-001 評価と監査に必要な依存順
+review・audit は、基準と対象を確定してから観点を適用し、独立した反証を経て指摘を返さなければならない。review はフローの形と適用範囲を確定し、audit は現行の監査基準を確認しなければならない。どちらも資産台帳に確認範囲を結び付け、必要な追加確認と消えた資産の照合を反映し、対象を変更していないことを確かめてから完了しなければならない。
 
-| 順 | 段 | 部品 | 起動する役 | 機能 | 項目 | 定める項目 |
-|---|---|---|---|---|---|---|
-| 1 | 開始 | — | 運搬役 | review・audit | なし | `docs/specifications/bp-run.md` の SP-BPRUN-003 |
-| 2 | 照らす先の決定 | — | 運搬役 | review・audit | なし | SP-BPINSPECTION-004 |
-| 3 | 台帳の作成と資産の束 | — | 運搬役 | review・audit | なし | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-001・SP-BPFINDINGS-005、SP-BPINSPECTION-017 |
-| 4 | 担当の作成 | — | 抽出役・運搬役 | review・audit | なし | SP-BPINSPECTION-015 |
-| 5 | 適用の判定 | — | 検証役・運搬役 | review だけ | なし | SP-BPINSPECTION-006 |
-| 6 | 観点ごとの検証 | 観点ごとの検証（項目を並列化する） | 検証役・運搬役 | review・audit | 観点と担当の組（SP-BPINSPECTION-016）。skip 一覧への追加の起動では、観点と追加の起動の担当 | SP-BPINSPECTION-016・018、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-025 |
-| 7 | 反証 | 反証 | 反証役・運搬役 | review・audit | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012 でまとめた指摘の鍵 | SP-BPINSPECTION-018 |
-| 8 | 消えた資産の照合 | 観点ごとの検証（項目を並列化する） | 検証役・運搬役 | review・audit | 消えた資産に結び付いた指摘ごと（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-020） | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-020・SP-BPFINDINGS-037 |
-| 9 | 照合と停止 | — | 運搬役 | review・audit | なし | SP-BPINSPECTION-019、`docs/specifications/bp-run.md` の SP-BPRUN-026・SP-BPRUN-011 |
+内部の worker の段数・担当の起動回数・運搬の束ね方は実装の設計で決める。上位の形の判定、部品と独立性の制約は満たさなければならない。
 
-skip 一覧への追加の起動は、観点ごとの検証の段の中の部品として、段の slug `verify-extra` で記録する（`docs/specifications/bp-run.md` の SP-BPRUN-038）。
-
-部品の列が「—」の段は、1 つの段からなり戻りの無い並びとして、設計方針文書「用語」の部品の定義に合う。best-practices の設計の説明は、この表の段と部品の対応を載せなければならない（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-008）。
-
-#### SP-BPINSPECTION-002 段の間に戻りを置かない
-review と audit の script は、ある段の結果によって、その段かそれより前の段へ戻ってはならない。観点ごとの検証の段の中の skip 一覧への追加の起動（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-025）は、決まった資産の集合の残りに同じ段を当てるだけなので、戻りに数えない（設計方針文書「形の判定」）。この規則があるので、review・audit は反復の回数による反復の上限では止まらない。反復の上限を返すのは、起動数の上限で止まるときだけである（`docs/specifications/bp-run.md` の SP-BPRUN-010）。
+#### SP-BPINSPECTION-002 対象を書き直す反復をしない
+review・audit は対象を書き直す反復を行ってはならない。未確認の同じ資産集合への追加確認は SP-BPFINDINGS-025 に従い、書き直しの反復と数えてはならない。反復の回数による停止は使わず、起動数の上限に達した場合だけ反復の上限として止まらなければならない。
 
 ### 観点
 
@@ -90,22 +66,17 @@ review と audit の観点は次の表のとおりとし、他の観点を足し
 表の行の順を、観点の順とする。review の 2 つの観点の照らす先は、run の中では `docs/specifications/bp-run.md` の SP-BPRUN-036 の判定基準の写しとして読む。
 
 #### SP-BPINSPECTION-004 照らす先の決定
-照らす先の決定の段で、script は運搬役を通じて CLI に、その機能の観点ごとに照らす先を読ませなければならない。CLI は観点ごとに、照らす先を読めたか、照らす先のファイルのパスと照らす先の指紋を状態に書き、読めた観点の集合を run の観点の集合として書かなければならない。読めたとするのは、照らす先の章・節の見出しがファイルにあり、その中に判定の単位（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-002）か監査の観点（SP-BPINSPECTION-009）が 1 件以上あるときだけとする。
+観点ごとの基準を読めたかと、そのファイル・章節・内容の指紋を確定し、同じ run とその再開でどの版を適用したかを辿れるようにしなければならない。読めたとするのは対応する基準が存在し、適用する単位または監査項目が 1 件以上ある場合だけとする。
 
-review の照らす先のファイルは、`docs/specifications/bp-run.md` の SP-BPRUN-036 の判定基準の写しとする。照らす先の指紋には、照らす先の章・節のファイルに加えて、次の写しも含める。どれも run の中で判定に使い、停止の間に変わると、付けた指摘と判定の基準が 1 つの台帳の中で混ざる（SP-BPINSPECTION-029）。読めたかは、照らす先の章・節のファイルと、そこから判定の単位か監査の観点の一覧を作るのに要る写しで決める（フローの観点は bp-inspection の写しの除く単位の表が無いと判定の単位を作れないので、読めない。監査の観点は bp-inspection の写しの SP-BPINSPECTION-009 の表が読めないと、SP-BPINSPECTION-028 の食い違いとして止まる。bp-designed-skill の写しは読めたかに使わない）。
-
-- フローの観点と監査の観点: 本文書の写し（除く単位の表：SP-BPINSPECTION-007、監査の観点の一覧：SP-BPINSPECTION-009、当て方：SP-BPINSPECTION-011〜SP-BPINSPECTION-013）
-- 監査の観点: `docs/requirements/bp-designed-skill.md` の写し（SP-BPINSPECTION-012 が優先させる要求）
-
-照らす先を読めない理由（SP-BPINSPECTION-027）は、欠けたファイルがあればそのパスを、無ければその観点の最初のファイルのパスを指す。run は、照らす先を照らす先の決定の段で読んだファイル以外から当ててはならず、当ててはならないものは同項に従う。
+判定に依存する要求・設計方針・単位の除外と監査の当て方を定める BP 仕様も基準の同一性に含めなければならない。別の基準を黙って補うことは禁止し、読めない基準は SP-BPINSPECTION-005・027 のとおり扱わなければならない。
 
 #### SP-BPINSPECTION-005 仕様書を読めないとき
-照らす先の決定の段で仕様の観点の照らす先を読めなかったならば、script は、仕様の観点を run の観点の集合に入れてはならず、仕様の観点の全体を未検査の観点として結果に載せなければならない（PR-BPOPERATIONS-026）。このとき、仕様の観点の検証役を起動してはならない。カバレッジ・skip 一覧・skip 一覧への追加の起動は run の観点の集合の観点だけに作る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-022・SP-BPFINDINGS-023・SP-BPFINDINGS-025）ので、仕様の観点にはどれも作らない（観点を照らしていないことは、未検査の観点として 1 回だけ宣言する）。
+照らす先の決定の段で仕様の観点の照らす先を読めなかったならば、script は、仕様の観点を run の観点の集合に入れてはならず、仕様の観点の全体を未検査の観点として結果に載せなければならない（PR-BPOPERATIONS-025）。このとき、仕様の観点の検証役を起動してはならない。カバレッジ・skip 一覧・skip 一覧への追加の起動は run の観点の集合の観点だけに作る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-022・SP-BPFINDINGS-023・SP-BPFINDINGS-025）ので、仕様の観点にはどれも作らない（観点を照らしていないことは、未検査の観点として 1 回だけ宣言する）。
 
 ### フローの観点
 
 #### SP-BPINSPECTION-006 適用の判定
-review の適用の判定の段で、script は検証役を 1 体起動し、対象スキルのフローについて次を答えさせなければならない。答えはどれも閉集合からの選択とし、答えごとに、その答えを示す箇所の資産 ID と行番号を添えた引用を返させる。
+review は対象スキルのフローについて次の答えと根拠を確定しなければならない。答えはどれも閉集合からの選択とし、答えごとに、その答えを示す箇所の資産 ID と行番号を添えた引用を返させる。
 
 | 問い | 選択肢 | 判定基準 |
 |---|---|---|
@@ -163,7 +134,7 @@ CLI は、次のどれかを含む結果の記録を拒否しなければなら�
 - それらの場合の CLI の単体テストの期待値を書いてはならない。
 - それらの場合の扱いを決めないまま適用の判定の受理を配布してはならない。
 
-CLI は、受理した答えを状態に書き、W がはいでないときは到達した形 `shape` と SP-BPCONFORMANCE-003 の判定表の行 `row` を、W がはいのときは `runs`（要素ごとの `{run, shape, row, assets}`）を状態に書かなければならない。判定の単位 `units` は全ての要素の行の判定の単位の和とし、判定の単位ごとの結果は 1 つとする（同じ単位を 2 つ以上の run で判定したときの結果のまとめ方は SP-BPCONFORMANCE-003）。
+受理した答えと、W がはいでないときは到達した形 `shape` と SP-BPCONFORMANCE-003 の判定表の行 `row` を、W がはいのときは `runs`（要素ごとの `{run, shape, row, assets}`）を保存しなければならない。判定の単位 `units` は全ての要素の行の判定の単位の和とし、判定の単位ごとの結果は 1 つとする（同じ単位を 2 つ以上の run で判定したときの結果のまとめ方は SP-BPCONFORMANCE-003）。
 
 フローの観点の検証役には、W がはいでないときは形と資産台帳・fan-out の有無を、W がはいのときは `runs` の全ての要素の形と資産台帳・fan-out の有無と行と `assets` を、SP-BPCONFORMANCE-003 の判定表の条件として渡す。検証役は、それを使い、自分で答え直してはならず、資産の属する run を決め直してもならない（担当ごとに答えや資産の属する run が割れると、当たる要求が担当ごとに変わる）。
 
@@ -177,22 +148,22 @@ CLI は、受理した答えを状態に書き、W がはいでないときは�
 
 フローの観点の検証役は、PR-BPDESIGNEDSKILL-014 の Claude Code の判定の単位と PR-BPDESIGNEDSKILL-046 の判定の単位を、create・update の適合の観点の検証役と同じく、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-019 の Claude Code の行と判定表で判定しなければならない。一覧の設定に頼る制限は、制限ごとに PR-BPDESIGNEDSKILL-046 の単位の指摘の候補にする。一覧を読めないときに強いられた未検査とした単位は、未検査の観点の候補として返す（SP-BPINSPECTION-025）。review は照らした制限 `checkedRoleLimits` と残る危険 `residualRisks` を返さない（PR-BPDESIGNEDSKILL-015 の報告は create・update の検証の結果に宛てたもの）。Codex runner の扱いは SP-BPCONFORMANCE-019 の Codex runner の行のとおりとする。
 
-フローの観点の検証役は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の単位を判定してはならない（閉集合と単位からの除き方と拒否は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。この単位は、照合と停止の段で送る `placement`（`docs/specifications/bp-run.md` の SP-BPRUN-031。送る順は SP-BPINSPECTION-019）の記録で決まる。結果が適合なら何も載せず、未検査なら CLI が未検査の観点にする（SP-BPINSPECTION-025）。結果が不適合なら、CLI は、`placement` の `lines` が指す行を含む資産（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）ごとに、次の指摘の候補を 1 件作らなければならない（依頼者の裁定）。`lines` が空のとき（見出し行が 0）は、対象スキルの根の `SKILL.md` の資産（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）のうち、frontmatter の資産（位置 `{"k":"fm"}`）、最初の見出しより前の本文の資産（`{"k":"pre"}`）、文書の先頭から数えて最初の節の資産、の順で最初に台帳の今の資産にあるものに 1 件作る（同項の規則では、空白でない内容を持つ `SKILL.md` はこのどれかを必ず持つ）。`SKILL.md` の資産が台帳の今の資産に 1 つも無いとき（`SKILL.md` が空白だけのとき）は、台帳の今の資産のうち資産 ID の昇順で最初の資産に 1 件作る。
+SP-BPCONFORMANCE-041 は LLM の判定から除き、公開された表の構文を機械だけで照合しなければならない。未検査なら未検査の観点にし、不適合なら、理由が指す各行の資産へ次の指摘を結び付けなければならない（依頼者の裁定）。見出しが無く指す行が無い場合は、根の SKILL.md の frontmatter、見出し前の本文、最初の節の順で最初に存在する資産を使う。SKILL.md に資産が無い場合は、現在の資産 ID の昇順で最初の資産を使う。
 
 | 項目 | 値 |
 |---|---|
 | 資産 ID | その資産の資産 ID |
 | 観点 | フローの観点 |
 | 指摘の種類 | `SP-BPCONFORMANCE-041` |
-| 引用 | その資産の中の `lines` の行の原文を、行番号を添えて並べたもの。`lines` が空のときは空の文字列 |
-| 内容 | `placement` の `reason` |
-| 直し方 | 判断点の表を `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の判定表の適合の行に当たる形に直すこと（文言は CLI の定数に置く） |
+| 引用 | その資産の中の `lines` の行の原文を、行番号を添えて並べたもの。指す行が無いのときは空の文字列 |
+| 内容 | 機械照合の理由 |
+| 直し方 | 判断点の表を `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の判定表の適合の行に当たる形に直すこと |
 
 この候補の記録（反証を経ないこと、台帳に同じ鍵があるときの扱い、担当の指紋の組）は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-014 の最後の段落に従う。指摘の鍵・指摘 ID と run をまたぐ扱いは、他の指摘と同じく同文書に従う。
 
 `docs/specifications/bp-conformance.md` の「機能仕様」の章の仕様項目が「性能・容量（対象スキルに課す確定値）」の章の仕様項目の値で判定するとした行（SP-BPCONFORMANCE-012 の同時実行の行を含む。全ての行は下の除く単位の表）は、フローの観点の判定の単位にしてはならず、仕様の観点の判定の単位（SP-BPINSPECTION-008）としてだけ判定する（両方の観点が判定すると、同じ違反が観点の違う 2 件の指摘になる。指摘の鍵は観点を含むので、CLI は観点をまたいで指摘をまとめない：`docs/specifications/bp-findings.md` の SP-BPFINDINGS-011）。この規則は review にだけ当てる（create・update は仕様の観点を持たないので、適合の観点が値の行も判定する）。
 
-除く単位は次の表とする（単位の値は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の判定の単位の値）。CLI はこの表を判定基準の写しから読み、review のフローの観点の閉集合と適用の判定の行の単位から除く。表の行は、bp-conformance の「機能仕様」の章で「SP-BPCONFORMANCE-0xx（の値）で判定する」とした文のうち、参照先が「性能・容量（対象スキルに課す確定値）」の章の仕様項目であるものの主語の行である。SP-BPCONFORMANCE-013 の「役ごとのモデルと effort は、SP-BPCONFORMANCE-035 で判定する」は、除く単位を持たない（SP-BPCONFORMANCE-035 は、フローの観点が判定表で当たる PR-BPDESIGNEDSKILL-048 の判定の単位として判定し、仕様の観点の判定の単位にしない：SP-BPINSPECTION-008）。
+除く単位は次の表とする（単位の値は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の判定の単位の値）。この表の単位を review のフローの観点の閉集合と適用範囲から除かなければならない。表の行は、bp-conformance の「機能仕様」の章で「SP-BPCONFORMANCE-0xx（の値）で判定する」とした文のうち、参照先が「性能・容量（対象スキルに課す確定値）」の章の仕様項目であるものの主語の行である。SP-BPCONFORMANCE-013 の「役ごとのモデルと effort は、SP-BPCONFORMANCE-035 で判定する」は、除く単位を持たない（SP-BPCONFORMANCE-035 は、フローの観点が判定表で当たる PR-BPDESIGNEDSKILL-009 の判定の単位として判定し、仕様の観点の判定の単位にしない：SP-BPINSPECTION-008）。
 
 | 除く単位 | 判定する仕様の観点の仕様項目 |
 |---|---|
@@ -204,7 +175,7 @@ CLI は、受理した答えを状態に書き、W がはいでないときは�
 | `SP-BPCONFORMANCE-016/状態の書き込み/t1/r12` | SP-BPCONFORMANCE-033 |
 
 #### SP-BPINSPECTION-008 仕様の観点の判定
-仕様の観点の検証役は、`docs/specifications/bp-conformance.md` の「性能・容量（対象スキルに課す確定値）」の章の仕様項目のうち SP-BPCONFORMANCE-035 を除いたものを 1 つずつ判定の単位とし（SP-BPCONFORMANCE-002）、対象スキルの値と規則をその章に照らさなければならない（PR-BPOPERATIONS-025）。SP-BPCONFORMANCE-035 は、フローの観点が判定表で当たる PR-BPDESIGNEDSKILL-048 の判定の単位として判定する（SP-BPINSPECTION-007）。不適合の単位は、その仕様項目 ID を指摘の種類にした指摘の候補として返し、未検査の単位は SP-BPINSPECTION-007 と同じく返す。検証役の prompt に章の値を書き写してはならず、照らす先のパスを渡さなければならない（写しは照らす先から drift する）。
+仕様の観点の検証役は、`docs/specifications/bp-conformance.md` の「性能・容量（対象スキルに課す確定値）」の章の仕様項目のうち SP-BPCONFORMANCE-035 を除いたものを 1 つずつ判定の単位とし（SP-BPCONFORMANCE-002）、対象スキルの値と規則をその章に照らさなければならない（PR-BPOPERATIONS-025）。SP-BPCONFORMANCE-035 は、フローの観点が判定表で当たる PR-BPDESIGNEDSKILL-009 の判定の単位として判定する（SP-BPINSPECTION-007）。不適合の単位は、その仕様項目 ID を指摘の種類にした指摘の候補として返し、未検査の単位は SP-BPINSPECTION-007 と同じく返す。検証役の prompt に章の値を書き写してはならず、照らす先のパスを渡さなければならない（写しは照らす先から drift する）。
 
 ### 監査の観点
 
@@ -236,7 +207,7 @@ audit の指摘の種類の閉集合は、次の識別子とする（PR-BPOPERAT
 #### SP-BPINSPECTION-012 監査の観点の優先
 現行の prompt-audit は監査の観点の間に優先を定めないので、監査の観点の間に優先を置いてはならない。監査の観点の検証役は、全ての監査の観点を担当の全ての資産に当てなければならない。
 
-監査の観点を当てた結果が `docs/requirements/bp-designed-skill.md` の要求と食い違うときは、bp-designed-skill の要求を優先しなければならない（4 機能を同じ設計方針に揃えるため：PR-BPOPERATIONS-029）。検証役は、その指摘の候補を返さず、監査の観点の識別子と優先した要求 ID と理由を、未検査の観点の候補として返さなければならない。次の 1 件は、検証役に判断させず、この規則の当て方として固定する。
+監査の観点を当てた結果が `docs/requirements/bp-designed-skill.md` の要求と食い違うときは、bp-designed-skill の要求を優先しなければならない（4 機能を同じ設計方針に揃えるため：PR-BPOPERATIONS-028）。検証役は、その指摘の候補を返さず、監査の観点の識別子と優先した要求 ID と理由を、未検査の観点の候補として返さなければならない。次の 1 件は、検証役に判断させず、この規則の当て方として固定する。
 
 - 起動数の上限を渡されない run で、fan-out の項目の件数と 1 run の起動数に上限が無いことに、PA-3 を当ててはならない（PR-BPDESIGNEDSKILL-021、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-025）。script は、この除外を PA-3 の一部の未検査の観点として毎回結果に載せなければならない。
 
@@ -244,7 +215,7 @@ audit の指摘の種類の閉集合は、次の識別子とする（PR-BPOPERAT
 対象スキルがモデル・道具・API・版を名指さないとき、または名指した対象について対象スキルにも今の環境にも権威ある文書の証拠が無いとき、監査の観点の検証役は、モデルに固有の指示が古いとする PA-4 の指摘の候補を返してはならない（現行の prompt-audit の「Scope」の節の 2 段落目）。検証役は、そのことを PA-4 の一部の未検査の観点の候補として、名指しが無いか証拠が無いかを理由にして返さなければならない（評価していない鮮度を、見ていないものとして宣言するため：設計方針文書「資産台帳」の skip 一覧の行と同じ目的）。
 
 #### SP-BPINSPECTION-014 引き継がないもの
-audit は、現行の prompt-audit のうち次のものを引き継いではならない。どれも監査の観点ではなく現行の結果の形か流れに当たり、結果の形は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-029・SP-BPFINDINGS-030、流れは本文書が定める（PR-BPOPERATIONS-029）。
+audit は、現行の prompt-audit のうち次のものを引き継いではならない。どれも監査の観点ではなく現行の結果の形か流れに当たり、結果の形は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-029・SP-BPFINDINGS-030、流れは本文書が定める（PR-BPOPERATIONS-028）。
 
 | 引き継がないもの | 現行の prompt-audit の箇所 |
 |---|---|
@@ -258,38 +229,36 @@ audit は、現行の prompt-audit のうち次のものを引き継いではな
 ### 担当と起動
 
 #### SP-BPINSPECTION-015 担当の作り方
-担当の作成の段で、script は抽出役を 1 体起動し、台帳の今の資産 ID の一覧と資産の束（SP-BPINSPECTION-017）を渡さなければならない。抽出役は、一緒に読まないと判断できない資産の組を、資産 ID の一覧から選んで返さなければならない（設計方針文書「資産台帳」：担当の単位はファイルではなく一緒に読まないと判断できない範囲にし、抽出役が閉集合から選ぶ）。組はファイルをまたいでよく、1 つの資産が 2 つ以上の組に入ってもよい。抽出役は資産 ID を作ってはならず、一覧にある資産 ID だけを返さなければならない。
+一緒に読まないと判断できない資産を同じ担当範囲に含め、範囲は現在の資産 ID の閉集合から確定しなければならない。ファイルをまたぐ組と、複数の組に同じ資産を含めることは許容する。存在しない資産 ID を受理してはならない。
 
-CLI は、組ごとに担当 ID を付けて状態に書き、組の順を担当の順としなければならない。CLI は、一覧に無い資産 ID を含む組を拒否しなければならない（拒否した結果の扱いは `docs/specifications/bp-findings.md` の SP-BPFINDINGS-034）。どの組にも入らなかった資産は、観点ごとの検証の段の最初の起動では見られず skip 一覧に残り、SP-BPFINDINGS-025 の追加の起動で見られる。同じ担当の組を、run の観点の集合の全ての観点に使わなければならない。担当を割り当てるのは script とし、検証役に担当を選ばせてはならない（設計方針文書「資産台帳」）。
+同じ範囲と順位をその run の全ての観点に使い、検証役ごとに担当範囲を作り直してはならない。最初の担当から漏れた資産は skip として残し、SP-BPFINDINGS-025 の追加確認の対象にしなければならない。範囲の決め方は設計方針文書「資産台帳」の決定的な規則または閉集合からの選択に従う。
 
 #### SP-BPINSPECTION-016 検証の項目と順位
 観点ごとの検証の段の項目は、run の観点の集合の観点と担当の組とし、項目ごとに検証役を 1 体起動しなければならない。項目の順位は、観点の順（SP-BPINSPECTION-003）、同じ観点の中では担当の順とする。この順位を、起動数の上限で止まるときの未着手の項目の順位（`docs/specifications/bp-run.md` の SP-BPRUN-020）に使う。同時に走る検証役の数は `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-027 に従い、検証役のモデルと effort は `docs/specifications/bp-run.md` の SP-BPRUN-023 に従う。
 
 #### SP-BPINSPECTION-017 検証役に渡すもの
-台帳の作成と資産の束の段で、script は運搬役を通じて CLI に、台帳の資産から資産の束を作業ファイルとして書かせなければならない。台帳を列挙し直したとき（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）は、資産の束も書き直させなければならない。
+検証には、担当の資産 ID・位置・原文を辿れる行番号付きの証拠と、観点の基準・許容する指摘の種類・未検査の扱いを使わなければならない。共通の原文は決定的に抽出して参照し、agent の要約を原文の代わりにしてはならない。対象版が変わった場合は証拠の対応も更新し、古い版を現在の根拠として渡してはならない。
 
-script は、抽出役・検証役・反証役の prompt に、資産の束と照らす先のパスを渡し、内容を写してはならない。prompt は、全ての起動に共通する部分（照らす先のパス、資産の束のパス、役の指示と理由）を先頭に置き、起動ごとに違う部分（観点、担当の資産 ID、指摘の種類の閉集合、適用の判定）を後ろに置かなければならない（同じ対象を多数の agent が読むので、各体に冷読みさせず、prompt の先頭を揃えて cache を効かせる：[agent-work の現行案内]、設計時点の出典／旧規約：[設計時点の出典／旧規約 @ c7759f1]）。
-
-検証役は、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-007 の形に、同項が許す足した欄として、未検査の観点の候補（SP-BPINSPECTION-007・SP-BPINSPECTION-012・SP-BPINSPECTION-013）を加えて返さなければならない。候補は SP-BPINSPECTION-025 の観点・範囲・理由を持つ。範囲が SP-BPINSPECTION-025 の 3 種のどれでもない候補か、観点が run の観点の集合に無い候補を含む結果の記録を、CLI は拒否しなければならない（拒否された結果の扱いは SP-BPFINDINGS-034 と同じ）。
+結果の未検査は SP-BPINSPECTION-025 の観点・範囲・理由を持ち、割り当てと閉集合に反する結果は SP-BPFINDINGS-034 に従って拒否しなければならない。証拠の内部ファイル名と運搬手順は実装の設計で決める。
 
 #### SP-BPINSPECTION-018 反証の起動
-観点ごとの検証の段の最初の起動と skip 一覧への追加の起動が全て終わった後に、script は反証の段で、重複でない全ての指摘の候補を `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012 でまとめた鍵ごとに、反証役を 1 体起動しなければならない（SP-BPFINDINGS-013）。追加の起動が返した指摘の候補も反証に回す。反証役には、まとめた候補、候補の観点の照らす先のパス、資産の束のパスを渡す。反証役の項目の順位は、鍵の最初の候補を返した検証の項目の順位、同じ項目の中では候補が返った順とする。
+観点ごとの検証の段の最初の起動と skip 一覧への追加の起動が全て終わった後に、反証では、重複でない全ての指摘の候補を `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012 でまとめた鍵ごとに、同じ候補の生成と別の context で 1 つの反証結果を得なければならない（SP-BPFINDINGS-013）。追加の起動が返した指摘の候補も反証に回す。反証役には、まとめた候補、候補の観点の照らす先のパス、資産の束のパスを渡す。反証役の項目の順位は、鍵の最初の候補を返した検証の項目の順位、同じ項目の中では候補が返った順とする。
 
 #### SP-BPINSPECTION-019 照合と停止
-照合と停止の段で、script は、`docs/specifications/bp-run.md` の SP-BPRUN-026 で対象スキルが変わっていないことを確かめてから、review では停止の記録を書かせるのと同じ運搬役に、`stop` より先に `placement` を送らせ（SP-BPINSPECTION-007。停止の後のその run の書き込みは同文書の SP-BPRUN-017 に従う）、運搬役を通じて CLI に結果の項目（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-030 と SP-BPINSPECTION-024）を作らせ、完了の停止の記録を書かせなければならない。結果の項目は CLI が状態から決定的に作り、agent に集約させてはならない（agent が要約すると、原典から drift した写しが混ざる：設計方針文書「状態の書き込み」）。
+完了前に対象が変わっていないことを SP-BPRUN-026 で確かめ、review の判断点の機械照合と未検査を含む全ての結果を保存しなければならない。結果と集計は保存した根拠から決定的に作り、agent の集約や言い換えで置き換えてはならない。停止後の書き込みの拒否は SP-BPRUN-017 に従わなければならない。
 
 ### 対象を書き換えない
 
 #### SP-BPINSPECTION-020 書き手の役を持たない
-review と audit の script は、運搬役・抽出役・検証役・反証役だけを起動し、書き手の役を起動してはならない（PR-BPOPERATIONS-030。修正は update が行う）。各役の prompt に、対象スキルを書き換える指示を書いてはならない。指摘の候補の直し方は、書き換えの内容を文で返すだけにする。書き込み先の制限と、対象を書き換えていないことの照合は `docs/specifications/bp-run.md` の SP-BPRUN-008・SP-BPRUN-025・SP-BPRUN-026 に従う。
+review・audit では対象を書き換える役を起動せず、どの担当にも対象を変更する権限・指示を与えてはならない。直し方は指摘の文として返すだけとし、変更を適用してはならない。実際の制限と変更の照合は SP-BPRUN-025・026 に従わなければならない。
 
 ### 対象スキル
 
 #### SP-BPINSPECTION-021 対象は既にあるスキル
-review と audit の対象スキルは、対象スキルのパスの一覧の根が既にあるディレクトリで、その直下に `SKILL.md` があるものでなければならない（PR-BPOPERATIONS-027。review も、`docs/requirements/bp-operations.md` の用語「対象スキル」により既にあるスキルを扱う）。これを確かめるのは、開始の段で CLI の開始の操作（`docs/specifications/bp-run.md` の SP-BPRUN-003）とし、当たらないときの扱いは SP-BPINSPECTION-026 に従う。
+review と audit の対象スキルは、対象スキルのパスの一覧の根が既にあるディレクトリで、その直下に `SKILL.md` があるものでなければならない（PR-BPOPERATIONS-028。review も、`docs/requirements/bp-operations.md` の用語「対象スキル」により既にあるスキルを扱う）。これを確かめるのは、開始の段で CLI の開始の操作（`docs/specifications/bp-run.md` の SP-BPRUN-003）とし、当たらないときの扱いは SP-BPINSPECTION-026 に従う。
 
 #### SP-BPINSPECTION-022 対象スキルのパスの一覧
-開始の段に渡す対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-031）は、入口が `docs/specifications/bp-entry.md` の SP-BPENTRY-006・SP-BPENTRY-022 で作った一覧をそのまま使わなければならない。run の中で一覧を作り直してはならない。解決できなかった callsite を利用者に返すのも SP-BPENTRY-023 と SP-BPENTRY-021 の 1 箇所とし、本文書の結果には載せない。
+開始の段に渡す対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-006）は、入口が `docs/specifications/bp-entry.md` の SP-BPENTRY-006・SP-BPENTRY-022 で作った一覧をそのまま使わなければならない。run の中で一覧を作り直してはならない。解決できなかった callsite を利用者に返すのも SP-BPENTRY-023 と SP-BPENTRY-021 の 1 箇所とし、本文書の結果には載せない。
 
 ## 外部インタフェース
 
@@ -301,7 +270,7 @@ review と audit は、完了したとき、`docs/specifications/bp-run.md` の 
 
 | 項目 | 綴り | 機能 | 中身 |
 |---|---|---|---|
-| 照らした先 | `targets` | review・audit | 観点ごとの照らす先のパスと照らす先の指紋（SP-BPINSPECTION-004）。形は `docs/specifications/bp-run.md` の SP-BPRUN-031 の `targets` の操作の出力の `targets` と同じ |
+| 照らした先 | `targets` | review・audit | 観点ごとの照らす先のパスと照らす先の指紋（SP-BPINSPECTION-004）。各観点は `viewpoint`・`files`・`section`・`fingerprint`・`readable`・`reason` を持つ。files の各要素は `name`・`path`・`sha256` を持ち、存在しないファイルの sha256 は null とする |
 | 適用の判定 | `applicability` | review | SP-BPINSPECTION-006 の答えと引用と、CLI が状態に書いた形と行（問い W がはいでないときは到達した形と SP-BPCONFORMANCE-003 の判定表の行、はいのときは `runs` の要素ごとの `{run, shape, row}`） |
 | 未検査の観点 | `uncheckedViewpoints` | review・audit | SP-BPINSPECTION-025 の一覧。空でも項目を返す |
 | 対象スキルのパスの一覧 | `target` | audit | 状態にある今の対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-005）を、CLI が状態から逐語で写したもの（監査した範囲：SP-BPINSPECTION-014）。入力の `target`（`docs/specifications/bp-entry.md` の SP-BPENTRY-013）と同じ形にし、連鎖の次の run の入力にそのまま渡せるようにする |
@@ -310,11 +279,13 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 
 | 項目 | 綴り | 中身（完了以外） |
 |---|---|---|
-| 止まった段 | `stoppedStage` | 停止の記録の段（CLI が `docs/specifications/bp-run.md` の SP-BPRUN-018 の規則で決めた段）の名前。名前は同文書の SP-BPRUN-038 の表の「段」の列とし、1 行に 2 つの名前がある `verify` は、create・update と同じ「検証」とする。停止の記録に段が無いときは `null` |
+| 止まった段 | `stoppedStage` | 停止の記録の段（CLI が `docs/specifications/bp-run.md` の SP-BPRUN-018 の規則で決めた段）の名前。名前は同文書の SP-BPRUN-038 が列挙する名前とし、停止の記録に段が無いときは `null` |
 
-次の 2 つの run は、CLI の `outcome` を読まずに script が返り値を作るので、止まった段を持たない。
+次の 2 つの場合は、返り値に stoppedStage を持たない。
 - 状態を作らずに止まった run（SP-BPINSPECTION-026。入力の誤りで開始の操作の前に止まったときを含む）。
-- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）。止まった段は、CLI の `stop-draft`（同文書の SP-BPRUN-031）から読めたときだけ、理由に書く（SP-BPRUN-027）。
+- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）。止まった段は、CLI の 保存済みの進みから読めたときだけ、理由に書く（SP-BPRUN-027）。
+
+targets の files の name は conformance・design・inspection・promptAudit・designedSkill とする。section はフローの観点が「機能仕様」、仕様の観点が「性能・容量」で始まる章、監査の観点が「Finding criteria」とする。fingerprint は基準の名前と内容の同一性を指し、保存場所だけの違いで変えてはならない。
 
 #### SP-BPINSPECTION-025 未検査の観点の形と載せるもの
 未検査の観点の 1 件は、観点、範囲、理由、記録した run を持たなければならない。範囲は、観点の全体か、判定の単位か、監査の観点の識別子のどれかとする。CLI は次の表の全ての場合に未検査の観点を作り、同じ観点と範囲と理由の重複は 1 件にまとめなければならない。
@@ -326,20 +297,20 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 | bp-designed-skill の要求を優先して外した（SP-BPINSPECTION-012） | 監査の観点 | 監査の観点の識別子 | 優先した要求 ID と理由 |
 | モデルに固有の鮮度を評価できない（SP-BPINSPECTION-013） | 監査の観点 | PA-4 | 名指しが無いか、証拠が無いか |
 | 観点の全ての検証の項目が打ち切りになった（`docs/specifications/bp-run.md` の SP-BPRUN-028） | その観点 | 観点の全体 | 打ち切りの理由 |
-| 照合と停止の段の `placement` の結果が未検査（SP-BPINSPECTION-007） | フローの観点 | 判定の単位 `SP-BPCONFORMANCE-041` | `placement` の `reason` |
+| 判断点の表の機械照合の結果が未検査（SP-BPINSPECTION-007） | フローの観点 | 判定の単位 `SP-BPCONFORMANCE-041` | 機械照合の理由 |
 | フローの観点を run の観点の集合に入れた（PR-BPDESIGNEDSKILL-051 はどの形でも当たる：`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-003） | フローの観点 | 判定の単位 `SP-BPCONFORMANCE-041` | 同文書の SP-BPCONFORMANCE-041 の網羅の理由 |
 
-未検査の観点に載せた観点と範囲を、結果の中で「問題なし」として返してはならない（照らしていない観点が照らしたと読まれる：PR-BPOPERATIONS-026）。
+未検査の観点に載せた観点と範囲を、結果の中で「問題なし」として返してはならない（照らしていない観点が照らしたと読まれる：PR-BPOPERATIONS-025）。
 
 ## エラー処理と異常系
 
-本章は review と audit に固有の異常だけを扱う。agent の失敗・続けられない失敗・途中終了・CLI の拒否と BLOCKED の返し方は `docs/specifications/bp-run.md` の SP-BPRUN-027〜030 に従う。担当の作成の段の抽出役と適用の判定の段の検証役は fan-out の項目の外で起動する agent（SP-BPINSPECTION-001 の表の「項目」の列が「なし」の段）なので、失敗したら SP-BPRUN-027 で BLOCKED になる。資産が 0 件のときは `docs/specifications/bp-findings.md` の SP-BPFINDINGS-033 に従う。review と audit は needs_input で止まらない（`docs/specifications/bp-run.md` の SP-BPRUN-010）ので、利用者に直してもらう入力の不足も BLOCKED で返す。
+本章は review と audit に固有の異常だけを扱う。agent の失敗・続けられない失敗・途中終了・CLI の拒否と BLOCKED の返し方は `docs/specifications/bp-run.md` の SP-BPRUN-027〜030 に従う。失敗の分類は、担当が fan-out の項目の工程の中で起動したか、その外で起動したかで決めなければならない。fan-out の外の担当の失敗は SP-BPRUN-027 の BLOCKED、fan-out の項目の工程の欠けは SP-BPRUN-028 の試行と打ち切りに従わなければならない。役の名前だけで分類を変えてはならない。資産が 0 件のときは `docs/specifications/bp-findings.md` の SP-BPFINDINGS-033 に従う。review と audit は needs_input で止まらない（`docs/specifications/bp-run.md` の SP-BPRUN-010）ので、利用者に直してもらう入力の不足も BLOCKED で返す。
 
 #### SP-BPINSPECTION-026 対象が既にあるスキルでない
 SP-BPINSPECTION-021 に当たらないとき、CLI の開始の操作は状態と作業場所を作らずに理由を返し、script は次の agent を起動せずに、BLOCKED と理由（渡されたパスと、ディレクトリが無いか `SKILL.md` が無いか）を返さなければならない。状態を作らないので、停止の記録を書かず、next_args を返さない（`docs/specifications/bp-run.md` の SP-BPRUN-011・SP-BPRUN-032）。
 
 #### SP-BPINSPECTION-027 フローの観点・監査の観点の照らす先を読めない
-照らす先の決定の段で、review のフローの観点か、audit の監査の観点の照らす先を読めなかったならば、script は、検証役を起動せずに、BLOCKED と理由（読めなかった照らす先のパス）を返さなければならない。指摘が 0 件の完了として返してはならない（照らさないまま「問題なし」と返すことになる）。audit で現行の prompt-audit（`references/prompt-audit.md` の写し）が無いときは、監査を実行せずに止まり、理由に読めなかったパスと、引き継ぐ監査の観点が無いことを書く。このときの返り値は、止まった段（照らす先の決定：SP-BPINSPECTION-024 の `stoppedStage`）と理由の報告とし（PR-BPOPERATIONS-047・050）、監査の結果を返さない。仕様の観点を読めないときだけは、SP-BPINSPECTION-005 のとおり止まらずに未検査とする（PR-BPOPERATIONS-026 が未検査として示すことを定めている）。
+照らす先の決定の段で、review のフローの観点か、audit の監査の観点の照らす先を読めなかったならば、script は、検証役を起動せずに、BLOCKED と理由（読めなかった照らす先のパス）を返さなければならない。指摘が 0 件の完了として返してはならない（照らさないまま「問題なし」と返すことになる）。audit で現行の prompt-audit（`references/prompt-audit.md` の写し）が無いときは、監査を実行せずに止まり、理由に読めなかったパスと、引き継ぐ監査の観点が無いことを書く。このときの返り値は、止まった段（照らす先の決定：SP-BPINSPECTION-024 の `stoppedStage`）と理由の報告とし（PR-BPOPERATIONS-013・028）、監査の結果を返さない。仕様の観点を読めないときだけは、SP-BPINSPECTION-005 のとおり止まらずに未検査とする（PR-BPOPERATIONS-025 が未検査として示すことを定めている）。
 
 #### SP-BPINSPECTION-028 監査の観点の一覧が出所と食い違う
 SP-BPINSPECTION-010 の照合で一致しなかったならば、script は、検証役を起動せずに、BLOCKED と理由（食い違った番号と名前）を返さなければならない。
@@ -350,89 +321,58 @@ SP-BPINSPECTION-010 の照合で一致しなかったならば、script は、�
 前の run が照らす先の決定の段を終える前に止まったとき（照らす先を読めずに BLOCKED になったときなど）は、本項を当てず、照らす先の決定の段を最初から行う（SP-BPINSPECTION-030。照合すると、利用者が直した照らす先が前の記録と食い違い、再開のたびに BLOCKED になる）。段を終えたかは、状態の段の進み（`docs/specifications/bp-run.md` の SP-BPRUN-005）の終えた段で決める。
 
 #### SP-BPINSPECTION-030 再開した run の段の順
-review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従い、終えていない段から続け、終えた段の結果（状態にある担当の組と適用の判定を含む）を作り直してはならない。ただし、再開した run の開始で行う台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）と、それに伴う資産の束の書き直し（SP-BPINSPECTION-017）と、その取り直しで消えた資産が新しく記録されたときの消えた資産の照合の段は、それぞれの段を終えていても行い、本項の例外とする。再び行う消えた資産の照合の段の回は、`docs/specifications/bp-run.md` の SP-BPRUN-038 のとおり、その取り直しの番号とする（台帳の作成と資産の束の段は項目を持たないので回を持たない）。照らす先の決定の段を終える前に止まった run はその段を最初から行い、終えた後に止まった run は同じ段で SP-BPINSPECTION-029 の照合を行う。audit は適用の判定の段を持たないので、その段を飛ばす。止まった段ごとの段の順の細目は次のとおりとする。
+再開した review・audit は、今の対象資産を取り直し、照らす先の版を確認してから、必要な消えた資産の照合を行い、終えていない作業の未着手だけを順位の順に続けなければならない。既に確定した担当範囲と適用判定、結果のある項目、打ち切った項目を作り直してはならない。基準を確定する前に止まった場合だけ基準の決定をやり直し、確定済みの場合は SP-BPINSPECTION-029 の照合を行わなければならない。
 
-再開した run は、止まった段によらず、まず次の 4 つを順に行う。照らす先が食い違えば検証役も反証役も起動せずに止まる（SP-BPINSPECTION-029）ので、消えた資産の照合は照らす先の決定より後に置く。照合で使う資産 ID の一覧は書き直した資産の束から読む。
+対象資産の取り直しと証拠の対応の更新、取り直しで消えた資産の照合は、以前に終えた作業でも行わなければならない。検証を終えた後で対象が変わっていても検証を巻き戻して現在の合格を作らず、変わった資産は skip と、今の内容で判定したかの値で示さなければならない。
 
-1. 開始（台帳の取り直し：`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）
-2. 照らす先の決定（段を終えていれば SP-BPINSPECTION-029 の照合、終えていなければ最初から）
-3. 台帳の作成と資産の束（台帳があれば作らない。資産の束は世代が同じなら同じ中身になり、取り直しで世代が変われば書き直す：SP-BPINSPECTION-017）
-4. 消えた資産の照合（前の run がこの段で止まったときはその回の未着手の項目、取り直しで消えた資産に結び付いた指摘があるときはその回の項目）
-
-その後は、段の並び（照らす先の決定・台帳の作成と資産の束・担当の作成・適用の判定・観点ごとの検証・skip 一覧への追加の起動・反証・照合と停止。消えた資産の照合は並びに入れない）で状態に開始の記録がある最も後ろの段を止まった段とし、次の表で続ける。止まった段の段の終わりの記録があれば、並びの次の段から続ける。停止の種類（起動数の上限・BLOCKED・停止の記録の無い終わり）と停止の記録の `cause` で始め方を変えない（review・audit は対象を書き換えないので、書かずに検証し直す分岐が要らない）。
-
-| 止まった段 | 始め方 | 前の回の未着手 |
-|---|---|---|
-| 照らす先の決定・台帳の作成と資産の束 | 担当の作成から（照らす先の決定と資産の束は上の 2・3 で済んでいる） | — |
-| 担当の作成 | 担当の組が状態にあれば、抽出役を起動せず、担当の作成の段の終わりと次の段の開始だけを書く（結果を書いた運搬役が段の終わりの前に応答を失った run。作り直すと別の担当 ID の組が増える）。無ければこの段を最初から。繰り返しの回数は run の開始時からの増分で上限に当てる（`docs/specifications/bp-run.md` の SP-BPRUN-005） | — |
-| 適用の判定（review だけ） | 段の開始の記録が無ければ（担当の作成の段を終えた後、次の段の開始を書く前に止まった run）、段の開始を書いてから行う（開始の記録が無いまま結果を書くと CLI が拒否し続ける）。結果が状態にあれば、検証役を起動せず、観点ごとの検証の段の開始だけを書く（起動し直すと、違う答えが最初の結果と食い違い、再開のたびに `E_CONFLICT` で止まる）。無ければこの段を最初から | — |
-| 観点ごとの検証 | 担当と適用の判定は状態のものを使い、同じ鍵で段の開始を書き直して、結果の無い項目だけを順位の順に処理する。前の run で打ち切った項目は処理し直さず、全件の打ち切り（`docs/specifications/bp-run.md` の SP-BPRUN-029）に数えない | 処理する |
-| skip 一覧への追加の起動 | 止まった部分の結果の無い項目を、その観点の skip 一覧の担当で処理し、その後 skip 一覧が空になるか見た資産が増えなくなるまで部分を足す（`docs/specifications/bp-run.md` の SP-BPRUN-035 の 3 のただし書きの破棄は、create・update だけに当てる） | 処理する |
-| 反証 | 鍵の一覧を `refutation-items` で読み直し、結果の無い鍵だけを処理する。前の run で打ち切った鍵は処理し直さず、未反証の候補として結果に残る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-015） | 処理する |
-| 照合と停止 | この段を最初から（`stop`・`outcome`） | — |
-
-止まった段が反証より後で、再開の開始の取り直しで内容が変わった資産があっても、観点ごとの検証と追加の起動をやり直さない。本項の例外は取り直し・資産の束の書き直し・消えた資産の照合の 3 つだけである。変わった資産は skip 一覧と「今の内容で判定したか」の値で結果に出る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-021・SP-BPFINDINGS-023）。全件の打ち切りで BLOCKED になった観点ごとの検証の段から再開すると、打ち切った項目は結果の無い項目に入らない（`docs/specifications/bp-run.md` の SP-BPRUN-018）。その資産は skip 一覧に残るので、続く追加の起動で見られる（原因を直して再開する経路：SP-BPRUN-014）。
+追加確認の途中では残りを処理し、skip が空になるか新しく見た資産が増えなくなるまで続けなければならない。反証の途中では未反証の残りを処理し、打ち切りの候補は未反証のまま残さなければならない。照合と停止で中断した場合は、現在の保存済み根拠で照合と停止を行わなければならない。
 
 ## 検証方法
 
-各仕様項目をどう確かめるかは、トレーサビリティ表の検証方法列が正である。本章はそこで用いる手段の意味を固定する。
+既存スキル・基準・指摘候補を制御した fixture で、観点、適用判定、確認範囲、反証、状態、未検査と出力を観測する。基準の全部/一部の欠落、監査一覧の不一致、反証の失敗、資産の変更/消失、上限停止と再開、対象変更の検出を含める。
 
-| 手段 | 中身 |
-|---|---|
-| script の模擬実行 | 抽出役・検証役・反証役・運搬役の返り値を固定した模擬の backend で script を走らせ、起動の数と順と prompt の中身、状態の記録、返り値を照らす |
-| CLI の単体テスト | 照らす先・対象スキル・prompt-audit の写しを与えて CLI の操作を呼び、状態の記録と出力と拒否を照らす |
-| 静的な照合 | script の本文と各役の prompt を読み、起動する役の集合、prompt に書き写した基準の有無、対象を書き換える指示の有無を照らす |
-| fixture | 違反を仕込んだ対象スキルを review・audit にかけ、指摘の種類と未検査の観点を期待値と照らす。模擬の検証役は対象スキルの中身によらず決めた答えを返すので、模擬で確かめられるのは配線（閉集合・未検査の観点の記録・PA-3 の固定の 1 件・除く単位・強いられた未検査）だけである。判断の質は `docs/specifications/bp-authoring.md` の「検証方法」の本物の agent での試走で確かめ、その試走で確かめた行だけを「完了」にする |
+適用表と保持規則は正常・異常・境界を区別して照合し、未裁定の期待値を作らない。模擬の判定を返す試験は配線だけの検証とし、判断の質は bp-authoring の本物の agent の試走で確かめる。
 
 ## トレーサビリティ表
 
-本表は、本仕様書がカバーする要求の分だけを持つ。
+整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-001 | script の模擬実行（review と audit の起動が表の段の順に並び、audit に適用の判定の段が無いことを確認。抽出役の失敗で BLOCKED になり、観点ごとの検証の項目の欠けでは試行を繰り返すことを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-001 | 静的な照合（best-practices の設計の説明に、本項の表の段と部品の対応があることを確認。設計の説明は新しい入口の SKILL.md とともに置く：`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-002 | script の模擬実行（指摘のある結果を返しても観点ごとの検証の段より前の段の起動が再び起きないことを確認） | 完了 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | script の模擬実行（review の検証の項目の観点がフローと仕様の 2 つだけであることを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | script の模擬実行（audit の検証の項目の観点が監査の観点だけであることを確認） | 完了 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | CLI の単体テスト（仕様の観点の照らす先のパスと指紋が状態に書かれることを確認） | 完了 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-004 | CLI の単体テスト（「性能・容量」の章の見出しが無い写しを与え、仕様の観点が読めないと記録されることを確認） | 完了 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-005 | script の模擬実行（仕様の観点を読めない review で、仕様の観点の検証役が起動されず、未検査の観点に全体が載り、仕様の観点の skip 一覧と追加の起動が無いことを確認） | 完了 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | script の模擬実行（CLI に拒否された適用の判定の結果で検証役が拒否の理由とともに起動し直され、フローの観点の全ての検証役に同じ形が渡ることを確認）と静的な照合（検証役の schema の答えの enum が閉集合と一致することを確認。閉集合の外の答えは host の schema が CLI に届く前に通さないので、CLI の拒否は CLI の単体テストで確かめる）と CLI の単体テスト（W がはいで要素が 3 つ以上の `runs` が受理されて要素ごとの `{run, shape, row, assets}` が状態に書かれ、要素が 2 つの `runs`、1 つ目の `run` が `sequence` でない `runs`、`run` が重複する `runs`、台帳に無い資産 ID を `assets` に持つ `runs`、W の答えと合わない置き場の Q1・Q2・Q3 を持つ結果がそれぞれ拒否されることを確認）と script の模擬実行（W がはいの結果で、フローの観点の全ての検証役に `runs` の要素ごとの形・資産台帳・fan-out・行と `assets` が渡ることを確認） | 作成中 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認） | 作成中 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認） | 作成中 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | CLI の単体テスト（PA-1〜PA-6 以外の指摘の種類を含む候補が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-010 | CLI の単体テスト（項目を 1 つ足した prompt-audit の写しで照合が不一致になることを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-011 | fixture（指示でない文の欠陥と、好みの違いだけの箇所を含む対象スキルで、どちらも指摘にならず、担当の資産が減らないことを確認） | 作成中 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-012 | fixture（上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず、PA-3 の一部の未検査の観点が載ることを確認） | 作成中 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-013 | fixture（モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず、PA-4 の未検査の観点が載ることを確認） | 作成中 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-014 | script の模擬実行（audit の結果に確度・declared_only・audit_header の項目が無く、照らした先と対象スキルのパスの一覧が載ることを確認） | 完了 |
-| PR-BPOPERATIONS-033 | SP-BPINSPECTION-015 | script の模擬実行（抽出役が一覧に無い資産 ID を返すと組が拒否され、試行の上限の回まで拒否されると BLOCKED になり、どの組にも入らない資産が追加の起動の担当になることを確認） | 完了 |
-| PR-BPOPERATIONS-034 | SP-BPINSPECTION-015 | script の模擬実行（どの組にも入らない資産が最初の起動の後に skip 一覧に載ることを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-016 | script の模擬実行（起動数の上限で止めた review の未着手の項目が、観点の順・担当の順で残ることを確認） | 完了 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-017 | 静的な照合（検証役の prompt が資産の束と照らす先のパスを持ち、共通の部分が先頭にあることを確認） | 完了 |
-| PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | script の模擬実行（追加の起動が返した候補を含め、重複でない候補のまとめた鍵ごとに反証役が 1 体起動され、全ての反証役が観点ごとの検証の段の後に起動されることを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-019 | script の模擬実行（結果の項目が CLI の出力から逐語で返り、集約の agent が起動されないことを確認） | 完了 |
-| PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 静的な照合（review・audit の script に書き手の起動が無く、各役の prompt に対象を書き換える指示が無いことを確認） | 完了 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-021 | CLI の単体テスト（根が `SKILL.md` のあるディレクトリのときだけ、開始の操作が状態を作ることを確認） | 完了 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-022 | script の模擬実行（入口が渡したパスの一覧がそのまま開始の操作に渡り、run の中でパスの一覧の作成が呼ばれないことを確認） | 完了 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-023 | 静的な照合（review・audit の入力の表が `docs/specifications/bp-entry.md` の SP-BPENTRY-013 だけにあり、本文書に無いことを確認） | 完了 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-024 | script の模擬実行（未検査の観点が空の run でも結果に項目があることを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果に prompt-audit のパスと指紋が載ることを確認） | 完了 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-025 | CLI の単体テスト（表の 7 つの場合を 1 つずつ作り、未検査の観点の観点・範囲・理由を確認。同じ未検査を 2 体が返したとき 1 件になることを確認） | 作成中 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPINSPECTION-007 | script の模擬実行（照合と停止の段で `placement` が結果の項目より先に送られ、フローの観点の閉集合に SP-BPCONFORMANCE-041 が無いことを確認。理由の空いたデータ行を持つ対象スキルで、その行を含む資産に種類 `SP-BPCONFORMANCE-041` の open の指摘が反証の段を経ずに出ることを確認。判断点の表の無い対象スキルで、`SKILL.md` の frontmatter の資産に指摘が出ること、frontmatter の無い `SKILL.md` では最初の見出しより前の本文か最初の節の資産に出ること、空白だけの `SKILL.md` では資産 ID の昇順の最初の資産に出ることを確認。照合と停止の段で `placement` が `stop` より先に、停止と同じ運搬役で送られることを確認。検証役が種類 `SP-BPCONFORMANCE-041` の候補を返すと拒否されることを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が SP-BPCONFORMANCE-019 を理由に未検査の観点に載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（一覧の設定に頼る制限を持つ対象スキルの review で、PR-BPDESIGNEDSKILL-046 の単位の指摘が制限ごとに出て、結果に `checkedRoleLimits` と `residualRisks` が無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-050 | SP-BPINSPECTION-027 | script の模擬実行（prompt-audit の写しが無い audit で、検証役を起動せず、BLOCKED と、引き継ぐ監査の観点が無いことを含む理由と、止まった段を返し、指摘の一覧を返さないことを確認） | 未着手 |
-| PR-BPOPERATIONS-050 | SP-BPINSPECTION-024 | script の模擬実行（prompt-audit の写しが無い audit の返り値の `stoppedStage` が照らす先の決定であることを確認） | 未着手 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-026 | script の模擬実行（存在しないパスと `SKILL.md` の無いディレクトリで、開始の運搬役の後に agent が起動されず、状態が作られず、BLOCKED と理由が返り、next_args が無いことを確認） | 完了 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-027 | script の模擬実行（フローの観点の照らす先を読めない review が、指摘 0 件の完了ではなく BLOCKED を返すことを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-027 | script の模擬実行（prompt-audit を読めない audit が BLOCKED を返すことを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-028 | script の模擬実行（一覧が食い違う prompt-audit の写しで検証役が起動されず BLOCKED を返すことを確認） | 完了 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（同時実行の定数を 4 にした対象スキルの review で、フローの観点の指摘が出ず、仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになることを確認） | 作成中 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-017 | CLI の単体テスト（未検査の観点の候補を足した結果が受理され、範囲が 3 種の外の候補を含む結果が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-029 | script の模擬実行（停止中に照らす先を書き換えて再開し BLOCKED になること、書き換えずに再開すると抽出役と適用の判定が再び起動されないこと、照らす先を読めずに BLOCKED になった run を照らす先を直して再開すると照らす先の決定の段をやり直して進むことを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（止まった段ごとに状態を作って再開し、終えた段の結果が作り直されず、照らす先の決定の段を終えた状態からの再開でだけ照合が行われることを確認） | 完了 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果の対象スキルのパスの一覧が、状態にある今の一覧と 1 字も違わないことを確認） | 完了 |
-| PR-BPOPERATIONS-047 | SP-BPINSPECTION-024 | script の模擬実行（完了以外の返り値の鍵が SP-BPRUN-032 の表の鍵と止まった段だけで、状態を作らずに止まった run と停止の記録を書けなかった BLOCKED は止まった段を持たないことを確認） | 完了 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（台帳の作成と資産の束の段を終えた状態から、停止の間に節を 1 つ書き換えて再開し、台帳が取り直され資産の束が書き直されることを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-001 | 入出力・停止・再開の fixture で「評価と監査に必要な依存順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-002 | 入出力・停止・再開の fixture で「対象を書き直す反復をしない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | 入出力・停止・再開の fixture で「観点の集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | 入出力・停止・再開の fixture で「観点の集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | 入出力・停止・再開の fixture で「照らす先の決定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-005 | 入出力・停止・再開の fixture で「仕様書を読めないとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | 入出力・停止・再開の fixture で「適用の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPINSPECTION-007 | 入出力・停止・再開の fixture で「フローの観点の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | 入出力・停止・再開の fixture で「フローの観点の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | 入出力・停止・再開の fixture で「仕様の観点の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | 入出力・停止・再開の fixture で「監査の観点の一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-010 | 入出力・停止・再開の fixture で「一覧と出所の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-011 | 入出力・停止・再開の fixture で「監査の範囲」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-012 | 入出力・停止・再開の fixture で「監査の観点の優先」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-013 | 入出力・停止・再開の fixture で「モデルに固有の鮮度」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-014 | 入出力・停止・再開の fixture で「引き継がないもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPINSPECTION-015 | 入出力・停止・再開の fixture で「担当の作り方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-016 | 入出力・停止・再開の fixture で「検証の項目と順位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-017 | 入出力・停止・再開の fixture で「検証役に渡すもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-017 | 入出力・停止・再開の fixture で「検証役に渡すもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | 入出力・停止・再開の fixture で「反証の起動」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-019 | 入出力・停止・再開の fixture で「照合と停止」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 入出力・停止・再開の fixture で「書き手の役を持たない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-021 | 入出力・停止・再開の fixture で「対象は既にあるスキル」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-022 | 入出力・停止・再開の fixture で「対象スキルのパスの一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-023 | 入出力・停止・再開の fixture で「review と audit の入力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-013 | SP-BPINSPECTION-024 | 入出力・停止・再開の fixture で「review と audit に固有の結果の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-024 | 入出力・停止・再開の fixture で「review と audit に固有の結果の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | 入出力・停止・再開の fixture で「review と audit に固有の結果の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | 入出力・停止・再開の fixture で「未検査の観点の形と載せるもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-025 | 入出力・停止・再開の fixture で「未検査の観点の形と載せるもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-026 | 入出力・停止・再開の fixture で「対象が既にあるスキルでない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-027 | 入出力・停止・再開の fixture で「フローの観点・監査の観点の照らす先を読めない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-027 | 入出力・停止・再開の fixture で「フローの観点・監査の観点の照らす先を読めない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-028 | 入出力・停止・再開の fixture で「監査の観点の一覧が出所と食い違う」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-029 | 入出力・停止・再開の fixture で「再開したときの照らす先の食い違い」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-030 | 入出力・停止・再開の fixture で「再開した run の段の順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |

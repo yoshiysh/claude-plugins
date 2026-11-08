@@ -7,12 +7,12 @@
 | パス | 扱う関心事 | どういう仕様項目が書かれているか |
 |---|---|---|
 | `docs/specifications/authoring.md` | 仕様書: 生成される文書の記述仕様 | 文書の種別と分量／章構成／要求文と仕様項目の書き方／重複と矛盾／ID 体系／トレーサビリティ表／未確定事項の書式／保持規則／ファイル配置と INDEX／状態とイベントの記述／外部規格への言及／根拠が得られない事項の扱い／機械検査が参照する語の集合（SP-AUTHORING-001〜088、欠番は 001・002・004・019・049・083・084／81 件） |
-| `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／形式検証／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜046／46 件） |
+| `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／形式検証／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜046、欠番は 036／45 件） |
 | `docs/specifications/bp-conformance.md` | 仕様書: 対象スキルが備える性質の判定基準と、対象スキルに課す確定値 | 判定の当て方／配置の原則／形の判定／資産台帳／run の記録／形に関わる原則／配布先での確認／fan-out の起動数の上限／性能・容量（対象スキルに課す確定値）／エラー処理と異常系（SP-BPCONFORMANCE-001〜041／41 件） |
-| `docs/specifications/bp-entry.md` | 仕様書: 依頼の振り分け・機能の連鎖・Workflow callsite | 振り分け／連鎖／Workflow callsite／エラー処理と異常系／外部インタフェース（SP-BPENTRY-001〜025／25 件） |
+| `docs/specifications/bp-entry.md` | 仕様書: 依頼の振り分け・機能の連鎖・Workflow callsite | 振り分け／連鎖／Workflow callsite／エラー処理と異常系／外部インタフェース（SP-BPENTRY-001〜024／24 件） |
 | `docs/specifications/bp-findings.md` | 仕様書: 指摘と資産台帳 | 台帳と資産／結果の結び付き／反証／指摘の状態／カバレッジと skip 一覧／run をまたぐ指摘の扱い／指摘の形／エラー処理と異常系（SP-BPFINDINGS-001〜037／37 件） |
 | `docs/specifications/bp-inspection.md` | 仕様書: review と audit の観点と流れ | 形と段／観点／フローの観点／監査の観点／担当と起動／対象を書き換えない／対象スキル／外部インタフェース／エラー処理と異常系（SP-BPINSPECTION-001〜030／30 件） |
-| `docs/specifications/bp-run.md` | 仕様書: best-practices の実行基盤 | run の境界／状態と作業場所／run の記録／停止／再開／起動数の上限／判定基準の写し／モデル・effort・権限／エラー処理と異常系／外部インタフェース／性能・容量（SP-BPRUN-001〜048／48 件） |
+| `docs/specifications/bp-run.md` | 仕様書: best-practices の実行基盤 | run の境界／状態と作業場所／run の記録／停止／再開／起動数の上限／判定基準の写し／モデル・effort・権限／エラー処理と異常系／外部インタフェース／性能・容量（SP-BPRUN-001〜048、欠番は 031／47 件） |
 | `docs/specifications/elicitation.md` | 仕様書: 事前分析と依頼者への問いかけ | 観点の判定／分割案／判定の委ね方／質問の生成と絞り込み／回答の反映／エラー処理と異常系（SP-ELICITATION-001〜049、欠番は 005・006・007・011・016・019・021・022・023・028 ほか 6 件／33 件） |
 | `docs/specifications/flow.md` | 仕様書: 全体の制御 | 起動時の判定／根拠として扱う入力の範囲／中断点と順序の制約／未確定事項の区分・周回・完成判定／保存／中断（SP-FLOW-001〜047、欠番は 001・006・008・009・023・038／41 件） |
 | `docs/specifications/formal-method.md` | 仕様書: 形式手法による検証 | 依頼と結果／性質と形式モデル／依存関係に基づく分割／実行、判定及び確認／性能、記録及び停止（SP-FORMALMETHOD-001〜015、欠番は 002／14 件） |
@@ -105,10 +105,9 @@
 | SP-AUTHORING-080 | 語の集合への参照 | `docs/specifications/authoring.md` |
 | SP-BPAUTHORING-001 | create の対象スキルのパス | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-002 | 書き換えてよい範囲 | `docs/specifications/bp-authoring.md` |
-| SP-BPAUTHORING-003 | 依頼文を状態に残す | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-003 | 依頼と根拠の保持 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-004 | 作り直す前の写し | `docs/specifications/bp-authoring.md` |
-| SP-BPAUTHORING-005 | 段の並びと反復 | `docs/specifications/bp-authoring.md` |
-| SP-BPAUTHORING-036 | 項目の ID に含める番号 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-005 | 作成と検証の依存順 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-006 | 目標の固定の段 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-007 | 出所の照合 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-008 | 待たれる入力の不足 | `docs/specifications/bp-authoring.md` |
@@ -128,7 +127,7 @@
 | SP-BPAUTHORING-019 | 契約の観点 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-039 | 契約の変化の返し方 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-040 | 既存の振る舞いの判定 | `docs/specifications/bp-authoring.md` |
-| SP-BPAUTHORING-020 | 1 回の反復の中の検証の順 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-020 | 合否に必要な検証の順 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-041 | fan-out の項目の順位 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-021 | 判定の単位の結果 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-022 | 指摘による合否 | `docs/specifications/bp-authoring.md` |
@@ -209,10 +208,9 @@
 | SP-BPENTRY-015 | 起動数の上限の渡し方 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-016 | Codex runner の request | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-024 | Codex runner の経路の前提 | `docs/specifications/bp-entry.md` |
-| SP-BPENTRY-025 | runner と runtime README の変更 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-017 | 返り値の無い run | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-018 | どの経路も無い | `docs/specifications/bp-entry.md` |
-| SP-BPENTRY-019 | create を列の先頭以外に置く依頼 | `docs/specifications/bp-entry.md` |
+| SP-BPENTRY-019 | 指定順と依存の矛盾 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-020 | 渡せる形でない前の結果 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-021 | 利用者への返り値 | `docs/specifications/bp-entry.md` |
 | SP-BPFINDINGS-001 | 台帳の作成 | `docs/specifications/bp-findings.md` |
@@ -252,8 +250,8 @@
 | SP-BPFINDINGS-033 | 資産が 0 件のとき | `docs/specifications/bp-findings.md` |
 | SP-BPFINDINGS-034 | 台帳に無い値を含む結果 | `docs/specifications/bp-findings.md` |
 | SP-BPFINDINGS-035 | 台帳と食い違う書き込み | `docs/specifications/bp-findings.md` |
-| SP-BPINSPECTION-001 | 段の並び | `docs/specifications/bp-inspection.md` |
-| SP-BPINSPECTION-002 | 段の間に戻りを置かない | `docs/specifications/bp-inspection.md` |
+| SP-BPINSPECTION-001 | 評価と監査に必要な依存順 | `docs/specifications/bp-inspection.md` |
+| SP-BPINSPECTION-002 | 対象を書き直す反復をしない | `docs/specifications/bp-inspection.md` |
 | SP-BPINSPECTION-003 | 観点の集合 | `docs/specifications/bp-inspection.md` |
 | SP-BPINSPECTION-004 | 照らす先の決定 | `docs/specifications/bp-inspection.md` |
 | SP-BPINSPECTION-005 | 仕様書を読めないとき | `docs/specifications/bp-inspection.md` |
@@ -286,13 +284,13 @@
 | SP-BPRUN-002 | run の中で入力を待たない | `docs/specifications/bp-run.md` |
 | SP-BPRUN-003 | run の開始 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-004 | 前提の書き込み | `docs/specifications/bp-run.md` |
-| SP-BPRUN-005 | 状態の中身 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-005 | 再開と監査に必要な状態 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-006 | 状態の書き込みの規則 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-007 | 作業場所の置き場 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-039 | 作業場所を残す場所 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-008 | 書き込み先の制限 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-009 | 書いたファイルの記録 | `docs/specifications/bp-run.md` |
-| SP-BPRUN-038 | 段の開始と項目の列挙 | `docs/specifications/bp-run.md` |
+| SP-BPRUN-038 | 作業の進みと項目の同一性 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-041 | 作業記録 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-042 | 記録台帳 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-043 | 文書の一般規約の写しと版 | `docs/specifications/bp-run.md` |
@@ -326,7 +324,6 @@
 | SP-BPRUN-045 | 文書の一般規約の版を得られないとき | `docs/specifications/bp-run.md` |
 | SP-BPRUN-047 | 結果を返さなかった担当の作業記録 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-048 | 記録の保存の失敗 | `docs/specifications/bp-run.md` |
-| SP-BPRUN-031 | CLI の操作 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-032 | run の返り値 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-033 | next_args の中身 | `docs/specifications/bp-run.md` |
 | SP-BPRUN-034 | 起動数の記録 | `docs/specifications/bp-run.md` |
