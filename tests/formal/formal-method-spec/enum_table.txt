@@ -1,0 +1,72 @@
+Ok_Time_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Ok_Time_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Ok_Time_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Ok_Abort_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Ok_Abort_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Ok_Abort_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Ok_NoStop_tNone | Succ | 一意
+Ok_NoStop_tReq | unsat | core=(IN_ret_NotStarted IN_stop_Time IN_stop_Abort IN_tl_Req L138_stop)
+Ok_NoStop_tTool | TO | 一意
+Cex_Time_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Cex_Time_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Cex_Time_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Cex_Abort_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Cex_Abort_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Cex_Abort_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Cex_NoStop_tNone | Cex | 一意
+Cex_NoStop_tReq | unsat | core=(IN_ret_NotStarted IN_stop_Time IN_stop_Abort IN_tl_Req L138_stop)
+Cex_NoStop_tTool | Cex | 一意
+Undec_Time_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Undec_Time_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Undec_Time_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Undec_Abort_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Undec_Abort_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Undec_Abort_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Undec_NoStop_tNone | Unk | 一意
+Undec_NoStop_tReq | unsat | core=(IN_ret_NotStarted IN_stop_Time IN_stop_Abort IN_tl_Req L138_stop)
+Undec_NoStop_tTool | TO | 一意
+Err_Time_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Err_Time_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Err_Time_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Err_Abort_tNone | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Err_Abort_tReq | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Err_Abort_tTool | 除外 | WF1: 道具が返りを報告した後は止める対象が無い
+Err_NoStop_tNone | Fail | 一意
+Err_NoStop_tReq | unsat | core=(IN_ret_NotStarted IN_stop_Time IN_stop_Abort IN_tl_Req L138_stop)
+Err_NoStop_tTool | TO | 一意
+Crash_Time_tNone | 除外 | WF4: 時間で止めるのは依頼元の時間の上限に達したとき
+Crash_Time_tReq | TO | 一意
+Crash_Time_tTool | 除外 | WF4: 時間で止めるのは依頼元の時間の上限に達したとき
+Crash_Abort_tNone | NotRun | 一意
+Crash_Abort_tReq | TO | 一意
+Crash_Abort_tTool | TO | 一意
+Crash_NoStop_tNone | Fail | 一意
+Crash_NoStop_tReq | unsat | core=(IN_ret_NotStarted IN_stop_Time IN_stop_Abort IN_tl_Req L138_stop)
+Crash_NoStop_tTool | TO | 一意
+Unread_Time_tNone | 除外 | WF4: 時間で止めるのは依頼元の時間の上限に達したとき
+Unread_Time_tReq | TO | 一意
+Unread_Time_tTool | 除外 | WF4: 時間で止めるのは依頼元の時間の上限に達したとき
+Unread_Abort_tNone | NotRun | 一意
+Unread_Abort_tReq | TO | 一意
+Unread_Abort_tTool | TO | 一意
+Unread_NoStop_tNone | Fail | 一意
+Unread_NoStop_tReq | unsat | core=(IN_ret_NotStarted IN_stop_Time IN_stop_Abort IN_tl_Req L138_stop)
+Unread_NoStop_tTool | TO | 一意
+NotStarted_Time_tNone | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_Time_tReq | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_Time_tTool | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_Abort_tNone | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_Abort_tReq | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_Abort_tTool | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_NoStop_tNone | NotRun | 一意
+NotStarted_NoStop_tReq | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NotStarted_NoStop_tTool | 除外 | WF3: 未開始の検査は止められず、上限にも達しない
+NoReturn_Time_tNone | 除外 | WF4: 時間で止めるのは依頼元の時間の上限に達したとき
+NoReturn_Time_tReq | TO | 一意
+NoReturn_Time_tTool | 除外 | WF4: 時間で止めるのは依頼元の時間の上限に達したとき
+NoReturn_Abort_tNone | NotRun | 一意
+NoReturn_Abort_tReq | TO | 一意
+NoReturn_Abort_tTool | TO | 一意
+NoReturn_NoStop_tNone | 除外 | WF2: 止めずに返りが無いことは無い
+NoReturn_NoStop_tReq | 除外 | WF2: 止めずに返りが無いことは無い
+NoReturn_NoStop_tTool | 除外 | WF2: 止めずに返りが無いことは無い
