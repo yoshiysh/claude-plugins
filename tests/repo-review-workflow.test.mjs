@@ -598,10 +598,13 @@ test('このリポジトリの REVIEW.md から作る方針の束は、表が挙
   assert.deepEqual(unparsed, [], '表の参照を全て解析できる')
   // 期待する文書の集合は REVIEW.md の「読むもの」の表を読んで決めたもの（表を変えたらここも見直す）。
   const BP = 'plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md'
-  assert.deepEqual(docs.map((d) => d.path).sort(), [BP, 'docs/guidelines/agent-work.md', 'docs/guidelines/repository-operations.md', 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'scripts/traceability/README.md'].sort())
+  assert.deepEqual(docs.map((d) => d.path).sort(), [BP, 'docs/guidelines/agent-work.md', 'docs/guidelines/repository-operations.md', 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'plugins/workflow/skills/prd-spec/references/prd-and-spec.md', 'scripts/traceability/README.md'].sort())
   assert.equal(docs.find((d) => d.path === 'docs/guidelines/agent-work.md').whole, true)
   assert.deepEqual(docs.find((d) => d.path === 'docs/guidelines/repository-operations.md').titles.map((x) => x.title).sort(), ['実行と環境', '配置と配布'].sort())
   assert.deepEqual(docs.find((d) => d.path === BP).titles.map((x) => x.num).sort((a, b) => a - b), [1, 2, 3, 5, 10, 11, 12, 13, 13], '§13 は表の左の列の「script の置き場」と右の列の節の 2 つ')
+  const prd = docs.find((d) => d.path === 'plugins/workflow/skills/prd-spec/references/prd-and-spec.md')
+  assert.equal(prd.whole, false)
+  assert.deepEqual(prd.titles.map((x) => `${x.num}:${x.title}`).sort(), ['3:要求と仕様を分ける軸は 2 つある', '4:目的側に書くもの', '5:手段側に書くもの', '5:どこまで書けば十分か（下限）', '5:書きすぎとは何か（上限）'].sort())
   for (const d of docs) {
     assert.ok(existsSync(path.join(ROOT, d.path)), d.path)
     const { missing } = extractSections(readFileSync(path.join(ROOT, d.path), 'utf8'), d.titles)

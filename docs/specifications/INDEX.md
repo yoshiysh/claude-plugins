@@ -15,7 +15,7 @@
 | `docs/specifications/bp-run.md` | 仕様書: best-practices の実行基盤 | run の境界／状態と作業場所／run の記録／停止／再開／起動数の上限／判定基準の写し／モデル・effort・権限／エラー処理と異常系／外部インタフェース／性能・容量（SP-BPRUN-001〜048／48 件） |
 | `docs/specifications/elicitation.md` | 仕様書: 事前分析と依頼者への問いかけ | 観点の判定／分割案／判定の委ね方／質問の生成と絞り込み／回答の反映／エラー処理と異常系（SP-ELICITATION-001〜049、欠番は 005・006・007・011・016・019・021・022・023・028 ほか 6 件／33 件） |
 | `docs/specifications/flow.md` | 仕様書: 全体の制御 | 起動時の判定／根拠として扱う入力の範囲／中断点と順序の制約／未確定事項の区分・周回・完成判定／保存／中断（SP-FLOW-001〜047、欠番は 001・006・008・009・023・038／41 件） |
-| `docs/specifications/formal-method.md` | 仕様書: 形式手法による検証 | 入出力と責務／性質と形式モデル／依存関係と合成／実行、独立確認及び判定／記録と停止・再開（SP-FORMALMETHOD-001〜016／16 件） |
+| `docs/specifications/formal-method.md` | 仕様書: 形式手法による検証 | 依頼と結果／性質と形式モデル／依存関係に基づく分割／実行、判定及び確認／性能、記録及び停止（SP-FORMALMETHOD-001〜015、欠番は 002／14 件） |
 | `docs/specifications/verification.md` | 仕様書: 生成物の検査と改稿 | 検査の実行と記録／同一性の判定／実行可能性の判定／記述規約の検査／構造の検査／文書間の検査／網羅の検査／根拠の検査／改稿の反復／エラー処理と異常系（SP-VERIFICATION-001〜045、欠番は 008・030・040／42 件） |
 
 ## 仕様項目一覧
@@ -24,7 +24,7 @@
 |---|---|---|
 | SP-AUTHORING-003 | 要求文書の分量の決め方 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-005 | 仕様書の記述水準の下限 | `docs/specifications/authoring.md` |
-| SP-AUTHORING-006 | 仕様書の記述水準の上限 | `docs/specifications/authoring.md` |
+| SP-AUTHORING-006 | 生成文書の記述水準の上限 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-007 | 要求文書が持つ内容 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-008 | 仕様書が持つ内容 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-009 | 条件付き章の設置条件 | `docs/specifications/authoring.md` |
@@ -404,22 +404,20 @@
 | SP-FLOW-033 | 結果を得られないときの実行の終了 | `docs/specifications/flow.md` |
 | SP-FLOW-034 | 未完成の文書の非保存 | `docs/specifications/flow.md` |
 | SP-FLOW-035 | 中断した段階の提示 | `docs/specifications/flow.md` |
-| SP-FORMALMETHOD-001 | 依頼と入力の固定 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-002 | 役割と工程 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-003 | 成果物と返り値 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-004 | 性質の抽出と網羅性 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-005 | モデルの忠実さ、範囲及び保証 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-006 | 状態・出来事・経路と図 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-007 | 道具の選択と adapter | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-001 | 依頼の受付と範囲の固定 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-003 | 結果の項目 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-004 | 性質の洗い出しと網羅 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-005 | 要求との対応、範囲及び保証 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-006 | 状態遷移の組合せ、到達可能性及び図 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-007 | 手法と道具の選択 | `docs/specifications/formal-method.md` |
 | SP-FORMALMETHOD-008 | 依存グラフと分割候補 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-009 | 所有権と非循環な合成 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-010 | 計画と資源を守る実行 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-011 | 結果、反例と原因の切分け | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-012 | 独立確認と検出能力 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-013 | 再利用と性能 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-014 | 永続化と新しい run | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-015 | 完了ゲートと停止報告 | `docs/specifications/formal-method.md` |
-| SP-FORMALMETHOD-016 | run の状態遷移 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-009 | 境界の契約と合成 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-010 | 検査の計画と並列の実行 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-011 | 判定、反例及び原因の区別 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-012 | 独立した確認と検出能力 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-013 | 性能の記録と改善 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-014 | 記録の保存と参照 | `docs/specifications/formal-method.md` |
+| SP-FORMALMETHOD-015 | 完了の条件と停止の報告 | `docs/specifications/formal-method.md` |
 | SP-VERIFICATION-001 | 検査の対象 | `docs/specifications/verification.md` |
 | SP-VERIFICATION-042 | 照合元の入力の引き渡し | `docs/specifications/verification.md` |
 | SP-VERIFICATION-002 | 検査ごとの独立した実施 | `docs/specifications/verification.md` |
