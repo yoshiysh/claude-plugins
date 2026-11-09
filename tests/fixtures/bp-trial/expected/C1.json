@@ -2,9 +2,9 @@
   "rows": [
     {
       "file": "bp-authoring.md",
-      "req": "PR-BPOPERATIONS-007",
+      "req": "PR-BPOPERATIONS-008",
       "spec": "SP-BPAUTHORING-012",
-      "method": "fixture の run（1 回で解ける課題の依頼文で、設計の説明の Q3 の答えが「いいえ」になり、適合の観点で SP-BPCONFORMANCE-005 の指摘が出ない）",
+      "method": "[検証方法](#検証方法) の SP-BPAUTHORING-012 行",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -27,19 +27,6 @@
             "state": "any"
           },
           "max": 0
-        }
-      ]
-    },
-    {
-      "file": "bp-authoring.md",
-      "req": "PR-BPOPERATIONS-008",
-      "spec": "SP-BPAUTHORING-012",
-      "method": "fixture の run（設計の説明に問いの答え・重い形を強いた事実・段ごとの部品の名前がある）",
-      "checks": [
-        {
-          "clause": "fixture の run（",
-          "by": "stop",
-          "kind": "complete"
         },
         {
           "clause": "設計の説明に問いの答え",
@@ -57,6 +44,10 @@
         {
           "clause": "段ごとの部品の名前がある",
           "reason": "題材の依頼はターンごとの指揮に着き、段と部品を持たない（SP-BPCONFORMANCE-008 が当たらない）"
+        },
+        {
+          "clause": "SP-BPAUTHORING-012 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
@@ -64,7 +55,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPOPERATIONS-008",
       "spec": "SP-BPAUTHORING-017",
-      "method": "fixture の run（当たる判定の単位の全てに結果が付き、不適合の単位に候補の鍵が添う。結果の中に無い鍵を添えた結果が拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る）",
+      "method": "[検証方法](#検証方法) の SP-BPAUTHORING-017 行",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -94,6 +85,10 @@
         {
           "clause": "結果の中に無い鍵を添えた結果が拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る",
           "reason": "本物の検証役に誤った結果を強いられない（模擬実行のテストが測る）"
+        },
+        {
+          "clause": "SP-BPAUTHORING-017 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
@@ -101,7 +96,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPOPERATIONS-014",
       "spec": "SP-BPAUTHORING-032",
-      "method": "fixture の run（create の完了の返り値に検証の結果の全項目がある）",
+      "method": "[検証方法](#検証方法) の SP-BPAUTHORING-032 行",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -122,13 +117,19 @@
             "ledger"
           ]
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPAUTHORING-032 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
       "file": "bp-authoring.md",
       "req": "PR-BPOPERATIONS-014",
       "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（create の完了の返り値に、パスと指紋の一覧、設計の説明の場所と逐語の本文がある）",
+      "method": "[検証方法](#検証方法) の SP-BPAUTHORING-033 行",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -167,19 +168,6 @@
           "by": "field",
           "path": "designNote.text",
           "test": "nonEmpty"
-        }
-      ]
-    },
-    {
-      "file": "bp-authoring.md",
-      "req": "PR-BPOPERATIONS-045",
-      "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（完了の返り値に指摘ごとの状態が載る）",
-      "checks": [
-        {
-          "clause": "fixture の run（",
-          "by": "stop",
-          "kind": "complete"
         },
         {
           "clause": "完了の返り値に指摘ごとの状態が載る",
@@ -195,19 +183,6 @@
           "value": [
             "state"
           ]
-        }
-      ]
-    },
-    {
-      "file": "bp-authoring.md",
-      "req": "PR-BPOPERATIONS-046",
-      "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（完了の返り値の `verification.ledger` に観点ごとの skip 一覧が載り、`verification.ledger` に指摘の一覧が無く、最上位に `skip` が無い）",
-      "checks": [
-        {
-          "clause": "fixture の run（",
-          "by": "stop",
-          "kind": "complete"
         },
         {
           "clause": "完了の返り値に観点ごとの skip 一覧が載る",
@@ -232,6 +207,19 @@
             "viewpoint",
             "assets"
           ]
+        },
+        {
+          "clause": "create の完了の返り値に作ったスキルのディレクトリのパスがある",
+          "by": "field",
+          "path": "skill.root",
+          "test": "matches",
+          "value": "/\\.agents/skills/lint-zero$"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPAUTHORING-033 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
@@ -239,7 +227,7 @@
       "file": "bp-authoring.md",
       "req": "PR-BPDESIGNEDSKILL-001",
       "spec": "SP-BPAUTHORING-012",
-      "method": "fixture の run（設計の説明に A・W・Q1・Q2・Q3 の答えが順に、到達した形まで載る。問い W で run を分けた題材では、run の並びと分けた各 run のそれぞれに Q1・Q2・Q3 の答えが載る）",
+      "method": "[検証方法](#検証方法) の SP-BPAUTHORING-012 行",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -253,13 +241,19 @@
           "test": "matches",
           "value": "A[^\\n]*?[:：][\\s\\S]*Q1[^\\n]*?[:：][\\s\\S]*Q2[^\\n]*?[:：][\\s\\S]*Q3[^\\n]*?[:：]"
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPAUTHORING-012 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
       "file": "bp-authoring.md",
       "req": "PR-BPOPERATIONS-008",
       "spec": "SP-BPAUTHORING-038",
-      "method": "fixture の run（判定基準が求める制約だけを持ち依頼文に無い対象スキルで、「依頼に無い目標・制約」の指摘が出ず、基準が求めた制約に仕様項目 ID が載る）",
+      "method": "[検証方法](#検証方法) の SP-BPAUTHORING-038 行",
       "checks": [
         {
           "clause": "fixture の run（",
@@ -292,25 +286,11 @@
             "sp"
           ]
         }
-      ]
-    },
-    {
-      "file": "bp-authoring.md",
-      "req": "PR-BPOPERATIONS-014",
-      "spec": "SP-BPAUTHORING-033",
-      "method": "fixture の run（create の完了の返り値に作ったスキルのディレクトリのパスがある）",
-      "checks": [
+      ],
+      "unmeasured": [
         {
-          "clause": "fixture の run（",
-          "by": "stop",
-          "kind": "complete"
-        },
-        {
-          "clause": "create の完了の返り値に作ったスキルのディレクトリのパスがある",
-          "by": "field",
-          "path": "skill.root",
-          "test": "matches",
-          "value": "/\\.agents/skills/lint-zero$"
+          "clause": "SP-BPAUTHORING-038 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
@@ -318,7 +298,7 @@
       "file": "bp-conformance.md",
       "req": "PR-BPOPERATIONS-003",
       "spec": "SP-BPCONFORMANCE-010",
-      "method": "create の目標の固定に「目標の固定」の行を当てた判定の結果を照合",
+      "method": "[検証方法](#検証方法) の SP-BPCONFORMANCE-010 行",
       "checks": [
         {
           "clause": "create",
@@ -337,13 +317,19 @@
           ],
           "min": 1
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-010 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
       "file": "bp-conformance.md",
-      "req": "PR-BPOPERATIONS-007",
+      "req": "PR-BPOPERATIONS-008",
       "spec": "SP-BPCONFORMANCE-005",
-      "method": "fixture（1 回で解ける課題）で Q3 が「いいえ」になることを照合",
+      "method": "[検証方法](#検証方法) の SP-BPCONFORMANCE-005 行",
       "checks": [
         {
           "clause": "fixture",
@@ -356,6 +342,12 @@
           "path": "designNote.text",
           "test": "matches",
           "value": "Q3[^\\n]*?[:：]\\s*いいえ"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-005 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     }

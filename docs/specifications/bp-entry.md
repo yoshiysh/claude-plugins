@@ -209,7 +209,7 @@ Codex runner の経路で、callsite は request に次を書かなければな�
 |---|---|
 | `limits.maxAgents` | 省略してはならない。値は runner が受ける上限の 1000 とする（native の run は上限を持たないので、上限の役目は runner に収めることだけである：SP-BPENTRY-015） |
 | `limits.timeoutMs` | 省略してはならない（runner の既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。値は公開前の本物の agent での試走の記録の最長の run の所要時間の 2 倍を時間の単位で切り上げた値とし、一箇所を正本にして参照する。試走は Claude Code の native Workflow でだけ記録できる（`docs/specifications/bp-run.md` の「検証方法」）ので、Codex runner の値も native の run の所要時間から決める（runner の上で同じ run がどれだけかかるかは測っていない）。試走の記録が無い間は、旧 caller の先例の値を置く |
-| `limits.concurrency` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-027 が定める best-practices 自身の 同時実行の上限とする（runner の既定の 2 に任せると、script の同時実行の定数が runner で絞られる） |
+| `limits.concurrency` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-027 が定める best-practices 自身の同時実行の上限とする（runner の既定の 2 に任せると、script の同時実行の定数が runner で絞られる） |
 | `limits.agentTimeoutMs` | 試走の記録の最長の 1 体の所要時間（native Workflow の run の記録の agent ごとの所要時間）の 2 倍を、時間上限の値と同じ正本に置く。置くまでは省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
 | `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（全ての `agent()` が model を明示する（SP-BPRUN-023）ので、対応が欠けると、runner はその名前を使う最初の `agent()` を dispatch する前に例外を投げ、run 全体が失敗する：runtime README の Explicit live execution の節）。`modelMap` の鍵は、SP-BPCONFORMANCE-035 の best-practices の役の表の `model` の列の名前の全てとする。値は、起動する host がその時の Codex の model を明示で選んで埋める（Codex の model の名前を本書群に書くと、Codex の版で黙って古くなる）。callsite は、値の欠けた `modelMap` で起動してはならない |
 | workspace の mode と `requirements` | 4 機能とも書き込みのできる mode にし、`requirements` にその mode に合う capability を宣言する。review・audit も運搬役が作業場所の状態を CLI で書く（SP-BPRUN-008）。runner の既定は読み取りだけで、`requirements` は run の作成前に照合される（runtime README の Explicit live execution の節）。host に `updatePolicy`・`updateContract` を書かない（SP-BPENTRY-024） |
@@ -264,41 +264,70 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 
 呼び出し側との入力・runner request は公開された項目と拒否条件に照合し、内部のコマンド名やモジュール配置を合格条件にしない。自然文の機能選択の質は、本物の agent を使う依頼群の eval で、期待する機能と未検査範囲を比較する。
 
+検証方法の読み方と、決定的な検査・意味の判定・不適用の区別は、bp-run.md の「検証方法」を参照する。方法の正本は次の表の各 SP の 1 行とし、トレーサビリティ表は同じ方法を複製せずその行を参照する。
+
+| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |
+|---|---|---|
+| SP-BPENTRY-001 | 入口の結合テスト | 4 機能を各 1 件依頼し、同じ入口から該当機能だけが別 run で実行されることを確認する。機能未指定の扱いは 003 ・ 005 で検査する。 |
+| SP-BPENTRY-002 | 入口と run 境界の静的照合・結合テスト | 単独/複数機能の依頼で起動前に列が確定し、run 内で別機能へ振り分け直されないことを実行記録と入力で確かめる。 |
+| SP-BPENTRY-003 | 依頼分類の eval | 新規作成・評価・監査・指摘修正・利用者指示・範囲外の依頼と複合依頼を与え、選ばれた機能と非該当部分を独立した期待表に照合する。 |
+| SP-BPENTRY-004 | 順序表の決定的テスト・依頼分類の eval | 明示順・依存で決まる順・依存だけで決まらない順・指定と依存の矛盾・同じ機能の再出現を与え、実行順または起動前の確認を照合する。 |
+| SP-BPENTRY-005 | 曖昧依頼の eval | 1 機能に決まる依頼と複数解釈が残る依頼を対にし、後者だけが起動前に機能を尋ね、推測で run を始めないことを確認する。 |
+| SP-BPENTRY-006 | 対象解決の結合テスト | 既存スキルの根と自 plugin の呼出しを渡し、起動入力の一覧が確定した対象と一致することを確かめる。対象不明は 023 で扱う。 |
+| SP-BPENTRY-022 | 対象ファイル列挙の fixture テスト | 根内ファイル、同 plugin/別 plugin の名前呼出し、相対 scriptPath、symlink を含む題材で、対象に含める実体と除外を確認する。 |
+| SP-BPENTRY-023 | 対象不足・解決失敗の入口テスト | 根が不明な依頼と一部 callsite だけ解けない依頼を与え、前者は確認で起動 0、後者は解けた範囲を実行し除外文言・行・パスを返すことを確認する。 |
+| SP-BPENTRY-007 | 連鎖の結合テスト | 前 run の応答を遅延させた 2 機能以上の列で、同時起動せず列順に 1run ずつ実行することを観測する。長さ 1 と同機能の反復も含める。 |
+| SP-BPENTRY-008 | 連鎖停止の結合テスト | 前 run の完了/各未完停止/状態なし停止/返り値なしを与え、後続の実行可否を照合する。完了 review の根拠 0 件を update へ渡し、callee の needs_input と件数を確認する。 |
+| SP-BPENTRY-009 | 機能間入力のパラメタライズドテスト | 前機能と次機能の表の全組を与え、対象・指摘・利用者指示の有無、書換え後の一覧更新を照合する。後方 create は 019 の確認へ送る。 |
+| SP-BPENTRY-010 | 受渡しの内容同一性テスト | open/dismissed と複数観点を混ぜた指摘、順序を持つ利用者指示を渡し、次機能の入力が原文・順・状態を保持し、入口で絞られないことを確かめる。 |
+| SP-BPENTRY-011 | 範囲外依頼の eval ・起動記録照合 | 全て非該当の依頼を渡し、run が 0 件で、非該当の説明と 4 機能名が返ることを確認する。該当部分が混ざる場合は 012 へ分ける。 |
+| SP-BPENTRY-012 | 混合依頼の eval | 該当/非該当が混ざる依頼と全非該当を与え、該当部分だけを実行し、外れた原文が非実行として返ることを確認する。 |
+| SP-BPENTRY-013 | 入力 schema の決定的テスト | 新規 4 機能/再開/回答あり再開について必須・禁止・未知の各欄、不正 host を変え、渡すキーと起動前 BLOCKED ・ agent0 ・状態なしを照合する。 |
+| SP-BPENTRY-014 | 経路選択の全組テスト | native の有無と試行状態の有効組を与え、native 優先、native 失敗後の runner 禁止、native 無しの runner 利用を確認する。両方使えない場合は 018 で確認する。 |
+| SP-BPENTRY-015 | host 別入力の結合テスト | 新規/再開で native と Codex を切り替え、上限の有無と Codex request の maxAgents との一致を照合する。next_args の上限を再利用しないことも見る。 |
+| SP-BPENTRY-016 | request の schema 照合・測定記録照合 | runner request の必須欄、modelMap の欠け、同時実行・総起動上限、書込み capability を検査する。試走あり/なしで時間上限の出所と丸めを照合する。 |
+| SP-BPENTRY-024 | runner 契約の静的照合・結合テスト | 異なる source 名と args の同等機能を与え、宣言した mode/capability だけで実行条件が決まり、禁止 host 欄を渡さないことを確認する。互換性確認不能時の起動失敗も観測する。 |
+| SP-BPENTRY-017 | host 失敗を注入する結合テスト | native/runner の起動失敗・ timeout ・不正結果・無応答を与え、後続未実行、失敗原文の保持、native からの切替禁止、復旧案内を確認する。 |
+| SP-BPENTRY-018 | 依存欠落の入口テスト | native も runner も無い環境を与え、run を起動せず workflow plugin 導入の案内を返すことを確認する。runner だけ利用可能な正常例と対にする。 |
+| SP-BPENTRY-019 | 依存矛盾の eval ・起動記録照合 | 後方 create を含む指定矛盾と依存に合う指定を与え、矛盾時は不足入力と修正確認を返し、回答前の run が 0 件であることを確認する。 |
+| SP-BPENTRY-020 | 不正結果を渡す連鎖テスト | 完了 review/audit の必須指摘欄を 1 つずつ欠かし、update を起動せず、元結果・欠落欄・未実行機能が返ることを確認する。構造が正しい根拠 0 件とは区別する。 |
+| SP-BPENTRY-021 | 公開結果の schema ・内容照合 | 単独/連鎖の完了・停止・ host 失敗・非該当・除外 callsite の各結果で、返す欄、元 run 結果の同一性、再開案内と再開依頼の列を照合する。 |
+
 ## トレーサビリティ表
 
 整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-001 | SP-BPENTRY-001 | 入出力・停止・再開の fixture で「4 機能の入口」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-002 | 入出力・停止・再開の fixture で「振り分けを行う場所」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-003 | 入出力・停止・再開の fixture で「機能の当て方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-004 | 入出力・停止・再開の fixture で「機能の列の作り方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-005 | 入出力・停止・再開の fixture で「機能が 1 つに決まらない部分」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-006 | 入出力・停止・再開の fixture で「対象スキルのパスの一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-022 | 入出力・停止・再開の fixture で「パスの一覧に入れるファイル」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-023 | 入出力・停止・再開の fixture で「パスの一覧を作れないとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 入出力・停止・再開の fixture で「連鎖の実行」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 入出力・停止・再開の fixture で「次の機能へ進む条件」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPENTRY-009 | 入出力・停止・再開の fixture で「前の機能の結果の渡し方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 入出力・停止・再開の fixture で「前の機能の結果の渡し方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPENTRY-010 | 入出力・停止・再開の fixture で「結果を書き換えずに渡す」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-010 | 入出力・停止・再開の fixture で「結果を書き換えずに渡す」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-011 | 入出力・停止・再開の fixture で「当たる機能が無い依頼」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-012 | 入出力・停止・再開の fixture で「一部が当たらない依頼」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPENTRY-013 | 入出力・停止・再開の fixture で「callsite の入力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-013 | 入出力・停止・再開の fixture で「callsite の入力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-014 | 入出力・停止・再開の fixture で「経路の選び方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-015 | 入出力・停止・再開の fixture で「起動数の上限の渡し方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-016 | 入出力・停止・再開の fixture で「Codex runner の request」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | 入出力・停止・再開の fixture で「Codex runner の request」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-024 | 入出力・停止・再開の fixture で「Codex runner の経路の前提」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-017 | 入出力・停止・再開の fixture で「返り値の無い run」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-018 | 入出力・停止・再開の fixture で「どの経路も無い」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-019 | 入出力・停止・再開の fixture で「指定順と依存の矛盾」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-020 | 入出力・停止・再開の fixture で「渡せる形でない前の結果」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-021 | 入出力・停止・再開の fixture で「利用者への返り値」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 入出力・停止・再開の fixture で「利用者への返り値」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-001 | [検証方法](#検証方法) の SP-BPENTRY-001 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-002 | [検証方法](#検証方法) の SP-BPENTRY-002 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-003 | [検証方法](#検証方法) の SP-BPENTRY-003 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-004 | [検証方法](#検証方法) の SP-BPENTRY-004 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-005 | [検証方法](#検証方法) の SP-BPENTRY-005 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-006 | [検証方法](#検証方法) の SP-BPENTRY-006 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-022 | [検証方法](#検証方法) の SP-BPENTRY-022 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-023 | [検証方法](#検証方法) の SP-BPENTRY-023 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-007 | [検証方法](#検証方法) の SP-BPENTRY-007 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | [検証方法](#検証方法) の SP-BPENTRY-008 行 | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPENTRY-009 | [検証方法](#検証方法) の SP-BPENTRY-009 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | [検証方法](#検証方法) の SP-BPENTRY-009 行 | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPENTRY-010 | [検証方法](#検証方法) の SP-BPENTRY-010 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-010 | [検証方法](#検証方法) の SP-BPENTRY-010 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-011 | [検証方法](#検証方法) の SP-BPENTRY-011 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-012 | [検証方法](#検証方法) の SP-BPENTRY-012 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPENTRY-013 | [検証方法](#検証方法) の SP-BPENTRY-013 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-013 | [検証方法](#検証方法) の SP-BPENTRY-013 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-014 | [検証方法](#検証方法) の SP-BPENTRY-014 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-015 | [検証方法](#検証方法) の SP-BPENTRY-015 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-016 | [検証方法](#検証方法) の SP-BPENTRY-016 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | [検証方法](#検証方法) の SP-BPENTRY-016 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-024 | [検証方法](#検証方法) の SP-BPENTRY-024 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-017 | [検証方法](#検証方法) の SP-BPENTRY-017 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-018 | [検証方法](#検証方法) の SP-BPENTRY-018 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-019 | [検証方法](#検証方法) の SP-BPENTRY-019 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-020 | [検証方法](#検証方法) の SP-BPENTRY-020 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-021 | [検証方法](#検証方法) の SP-BPENTRY-021 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | [検証方法](#検証方法) の SP-BPENTRY-021 行 | 未着手 |
 
 ## ID の扱い
 

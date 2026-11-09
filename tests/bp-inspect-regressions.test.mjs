@@ -143,7 +143,7 @@ for (const fn of FNS) {
 }
 
 for (const fn of FNS) {
-  test(`SP-BPRUN-031・SP-BPINSPECTION-026: 形の誤った key は CLI の開始の操作が E_INPUT で拒否し、状態を作らず next_args の無い BLOCKED になる${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-003・SP-BPINSPECTION-026: 形の誤った key は CLI の開始の操作が E_INPUT で拒否し、状態を作らず next_args の無い BLOCKED になる${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, { key: 'bad key!' }) });

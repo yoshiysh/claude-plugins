@@ -7,7 +7,7 @@ export const meta = {
     { title: '台帳の作成と資産の束' },
     { title: '担当の作成' },
     { title: '適用の判定' },
-    { title: '観点ごとの検証' },
+    { title: '検証' },
     { title: '反証' },
     { title: '消えた資産の照合' },
     { title: '照合と停止' },
@@ -33,7 +33,7 @@ const STAGE = {
 }
 const STAGE_TITLES = {
   start: '開始', targets: '照らす先の決定', bundle: '台帳の作成と資産の束', assign: '担当の作成', applicability: '適用の判定',
-  verify: '観点ごとの検証', 'verify-extra': '追加の検証', refute: '反証', vanish: '消えた資産の照合', close: '照合と停止',
+  verify: '検証', 'verify-extra': '追加の検証', refute: '反証', vanish: '消えた資産の照合', close: '照合と停止',
 }
 const CODES = {
   conflict: 'E_CONFLICT', unknownId: 'E_UNKNOWN_ID', staleRun: 'E_STALE_RUN', result: 'E_RESULT', input: 'E_INPUT',

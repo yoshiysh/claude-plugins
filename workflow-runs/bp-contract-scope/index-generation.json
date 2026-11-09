@@ -12,5 +12,47 @@
     }
   },
   "workspace": "temporary mechanical input removed after generation",
-  "existing_tbd_metadata": "read from adjacent .tbd.json; no prior BP meta present"
+  "existing_tbd_metadata": "read from adjacent .tbd.json; no prior BP meta present",
+  "pr213": {
+    "derived_equals_saved": {
+      "docs/requirements/INDEX.md": true,
+      "docs/specifications/INDEX.md": true
+    },
+    "tree_digest": "378a0b6e90c417aba3b7567774dd511ab1693f039f293972ef4b2b5daed78cd9",
+    "sources": [
+      {
+        "path": "docs/specifications/bp-authoring.md",
+        "sha256": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4"
+      },
+      {
+        "path": "docs/specifications/bp-conformance.md",
+        "sha256": "050a1bdcef7a526e23a82d3cc9980b6f1c8b5cfc4cde636e61fc44fe518527b4"
+      },
+      {
+        "path": "docs/specifications/bp-entry.md",
+        "sha256": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82"
+      },
+      {
+        "path": "docs/specifications/bp-findings.md",
+        "sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c"
+      },
+      {
+        "path": "docs/specifications/bp-inspection.md",
+        "sha256": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b"
+      },
+      {
+        "path": "docs/specifications/bp-run.md",
+        "sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+      },
+      {
+        "path": "docs/requirements/bp-designed-skill.md",
+        "sha256": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c"
+      },
+      {
+        "path": "docs/requirements/bp-operations.md",
+        "sha256": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0"
+      }
+    ],
+    "final_freeze": "docs repair cycle2; F032 and RUN033 canonical verification-method rows only"
+  }
 }

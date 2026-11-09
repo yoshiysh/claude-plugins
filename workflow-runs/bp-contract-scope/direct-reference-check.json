@@ -21,5 +21,8 @@
       "path": "docs/specifications/formal-method.md",
       "equals_only_ID_reference_substitution": true
     }
-  ]
+  ],
+  "historical_base": "4c53a3f26820f56191ca43594b30de1e6bdad82a",
+  "historical_result_head": "2bde39a56bb273b62adc2ae140c2c54690300b0e",
+  "current_scope": "Historical ID-only substitution check, not rerun as an equivalence claim for PR213. Current develop-plugin edits include separate semantic-reference repairs."
 }

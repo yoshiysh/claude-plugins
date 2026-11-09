@@ -155,7 +155,7 @@ SP-BPCONFORMANCE-041 は LLM の判定から除き、公開された表の構文
 | 資産 ID | その資産の資産 ID |
 | 観点 | フローの観点 |
 | 指摘の種類 | `SP-BPCONFORMANCE-041` |
-| 引用 | その資産の中の `lines` の行の原文を、行番号を添えて並べたもの。指す行が無いのときは空の文字列 |
+| 引用 | その資産の中の `lines` の行の原文を、行番号を添えて並べたもの。指す行が無いときは空の文字列 |
 | 内容 | 機械照合の理由 |
 | 直し方 | 判断点の表を `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-041 の判定表の適合の行に当たる形に直すこと |
 
@@ -258,7 +258,7 @@ review・audit では対象を書き換える役を起動せず、どの担当�
 review と audit の対象スキルは、対象スキルのパスの一覧の根が既にあるディレクトリで、その直下に `SKILL.md` があるものでなければならない（PR-BPOPERATIONS-028。review も、`docs/requirements/bp-operations.md` の用語「対象スキル」により既にあるスキルを扱う）。これを確かめるのは、開始の段で CLI の開始の操作（`docs/specifications/bp-run.md` の SP-BPRUN-003）とし、当たらないときの扱いは SP-BPINSPECTION-026 に従う。
 
 #### SP-BPINSPECTION-022 対象スキルのパスの一覧
-開始の段に渡す対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-006）は、入口が `docs/specifications/bp-entry.md` の SP-BPENTRY-006・SP-BPENTRY-022 で作った一覧をそのまま使わなければならない。run の中で一覧を作り直してはならない。解決できなかった callsite を利用者に返すのも SP-BPENTRY-023 と SP-BPENTRY-021 の 1 箇所とし、本文書の結果には載せない。
+開始の段に渡す対象スキルのパスの一覧（`docs/specifications/bp-run.md` の「用語定義」）は、入口が `docs/specifications/bp-entry.md` の SP-BPENTRY-006・SP-BPENTRY-022 で作った一覧をそのまま使わなければならない。run の中で一覧を作り直してはならない。解決できなかった callsite を利用者に返すのも SP-BPENTRY-023 と SP-BPENTRY-021 の 1 箇所とし、本文書の結果には載せない。
 
 ## 外部インタフェース
 
@@ -283,7 +283,7 @@ review と audit が完了以外で止まったとき、返り値は `docs/speci
 
 次の 2 つの場合は、返り値に stoppedStage を持たない。
 - 状態を作らずに止まった run（SP-BPINSPECTION-026。入力の誤りで開始の操作の前に止まったときを含む）。
-- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）。止まった段は、CLI の 保存済みの進みから読めたときだけ、理由に書く（SP-BPRUN-027）。
+- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）。止まった段は、CLI の保存済みの進みから読めたときだけ、理由に書く（SP-BPRUN-027）。
 
 targets の files の name は conformance・design・inspection・promptAudit・designedSkill とする。section はフローの観点が「機能仕様」、仕様の観点が「性能・容量」で始まる章、監査の観点が「Finding criteria」とする。fingerprint は基準の名前と内容の同一性を指し、保存場所だけの違いで変えてはならない。
 
@@ -333,46 +333,81 @@ SP-BPINSPECTION-010 の照合で一致しなかったならば、script は、�
 
 適用表と保持規則は正常・異常・境界を区別して照合し、未裁定の期待値を作らない。模擬の判定を返す試験は配線だけの検証とし、判断の質は bp-authoring の本物の agent の試走で確かめる。
 
+検証方法の読み方と、決定的な検査・意味の判定・不適用の区別は、bp-run.md の「検証方法」を参照する。方法の正本は次の表の各 SP の 1 行とし、トレーサビリティ表は同じ方法を複製せずその行を参照する。
+
+| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |
+|---|---|---|
+| SP-BPINSPECTION-001 | 評価の結合テスト・独立性レビュー | 基準/対象の確定、適用、反証、追加確認、消失照合と対象版照合を持つ題材で、必要結果が揃う前の完了を拒否することを確認する。内部 worker 件数は期待値にしない。 |
+| SP-BPINSPECTION-002 | readonly 機能の履歴照合 | 指摘あり/追加確認ありの review/audit を与え、対象の書直しへ戻らず、追加確認を反復回数に数えず、起動数だけが上限停止を生むことを確認する。 |
+| SP-BPINSPECTION-003 | 機能別観点の全組テスト | review/audit の結果と適用基準を照合し、表の観点だけが使われることを確認する。未定義の追加観点と片方欠落の負例を含める。 |
+| SP-BPINSPECTION-004 | 基準可読性と版の fixture テスト | 章/単位あり、章なし、単位 0 件、依存する基準の欠落と版変更を与え、可読性・出所・指紋と run 内の基準固定を確認する。 |
+| SP-BPINSPECTION-005 | 部分基準欠落の結合テスト | review の仕様観点だけを読めなくし、全体の未検査を 1 件返し、その観点の検証・ coverage ・ skip ・追加確認を作らないことを確認する。フロー欠落は 027 と区別する。 |
+| SP-BPINSPECTION-006 | 適用判定 schema ・決定表の全組テスト | 閉集合の答え、A/W/Q の全並び、runs の数/名前/資産参照/置場を変え、形と適用行または拒否を照合する。未裁定の assets 入力に期待値や配布を先行させないことも確認する。 |
+| SP-BPINSPECTION-007 | 単位割当ての決定的検査・フローの独立レビュー | 準拠/違反/未判定の対象で、フローの指摘と未検査を確認する。値の単位の除外、host 例外、機械照合指摘の資産選択と反証除外は固定 fixture で照合する。 |
+| SP-BPINSPECTION-008 | 確定値差分の fixture テスト | 値/規則を 1 つずつ違反させた対象で、仕様観点の種類と未検査が該当 SP に対応することを確認する。モデル値の除外と prompt への値の二重記載も静的照合する。 |
+| SP-BPINSPECTION-009 | 監査観点の閉集合検査 | 現行基準の項目と PA 識別子を対応させ、有効な各種類と未知種類を与えて受理/拒否を確認する。基準の観点本文は写さず原典へ照合する。 |
+| SP-BPINSPECTION-010 | 基準一覧の一致・不一致テスト | 件数・番号・太字名を各 1 つ変えた基準と一致基準を与え、一覧の照合と不一致での停止を確認する。 |
+| SP-BPINSPECTION-011 | 監査範囲の独立 fixture レビュー | agent 向け指示と説明文、具体的影響のある違反と好み/Low だけの懸念、権威ある証拠の有無を混ぜ、候補の範囲と根拠・最小修正を照合する。資産の分母が減らないことも確認する。 |
+| SP-BPINSPECTION-012 | 監査競合の fixture ・公開結果テスト | 複数監査項目と BP 要求に衝突する候補を与え、全観点適用、要求優先による除外と未検査理由を確認する。上限なしの PA-3 除外が毎回出る固定例も照合する。 |
+| SP-BPINSPECTION-013 | 鮮度根拠の独立 fixture レビュー | モデル等の名指しあり/なしと権威ある証拠あり/なしを与え、根拠が無い PA-4 候補を作らず、理由付きの一部未検査へ出すことを確認する。 |
+| SP-BPINSPECTION-014 | 公開出力の schema ・監査 flow レビュー | 現行 audit の固有出力欄を持つ題材と新しい結果を比較し、引き継がない欄を作らず、監査範囲・基準出所は 024 の欄で返ることを確認する。 |
+| SP-BPINSPECTION-015 | 担当範囲の独立レビュー・閉集合検査 | ファイル間依存、重なる担当、担当漏れ、未知資産 ID を与え、依存を含む同じ範囲/順位を全観点に渡し、漏れは skip ・未知 ID は拒否となることを確認する。 |
+| SP-BPINSPECTION-016 | 観点×担当と順位の決定的テスト | 複数観点・担当と skip 追加を与え、全ての組が対象となり、残作業は観点順・担当順で保持されることを確認する。同時完了の順が変わっても順位を保つ例を含める。 |
+| SP-BPINSPECTION-017 | 配達する原文と参照の照合 | 対象版と行番号、担当 ID ・基準・種別を受取側で比較し、要約で原文を代用しないことを確認する。版変更、未検査欄欠落、不正な範囲/閉集合の拒否も試す。 |
+| SP-BPINSPECTION-018 | 反証対象と順位の結合テスト | 最初/追加確認から同鍵/異鍵候補を返し、重複以外の全鍵が同じ基準と原文で独立反証されることを確認する。順位が候補の出所と返却順に一致することも照合する。 |
+| SP-BPINSPECTION-019 | 完了直前の結合テスト | 対象変更と機械照合/未検査の保存失敗を起こし、未保存または変更したまま完了しないことを確認する。元記録と最終結果の集計・内容も比較する。 |
+| SP-BPINSPECTION-020 | 役の権限と対象版の静的・動的照合 | review/audit の全担当の書込み権限と指示を検査し、修正案を返しても対象が変更されないことを確認する。実変更の負例は RUN026 の BLOCKED に照合する。 |
+| SP-BPINSPECTION-021 | 既存対象の境界テスト | 既存 dir と SKILL.md あり、dir なし、通常ファイル、SKILL.md なしを与え、有効な対象だけ受け付けることを確認する。 |
+| SP-BPINSPECTION-022 | 起動入力と対象範囲の結合テスト | 入口で確定した根/外部 Workflow/解決不能 callsite を渡し、run で一覧を作り直さず、除外報告が入口の 1 箇所だけに出ることを確認する。 |
+| SP-BPINSPECTION-023 | 入力 schema の機能別テスト | review/audit の新規と再開で ENTRY013 の必須/禁止欄を変え、対象の既存性と入力受理/状態なし拒否を照合する。 |
+| SP-BPINSPECTION-024 | 機能・停止別の公開 schema テスト | review/audit の完了/各未完停止/状態なし/停止保存不能で、targets ・適用判定・未検査・対象・段の条件付き出力を照合する。基準内容が同じで保存場所だけ違う指紋も比較する。 |
+| SP-BPINSPECTION-025 | 未検査一覧の全場合テスト | 表の各発生理由と重複を入力し、観点・範囲・理由・ run が残り、同じ内容は 1 件にまとまり、問題なしへ変わらないことを確認する。 |
+| SP-BPINSPECTION-026 | 対象不正の起動前テスト | 既存性の条件を 1 つずつ欠かし、理由にパスと欠落が含まれる BLOCKED、状態/作業場所/next_args なし、次担当の起動なしを確認する。 |
+| SP-BPINSPECTION-027 | 観点基準の欠落テスト | フロー/監査/仕様の基準を個別に読めなくし、前 2 者は検証を始めず段と理由付き BLOCKED、監査基準なしでは監査結果を返さず、仕様だけは未検査で続行することを確認する。 |
+| SP-BPINSPECTION-028 | 監査一覧不一致の停止テスト | 番号/名前/件数の違う基準を与え、検証を起動せず、不一致箇所を理由に BLOCKED となることを確認する。 |
+| SP-BPINSPECTION-029 | 基準確定前後の再開テスト | 確定後に基準を変更して再開すると検証/反証なしで BLOCKED となり、既存の担当/適用を保つことを確認する。確定前の欠落復旧は基準を決め直せる例と対にする。 |
+| SP-BPINSPECTION-030 | readonly 再開の結合テスト | 各停止段で結果あり/未着手/打切りを作り、未完だけを再開することを確認する。対象変更/消失では必要な取直しと照合だけを行い、古い確認を現在版の合格にせず skip ・現版判定へ示す。 |
+
 ## トレーサビリティ表
 
 整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-001 | 入出力・停止・再開の fixture で「評価と監査に必要な依存順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-002 | 入出力・停止・再開の fixture で「対象を書き直す反復をしない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | 入出力・停止・再開の fixture で「観点の集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | 入出力・停止・再開の fixture で「観点の集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | 入出力・停止・再開の fixture で「照らす先の決定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-005 | 入出力・停止・再開の fixture で「仕様書を読めないとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | 入出力・停止・再開の fixture で「適用の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPINSPECTION-007 | 入出力・停止・再開の fixture で「フローの観点の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | 入出力・停止・再開の fixture で「フローの観点の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | 入出力・停止・再開の fixture で「仕様の観点の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | 入出力・停止・再開の fixture で「監査の観点の一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-010 | 入出力・停止・再開の fixture で「一覧と出所の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-011 | 入出力・停止・再開の fixture で「監査の範囲」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-012 | 入出力・停止・再開の fixture で「監査の観点の優先」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-013 | 入出力・停止・再開の fixture で「モデルに固有の鮮度」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-014 | 入出力・停止・再開の fixture で「引き継がないもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPINSPECTION-015 | 入出力・停止・再開の fixture で「担当の作り方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-016 | 入出力・停止・再開の fixture で「検証の項目と順位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-017 | 入出力・停止・再開の fixture で「検証役に渡すもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-017 | 入出力・停止・再開の fixture で「検証役に渡すもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | 入出力・停止・再開の fixture で「反証の起動」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-019 | 入出力・停止・再開の fixture で「照合と停止」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 入出力・停止・再開の fixture で「書き手の役を持たない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-021 | 入出力・停止・再開の fixture で「対象は既にあるスキル」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-022 | 入出力・停止・再開の fixture で「対象スキルのパスの一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-023 | 入出力・停止・再開の fixture で「review と audit の入力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-013 | SP-BPINSPECTION-024 | 入出力・停止・再開の fixture で「review と audit に固有の結果の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-024 | 入出力・停止・再開の fixture で「review と audit に固有の結果の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | 入出力・停止・再開の fixture で「review と audit に固有の結果の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | 入出力・停止・再開の fixture で「未検査の観点の形と載せるもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-025 | 入出力・停止・再開の fixture で「未検査の観点の形と載せるもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-026 | 入出力・停止・再開の fixture で「対象が既にあるスキルでない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-027 | 入出力・停止・再開の fixture で「フローの観点・監査の観点の照らす先を読めない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-027 | 入出力・停止・再開の fixture で「フローの観点・監査の観点の照らす先を読めない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-028 | 入出力・停止・再開の fixture で「監査の観点の一覧が出所と食い違う」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-029 | 入出力・停止・再開の fixture で「再開したときの照らす先の食い違い」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-030 | 入出力・停止・再開の fixture で「再開した run の段の順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-001 | [検証方法](#検証方法) の SP-BPINSPECTION-001 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-002 | [検証方法](#検証方法) の SP-BPINSPECTION-002 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | [検証方法](#検証方法) の SP-BPINSPECTION-003 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | [検証方法](#検証方法) の SP-BPINSPECTION-003 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | [検証方法](#検証方法) の SP-BPINSPECTION-004 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-005 | [検証方法](#検証方法) の SP-BPINSPECTION-005 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | [検証方法](#検証方法) の SP-BPINSPECTION-006 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPINSPECTION-007 | [検証方法](#検証方法) の SP-BPINSPECTION-007 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | [検証方法](#検証方法) の SP-BPINSPECTION-007 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | [検証方法](#検証方法) の SP-BPINSPECTION-008 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | [検証方法](#検証方法) の SP-BPINSPECTION-009 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-010 | [検証方法](#検証方法) の SP-BPINSPECTION-010 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-011 | [検証方法](#検証方法) の SP-BPINSPECTION-011 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-012 | [検証方法](#検証方法) の SP-BPINSPECTION-012 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-013 | [検証方法](#検証方法) の SP-BPINSPECTION-013 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-014 | [検証方法](#検証方法) の SP-BPINSPECTION-014 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPINSPECTION-015 | [検証方法](#検証方法) の SP-BPINSPECTION-015 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-016 | [検証方法](#検証方法) の SP-BPINSPECTION-016 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-017 | [検証方法](#検証方法) の SP-BPINSPECTION-017 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-017 | [検証方法](#検証方法) の SP-BPINSPECTION-017 行 | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | [検証方法](#検証方法) の SP-BPINSPECTION-018 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-019 | [検証方法](#検証方法) の SP-BPINSPECTION-019 行 | 未着手 |
+| PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | [検証方法](#検証方法) の SP-BPINSPECTION-020 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-021 | [検証方法](#検証方法) の SP-BPINSPECTION-021 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-022 | [検証方法](#検証方法) の SP-BPINSPECTION-022 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-023 | [検証方法](#検証方法) の SP-BPINSPECTION-023 行 | 未着手 |
+| PR-BPOPERATIONS-013 | SP-BPINSPECTION-024 | [検証方法](#検証方法) の SP-BPINSPECTION-024 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-024 | [検証方法](#検証方法) の SP-BPINSPECTION-024 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | [検証方法](#検証方法) の SP-BPINSPECTION-024 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | [検証方法](#検証方法) の SP-BPINSPECTION-025 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-025 | [検証方法](#検証方法) の SP-BPINSPECTION-025 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-026 | [検証方法](#検証方法) の SP-BPINSPECTION-026 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-027 | [検証方法](#検証方法) の SP-BPINSPECTION-027 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-027 | [検証方法](#検証方法) の SP-BPINSPECTION-027 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-028 | [検証方法](#検証方法) の SP-BPINSPECTION-028 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-029 | [検証方法](#検証方法) の SP-BPINSPECTION-029 行 | 未着手 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-030 | [検証方法](#検証方法) の SP-BPINSPECTION-030 行 | 未着手 |

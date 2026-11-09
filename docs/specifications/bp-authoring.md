@@ -226,7 +226,7 @@ Codex runner で確かめられなかった制限は、一覧を読めたかに�
 | 禁止事項の違反 | 対象スキルが固定した目標の禁止事項に反する |
 | 数値条件の未達 | 対象スキルが固定した目標の数値条件を満たさない |
 | 修正の根拠の未反映 | update で、修正の根拠として扱うとした根拠が、対象スキルに反映されていない |
-| 依頼に無い目標・制約 | 対象スキルが持つ目標・制約に、create では依頼文と回答の中に、update では作り直す前の写し・修正の根拠・回答の中に根拠が無い（PR-BPOPERATIONS-003、update では PR-BPOPERATIONS-003 の読み替え） |
+| 依頼に無い目標・制約 | 対象スキルが持つ目標・制約に、create では依頼文と回答の中に、update では作り直す前の写し・修正の根拠・回答の中に根拠が無い（PR-BPOPERATIONS-003） |
 
 「依頼に無い目標・制約」の照らし方は SP-BPAUTHORING-037 に、判定基準が求める制約の扱いは SP-BPAUTHORING-038 に従う。
 
@@ -286,7 +286,7 @@ create・update の fan-out の項目の順位（SP-BPRUN-038 の列挙の順。
 
 SP-BPCONFORMANCE-041 の単位には表を当てず、同じ対象版についての機械照合の結果と理由を使わなければならない。照合記録が無いまま合否を決めてはならない。未検査は強いられていない未検査とする。
 
-「添えた鍵の指摘」は、添えた鍵が指す台帳の指摘に SP-BPAUTHORING-022 を当てた結果で数える（前の run が状態を記録した指摘も、同項のとおり、この run の見直しの判定で数える）。「上記以外」は、不合格とした指摘が無く、かつ「検証が成り立たない」とした指摘か、台帳に指摘の無い鍵（未反証の候補：SP-BPFINDINGS-015）が 1 つ以上あることを指す。適合の観点の検証役の項目が打ち切りになったときは、適用の判定表の行が決まらないので、判定の単位ごとの結果を（判断点の機械照合 の記録があっても SP-BPCONFORMANCE-041 の単位を含めて）空にし、打ち切った項目 ID を合否の理由と検証の結果に載せる（SP-BPAUTHORING-023 の 1 で「検証が成り立たない」になる）。
+「添えた鍵の指摘」は、添えた鍵が指す台帳の指摘に SP-BPAUTHORING-022 を当てた結果で数える（前の run が状態を記録した指摘も、同項のとおり、この run の見直しの判定で数える）。「上記以外」は、不合格とした指摘が無く、かつ「検証が成り立たない」とした指摘か、台帳に指摘の無い鍵（未反証の候補：SP-BPFINDINGS-015）が 1 つ以上あることを指す。適合の観点の検証役の項目が打ち切りになったときは、適用の判定表の行が決まらないので、判定の単位ごとの結果を（判断点の機械照合の記録があっても SP-BPCONFORMANCE-041 の単位を含めて）空にし、打ち切った項目 ID を合否の理由と検証の結果に載せる（SP-BPAUTHORING-023 の 1 で「検証が成り立たない」になる）。
 
 #### SP-BPAUTHORING-022 指摘による合否
 合否では、指摘ごとに次の判定表を適用しなければならない。「記録した run」は、指摘の最後の状態の記録を記録した run である（SP-BPFINDINGS-019）。「この run の見直しの判定」は、記録した run が前の run の指摘にだけ CLI が記録する（SP-BPFINDINGS-019）。「記録なし」は、この run にその記録が無いこと（SP-BPFINDINGS-018 の「判定しない」を含む）を指す。「今の内容で判定したか」は SP-BPFINDINGS-021 の値で、記録した run が前の run の指摘では、この run の見直しの判定が記録された時点の値とする。
@@ -365,7 +365,7 @@ SP-BPCONFORMANCE-041 の単位には表を当てず、同じ対象版につい�
 | 性質の区分 | 行が持つ欄 |
 |---|---|
 | 形式化できた | 対象・手法・道具（名前と版）・前提・検証した範囲・結果・未検証の範囲（PR-BPDESIGNEDSKILL-026） |
-| 形式化できない | 形式化できない理由（PR-BPDESIGNEDSKILL-024）と、別の確認の方法と結果、又は未確認であることと理由（PR-BPDESIGNEDSKILL-024） |
+| 形式化できない | 形式化できない理由と、別の確認の方法と結果、又は未確認であることと理由（PR-BPDESIGNEDSKILL-024） |
 
 create・update の返り値の検証の結果（SP-BPAUTHORING-032・034）は、この作業記録のパスを指す。
 
@@ -384,6 +384,8 @@ create・update の返り値の検証の結果（SP-BPAUTHORING-032・034）は�
 
 #### SP-BPAUTHORING-045 形式検証の失敗
 SP-BPAUTHORING-044 を通らなければその run は BLOCKED で止まり、対象・失敗理由・実行不能か性質が成り立たないかを報告しなければならない。同じ run の書き直しへ戻ってはならない。
+
+形式検証の結果を受理できない場合は、その run を BLOCKED とし、同じ run で検証役を起動し直したり、項目を未着手に戻して再試行したりしてはならない。
 
 原因は同表の `formalUnrunnable`・`formalFailed` とし、検証役が結果を返さない場合は `verifiers` としなければならない。結果の保存拒否や運搬失敗の場合はこの原因の値を付けず、その失敗を報告しなければならない。再開は SP-BPAUTHORING-035 に従う。
 
@@ -466,7 +468,7 @@ create・update の返り値の「検証の結果」は、最後に合否を書�
 | 基準が求めた制約 | `basisConstraints` | SP-BPAUTHORING-038 で目標の観点の検証役が返した、資産 ID と仕様項目 ID の組の一覧 |
 | 契約の判定の結果 | `contract` | update だけ。変わったところごとに、契約の要素・変わった契約の中身・選んだもの（修正の根拠の記録 ID、強いた判定基準の仕様項目 ID、「該当なし」のどれか）・指摘 ID（「該当なし」のとき）。判定基準が強いた変化は 1 件も省かない（SP-BPAUTHORING-039・SP-BPAUTHORING-040） |
 | 台帳 | `ledger` | SP-BPFINDINGS-030 の項目から指摘の一覧を除いた欄（カバレッジ・skip 一覧・資産の結末・未反証の候補・拒否された結果）。review・audit の `ledger` と同じ形とする。指摘の一覧は返り値の最上位の `findings`（SP-BPAUTHORING-033・034）だけに置く |
-| 形式検証の記録 | `formalVerification` | 状態で最後の合否の段の項目の結果の記録より後に始めた形式検証の段の回のうち、最後の回の項目の結果（SP-BPAUTHORING-042 の結果）の 作業記録のパス（SP-BPAUTHORING-043）。その結果が無いとき（最後の合否が合格でないか、合格の後の形式検証の段に結果が無いとき）は `null`。記録の前後は保存した実行の順で決める |
+| 形式検証の記録 | `formalVerification` | 状態で最後の合否の段の項目の結果の記録より後に始めた形式検証の段の回のうち、最後の回の項目の結果（SP-BPAUTHORING-042 の結果）の作業記録のパス（SP-BPAUTHORING-043）。その結果が無いとき（最後の合否が合格でないか、合格の後の形式検証の段に結果が無いとき）は `null`。記録の前後は保存した実行の順で決める |
 
 #### SP-BPAUTHORING-033 完了時の出力
 create・update が完了で止まったとき、返り値は SP-BPRUN-032 の項目に加えて、次の項目を持たなければならない。
@@ -495,7 +497,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | 項目 | 綴り | 中身 | 中身が無いとき |
 |---|---|---|---|
 | 検証を通っていないこと | `unverified` | 書いたファイルの一覧のファイルと、SP-BPAUTHORING-031 の一覧の外のパスが、どれも検証を通っていないこと（SP-BPAUTHORING-026。PR-BPOPERATIONS-040） | 起こりえない（常に持つ） |
-| 止まった段 | `stoppedStage` | 停止の記録の段（SP-BPRUN-038 の段の名前）。現在の run が停止の記録を書かずに止まったとき（`docs/specifications/bp-run.md` の SP-BPRUN-046 の停止の記録を書かずに止まる run）は、状態を書かずに止まったとき（SP-BPAUTHORING-029 の全ての行と、同文書の SP-BPRUN-037 で止まるとき）は「開始」、それ以外（同文書の SP-BPRUN-027 で停止の記録を書けずに止まったとき）は同文書の SP-BPRUN-018 で確認した段（未開始なら「開始」） | SP-BPRUN-027 で 保存済みの進み を読めなかったとき、`null`（段を読めなかったことは同文書の SP-BPRUN-027 のとおり理由に書く） |
+| 止まった段 | `stoppedStage` | 停止の記録の段（SP-BPRUN-038 の段の名前）。現在の run が停止の記録を書かずに止まったとき（`docs/specifications/bp-run.md` の SP-BPRUN-046 の停止の記録を書かずに止まる run）は、状態を書かずに止まったとき（SP-BPAUTHORING-029 の全ての行と、同文書の SP-BPRUN-037 で止まるとき）は「開始」、それ以外（同文書の SP-BPRUN-027 で停止の記録を書けずに止まったとき）は同文書の SP-BPRUN-018 で確認した段（未開始なら「開始」） | SP-BPRUN-027 で保存済みの進みを読めなかったとき、`null`（段を読めなかったことは同文書の SP-BPRUN-027 のとおり理由に書く） |
 | 検証の結果 | `verification` | 合否を書いた反復が 1 回以上あるとき、SP-BPAUTHORING-032（検証を通らなかった理由：PR-BPOPERATIONS-010） | 合否を書いた反復が 0 回のとき、`null` |
 | 指摘の状態 | `findings` | 合否を書いた反復が 1 回以上あるとき、SP-BPAUTHORING-033 の `findings` と同じもの | 合否を書いた反復が 0 回のとき、欄を持たない |
 | 残る危険 | `residualRisks` | 合否を書いた反復が 1 回以上あるとき、最後の反復の SP-BPAUTHORING-017 で状態に書いた残る危険（CLI が足した網羅の残る危険を含む） | 合否を書いた反復が 0 回のとき、欄を持たない |
@@ -503,15 +505,15 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 
 止まった理由は SP-BPRUN-032 の「理由」`reason` に書く。理由には、本文書の各項目が理由に書くとした内容を含めなければならない。
 
-needs_input で止まった create・update の返り値は、理由 `reason` に加えて、判断材料の 4 つの欄（決めること `toDecide`・ここまでの検証結果 `verification`・影響の範囲 `impact`・残った作業 `remainingWork`）を常に持たなければならない（PR-BPOPERATIONS-052）。まだ無い材料の欄の値は `null` にする。判断材料の欄は SP-BPRUN-032 の共通の項目に足さない。`verification` の中身は SP-BPAUTHORING-032 とし、needs_input 以外の停止での `verification` の返し方は上の表のまま変えない。欄の値は、止まったところで次の表のとおりとする。状態を作った後の停止（表の目標の固定の 2 行）では、欄の値を停止の入力ではなく状態に保存した記録から作る（判断材料を未検証の停止入力から補わない）。状態を作る前の入力の確かめ（表の 1 行目）では、状態も停止の記録も作らず 返り値を作る処理 を呼べないので、script が SP-BPAUTHORING-029 の判定表の当たった行の理由（開始の操作の拒否の応答を含む）から欄の値を作る。
+needs_input で止まった create・update の返り値は、理由 `reason` に加えて、判断材料の 4 つの欄（決めること `toDecide`・ここまでの検証結果 `verification`・影響の範囲 `impact`・残った作業 `remainingWork`）を常に持たなければならない（PR-BPOPERATIONS-052）。まだ無い材料の欄の値は `null` にする。判断材料の欄は SP-BPRUN-032 の共通の項目に足さない。`verification` の中身は SP-BPAUTHORING-032 とし、needs_input 以外の停止での `verification` の返し方は上の表のまま変えない。欄の値は、止まったところで次の表のとおりとする。状態を作った後の停止（表の目標の固定の 2 行）では、欄の値を停止の入力ではなく状態に保存した記録から作る（判断材料を未検証の停止入力から補わない）。状態を作る前の入力の確かめ（表の 1 行目）では、状態も停止の記録も作らず返り値を作る処理を呼べないので、script が SP-BPAUTHORING-029 の判定表の当たった行の理由（開始の操作の拒否の応答を含む）から欄の値を作る。
 
 > 条件の値: 止まったところ = 状態を作る前の入力の確かめ / 目標の固定（書き手が足りない入力を返した） / 目標の固定（出所の照合が上限の回まで通らない）
 
 | 条件: 止まったところ | 結果 |
 |---|---|
 | 状態を作る前の入力の確かめ | `toDecide` は SP-BPAUTHORING-029 の判定表がその行の理由に挙げる要る入力。`verification`・`impact`・`remainingWork` は `null` |
-| 目標の固定（書き手が足りない入力を返した） | `toDecide` は状態の最後の目標の固定の段の項目の結果の `missing` の問いの一覧（SP-BPAUTHORING-008）。`impact` は同じ項目の結果の `impact`（SP-BPAUTHORING-006）とし、その欄が無いときは `null`。`remainingWork` は 保存済みの結果 が停止の記録の未着手の項目の一覧（SP-BPRUN-011）から作った残った作業。`verification` は合否を書いた反復があれば最後の反復の検証の結果、無ければ `null` |
-| 目標の固定（出所の照合が上限の回まで通らない） | `toDecide` は、状態の最後の 目標の照合で通らなかった要素（SP-BPAUTHORING-007）の要素ごとに 1 つの要素を持つ並びとし、各要素は 通らなかった要素の `{要素の種類, 書き手の値, 理由}` を値を変えずに持つ。決めるのに要る回答を別の欄に持たない（SP-BPAUTHORING-007）。返り値を作る処理 は問いの文を作らず、理由を書き換えず、欄を省かない。`impact` は `null`。`remainingWork` と `verification` は上の行と同じ |
+| 目標の固定（書き手が足りない入力を返した） | `toDecide` は状態の最後の目標の固定の段の項目の結果の `missing` の問いの一覧（SP-BPAUTHORING-008）。`impact` は同じ項目の結果の `impact`（SP-BPAUTHORING-006）とし、その欄が無いときは `null`。`remainingWork` は保存済みの結果が停止の記録の未着手の項目の一覧（SP-BPRUN-011）から作った残った作業。`verification` は合否を書いた反復があれば最後の反復の検証の結果、無ければ `null` |
+| 目標の固定（出所の照合が上限の回まで通らない） | `toDecide` は、状態の最後の目標の照合で通らなかった要素（SP-BPAUTHORING-007）の要素ごとに 1 つの要素を持つ並びとし、各要素は通らなかった要素の `{要素の種類, 書き手の値, 理由}` を値を変えずに持つ。決めるのに要る回答を別の欄に持たない（SP-BPAUTHORING-007）。返り値を作る処理は問いの文を作らず、理由を書き換えず、欄を省かない。`impact` は `null`。`remainingWork` と `verification` は上の行と同じ |
 
 ## 検証方法
 
@@ -519,94 +521,144 @@ needs_input で止まった create・update の返り値は、理由 `reason` �
 
 生成・検証・反証の分離と権限は実行記録と権限設定に照合する。模擬の agent は制御と結果の対応だけを確かめ、判断の質の証拠にしてはならない。公開前には本物の agent で create・update・review・audit を各 1 回以上試走し、判断の当たり・偽陽性・偽陰性と、実際に確認できた範囲を記録しなければならない（依頼者の裁定）。内部運搬の不一致も測り、記録を正本とする。
 
+検証方法の読み方と、決定的な検査・意味の判定・不適用の区別は、bp-run.md の「検証方法」を参照する。方法の正本は次の表の各 SP の 1 行とし、トレーサビリティ表は同じ方法を複製せずその行を参照する。
+
+| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |
+|---|---|---|
+| SP-BPAUTHORING-001 | 入口と作成先の fixture テスト | 有効名、未指定、複数名、空・ slash ・相対親名を依頼し、作成先と起動前確認を照合する。既存ファイル/symlink は 029 の拒否、Workflow の配置は対象範囲に照合する。 |
+| SP-BPAUTHORING-002 | 書込み境界の結合テスト | 対象内の追加/更新/削除と、実体が範囲外のパスへの変更を試し、許可範囲と作業記録の例外を照合する。update の新規 Workflow も対象内にあることを確認する。 |
+| SP-BPAUTHORING-003 | 入力保存中の中断・再開テスト | create の原文と複数根拠を保存中に中断し、再開時に内容・順を欠かさず参照できるか、入力が欠けた状態を再開可能と返さないことを確認する。 |
+| SP-BPAUTHORING-004 | 変更前比較基準の結合テスト | update 前後の内容を変えて再開し、初回の基準が保持されることを確認する。保存した基準自体を改変/欠落させ、該当範囲付き BLOCKED となることも確認する。 |
+| SP-BPAUTHORING-005 | 作成・検証・停止の結合テスト | 正常作成、不合格の書直し、形式失敗、検証不能後の再開を与え、依存順と反復の範囲を確認する。検証不能だけでは書き手を再起動しないことを記録で照合する。 |
+| SP-BPAUTHORING-006 | 目標 fixture の独立レビュー・構造照合 | create/update の出所を持つ目標と、入力不足の依頼を与え、5 要素・出所・全根拠との対応または問い/理由が返ることを確認する。原文が支える内容かは別 context で読む。 |
+| SP-BPAUTHORING-007 | 出所照合の決定的テスト | 実在/不在の逐語引用、根拠 ID、不足する出所、成果物なし、全根拠の対応漏れを与え、照合結果と要素別理由を確認する。再送と繰返し上限で needs_input になる境界も試す。 |
+| SP-BPAUTHORING-008 | 入力不足の独立 fixture レビュー・再開テスト | 成果物不明・指示語未解決・複数解釈・矛盾を含む依頼で、問い/理由と判断材料、needs_input を確認する。回答後に目標固定へ戻り、入力不足を照合失敗回数に数えないことも見る。 |
+| SP-BPAUTHORING-009 | 目標固定と検証の結合テスト | 出所照合を通る目標を保存し、後続の作成/検証が同じ目標を参照することを確認する。受理前提の不要な検証待ちと、原文と食違う目標の別検証も照合する。 |
+| SP-BPAUTHORING-010 | 目標の有無による再開テスト | 固定済み目標あり/なしの状態から再開し、前者は目標固定を飛ばし後者は固定から始まることを、保存した目標と開始記録で確認する。 |
+| SP-BPAUTHORING-011 | 作成結果の構造・版照合 | create/update と書直しに必要な入力を与え、変更/削除一覧と designNote の相対パス・ 1 始まり区間を照合する。競合する書込みが無いことと update 全体改稿の許容も確かめる。 |
+| SP-BPAUTHORING-012 | 設計説明の独立レビュー・欠落 fixture 照合 | 軽い形/重い形/形変更の題材で、問いの順、探索の適用、台帳・部品・判断点と今の対象の対応を確認する。答えや部品名を欠かした負例を含める。 |
+| SP-BPAUTHORING-013 | 範囲違反・設計説明の不正区間テスト | 依頼外制約と範囲外書込みの題材を独立に確認する。designNote の不存在・範囲外・不正区間を与え、BLOCKED、再書直しなし、変更一覧の未検証保持を観測する。 |
+| SP-BPAUTHORING-014 | 書直し根拠の結合テスト | 不合格指摘・単位・別 run の形式反例と、却下候補/生成者説明を混ぜ、許可された根拠だけが渡ることを確認する。再開後も合否時点の同じ入力であることを照合する。 |
+| SP-BPAUTHORING-015 | 変更一覧と対象解決の結合テスト | 範囲内外が混ざる変更、追加/削除、呼出し解決不能、書き手結果なしを与え、範囲内変更の保存と外側の未検証・除外文言/行/パスの開示を確認する。 |
+| SP-BPAUTHORING-016 | 観点表の全組テスト・担当範囲レビュー | create/update と各観点の全組で適用を照合し、ファイル間依存を含む担当、閉じた指摘種別、生成者説明の遮断と別 context を確認する。依存を分断した題材も使う。 |
+| SP-BPAUTHORING-017 | 適合結果の決定的受理テスト・意味 fixture レビュー | 適用範囲と全単位を持つ結果、欠落/重複/不正候補参照/根拠なし未検査を与え受理・拒否を照合する。host 危険 4 項目と網羅危険 2 項目、機械照合の分離、未裁定入力の保持も確認する。 |
+| SP-BPAUTHORING-046 | host 制限判定表の全組テスト | Claude 一覧の可読性と効く/効かない制限を変え、checkedRoleLimits、不適合、host 別 residualRisks を照合する。一覧に照らした Claude 制限を未確認に二重計上しないことも見る。 |
+| SP-BPAUTHORING-018 | 目標充足の独立 fixture レビュー | 目標 6 種の違反を個別に仕込み、原文・根拠と照らした候補の種類/引用を期待表と比べる。準拠した対照と基準由来制約を含め、生成者の自己説明を証拠にしない。 |
+| SP-BPAUTHORING-037 | 混入目標の独立 fixture レビュー | 固定目標にも対象にも依頼外制約を混入させ、原文に照らして候補が出ることを確認する。原文に根拠がある対照と、目標だけに照らす誤検証の負例を用いる。 |
+| SP-BPAUTHORING-038 | 基準由来制約の独立レビュー・参照受理テスト | 要求基準が強いる制約と無根拠制約を与え、前者だけが候補から除かれ資産/仕様 ID で返ることを確認する。欄欠落・担当外資産・不存在仕様 ID の拒否も照合する。 |
+| SP-BPAUTHORING-019 | 変更前後の契約を独立レビュー | 発火/非発火/入力/出力/停止を 1 要素ずつ変え、全変化と根拠 ID ・仕様 ID ・該当なしの選択を原文に照合する。根拠のある変化と無い変化を対にする。 |
+| SP-BPAUTHORING-039 | 契約変化の受理テスト・独立 fixture レビュー | 変化の根拠を修正 ID/仕様 ID/該当なしに分け、候補または変更結果の出力を照合する。消えた要素、無効 ID、5 要素外、欄欠落も試す。 |
+| SP-BPAUTHORING-040 | 既存契約の独立比較・合否テスト | 根拠外の契約変化、基準が強いた変化、検証が触れない既存動作を与え、不合格/許容と強いた仕様 ID/判定不能を照合する。差分量や書き手申告だけで保持済みにしない。 |
+| SP-BPAUTHORING-020 | 検証結果依存の結合テスト | 追加確認・反証・消失照合の各結果を遅延/失敗させ、必要な根拠が揃う前に合否を確定しないことを確認する。内部の段数や起動の束ね方は固定しない。 |
+| SP-BPAUTHORING-041 | 未着手順位の決定的テスト | 各観点、追加検証、複数候補と消失指摘を並べ、上限停止で残った順が本項の順位と一致することを確認する。並行完了順を変えても順位が変わらない例を含める。 |
+| SP-BPAUTHORING-021 | 単位結果表の全組テスト | 検証結果と結び付く指摘の合否の全有効組、未反証、適合担当の打切り、機械照合なしを与え、単位の最終結果・理由・欠けた合否の拒否を照合する。 |
+| SP-BPAUTHORING-022 | 指摘合否表の全組テスト | 今/前 run、4 状態、見直し 4 値、現版判定の有無の全有効組を与え、不合格/妨げない/検証不能と書直し根拠を照合する。前 run への状態持越しを報告しないことも見る。 |
+| SP-BPAUTHORING-023 | 合否 precedence の全組テスト | 不合格指摘・未検査単位・未反証・ skip ・適合結果欠けを重ね、検証不能優先、不合格、合格の順を照合する。強いられた未検査と危険だけの例、確定根拠の保持も確認する。 |
+| SP-BPAUTHORING-024 | 反復記録の再送・中断テスト | 合格/不合格/検証不能を確定し、反復だけ 1 回数えること、目標/形式検証を除くことを確認する。再送・中断と再開後の累計/増分も照合する。 |
+| SP-BPAUTHORING-025 | 合否後の遷移表の全組テスト | 合否 3 値と反復上限直前/一致を与え、形式検証/書直し/反復上限/BLOCKED と理由を照合する。合否と別の進み方を選ぶ違反例を拒否できるか確認する。 |
+| SP-BPAUTHORING-026 | 完了条件の全組テスト | 反復合否、後続形式結果、その対象版の一致を変え、両検証を満たす同じ版だけ完了し、未検証ファイルを検証済みにしないことを確認する。 |
+| SP-BPAUTHORING-042 | 形式検証工程の独立レビュー・結合テスト | 形式化可/不可の性質と反例・実行不能を持つ題材で、性質の洗出し、別確認、記録、生成と別 context、結果からの判定を確認する。再開時の旧版結果の流用も試す。 |
+| SP-BPAUTHORING-043 | 形式記録の構造・内容レビュー | 形式化可/不可/性質 0 件/未確認の記録で、手法・道具版・前提・範囲・結果・残余または理由と別確認が揃い、網羅の限界と台帳参照が残ることを確認する。 |
+| SP-BPAUTHORING-044 | 形式結果表の全組テスト | 洗出し可否、反例と実行不能の有無を全組で与え、通過と原因の優先を照合する。洗出し成功 0 件/不能、非形式化未確認を区別し、未確認が確認済みにならないことも見る。 |
+| SP-BPAUTHORING-045 | 形式失敗と結果拒否の結合テスト | 反例/実行不能/検証役結果なし/結果受理拒否/運搬失敗を与え、原因・理由と BLOCKED を照合する。結果拒否では同 run の再起動/未着手への戻しが無いこと、再開が 035 に従うことも確認する。 |
+| SP-BPAUTHORING-027 | needs_input 境界の結合テスト | 起動前確認と目標固定で入力を欠かし、許可された needs_input を確認する。書くから合否の間では回答待ち停止へ分岐しないことを静的にも照合する。 |
+| SP-BPAUTHORING-028 | 途中停止の結合テスト | 書込み前/途中/検証前後に止め、成果が残り、共通返り値と 034 の未完報告が得られることを確認する。保存失敗は RUN048 に照合する。 |
+| SP-BPAUTHORING-035 | 停止原因と再開表の全組テスト | 各停止種別・原因・段、目標/結果の有無を与え、同じ回の続行と新しい作業、書き手を呼ばない再検証、破棄/保持する未着手を表と照合する。 |
+| SP-BPAUTHORING-029 | 入力判定表の全組テスト | 空依頼、根拠 0 件、参照展開後 0 件、既存の各種パス、対象不存在、異なる対象/未完了の結果参照を与え、停止種別・起動数・件数・ state/next_args なしを照合する。 |
+| SP-BPAUTHORING-030 | 検証不能理由の集合テスト | 未反証・ skip ・担当打切り・現版未判定を単独/同時に与え、全該当 ID 付き BLOCKED となり、反復上限や書直しにすり替わらないことを確認する。 |
+| SP-BPAUTHORING-031 | 範囲外変更の結合テスト | 書き手が範囲内/外を混ぜて返す題材で、次段へ進まず BLOCKED となり、範囲外パスも未検証として報告し、変更を自動復元しないことを確認する。 |
+| SP-BPAUTHORING-032 | 検証結果の公開 schema テスト | 合否なし/あり、update 契約変化、強いられた未検査、形式結果なし/あり/古い版を組み合わせ、各欄の有無と最後の対象版への対応を照合する。 |
+| SP-BPAUTHORING-033 | 完了結果の schema ・原文照合 | create/update の完了で、skill ・ designNote ・検証・指摘・危険・根拠・除外 callsite を表に照合する。設計説明が指定範囲の原文そのままであることも比較する。 |
+| SP-BPAUTHORING-034 | 未完結果の schema ・判断材料テスト | 入力確認/目標不足/出所上限/検証後/停止保存失敗を与え、unverified ・段・検証結果・危険と needs_input の 4 材料、無い値の明示を照合する。 |
+
 ## トレーサビリティ表
 
 整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-001 | 入出力・停止・再開の fixture で「create の対象スキルのパス」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-037 | SP-BPAUTHORING-001 | 入出力・停止・再開の fixture で「create の対象スキルのパス」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-018 | SP-BPAUTHORING-002 | 入出力・停止・再開の fixture で「書き換えてよい範囲」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-037 | SP-BPAUTHORING-002 | 入出力・停止・再開の fixture で「書き換えてよい範囲」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-003 | 入出力・停止・再開の fixture で「依頼と根拠の保持」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-019 | SP-BPAUTHORING-004 | 入出力・停止・再開の fixture で「作り直す前の写し」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-025 | SP-BPAUTHORING-005 | 入出力・停止・再開の fixture で「作成と検証の依存順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-005 | 入出力・停止・再開の fixture で「作成と検証の依存順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-013 | SP-BPAUTHORING-005 | 入出力・停止・再開の fixture で「作成と検証の依存順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-006 | 入出力・停止・再開の fixture で「目標の固定の段」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-015 | SP-BPAUTHORING-006 | 入出力・停止・再開の fixture で「目標の固定の段」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-007 | 入出力・停止・再開の fixture で「出所の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-005 | SP-BPAUTHORING-007 | 入出力・停止・再開の fixture で「出所の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-052 | SP-BPAUTHORING-007 | 入出力・停止・再開の fixture で「出所の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-005 | SP-BPAUTHORING-008 | 入出力・停止・再開の fixture で「待たれる入力の不足」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-052 | SP-BPAUTHORING-008 | 入出力・停止・再開の fixture で「待たれる入力の不足」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-009 | 入出力・停止・再開の fixture で「固定した目標を前提に書く」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-010 | 入出力・停止・再開の fixture で「再開した run の目標の固定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-018 | SP-BPAUTHORING-011 | 入出力・停止・再開の fixture で「書く段の書き手」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPAUTHORING-012 | 入出力・停止・再開の fixture で「形の判定の当て方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-012 | 入出力・停止・再開の fixture で「形の判定の当て方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPAUTHORING-012 | 入出力・停止・再開の fixture で「形の判定の当て方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-013 | 入出力・停止・再開の fixture で「書き手が対象スキルに入れてはならないもの」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-011 | SP-BPAUTHORING-014 | 入出力・停止・再開の fixture で「書き直しの入力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-037 | SP-BPAUTHORING-015 | 入出力・停止・再開の fixture で「書いたパスの照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-009 | SP-BPAUTHORING-016 | 入出力・停止・再開の fixture で「観点と担当」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-017 | 入出力・停止・再開の fixture で「適合の観点」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-017 | 入出力・停止・再開の fixture で「適合の観点」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPAUTHORING-017 | 入出力・停止・再開の fixture で「適合の観点」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-046 | 入出力・停止・再開の fixture で「Claude Code での役ごとの制限の照らし方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-046 | SP-BPAUTHORING-046 | 入出力・停止・再開の fixture で「Claude Code での役ごとの制限の照らし方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-018 | 入出力・停止・再開の fixture で「目標の観点」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPAUTHORING-037 | 入出力・停止・再開の fixture で「依頼に無い目標・制約の照らし方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPAUTHORING-038 | 入出力・停止・再開の fixture で「判定基準が求めた制約」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-019 | SP-BPAUTHORING-019 | 入出力・停止・再開の fixture で「契約の観点」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-019 | SP-BPAUTHORING-039 | 入出力・停止・再開の fixture で「契約の変化の返し方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-019 | SP-BPAUTHORING-040 | 入出力・停止・再開の fixture で「既存の振る舞いの判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPAUTHORING-020 | 入出力・停止・再開の fixture で「合否に必要な検証の順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-019 | SP-BPAUTHORING-020 | 入出力・停止・再開の fixture で「合否に必要な検証の順」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-019 | SP-BPAUTHORING-041 | 入出力・停止・再開の fixture で「fan-out の項目の順位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-021 | 入出力・停止・再開の fixture で「判定の単位の結果」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPAUTHORING-021 | 入出力・停止・再開の fixture で「判定の単位の結果」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPAUTHORING-022 | 入出力・停止・再開の fixture で「指摘による合否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-019 | SP-BPAUTHORING-022 | 入出力・停止・再開の fixture で「指摘による合否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-023 | 入出力・停止・再開の fixture で「反復の合否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-023 | 入出力・停止・再開の fixture で「反復の合否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-010 | SP-BPAUTHORING-023 | 入出力・停止・再開の fixture で「反復の合否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPAUTHORING-023 | 入出力・停止・再開の fixture で「反復の合否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-011 | SP-BPAUTHORING-024 | 入出力・停止・再開の fixture で「反復の数え方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-010 | SP-BPAUTHORING-025 | 入出力・停止・再開の fixture で「合否の後の進み方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-011 | SP-BPAUTHORING-025 | 入出力・停止・再開の fixture で「合否の後の進み方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-026 | 入出力・停止・再開の fixture で「完了の条件」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-010 | SP-BPAUTHORING-026 | 入出力・停止・再開の fixture で「完了の条件」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-040 | SP-BPAUTHORING-026 | 入出力・停止・再開の fixture で「完了の条件」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-042 | 入出力・停止・再開の fixture で「形式検証の段」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-025 | SP-BPAUTHORING-042 | 入出力・停止・再開の fixture で「形式検証の段」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-042 | 入出力・停止・再開の fixture で「形式検証の段」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-043 | 入出力・停止・再開の fixture で「形式検証の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-026 | SP-BPAUTHORING-043 | 入出力・停止・再開の fixture で「形式検証の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-044 | 入出力・停止・再開の fixture で「形式検証の段を通ったとするとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-045 | 入出力・停止・再開の fixture で「形式検証の失敗」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-011 | SP-BPAUTHORING-045 | 入出力・停止・再開の fixture で「形式検証の失敗」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-005 | SP-BPAUTHORING-027 | 入出力・停止・再開の fixture で「needs_input で止まるところ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-040 | SP-BPAUTHORING-028 | 入出力・停止・再開の fixture で「止まったときに書いたファイルと報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-035 | 入出力・停止・再開の fixture で「再開した run が始めるところ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-010 | SP-BPAUTHORING-035 | 入出力・停止・再開の fixture で「再開した run が始めるところ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-013 | SP-BPAUTHORING-035 | 入出力・停止・再開の fixture で「再開した run が始めるところ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-005 | SP-BPAUTHORING-029 | 入出力・停止・再開の fixture で「状態を作る前の入力の確かめ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | 入出力・停止・再開の fixture で「状態を作る前の入力の確かめ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-037 | SP-BPAUTHORING-029 | 入出力・停止・再開の fixture で「状態を作る前の入力の確かめ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | 入出力・停止・再開の fixture で「検証が成り立たない」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-013 | SP-BPAUTHORING-031 | 入出力・停止・再開の fixture で「一覧の外へのパス」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-037 | SP-BPAUTHORING-031 | 入出力・停止・再開の fixture で「一覧の外へのパス」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-040 | SP-BPAUTHORING-031 | 入出力・停止・再開の fixture で「一覧の外へのパス」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-026 | SP-BPAUTHORING-032 | 入出力・停止・再開の fixture で「検証の結果」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPAUTHORING-032 | 入出力・停止・再開の fixture で「検証の結果」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-033 | 入出力・停止・再開の fixture で「完了時の出力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPAUTHORING-033 | 入出力・停止・再開の fixture で「完了時の出力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-034 | 入出力・停止・再開の fixture で「完了の前に止まったときの報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-010 | SP-BPAUTHORING-034 | 入出力・停止・再開の fixture で「完了の前に止まったときの報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-040 | SP-BPAUTHORING-034 | 入出力・停止・再開の fixture で「完了の前に止まったときの報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-052 | SP-BPAUTHORING-034 | 入出力・停止・再開の fixture で「完了の前に止まったときの報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-001 | [検証方法](#検証方法) の SP-BPAUTHORING-001 行 | 未着手 |
+| PR-BPOPERATIONS-037 | SP-BPAUTHORING-001 | [検証方法](#検証方法) の SP-BPAUTHORING-001 行 | 未着手 |
+| PR-BPOPERATIONS-018 | SP-BPAUTHORING-002 | [検証方法](#検証方法) の SP-BPAUTHORING-002 行 | 未着手 |
+| PR-BPOPERATIONS-037 | SP-BPAUTHORING-002 | [検証方法](#検証方法) の SP-BPAUTHORING-002 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-003 | [検証方法](#検証方法) の SP-BPAUTHORING-003 行 | 未着手 |
+| PR-BPOPERATIONS-019 | SP-BPAUTHORING-004 | [検証方法](#検証方法) の SP-BPAUTHORING-004 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-025 | SP-BPAUTHORING-005 | [検証方法](#検証方法) の SP-BPAUTHORING-005 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-005 | [検証方法](#検証方法) の SP-BPAUTHORING-005 行 | 未着手 |
+| PR-BPOPERATIONS-013 | SP-BPAUTHORING-005 | [検証方法](#検証方法) の SP-BPAUTHORING-005 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-006 | [検証方法](#検証方法) の SP-BPAUTHORING-006 行 | 未着手 |
+| PR-BPOPERATIONS-015 | SP-BPAUTHORING-006 | [検証方法](#検証方法) の SP-BPAUTHORING-006 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-007 | [検証方法](#検証方法) の SP-BPAUTHORING-007 行 | 未着手 |
+| PR-BPOPERATIONS-005 | SP-BPAUTHORING-007 | [検証方法](#検証方法) の SP-BPAUTHORING-007 行 | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-007 | [検証方法](#検証方法) の SP-BPAUTHORING-007 行 | 未着手 |
+| PR-BPOPERATIONS-005 | SP-BPAUTHORING-008 | [検証方法](#検証方法) の SP-BPAUTHORING-008 行 | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-008 | [検証方法](#検証方法) の SP-BPAUTHORING-008 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-009 | [検証方法](#検証方法) の SP-BPAUTHORING-009 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-010 | [検証方法](#検証方法) の SP-BPAUTHORING-010 行 | 未着手 |
+| PR-BPOPERATIONS-018 | SP-BPAUTHORING-011 | [検証方法](#検証方法) の SP-BPAUTHORING-011 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPAUTHORING-012 | [検証方法](#検証方法) の SP-BPAUTHORING-012 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-012 | [検証方法](#検証方法) の SP-BPAUTHORING-012 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPAUTHORING-012 | [検証方法](#検証方法) の SP-BPAUTHORING-012 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-013 | [検証方法](#検証方法) の SP-BPAUTHORING-013 行 | 未着手 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-014 | [検証方法](#検証方法) の SP-BPAUTHORING-014 行 | 未着手 |
+| PR-BPOPERATIONS-037 | SP-BPAUTHORING-015 | [検証方法](#検証方法) の SP-BPAUTHORING-015 行 | 未着手 |
+| PR-BPOPERATIONS-009 | SP-BPAUTHORING-016 | [検証方法](#検証方法) の SP-BPAUTHORING-016 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-017 | [検証方法](#検証方法) の SP-BPAUTHORING-017 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-017 | [検証方法](#検証方法) の SP-BPAUTHORING-017 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPAUTHORING-017 | [検証方法](#検証方法) の SP-BPAUTHORING-017 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-046 | [検証方法](#検証方法) の SP-BPAUTHORING-046 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-046 | SP-BPAUTHORING-046 | [検証方法](#検証方法) の SP-BPAUTHORING-046 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-018 | [検証方法](#検証方法) の SP-BPAUTHORING-018 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPAUTHORING-037 | [検証方法](#検証方法) の SP-BPAUTHORING-037 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPAUTHORING-038 | [検証方法](#検証方法) の SP-BPAUTHORING-038 行 | 未着手 |
+| PR-BPOPERATIONS-019 | SP-BPAUTHORING-019 | [検証方法](#検証方法) の SP-BPAUTHORING-019 行 | 未着手 |
+| PR-BPOPERATIONS-019 | SP-BPAUTHORING-039 | [検証方法](#検証方法) の SP-BPAUTHORING-039 行 | 未着手 |
+| PR-BPOPERATIONS-019 | SP-BPAUTHORING-040 | [検証方法](#検証方法) の SP-BPAUTHORING-040 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPAUTHORING-020 | [検証方法](#検証方法) の SP-BPAUTHORING-020 行 | 未着手 |
+| PR-BPOPERATIONS-019 | SP-BPAUTHORING-020 | [検証方法](#検証方法) の SP-BPAUTHORING-020 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-019 | SP-BPAUTHORING-041 | [検証方法](#検証方法) の SP-BPAUTHORING-041 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPAUTHORING-021 | [検証方法](#検証方法) の SP-BPAUTHORING-021 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPAUTHORING-021 | [検証方法](#検証方法) の SP-BPAUTHORING-021 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPAUTHORING-022 | [検証方法](#検証方法) の SP-BPAUTHORING-022 行 | 未着手 |
+| PR-BPOPERATIONS-019 | SP-BPAUTHORING-022 | [検証方法](#検証方法) の SP-BPAUTHORING-022 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPAUTHORING-023 | [検証方法](#検証方法) の SP-BPAUTHORING-023 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-023 | [検証方法](#検証方法) の SP-BPAUTHORING-023 行 | 未着手 |
+| PR-BPOPERATIONS-010 | SP-BPAUTHORING-023 | [検証方法](#検証方法) の SP-BPAUTHORING-023 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPAUTHORING-023 | [検証方法](#検証方法) の SP-BPAUTHORING-023 行 | 未着手 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-024 | [検証方法](#検証方法) の SP-BPAUTHORING-024 行 | 未着手 |
+| PR-BPOPERATIONS-010 | SP-BPAUTHORING-025 | [検証方法](#検証方法) の SP-BPAUTHORING-025 行 | 未着手 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-025 | [検証方法](#検証方法) の SP-BPAUTHORING-025 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-026 | [検証方法](#検証方法) の SP-BPAUTHORING-026 行 | 未着手 |
+| PR-BPOPERATIONS-010 | SP-BPAUTHORING-026 | [検証方法](#検証方法) の SP-BPAUTHORING-026 行 | 未着手 |
+| PR-BPOPERATIONS-040 | SP-BPAUTHORING-026 | [検証方法](#検証方法) の SP-BPAUTHORING-026 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-042 | [検証方法](#検証方法) の SP-BPAUTHORING-042 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-025 | SP-BPAUTHORING-042 | [検証方法](#検証方法) の SP-BPAUTHORING-042 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-042 | [検証方法](#検証方法) の SP-BPAUTHORING-042 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-043 | [検証方法](#検証方法) の SP-BPAUTHORING-043 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-026 | SP-BPAUTHORING-043 | [検証方法](#検証方法) の SP-BPAUTHORING-043 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-024 | SP-BPAUTHORING-044 | [検証方法](#検証方法) の SP-BPAUTHORING-044 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-045 | [検証方法](#検証方法) の SP-BPAUTHORING-045 行 | 未着手 |
+| PR-BPOPERATIONS-011 | SP-BPAUTHORING-045 | [検証方法](#検証方法) の SP-BPAUTHORING-045 行 | 未着手 |
+| PR-BPOPERATIONS-005 | SP-BPAUTHORING-027 | [検証方法](#検証方法) の SP-BPAUTHORING-027 行 | 未着手 |
+| PR-BPOPERATIONS-040 | SP-BPAUTHORING-028 | [検証方法](#検証方法) の SP-BPAUTHORING-028 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-027 | SP-BPAUTHORING-035 | [検証方法](#検証方法) の SP-BPAUTHORING-035 行 | 未着手 |
+| PR-BPOPERATIONS-010 | SP-BPAUTHORING-035 | [検証方法](#検証方法) の SP-BPAUTHORING-035 行 | 未着手 |
+| PR-BPOPERATIONS-013 | SP-BPAUTHORING-035 | [検証方法](#検証方法) の SP-BPAUTHORING-035 行 | 未着手 |
+| PR-BPOPERATIONS-005 | SP-BPAUTHORING-029 | [検証方法](#検証方法) の SP-BPAUTHORING-029 行 | 未着手 |
+| PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | [検証方法](#検証方法) の SP-BPAUTHORING-029 行 | 未着手 |
+| PR-BPOPERATIONS-037 | SP-BPAUTHORING-029 | [検証方法](#検証方法) の SP-BPAUTHORING-029 行 | 未着手 |
+| PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | [検証方法](#検証方法) の SP-BPAUTHORING-030 行 | 未着手 |
+| PR-BPOPERATIONS-013 | SP-BPAUTHORING-031 | [検証方法](#検証方法) の SP-BPAUTHORING-031 行 | 未着手 |
+| PR-BPOPERATIONS-037 | SP-BPAUTHORING-031 | [検証方法](#検証方法) の SP-BPAUTHORING-031 行 | 未着手 |
+| PR-BPOPERATIONS-040 | SP-BPAUTHORING-031 | [検証方法](#検証方法) の SP-BPAUTHORING-031 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-026 | SP-BPAUTHORING-032 | [検証方法](#検証方法) の SP-BPAUTHORING-032 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPAUTHORING-032 | [検証方法](#検証方法) の SP-BPAUTHORING-032 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-033 | [検証方法](#検証方法) の SP-BPAUTHORING-033 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPAUTHORING-033 | [検証方法](#検証方法) の SP-BPAUTHORING-033 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPAUTHORING-034 | [検証方法](#検証方法) の SP-BPAUTHORING-034 行 | 未着手 |
+| PR-BPOPERATIONS-010 | SP-BPAUTHORING-034 | [検証方法](#検証方法) の SP-BPAUTHORING-034 行 | 未着手 |
+| PR-BPOPERATIONS-040 | SP-BPAUTHORING-034 | [検証方法](#検証方法) の SP-BPAUTHORING-034 行 | 未着手 |
+| PR-BPOPERATIONS-052 | SP-BPAUTHORING-034 | [検証方法](#検証方法) の SP-BPAUTHORING-034 行 | 未着手 |
 
 ## ID の扱い
 

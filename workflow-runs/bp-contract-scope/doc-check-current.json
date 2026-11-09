@@ -1,12 +1,12 @@
 {
-  "tree_digest": "5fb375dab2563675c0780bdb3feb438ce13523845da2c009fb967fdf5f74803d",
+  "tree_digest": "378a0b6e90c417aba3b7567774dd511ab1693f039f293972ef4b2b5daed78cd9",
   "documents": [
     {
       "key": "requirements/bp-designed-skill",
       "path": "requirements-bp-designed-skill.md",
       "fixed": false,
-      "line_count": 130,
-      "byte_size": 14906,
+      "line_count": 136,
+      "byte_size": 15260,
       "ids": [
         "PR-BPDESIGNEDSKILL-001",
         "PR-BPDESIGNEDSKILL-002",
@@ -43,8 +43,8 @@
       "key": "requirements/bp-operations",
       "path": "requirements-bp-operations.md",
       "fixed": false,
-      "line_count": 142,
-      "byte_size": 14597,
+      "line_count": 150,
+      "byte_size": 15333,
       "ids": [
         "PR-BPOPERATIONS-001",
         "PR-BPOPERATIONS-038",
@@ -697,8 +697,8 @@
       "key": "specifications/bp-authoring",
       "path": "specifications-bp-authoring.md",
       "fixed": false,
-      "line_count": 613,
-      "byte_size": 88780,
+      "line_count": 665,
+      "byte_size": 91118,
       "ids": [
         "SP-BPAUTHORING-001",
         "SP-BPAUTHORING-002",
@@ -751,8 +751,8 @@
       "key": "specifications/bp-conformance",
       "path": "specifications-bp-conformance.md",
       "fixed": false,
-      "line_count": 457,
-      "byte_size": 67059,
+      "line_count": 503,
+      "byte_size": 69635,
       "ids": [
         "SP-BPCONFORMANCE-001",
         "SP-BPCONFORMANCE-002",
@@ -801,8 +801,8 @@
       "key": "specifications/bp-entry",
       "path": "specifications-bp-entry.md",
       "fixed": false,
-      "line_count": 305,
-      "byte_size": 39424,
+      "line_count": 334,
+      "byte_size": 41753,
       "ids": [
         "SP-BPENTRY-001",
         "SP-BPENTRY-002",
@@ -834,8 +834,8 @@
       "key": "specifications/bp-findings",
       "path": "specifications-bp-findings.md",
       "fixed": false,
-      "line_count": 487,
-      "byte_size": 65146,
+      "line_count": 529,
+      "byte_size": 68652,
       "ids": [
         "SP-BPFINDINGS-001",
         "SP-BPFINDINGS-002",
@@ -880,8 +880,8 @@
       "key": "specifications/bp-inspection",
       "path": "specifications-bp-inspection.md",
       "fixed": false,
-      "line_count": 378,
-      "byte_size": 52675,
+      "line_count": 413,
+      "byte_size": 56097,
       "ids": [
         "SP-BPINSPECTION-001",
         "SP-BPINSPECTION-002",
@@ -919,8 +919,8 @@
       "key": "specifications/bp-run",
       "path": "specifications-bp-run.md",
       "fixed": false,
-      "line_count": 592,
-      "byte_size": 76488,
+      "line_count": 646,
+      "byte_size": 78755,
       "ids": [
         "SP-BPRUN-001",
         "SP-BPRUN-002",
@@ -1441,5 +1441,5 @@
       "issue": "工程の流れ（flow）が渡されていないため、各工程に項目が当たっているかを検査していない。「指摘 0 件」ではなく「未検査」である。"
     }
   ],
-  "digest": "773aaaaeed4e42ed056b6d1b2c9fba24f7475447774f38d408df90379003dd5e"
+  "digest": "9fe69addb3dbebf1e77928b0867ce1665d0ec13a16d2196f4a8573f262daba7b"
 }

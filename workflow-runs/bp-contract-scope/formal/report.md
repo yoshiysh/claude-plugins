@@ -120,7 +120,7 @@ Z3 `5.3.3`（build `430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e`）。実行は以�
 
 ## 欠番表記整備後の出典対応
 
-solver 実行後、doc_check に合わせ、要求末尾の欠番宣言1行だけで省略IDを full ID に展開した。`../requirements-vacant-id-format.json` の前後hashを読み、現在の各本文からその1行の `PR-BPDESIGNEDSKILL-` / `PR-BPOPERATIONS-` だけを除いた文字列をメモリ上で作って、過去実行sourceのSHA-256に一致することを独立に確認した。現在本文のSHA-256も同記録の変更後hashに一致した。
+solver 実行後、doc_check に合わせ、要求末尾の欠番宣言1行だけで省略IDを full ID に展開した。`../requirements-vacant-id-format.json` の前後hashを読み、当該整備後の各本文からその1行の `PR-BPDESIGNEDSKILL-` / `PR-BPOPERATIONS-` だけを除いた文字列をメモリ上で作って、過去実行sourceのSHA-256に一致することを独立に確認した。整備時点の本文のSHA-256も同記録の変更後hashに一致した。これはPR213で用語/リスク章を修復する前の版の記録である。
 
 | 本文 | full ID 展開数 | 現在のSHA-256 | 検査 |
 |---|---:|---|---|
@@ -132,3 +132,21 @@ solver 実行後、doc_check に合わせ、要求末尾の欠番宣言1行だ�
 ## 配送前のSMT末尾空白整備
 
 `git diff --check` が検出した `checks.smt2` の最終余分空行だけを削除した。SHA-256 は `372528a9093030bae46149d903c47210bc43fd3248b0f6d7709490311d59b16c` → `e0de5b1f1558042c0bcf318401581aec225351ba3005ca0b08a43272c7efab78`。変更は `(exit)` 後の最後のLF（1 byte）を1つ除いたものに限り、末尾newline1つを保持した。残るprefix全体が変更前とbyte単位で一致することを確認したため、SMT-LIBの命令・命題・解析規則は不変である。rawlog3本は変更前後のhash一致を確認し保持した。新たなsolver実行・意味判定は行わず、既存証拠と整備後モデルの対応をこの記録で示す。
+
+## 可搬な再生例
+
+絶対パスのコマンドは過去実行の記録として残す。別checkoutでは、リポジトリrootで`Z3`にPATH上のz3または環境ごとの実行ファイルを選び、まず版を確認して次を実行する。記録で使用した版は5.3.3。query timeoutはSMT内で10秒、process上限はZ3の`-T:120`で指定し、GNU timeoutの追加は任意とする。
+
+```sh
+Z3="${Z3:-z3}"
+"$Z3" -version
+"$Z3" -T:120 smt.threads=2 sat.threads=2 -smt2 workflow-runs/bp-contract-scope/formal/checks.smt2 > workflow-runs/bp-contract-scope/formal/pr213-req-replay.log 2>&1
+```
+
+再生は手書きSMTの局所整合を再確認するもので、現在の要求本文や実装の適合を独立に証明しない。sourceの変更に対する対応は該当節ごとに再照合し、過去hash・rawlogは履歴として保持する。
+
+## PR213の現在sourceへの対応と再生
+
+欠番表記整備後の2本文はcommit `2bde39a56bb273b62adc2ae140c2c54690300b0e` に一致する。そこから現在版への差分はDのリスク章、Oの用語とリスク章で、56件のPR見出し本文は変わっていない。閉じた8群の既存命題は変更せず、追加された用語/RKの意味全体は未形式化として残す。現在hashと変更節は `../mechanical-verification.json` の `pr213.frozen_sources` / `pr213.source_comparison` を参照する。元 `inputs.sha256` を現在hashへ上書きしていない。
+
+可搬例をこのcheckoutのrootからPATH上のZ3 5.3.3で実行し、61件＝SAT38/UNSAT23、期待不一致・error・unknown 0を再現した。出力は既存 `final-raw.log` とbyte単位で一致したため、raw本体はその正本を参照し、新たな同一rawは残さない。別実行の条件・結果・hashは `../mechanical-verification.json` の `pr213.replay.req` に記録した。これは手書きモデルの再生であり、現在要求や実装の独立適合証拠にはしない。

@@ -43,11 +43,12 @@
       "fixed_findings": 0,
       "not_checked": 16,
       "path": "checks/doc.requirements__bp-designed-skill+requirements__bp-operations+specifications__bp-authoring+specifications__bp-conformance+specifications__bp-entry+specifications__bp-findings+specifications__bp-inspection+specifications__bp-run.json",
-      "digest": "773aaaaeed4e42ed056b6d1b2c9fba24f7475447774f38d408df90379003dd5e",
-      "tree_digest": "5fb375dab2563675c0780bdb3feb438ce13523845da2c009fb967fdf5f74803d",
+      "digest": "9fe69addb3dbebf1e77928b0867ce1665d0ec13a16d2196f4a8573f262daba7b",
+      "tree_digest": "378a0b6e90c417aba3b7567774dd511ab1693f039f293972ef4b2b5daed78cd9",
       "flow_refs": {},
-      "stdout_fnv": "9121dc94"
+      "stdout_fnv": "94d425a8"
     },
+    "artifact": "doc-check-current.json",
     "finding_ids": [
       "ST-STATE-MULTIPLE-INITIAL-specifications/bp-findings",
       "ST-AMBIGUOUS-requirements/bp-designed-skill-PR-BPDESIGNEDSKILL-010-など",
@@ -73,10 +74,6 @@
   },
   "index": {
     "command_exit": 0,
-    "matched_before_write": {
-      "docs/requirements/INDEX.md": true,
-      "docs/specifications/INDEX.md": true
-    },
     "derived_equals_saved": {
       "docs/requirements/INDEX.md": true,
       "docs/specifications/INDEX.md": true
@@ -129,7 +126,7 @@
     "requirements": 56,
     "specifications": 224,
     "undefined_full_IDs": [],
-    "limitation": "Checks full ID tokens and declared vacant IDs; semantic reference relevance and abbreviated ranges require independent review."
+    "limitation": "Full ID presence only; no semantic or implementation approval."
   },
   "diff_check": {
     "exit": 0,
@@ -138,36 +135,36 @@
   },
   "sources": [
     {
-      "path": "docs/requirements/bp-designed-skill.md",
-      "sha256": "92f3cad53bb3d2c78913a5dcf2b7d719fc3a020fdba9796608b6226c6ea0b01d"
-    },
-    {
-      "path": "docs/requirements/bp-operations.md",
-      "sha256": "d4ee96ac94e53d96bfae8a1971d5a23cb2cb0d12a3b7b5a8381843e98de6e2fb"
-    },
-    {
       "path": "docs/specifications/bp-authoring.md",
-      "sha256": "e50dee9043f5b7669cb65d68eadafeab832da940b4394aea5fb72bed4cb94579"
+      "sha256": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4"
     },
     {
       "path": "docs/specifications/bp-conformance.md",
-      "sha256": "4db0114caf3fc01c35d11e7775750b716094312a914fc3a0e8b5f21da17faa24"
+      "sha256": "050a1bdcef7a526e23a82d3cc9980b6f1c8b5cfc4cde636e61fc44fe518527b4"
     },
     {
       "path": "docs/specifications/bp-entry.md",
-      "sha256": "2f00e156290c6ce53b7c2c8f91469fbb311444f1666f96b0258423b6011c439f"
+      "sha256": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82"
     },
     {
       "path": "docs/specifications/bp-findings.md",
-      "sha256": "193bc029c29103a74ef698fb0359f71fb21c9529c72425d93c5bb6f2441b12ce"
+      "sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c"
     },
     {
       "path": "docs/specifications/bp-inspection.md",
-      "sha256": "2abcb803cc239ade61469f95bf0af39064de3c5fcd15fe3004a1a8d21b40dffe"
+      "sha256": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b"
     },
     {
       "path": "docs/specifications/bp-run.md",
-      "sha256": "0a649b2226d502fcf3e0e28993e030567c06e331bb497091a551ae624c14768d"
+      "sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+    },
+    {
+      "path": "docs/requirements/bp-designed-skill.md",
+      "sha256": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c"
+    },
+    {
+      "path": "docs/requirements/bp-operations.md",
+      "sha256": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0"
     }
   ],
   "limits": [
@@ -177,5 +174,322 @@
     "No prior tracked BP meta exists; adjacent TBD metadata for other documents was used only to derive complete repository INDEX files.",
     "Temporary copies are mechanical tool inputs and were deleted; no whole-document draft/version copy was retained."
   ],
-  "repair": "specification 1/2; source fixed pending independent re-review"
+  "repair": "PR213 docs cycle2 final freeze; evidence current, independent verification pending",
+  "historical_before_pr213": {
+    "head": "2bde39a56bb273b62adc2ae140c2c54690300b0e",
+    "current": {
+      "command_exit": 0,
+      "summary": {
+        "findings": 20,
+        "blocking": 20,
+        "degraded": 0,
+        "fixed_findings": 0,
+        "not_checked": 16,
+        "path": "checks/doc.requirements__bp-designed-skill+requirements__bp-operations+specifications__bp-authoring+specifications__bp-conformance+specifications__bp-entry+specifications__bp-findings+specifications__bp-inspection+specifications__bp-run.json",
+        "digest": "773aaaaeed4e42ed056b6d1b2c9fba24f7475447774f38d408df90379003dd5e",
+        "tree_digest": "5fb375dab2563675c0780bdb3feb438ce13523845da2c009fb967fdf5f74803d",
+        "flow_refs": {},
+        "stdout_fnv": "9121dc94"
+      },
+      "finding_ids": [
+        "ST-STATE-MULTIPLE-INITIAL-specifications/bp-findings",
+        "ST-AMBIGUOUS-requirements/bp-designed-skill-PR-BPDESIGNEDSKILL-010-など",
+        "ST-AMBIGUOUS-requirements/bp-operations-PR-BPOPERATIONS-038-十分な",
+        "ST-AMBIGUOUS-specifications/bp-authoring-SP-BPAUTHORING-007-まで",
+        "ST-AMBIGUOUS-specifications/bp-authoring-SP-BPAUTHORING-038-など",
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-028-まで",
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-032-最小",
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-032-まで",
+        "ST-AMBIGUOUS-specifications/bp-entry-SP-BPENTRY-003-など",
+        "ST-AMBIGUOUS-specifications/bp-entry-SP-BPENTRY-004-など",
+        "ST-AMBIGUOUS-specifications/bp-entry-SP-BPENTRY-019-など",
+        "ST-AMBIGUOUS-specifications/bp-findings-SP-BPFINDINGS-035-など",
+        "ST-AMBIGUOUS-specifications/bp-inspection-SP-BPINSPECTION-011-最小",
+        "ST-AMBIGUOUS-specifications/bp-inspection-SP-BPINSPECTION-014-など",
+        "ST-AMBIGUOUS-specifications/bp-inspection-SP-BPINSPECTION-029-など",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-006-等",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-018-など",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-021-最小",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-037-最小",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-029-など"
+      ]
+    },
+    "index": {
+      "command_exit": 0,
+      "matched_before_write": {
+        "docs/requirements/INDEX.md": true,
+        "docs/specifications/INDEX.md": true
+      },
+      "derived_equals_saved": {
+        "docs/requirements/INDEX.md": true,
+        "docs/specifications/INDEX.md": true
+      },
+      "derived": {
+        "requirements": {
+          "path": "checks/INDEX.requirements.md",
+          "save_to": "docs/requirements/INDEX.md",
+          "digest": "81687a106a770cbe6fb913553cbf2b38015e84d5631355fccd7e1f9cdfbff8eb"
+        },
+        "specifications": {
+          "path": "checks/INDEX.specifications.md",
+          "save_to": "docs/specifications/INDEX.md",
+          "digest": "fd3932fbc6a4f676378b954fe17d4af369363a2cd597b90ea8828bac6a5d1889"
+        }
+      }
+    },
+    "delta": {
+      "new": [
+        "ST-AMBIGUOUS-requirements/bp-designed-skill-PR-BPDESIGNEDSKILL-010-など",
+        "ST-AMBIGUOUS-requirements/bp-operations-PR-BPOPERATIONS-038-十分な",
+        "ST-AMBIGUOUS-specifications/bp-authoring-SP-BPAUTHORING-007-まで",
+        "ST-AMBIGUOUS-specifications/bp-entry-SP-BPENTRY-004-など",
+        "ST-AMBIGUOUS-specifications/bp-entry-SP-BPENTRY-019-など"
+      ],
+      "removed": [
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-022-など",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-027-等",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-041-など"
+      ],
+      "unchanged": [
+        "ST-AMBIGUOUS-specifications/bp-authoring-SP-BPAUTHORING-038-など",
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-028-まで",
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-032-まで",
+        "ST-AMBIGUOUS-specifications/bp-conformance-SP-BPCONFORMANCE-032-最小",
+        "ST-AMBIGUOUS-specifications/bp-entry-SP-BPENTRY-003-など",
+        "ST-AMBIGUOUS-specifications/bp-findings-SP-BPFINDINGS-035-など",
+        "ST-AMBIGUOUS-specifications/bp-inspection-SP-BPINSPECTION-011-最小",
+        "ST-AMBIGUOUS-specifications/bp-inspection-SP-BPINSPECTION-014-など",
+        "ST-AMBIGUOUS-specifications/bp-inspection-SP-BPINSPECTION-029-など",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-006-等",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-018-など",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-021-最小",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-029-など",
+        "ST-AMBIGUOUS-specifications/bp-run-SP-BPRUN-037-最小",
+        "ST-STATE-MULTIPLE-INITIAL-specifications/bp-findings"
+      ]
+    },
+    "sources": [
+      {
+        "path": "docs/requirements/bp-designed-skill.md",
+        "sha256": "92f3cad53bb3d2c78913a5dcf2b7d719fc3a020fdba9796608b6226c6ea0b01d"
+      },
+      {
+        "path": "docs/requirements/bp-operations.md",
+        "sha256": "d4ee96ac94e53d96bfae8a1971d5a23cb2cb0d12a3b7b5a8381843e98de6e2fb"
+      },
+      {
+        "path": "docs/specifications/bp-authoring.md",
+        "sha256": "e50dee9043f5b7669cb65d68eadafeab832da940b4394aea5fb72bed4cb94579"
+      },
+      {
+        "path": "docs/specifications/bp-conformance.md",
+        "sha256": "4db0114caf3fc01c35d11e7775750b716094312a914fc3a0e8b5f21da17faa24"
+      },
+      {
+        "path": "docs/specifications/bp-entry.md",
+        "sha256": "2f00e156290c6ce53b7c2c8f91469fbb311444f1666f96b0258423b6011c439f"
+      },
+      {
+        "path": "docs/specifications/bp-findings.md",
+        "sha256": "193bc029c29103a74ef698fb0359f71fb21c9529c72425d93c5bb6f2441b12ce"
+      },
+      {
+        "path": "docs/specifications/bp-inspection.md",
+        "sha256": "2abcb803cc239ade61469f95bf0af39064de3c5fcd15fe3004a1a8d21b40dffe"
+      },
+      {
+        "path": "docs/specifications/bp-run.md",
+        "sha256": "0a649b2226d502fcf3e0e28993e030567c06e331bb497091a551ae624c14768d"
+      }
+    ],
+    "repair": "specification 1/2; source fixed pending independent re-review"
+  },
+  "pr213": {
+    "frozen_sources": {
+      "docs/design/develop-plugin.md": "a99535dc9a86096993eeebd49d89c6db8b961cb8364f041fbb398b26c4daf4a4",
+      "docs/guidelines/repository-operations.md": "d7cde98057659e417797379b3200d6eef479c1716dd14ba906c1584e7cc76290",
+      "docs/requirements/bp-designed-skill.md": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c",
+      "docs/requirements/bp-operations.md": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0",
+      "docs/specifications/bp-authoring.md": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4",
+      "docs/specifications/bp-conformance.md": "050a1bdcef7a526e23a82d3cc9980b6f1c8b5cfc4cde636e61fc44fe518527b4",
+      "docs/specifications/bp-entry.md": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82",
+      "docs/specifications/bp-findings.md": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c",
+      "docs/specifications/bp-inspection.md": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b",
+      "docs/specifications/bp-run.md": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+    },
+    "historical_head": "2bde39a56bb273b62adc2ae140c2c54690300b0e",
+    "historical_smt_source_ref": "formal/spec-inputs.sha256",
+    "source_comparison": [
+      {
+        "path": "docs/specifications/bp-authoring.md",
+        "historical_sha256": "e50dee9043f5b7669cb65d68eadafeab832da940b4394aea5fb72bed4cb94579",
+        "current_sha256": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4",
+        "changed_sections": [
+          "SP-BPAUTHORING-018",
+          "SP-BPAUTHORING-021",
+          "SP-BPAUTHORING-043",
+          "SP-BPAUTHORING-045",
+          "SP-BPAUTHORING-032",
+          "SP-BPAUTHORING-034",
+          "§検証方法",
+          "§トレーサビリティ表"
+        ]
+      },
+      {
+        "path": "docs/specifications/bp-conformance.md",
+        "historical_sha256": "4db0114caf3fc01c35d11e7775750b716094312a914fc3a0e8b5f21da17faa24",
+        "current_sha256": "050a1bdcef7a526e23a82d3cc9980b6f1c8b5cfc4cde636e61fc44fe518527b4",
+        "changed_sections": [
+          "§対象範囲",
+          "SP-BPCONFORMANCE-026",
+          "§検証方法",
+          "§トレーサビリティ表"
+        ]
+      },
+      {
+        "path": "docs/specifications/bp-entry.md",
+        "historical_sha256": "2f00e156290c6ce53b7c2c8f91469fbb311444f1666f96b0258423b6011c439f",
+        "current_sha256": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82",
+        "changed_sections": [
+          "SP-BPENTRY-016",
+          "§検証方法",
+          "§トレーサビリティ表"
+        ]
+      },
+      {
+        "path": "docs/specifications/bp-findings.md",
+        "historical_sha256": "193bc029c29103a74ef698fb0359f71fb21c9529c72425d93c5bb6f2441b12ce",
+        "current_sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c",
+        "changed_sections": [
+          "SP-BPFINDINGS-007",
+          "SP-BPFINDINGS-014",
+          "SP-BPFINDINGS-034",
+          "§検証方法",
+          "§トレーサビリティ表"
+        ]
+      },
+      {
+        "path": "docs/specifications/bp-inspection.md",
+        "historical_sha256": "2abcb803cc239ade61469f95bf0af39064de3c5fcd15fe3004a1a8d21b40dffe",
+        "current_sha256": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b",
+        "changed_sections": [
+          "SP-BPINSPECTION-007",
+          "SP-BPINSPECTION-022",
+          "SP-BPINSPECTION-024",
+          "§検証方法",
+          "§トレーサビリティ表"
+        ]
+      },
+      {
+        "path": "docs/specifications/bp-run.md",
+        "historical_sha256": "0a649b2226d502fcf3e0e28993e030567c06e331bb497091a551ae624c14768d",
+        "current_sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f",
+        "changed_sections": [
+          "SP-BPRUN-044",
+          "SP-BPRUN-017",
+          "§検証方法",
+          "§トレーサビリティ表"
+        ]
+      },
+      {
+        "path": "docs/requirements/bp-designed-skill.md",
+        "historical_sha256": "92f3cad53bb3d2c78913a5dcf2b7d719fc3a020fdba9796608b6226c6ea0b01d",
+        "current_sha256": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c",
+        "changed_sections": [
+          "§リスクと影響"
+        ]
+      },
+      {
+        "path": "docs/requirements/bp-operations.md",
+        "historical_sha256": "d4ee96ac94e53d96bfae8a1971d5a23cb2cb0d12a3b7b5a8381843e98de6e2fb",
+        "current_sha256": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0",
+        "changed_sections": [
+          "§用語",
+          "§リスクと影響"
+        ]
+      }
+    ],
+    "independent_bridge_derivations": 0,
+    "bridge_direct_copy": 1,
+    "bridge_local_projection_or_weakening": 7,
+    "duplicate_removed": {
+      "path": "doc-check.json",
+      "canonical": "doc-check-current.json",
+      "old_sha256": "e4315718dd88d688fae78fddbcd7debe47bd1e52fd1c2a5a5ef0a89285f6bd79",
+      "byte_identical_before_removal": true,
+      "references_before_removal": 0
+    },
+    "canonical_method_rows": 224,
+    "trace_references": 342,
+    "trace_statuses": [
+      "未着手"
+    ],
+    "trace_method_reference_only": true,
+    "scope": "Source correspondence and mechanical artifacts only; historical SMT replay is local consistency, not current-doc or runtime conformance.",
+    "replay": {
+      "z3_version": "5.3.3",
+      "command_form": "Z3=${Z3:-z3}; \"$Z3\" -version; \"$Z3\" -T:120 smt.threads=2 sat.threads=2 -smt2 <repo-relative-model> > <separate-replay-log> 2>&1",
+      "req": {
+        "queries": 61,
+        "sat": 38,
+        "unsat": 23,
+        "expectation_mismatches": [],
+        "errors": [],
+        "raw_sha256": "c23fe23e4703a7230c6091d678fe8ea3e7fd89c03c2bb07db600984ee5dd7a3e",
+        "raw_artifact": "formal/final-raw.log",
+        "replay_output_byte_identical_to_canonical": true,
+        "duplicate_replay_raw_removed": true
+      },
+      "spec": {
+        "queries": 73,
+        "sat": 52,
+        "unsat": 21,
+        "expectation_mismatches": [],
+        "errors": [],
+        "raw_sha256": "5ac1aa7f19624d4adaff2f8da5263de02e8dd89de21937a6c24d5e5ccc4547f8",
+        "raw_artifact": "formal/spec-raw.log",
+        "replay_output_byte_identical_to_canonical": true,
+        "duplicate_replay_raw_removed": true
+      },
+      "model_hashes": {
+        "formal/checks.smt2": "e0de5b1f1558042c0bcf318401581aec225351ba3005ca0b08a43272c7efab78",
+        "formal/spec-checks.smt2": "e9bbe3cdc6d4d941bc27c8c78d23176f4ba217cd548883ab5f002332cbe9a780"
+      },
+      "historical_logs_unchanged": {
+        "formal/final-raw.log": true,
+        "formal/spec-raw.log": true
+      },
+      "meaning": "Replay of unchanged historical hand-written models only; not independent current requirement or runtime conformance."
+    },
+    "final_freeze": "docs repair cycle2; F032 and RUN033 canonical verification-method rows only",
+    "cycle2_method_edits": [
+      {
+        "path": "docs/specifications/bp-findings.md",
+        "changed_lines": [
+          468
+        ],
+        "before_sha256": "b68815a0cc563e8839a32228da6e566db5638d3c637980a5e8a2f17b17b90361",
+        "after_sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c"
+      },
+      {
+        "path": "docs/specifications/bp-run.md",
+        "changed_lines": [
+          558
+        ],
+        "before_sha256": "58c0f1e045231ddc3eb4f4ab5fb69b077a651bb33b2763411795eb96a38dbfc5",
+        "after_sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+      }
+    ],
+    "current_doc_digest_validated": true,
+    "current_public_schema_presence": {
+      "groups": 11,
+      "missing": 0,
+      "outcomes_mapping_matches": true
+    },
+    "historical_current_finding_ids_unchanged": true,
+    "source_impact_note": "PR statements unchanged; references/spacing and verification plans reviewed for model impact. Current A045/F034 reject-and-no-retry clause is not modeled beyond saveFailed; canonical F032/RUN033 method corrections do not change historical SMT.",
+    "independent_review_status": "pending",
+    "final_record": "Current evidence finalized against docs cycle2 freeze; independent verification is reported separately by parent.",
+    "historical_vs_current": "Historical formal inputs/raw remain unchanged. Current mechanical sources/index/doc JSON are separately refreshed; replay is local model consistency with zero independent bridge derivations."
+  }
 }

@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tableAfter } from './helpers/bp-docs.mjs';
 import { confirmedKeys, readRecords, rowKey } from '../tools/read-bp-trial.mjs';
-import { TRACE_STATUS, traceRows as sharedTraceRows } from '../tools/lib/bp-docs.mjs';
+import { TRACE_STATUS, verifiedTraceRows } from '../tools/lib/bp-docs.mjs';
 import { RUNS_FILE, TRIAL_DIR, readRuns } from '../tools/bp-trial.mjs';
 import { loadConfig } from '../scripts/traceability/specs.mjs';
 
@@ -20,48 +19,37 @@ const TRIAL_ROWS = readRecords();
 const CONFIRMED = confirmedKeys(TRIAL_ROWS);
 
 function traceRows(file) {
-  return sharedTraceRows(file, SPECS);
+  return verifiedTraceRows(readFileSync(path.join(SPECS, file), 'utf8')).map((row) => ({ file, ...row }));
 }
 
-// bp-run.md の「検証方法」の見分け方の表を正本にし、テストに見分け方を書き写さない。
+// 意味の判定を持つ計画と、登録した正解表の行は、実記録による完了の検査から外さない。
 function trialRules() {
-  const rows = tableAfter(readFileSync(path.join(SPECS, 'bp-run.md'), 'utf8'), '| 仕様書 | 試走で確かめる行 |');
-  return rows.map(([file, rule]) => {
-    const name = /^`([^`]+)`$/.exec(file)[1];
-    const prefix = /検証方法の列が `([^`]+)` で始まる/.exec(rule);
-    if (prefix) return { file: name, isTrial: (r) => r.method.startsWith(prefix[1]) };
-    if (!/「検証方法」の試走の表/.test(rule)) throw new Error(`見分け方を読めない: ${rule}`);
-    const table = tableAfter(readFileSync(path.join(SPECS, name), 'utf8'), '| 要求 ID | 仕様項目 ID | 測る試走 |');
-    const how = new Map(table.map(([req, spec, h]) => [`${req}|${spec}`, h]));
-    return { file: name, pairs: [...how.keys()], how, isTrial: (r) => how.has(`${r.req}|${r.spec}`) };
-  });
+  const registered = new Set(TRIAL_ROWS.map(rowKey));
+  return SPEC_FILES.map((file) => ({
+    file,
+    isTrial: (row) => /レビュー|eval|試走/.test(row.verification.means) || registered.has(rowKey(row)),
+  }));
 }
 
-// 正解表の行は、トレーサビリティ表にあり、試走か eval で確かめる行で、測る試走が「無し」でない行だけ（表に無い行の記録は、どの行も「完了」にしない）。
 function expectedProblems(rows, rules) {
-  const problems = [];
-  for (const r of rows) {
+  return rows.flatMap((r) => {
     const rule = rules.find((x) => x.file === r.file);
-    const row = rule && traceRows(r.file).find((t) => t.req === r.req && t.spec === r.spec && t.method === r.method);
-    if (!row) { problems.push(`トレーサビリティ表に無い: ${rowKey(r)}`); continue; }
-    if (!rule.isTrial(row)) { problems.push(`試走で確かめる行でない: ${rowKey(r)}`); continue; }
-    if (rule.how?.get(`${r.req}|${r.spec}`).startsWith('無し')) problems.push(`測る試走が無い: ${rowKey(r)}`);
-  }
-  return problems;
+    const row = rule && traceRows(r.file).find((t) => rowKey(t) === rowKey(r));
+    return row ? [] : [`トレーサビリティ表に無い: ${rowKey(r)}`];
+  });
 }
 
 const SPEC_FILES = CONFIG.specFiles.map((f) => path.relative(realpathSync(SPECS), path.join(CONFIG.root, f)));
 
 // 「完了」の行に成功したテストがあるかは make test のトレーサビリティ検査（scripts/traceability）が見る。ここは名前の付いたテストで縛れない試走の行だけを見る。
 // 試走の行は模擬の検証役でも名前の付いたテストが通ってしまうので、テスト名の有無では「完了」を縛れない。
-test('検証方法: 試走と eval で確かめる行は、記録と正解表から計算した集合にあるときだけ「完了」で、見分け方の表が指す行は全てトレーサビリティ表にある', () => {
+test('検証方法: 試走と eval で確かめる行は、記録と正解表から計算した集合にあるときだけ「完了」で、全ての検証方法参照が正本の一行に解決する', () => {
   const rules = trialRules();
-  assert.deepEqual(rules.map((r) => r.file).sort(), ['bp-authoring.md', 'bp-conformance.md', 'bp-entry.md', 'bp-inspection.md']);
+  assert.deepEqual(rules.map((r) => r.file).sort(), [...SPEC_FILES].sort());
   const early = [];
   let trial = 0;
   for (const rule of rules) {
     const rows = traceRows(rule.file);
-    for (const pair of rule.pairs ?? []) assert.ok(rows.some((r) => `${r.req}|${r.spec}` === pair), `${rule.file}: 試走の表の行がトレーサビリティ表に無い: ${pair}`);
     for (const r of rows.filter(rule.isTrial)) {
       trial += 1;
       if (r.status === TRACE_STATUS.done && !CONFIRMED.has(rowKey(r))) early.push(`${r.file}: ${r.req} ${r.spec} ${r.method}`);
@@ -71,7 +59,7 @@ test('検証方法: 試走と eval で確かめる行は、記録と正解表か
   assert.deepEqual(early, []);
 });
 
-test('検証方法: 試走の正解表の全ての行は、トレーサビリティ表にある試走の行で、測る試走が「無し」の行を含まず、runs.json の全ての正解表のファイルがある', () => {
+test('検証方法: 試走の正解表の全ての行は、トレーサビリティ表にある試走の行で、検証方法の参照が現行の正本に解決し、runs.json の全ての正解表のファイルがある', () => {
   const rules = trialRules();
   assert.deepEqual(expectedProblems(TRIAL_ROWS, rules), []);
   const runs = readRuns(RUNS_FILE);
@@ -79,10 +67,11 @@ test('検証方法: 試走の正解表の全ての行は、トレーサビリテ
   assert.ok(files.length > 0);
   for (const f of files) assert.ok(statSync(path.join(TRIAL_DIR, f)).isFile(), f);
   const C = 'bp-conformance.md';
+  const valid = traceRows(C)[0];
   const bad = [
-    { file: C, req: 'PR-BPDESIGNEDSKILL-999', spec: 'SP-BPCONFORMANCE-006', method: 'x' },
-    { file: C, req: 'PR-BPDESIGNEDSKILL-017', spec: 'SP-BPCONFORMANCE-022', method: traceRows(C).find((r) => r.req === 'PR-BPDESIGNEDSKILL-017').method },
-    { file: C, req: 'PR-BPDESIGNEDSKILL-001', spec: 'SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004', method: traceRows(C).find((r) => r.req === 'PR-BPDESIGNEDSKILL-001').method },
+    { ...valid, req: 'PR-BPDESIGNEDSKILL-999' },
+    { ...valid, method: '古い検証方法' },
+    { ...valid, spec: 'SP-BPCONFORMANCE-999' },
   ];
   assert.equal(expectedProblems(bad, rules).length, bad.length);
 });
@@ -113,4 +102,16 @@ test('規約: best-practices の配布物・テスト・仕様書・要求文書
   assert.ok(files.length > 20);
   const hits = files.flatMap((f) => readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l]).filter(([, , l]) => STAGE_WORD.test(l)).map(([f, i]) => `${path.relative(ROOT, f)}:${i}`));
   assert.deepEqual(hits, []);
+});
+
+test('検証方法: 正本の検証方法行の欠落・重複・不正な表・参照先の違いを拒否する', () => {
+  const source = readFileSync(path.join(SPECS, 'bp-entry.md'), 'utf8');
+  const canonical = source.split('\n').find((line) => line.startsWith('| SP-BPENTRY-001 |'));
+  assert.ok(canonical);
+  for (const changed of [
+    source.replace(canonical, ''),
+    source.replace(canonical, `${canonical}\n${canonical}`),
+    source.replace(canonical, '| SP-BPENTRY-001 | 手段だけ |'),
+    source.replace('[検証方法](#検証方法) の SP-BPENTRY-001 行', '[検証方法](#検証方法) の SP-BPENTRY-002 行'),
+  ]) assert.throws(() => verifiedTraceRows(changed), /検証方法|表の途中/);
 });

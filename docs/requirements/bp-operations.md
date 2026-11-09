@@ -15,6 +15,8 @@
 | 修正の根拠 | update に渡す review・audit の指摘、または利用者の修正指示 |
 | best-practices の仕様書 | 本文書と bp-designed-skill を実現する、外から観測できる振る舞いと課された設計制約を定める `docs/specifications/bp-*.md` |
 | 現行の prompt-audit | `plugins/skill-creator/skills/skill-creator-best-practices/references/prompt-audit.md` にある監査の観点 |
+| fan-out | 1 つの段で、項目（ファイル・観点・意図）ごとに agent を起動して処理すること |
+| 指摘 | 対象スキルのどの資産がどの基準に反するかを、位置・根拠・内容・直し方とともに示すもの。反証前を「指摘の候補」と呼び、反証後の状態は各機能の要求に従う |
 | run | 処理を開始して完了または停止するまでの 1 回の実行。Workflow の場合は 1 回の Workflow 実行。再開は新しい run で行う |
 | context | agent が 1 回の実行で持つ入力と作業の内容。「生成と別の context」は生成した agent の context を持たない別の agent |
 | 設計の説明 | 形を選んだ条件や AI の自由な判断の所在など、対象スキルに残す設計の記述 |
@@ -22,7 +24,7 @@
 | 記録台帳 | 作業記録と証拠への参照。資産と指摘の対応を持つ資産台帳とは異なる |
 | 文書の一般規約 | [documentation.md](../guidelines/documentation.md)。作業記録を含む文書の書き方の正本 |
 
-資産・指摘・カバレッジ・skip 一覧、形・探索グラフ型、fan-out、needs_input・BLOCKED は設計方針文書の定義に従う。
+資産・カバレッジ・skip 一覧、形・探索グラフ型、needs_input・BLOCKED は設計方針文書の定義に従う。
 
 ## 背景と課題
 
@@ -47,6 +49,12 @@
 - 設計方針文書と bp-designed-skill を 4 機能の共通基準とする。暫定の規則・値を確定する場合、仕様と検証に反映する。
 - audit は現行の prompt-audit を監査基準として参照する。その基準を使えない場合の扱いも要求に含める。
 - CLI の内部操作名、保存形式、内部 worker の細かな段取りは、上位指定が無ければ要求に含めない。
+
+## リスクと影響
+
+| ID | 観点 | 判定 | 根拠 |
+|---|---|---|---|
+| RK-001 | 不可逆な操作 | 該当 | create・update は対象のファイルへ書き込み、update は全体を作り直してよい。途中で止まった成果を戻すかは利用者が決めるため、書き換え範囲と停止時の保持・報告が必要である（PR-BPOPERATIONS-018・037・040） |
 
 ## 要求一覧
 

@@ -121,7 +121,7 @@ CLI は、次の規則で資産を切り出さなければならない（設計�
 | 資産 ID | 担当として渡された資産 ID のどれか |
 | 観点 | その検証役に割り当てられた観点 |
 | 指摘の種類 | その観点の閉集合から選んだ値（SP-BPFINDINGS-010） |
-| 引用 | 問題のある箇所の原文。行番号を添える（CLI が 判断点の機械照合 から作る候補で指す行が無いときは空の文字列：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-007） |
+| 引用 | 問題のある箇所の原文。行番号を添える（CLI が判断点の機械照合から作る候補で指す行が無いときは空の文字列：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-007） |
 | 内容 | 基準にどう反しているか |
 | 直し方 | どこをどう書き換えるか |
 
@@ -184,7 +184,7 @@ CLI は、反証の結果を次のとおり記録しなければならない。
 | 台帳にある | 維持 | 見直しの「存在する」の材料にする（SP-BPFINDINGS-018） |
 | 台帳にある | 却下 | 却下の理由を記録し、見直しの「存在しない」の材料にする（SP-BPFINDINGS-018） |
 
-CLI が 判断点の機械照合 の不適合から作る指摘の候補（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-007。review だけで作る）は、検証役の結果ではないので、SP-BPFINDINGS-012 の重複の判定にかけず、反証の段の項目にせず（`docs/requirements/bp-operations.md` PR-BPOPERATIONS-031 のただし書き）、SP-BPFINDINGS-018 の R にも入れない。CLI は、その候補の鍵が台帳に無ければ、新しい指摘 ID の指摘を作り、状態を open にする。この状態の記録の担当の指紋の組（SP-BPFINDINGS-017）は、その資産の今の内容の指紋（SP-BPFINDINGS-004）1 つからなる組とする。鍵が台帳にあれば、記録を足さない（review は書き換えない run で、状態を遷移させず見直しの判定も持たない：SP-BPFINDINGS-016）。
+CLI が判断点の機械照合の不適合から作る指摘の候補（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-007。review だけで作る）は、検証役の結果ではないので、SP-BPFINDINGS-012 の重複の判定にかけず、反証の段の項目にせず（`docs/requirements/bp-operations.md` PR-BPOPERATIONS-031 のただし書き）、SP-BPFINDINGS-018 の R にも入れない。CLI は、その候補の鍵が台帳に無ければ、新しい指摘 ID の指摘を作り、状態を open にする。この状態の記録の担当の指紋の組（SP-BPFINDINGS-017）は、その資産の今の内容の指紋（SP-BPFINDINGS-004）1 つからなる組とする。鍵が台帳にあれば、記録を足さない（review は書き換えない run で、状態を遷移させず見直しの判定も持たない：SP-BPFINDINGS-016）。
 
 #### SP-BPFINDINGS-015 未反証の候補
 反証役が結果を返さなかったならば、CLI はその候補を未反証の候補として記録しなければならない。未反証の候補は、open の指摘にも dismissed の指摘にもしてはならない。結果が無い試行も区別して記録し、再送で未反証の記録を重ねてはならない。
@@ -358,7 +358,7 @@ create と update が完了したとき、create と update は、SP-BPFINDINGS-
 #### SP-BPFINDINGS-034 台帳に無い値を含む結果
 検証役・反証役の結果の、SP-BPFINDINGS-007・013・020 が定める欄の値が、台帳に無い資産 ID か、その観点の閉集合に無い指摘の種類か、同項の選択肢に無い値を含むならば、CLI はその結果の記録を拒否しなければならない（設計方針文書「状態の書き込み」）。機能の文書が CLI に照らさせる agent の結果（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006 の適用の判定・SP-BPINSPECTION-015 の担当の組・SP-BPINSPECTION-017 の足した欄、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017・SP-BPAUTHORING-039 の結果を含む）は、その結果を定める仕様項目が照らし、拒否した結果は本項に従って扱う。
 
-拒否した結果は、その項目の結果が書かれなかったものとして扱い、黙って捨ててはならない。fan-out の項目は `docs/specifications/bp-run.md` の SP-BPRUN-028 で未着手に戻す（試行の上限で打ち切る）。fan-out でない段の agent の結果（適用の判定・担当の組を含む）は、script が同じ段の中でその agent を起動し直し、最初の 1 回を含めて試行の上限（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-031）の回まで拒否されたら、BLOCKED と拒否の理由を返して止まる（依頼者の裁定）。ただし、create・update の形式検証の段の `result` の拒否では、起動し直さずに BLOCKED で止まる（`docs/specifications/bp-run.md` の SP-BPAUTHORING-045）。回数の保持と上限の適用は SP-BPRUN-005 に従う。拒否された結果は「見た」にも数えず、その担当の資産は skip 一覧に残す。CLI は、拒否した結果の件数と担当を状態に記録しなければならない（置き場は `docs/specifications/bp-run.md` の SP-BPRUN-005）。結果の拒否は、SP-BPRUN-029 の BLOCKED の理由（状態の構造を指す ID の誤りと、記録との食い違い）に当てない。
+拒否した結果は、その項目の結果が書かれなかったものとして扱い、黙って捨ててはならない。fan-out の項目は `docs/specifications/bp-run.md` の SP-BPRUN-028 で未着手に戻す（試行の上限で打ち切る）。fan-out でない段の agent の結果（適用の判定・担当の組を含む）は、script が同じ段の中でその agent を起動し直し、最初の 1 回を含めて試行の上限（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-031）の回まで拒否されたら、BLOCKED と拒否の理由を返して止まる（依頼者の裁定）。ただし、create・update の形式検証の段の `result` の拒否では、起動し直さずに BLOCKED で止まる（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-045）。回数の保持と上限の適用は SP-BPRUN-005 に従う。拒否された結果は「見た」にも数えず、その担当の資産は skip 一覧に残す。CLI は、拒否した結果の件数と担当を状態に記録しなければならない（置き場は `docs/specifications/bp-run.md` の SP-BPRUN-005）。結果の拒否は、SP-BPRUN-029 の BLOCKED の理由（状態の構造を指す ID の誤りと、記録との食い違い）に当てない。
 
 #### SP-BPFINDINGS-035 台帳と食い違う書き込み
 既にある記録と食い違う書き込み（同じ候補への 2 つの反証の結果、書き換えない run での resolved / regressed の記録など）が来たならば、CLI はその書き込みを拒否し、script は BLOCKED で止まらなければならない（設計方針文書「状態の書き込み」）。
@@ -428,60 +428,102 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 
 見直しと状態遷移の閉じた表を全件検査し、到達しない組は明記した拒否になることを照合する。見た記録と「問題なし」を別に確認し、件数が正しいことを意味の正しさの証拠にしない。
 
+検証方法の読み方と、決定的な検査・意味の判定・不適用の区別は、bp-run.md の「検証方法」を参照する。方法の正本は次の表の各 SP の 1 行とし、トレーサビリティ表は同じ方法を複製せずその行を参照する。
+
+| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |
+|---|---|---|
+| SP-BPFINDINGS-001 | 台帳初期化の結合テスト | 対象の根内/外の対象ファイルを列挙し、検証前に全資産が同じ台帳へ載ることを確認する。既存台帳と資産 0 件は再作成/正常完了にならないことを照合する。 |
+| SP-BPFINDINGS-002 | 資産分割の fixture テスト | frontmatter、見出し前本文、階層/同名見出し、setext、フェンス内見出し、通常ファイル、symlink と plugin 外実体を与え、資産の範囲・位置・パスと拒否/除外を照合する。 |
+| SP-BPFINDINGS-003 | 資産 ID の同一性テスト | 同じ位置の内容変更と異なる位置を与え、前者は同 ID、後者は別 ID であることを確認する。衝突を注入し内部失敗として止まることも照合する。 |
+| SP-BPFINDINGS-004 | 指紋依存の決定的テスト | 資産自身/同じ担当の別資産/担当外を 1 つずつ変更し、資産版と依存集合の同一性、現在の確認としての計数を照合する。意味の正しさは指紋一致で判定しない。 |
+| SP-BPFINDINGS-005 | 資産取直しの全組テスト | 不変/変更/追加/消失の資産を同時に含む対象を書換え・再開し、表どおりの追記と既存記録の保持を照合する。 |
+| SP-BPFINDINGS-006 | ID 発行責務の静的照合・不正結果テスト | 資産 ID が決定的な正本だけから発行され、agent が存在しない ID を返す結果が拒否されることを確認する。意味判断の試走は不要である。 |
+| SP-BPFINDINGS-007 | 検証結果の schema テスト | 判定 3 値と候補 0/1/複数、担当内/外資産、許可/不許可の種別、引用と機能固有欄を与え、候補ありの必須候補と受理条件を照合する。 |
+| SP-BPFINDINGS-008 | 見た記録と結果の計数テスト | 各判定、重複結果、現版/旧版、拒否結果を与え、受理した判定だけが観点/依存版と結び付き、正しさの受理なしに見た記録になることを確認する。 |
+| SP-BPFINDINGS-009 | 問題なしの記録テスト | 3 判定を対にし、確認済みで問題なしだけが該当観点・依存版の問題なし記録を作ることを確認する。候補あり/判断不能からの誤記録を負例にする。 |
+| SP-BPFINDINGS-010 | 閉集合の生成・受理テスト | 各観点の有効種別と未知種別、単位の違う同仕様、機械照合単位を与え、閉集合と除外を照合する。基準不在/単位 0 件で空の検査済みにならないことも確認する。 |
+| SP-BPFINDINGS-011 | 指摘 ID と鍵の同一性テスト | 資産・観点・種類・台帳を 1 要素ずつ変え、同鍵の再開は同 ID、異鍵/台帳は分離となることを確認する。消失照合で資産を足しても ID が変わらない例も試す。 |
+| SP-BPFINDINGS-036 | 指摘鍵の同一性テスト | 同じ鍵で引用/内容だけを言い換えた候補と、観点/種類/資産が違う候補を与え、前者だけが同じ指摘となることを確認する。 |
+| SP-BPFINDINGS-012 | 候補重複と反証の結合テスト | 同鍵/異鍵、同依存版/変更版、既存の存在/却下結果を組み合わせ、重複は状態不変・反証なし、同じ鍵の新候補は 1 反証結果にまとまることを確認する。 |
+| SP-BPFINDINGS-013 | 独立 context と反証結果の照合 | 複数候補を同鍵/異鍵で渡し、生成と別 context が維持/却下と理由を 1 鍵 1 結果で返すことを確認する。機械照合の例外は 014 と分ける。 |
+| SP-BPFINDINGS-014 | 反証記録表の全組テスト | 新/既存の鍵と維持/却下を組み合わせ、状態作成または見直し材料と却下理由を照合する。機械照合候補は反証せず初回だけ open になることも確認する。 |
+| SP-BPFINDINGS-015 | 反証失敗・再送テスト | 反証結果なしと同じ失敗の再送を与え、候補が open/dismissed にならず、試行ごとの未反証記録だけが重複なく残ることを確認する。 |
+| SP-BPFINDINGS-016 | 機能別状態の受理テスト | 書換えあり/なしの台帳へ 4 状態と見直しを要求し、readonly では resolved/regressed を拒否し、消失照合は見直しだけを残すことを確認する。 |
+| SP-BPFINDINGS-017 | 追記と同内容再送のテスト | 状態を複数回遷移させ、依存版・記録 run と履歴が残ることを確認する。同じ更新の再送では台帳と履歴件数が変わらないことも照合する。 |
+| SP-BPFINDINGS-018 | 見直し表の全数検査 | R の有無・内容変化・候補内訳・資産判定の全有効組と禁止組を列挙し、表の優先結果または内部失敗を照合する。複数資産への畳込みと全消失も含める。 |
+| SP-BPFINDINGS-019 | 指摘状態表の全組テスト | 4 状態と存在/不存在/判定不能/判定しない、今/前 run を組み合わせ、次状態と記録の有無を照合する。readonly 消失照合と run 跨ぎの状態記録禁止も含める。 |
+| SP-BPFINDINGS-020 | 消失した資産の照合 fixture | 指摘のある資産を削除し、現在の資産への一致/該当なしを独立確認する。入力が指摘内容と今の閉集合であること、項目順位が作成順であることも照合する。 |
+| SP-BPFINDINGS-037 | 消失照合結果の全組テスト | 現在資産 ID/該当なし/結果なしと書換え有無を組み合わせ、見直し・状態・資産の追加と ID 保持を照合する。不正な資産 ID の拒否も含める。 |
+| SP-BPFINDINGS-021 | 現版判定の全組テスト | 自身/依存資産の版一致・変化と判定不能、全資産消失を与え、今の内容で判定したかの値を照合する。判定不能で最終確認時点が更新されないことも確認する。 |
+| SP-BPFINDINGS-022 | カバレッジの数値テスト | 複数資産で見た記録の 0 件/一部/全件と重複、旧版、内容変更を与え、観点別分子・分母・比を独立計算と照合する。正しさとは別の値であることも結果で確認する。 |
+| SP-BPFINDINGS-023 | skip 集合の差集合テスト | 同じ対象に現版の見た記録あり/なし/旧版だけの資産を混ぜ、skip が現在未確認の全資産 ID ・パス・位置と一致することを確認する。 |
+| SP-BPFINDINGS-024 | 資産結末の全組テスト | 指摘状態、候補の却下/重複/未反証、問題なし、見ただけを重ね、表の優先順で 5 値を返すことを確認する。問題なし記録が無い資産を ok にしない負例も試す。 |
+| SP-BPFINDINGS-025 | 追加確認の進捗・停止テスト | skip の一部を新しく確認する回と 0 件の回を与え、skip だけを追加担当にし、進捗なしで止まり残りを返すことを確認する。追加起動が上限へ計上される境界も試す。 |
+| SP-BPFINDINGS-026 | 台帳の再開・分離テスト | 同じ状態の再開で見た記録と指摘が引き継がれ、別状態の指摘 ID を今の台帳へ照合しないことを確認する。 |
+| SP-BPFINDINGS-027 | 前 run 根拠を受ける update テスト | review/audit の指摘を修正根拠として渡し、入力前提には全件が残る一方、今の台帳へ状態付き指摘として登録されないことを確認する。 |
+| SP-BPFINDINGS-028 | run 跨ぎの公開結果テスト | 今 run/前 run/入力根拠の指摘を混在させ、機能別に状態の有無、記録 run、当 run の見直しが表どおりとなることを確認する。 |
+| SP-BPFINDINGS-029 | 指摘の公開 schema ・原文照合 | 各状態、前 run、資産追加、行なし機械指摘を含む結果で、必要キー・条件付きキー・資産と引用の原文・判断値の対応を照合する。結果を update へそのまま渡す例も試す。 |
+| SP-BPFINDINGS-030 | 台帳出力の schema ・ enum テスト | 指摘・却下理由・ skip ・未反証・拒否を含む結果と各空集合で、機能別の欄と outcomes の 5 値対応を照合する。観点未検査を問題なしとして返さないことも確認する。 |
+| SP-BPFINDINGS-031 | 修正根拠の入力テスト | open/dismissed、利用者指示、完了結果参照を混ぜ、受領内容の保持と扱う根拠の選別を照合する。未完了/別機能/別対象/余分な参照欄を拒否する例も含める。 |
+| SP-BPFINDINGS-032 | 作成・修正の完了 schema テスト | skip が空で、指摘なし/合格を妨げない指摘がある正常完了では、今 run の指摘状態と空の skip が SP-BPAUTHORING-033 の欄へ載ることを確認する。skip 非空の負例では SP-BPAUTHORING-023・026 に従って完了を拒否し、SP-BPAUTHORING-034 の未完報告に残る skip が載ることを確認する。 |
+| SP-BPFINDINGS-033 | 空集合境界のテスト | 空白だけの対象と 1 資産の対象を与え、0 資産では台帳を作らず理由付き BLOCKED となり、問題なし完了にしないことを確認する。 |
+| SP-BPFINDINGS-034 | 不正結果と試行の結合テスト | 未知資産/種類/選択肢と機能固有欄の誤りを与え、拒否記録・見たに数えないこと・項目再試行/上限を照合する。形式結果拒否だけは AUTHOR045 の無再起動 BLOCKED になることも確認する。 |
+| SP-BPFINDINGS-035 | 競合更新の決定的テスト | 同候補への異なる反証、readonly への禁止状態を要求し、競合が受理されず BLOCKED となり前の台帳が変わらないことを確認する。同内容の再送と対にする。 |
+
 ## トレーサビリティ表
 
 整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-001 | 入出力・停止・再開の fixture で「台帳の作成」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-001 | 入出力・停止・再開の fixture で「台帳の作成」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-002 | 入出力・停止・再開の fixture で「資産の単位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-003 | 入出力・停止・再開の fixture で「資産 ID」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-003 | 入出力・停止・再開の fixture で「資産 ID」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-004 | 入出力・停止・再開の fixture で「内容の指紋」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | 入出力・停止・再開の fixture で「台帳の取り直し」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-006 | 入出力・停止・再開の fixture で「資産の同一性を決める主体」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-007 | 入出力・停止・再開の fixture で「検証役が返す形」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-008 | 入出力・停止・再開の fixture で「「見た」の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-009 | 入出力・停止・再開の fixture で「「確認済みで問題なし」の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPFINDINGS-010 | 入出力・停止・再開の fixture で「観点と指摘の種類の閉集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-010 | 入出力・停止・再開の fixture で「観点と指摘の種類の閉集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-011 | 入出力・停止・再開の fixture で「指摘の鍵と指摘 ID」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-022 | SP-BPFINDINGS-011 | 入出力・停止・再開の fixture で「指摘の鍵と指摘 ID」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-036 | 入出力・停止・再開の fixture で「同じ指摘の決め方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-012 | 入出力・停止・再開の fixture で「重複する候補」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | 入出力・停止・再開の fixture で「反証の実施」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-014 | 入出力・停止・再開の fixture で「反証の結果の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-032 | SP-BPFINDINGS-014 | 入出力・停止・再開の fixture で「反証の結果の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-015 | 入出力・停止・再開の fixture で「未反証の候補」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-032 | SP-BPFINDINGS-016 | 入出力・停止・再開の fixture で「状態の集合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-017 | 入出力・停止・再開の fixture で「状態の記録の仕方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | 入出力・停止・再開の fixture で「見直しの判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-019 | 入出力・停止・再開の fixture で「状態の遷移」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-022 | SP-BPFINDINGS-019 | 入出力・停止・再開の fixture で「状態の遷移」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-020 | 入出力・停止・再開の fixture で「消えた資産の指摘の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-037 | 入出力・停止・再開の fixture で「消えた資産の照合の結果の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPFINDINGS-021 | 入出力・停止・再開の fixture で「判定の時点の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPFINDINGS-022 | 入出力・停止・再開の fixture で「カバレッジ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-022 | 入出力・停止・再開の fixture で「カバレッジ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPFINDINGS-023 | 入出力・停止・再開の fixture で「skip 一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-023 | 入出力・停止・再開の fixture で「skip 一覧」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-024 | 入出力・停止・再開の fixture で「資産の結末」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-025 | 入出力・停止・再開の fixture で「skip 一覧への追加の起動」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-022 | SP-BPFINDINGS-026 | 入出力・停止・再開の fixture で「台帳の範囲」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-026 | 入出力・停止・再開の fixture で「台帳の範囲」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-022 | SP-BPFINDINGS-027 | 入出力・停止・再開の fixture で「入力に受け取った前の run の指摘」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPFINDINGS-028 | 入出力・停止・再開の fixture で「報告する指摘の状態」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-022 | SP-BPFINDINGS-028 | 入出力・停止・再開の fixture で「報告する指摘の状態」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-029 | 入出力・停止・再開の fixture で「結果に載せる指摘の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPFINDINGS-029 | 入出力・停止・再開の fixture で「結果に載せる指摘の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-030 | 入出力・停止・再開の fixture で「結果に載せる台帳の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-030 | 入出力・停止・再開の fixture で「結果に載せる台帳の項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | 入出力・停止・再開の fixture で「修正の根拠の形」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPFINDINGS-031 | 入出力・停止・再開の fixture で「修正の根拠の形」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPFINDINGS-031 | 入出力・停止・再開の fixture で「修正の根拠の形」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-014 | SP-BPFINDINGS-032 | 入出力・停止・再開の fixture で「create と update の完了時に返す指摘」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-033 | 入出力・停止・再開の fixture で「資産が 0 件のとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-034 | 入出力・停止・再開の fixture で「台帳に無い値を含む結果」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-035 | 入出力・停止・再開の fixture で「台帳と食い違う書き込み」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-001 | [検証方法](#検証方法) の SP-BPFINDINGS-001 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-001 | [検証方法](#検証方法) の SP-BPFINDINGS-001 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-002 | [検証方法](#検証方法) の SP-BPFINDINGS-002 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-003 | [検証方法](#検証方法) の SP-BPFINDINGS-003 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-003 | [検証方法](#検証方法) の SP-BPFINDINGS-003 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-004 | [検証方法](#検証方法) の SP-BPFINDINGS-004 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | [検証方法](#検証方法) の SP-BPFINDINGS-005 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-006 | [検証方法](#検証方法) の SP-BPFINDINGS-006 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-007 | [検証方法](#検証方法) の SP-BPFINDINGS-007 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-008 | [検証方法](#検証方法) の SP-BPFINDINGS-008 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-009 | [検証方法](#検証方法) の SP-BPFINDINGS-009 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPFINDINGS-010 | [検証方法](#検証方法) の SP-BPFINDINGS-010 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-010 | [検証方法](#検証方法) の SP-BPFINDINGS-010 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-011 | [検証方法](#検証方法) の SP-BPFINDINGS-011 行 | 未着手 |
+| PR-BPOPERATIONS-022 | SP-BPFINDINGS-011 | [検証方法](#検証方法) の SP-BPFINDINGS-011 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-036 | [検証方法](#検証方法) の SP-BPFINDINGS-036 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-012 | [検証方法](#検証方法) の SP-BPFINDINGS-012 行 | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | [検証方法](#検証方法) の SP-BPFINDINGS-013 行 | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-014 | [検証方法](#検証方法) の SP-BPFINDINGS-014 行 | 未着手 |
+| PR-BPOPERATIONS-032 | SP-BPFINDINGS-014 | [検証方法](#検証方法) の SP-BPFINDINGS-014 行 | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-015 | [検証方法](#検証方法) の SP-BPFINDINGS-015 行 | 未着手 |
+| PR-BPOPERATIONS-032 | SP-BPFINDINGS-016 | [検証方法](#検証方法) の SP-BPFINDINGS-016 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-017 | [検証方法](#検証方法) の SP-BPFINDINGS-017 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | [検証方法](#検証方法) の SP-BPFINDINGS-018 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-019 | [検証方法](#検証方法) の SP-BPFINDINGS-019 行 | 未着手 |
+| PR-BPOPERATIONS-022 | SP-BPFINDINGS-019 | [検証方法](#検証方法) の SP-BPFINDINGS-019 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-020 | [検証方法](#検証方法) の SP-BPFINDINGS-020 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-037 | [検証方法](#検証方法) の SP-BPFINDINGS-037 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPFINDINGS-021 | [検証方法](#検証方法) の SP-BPFINDINGS-021 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPFINDINGS-022 | [検証方法](#検証方法) の SP-BPFINDINGS-022 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-022 | [検証方法](#検証方法) の SP-BPFINDINGS-022 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPFINDINGS-023 | [検証方法](#検証方法) の SP-BPFINDINGS-023 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-023 | [検証方法](#検証方法) の SP-BPFINDINGS-023 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-024 | [検証方法](#検証方法) の SP-BPFINDINGS-024 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-025 | [検証方法](#検証方法) の SP-BPFINDINGS-025 行 | 未着手 |
+| PR-BPOPERATIONS-022 | SP-BPFINDINGS-026 | [検証方法](#検証方法) の SP-BPFINDINGS-026 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-026 | [検証方法](#検証方法) の SP-BPFINDINGS-026 行 | 未着手 |
+| PR-BPOPERATIONS-022 | SP-BPFINDINGS-027 | [検証方法](#検証方法) の SP-BPFINDINGS-027 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPFINDINGS-028 | [検証方法](#検証方法) の SP-BPFINDINGS-028 行 | 未着手 |
+| PR-BPOPERATIONS-022 | SP-BPFINDINGS-028 | [検証方法](#検証方法) の SP-BPFINDINGS-028 行 | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-029 | [検証方法](#検証方法) の SP-BPFINDINGS-029 行 | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPFINDINGS-029 | [検証方法](#検証方法) の SP-BPFINDINGS-029 行 | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-030 | [検証方法](#検証方法) の SP-BPFINDINGS-030 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-030 | [検証方法](#検証方法) の SP-BPFINDINGS-030 行 | 未着手 |
+| PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | [検証方法](#検証方法) の SP-BPFINDINGS-031 行 | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPFINDINGS-031 | [検証方法](#検証方法) の SP-BPFINDINGS-031 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPFINDINGS-031 | [検証方法](#検証方法) の SP-BPFINDINGS-031 行 | 未着手 |
+| PR-BPOPERATIONS-014 | SP-BPFINDINGS-032 | [検証方法](#検証方法) の SP-BPFINDINGS-032 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-033 | [検証方法](#検証方法) の SP-BPFINDINGS-033 行 | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-034 | [検証方法](#検証方法) の SP-BPFINDINGS-034 行 | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-035 | [検証方法](#検証方法) の SP-BPFINDINGS-035 行 | 未着手 |

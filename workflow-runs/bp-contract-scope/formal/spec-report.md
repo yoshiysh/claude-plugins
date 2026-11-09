@@ -1,10 +1,10 @@
 # 仕様初稿の公開境界の形式照合
 
-## 対象・独立期待・未検証
+## 対象・実行前期待・未検証
 
 要求側の61 query は要求の有限抽象の証拠として保持し、仕様の適合証拠へ読み替えない。今回は要求側8群のうち、文書整理で具体化した5境界（表構文・host合否・機能列・run状態・起動境界）に絞り、runの完了/保存は補助行に分けて追加照合する。規範本文は編集しない。#212 で内部設計へ戻した worker 数・内部予約方式・運搬形式・内部操作名を新しい検査要件にしない。
 
-| 追加群 | 読んだ出所 | 式を書く前の独立期待・要求側とのbridge |
+| 追加群 | 読んだ出所 | 式を書く前の期待・要求に関係する観測 |
 |---|---|---|
 | 表構文 | C041 L69–116、F002 L78–94、A017 L198–205、I007 L141–176 | 探索範囲内でフェンス外の見出しだけを数え、単一見出し・区切り・2非空セルの各行から適合を導く。空表は不存在表明として適合、複数見出し/空理由は不適合、読取不能は未検査。D051の列挙/不存在と理由対応の観測へ同じ行を写す。網羅/理由意味は合否入力にしない |
 | hostと合否 | C019–020 L255–279、A用語 L39–56、A046 L207–217、A023 L319–334 | Claude一覧不可の指定2単位だけ強いられた未検査。Codexの役ごとの制限は全未確認を残る危険として別表示し、それを必要単位の未検査の自動免除へ変換しない。既知不適合はA023で合格不可。D014/015/046へ同じ確認結果を写す |
@@ -13,15 +13,15 @@
 | 起動拒否と残枠 | R019–022/035/037/040 L297–334、C021–026 L281–330、A029 L424–444、E015–016 L197–219 | 最小31/32/33/28を新規・再開で同じ公開受理境界として扱う。直前/一致と不正値を検査し、事前拒否はagent0・状態不変更・stateID有無に応じnext_args。最小値の内部算出手順は復活しない。既起動+実行中残り+新項目最悪+停止保存を同じ入力上限と比較し、D016/019へ写す |
 | 完了・保存・形式結果 | A025–026/042–045 L339–390、A035 L398–420、R027/048 L439–471 | A023合格と同じ対象版の保存済み形式結果だけを完了へ接続。洗い出し0件と洗い出し不能を区別。形式反例/実行不能は同run書直し不可。保存失敗はBLOCKEDで未保存範囲を示し、通常の起動上限停止やformal原因へ読み替えない。O010/011とD027/035へ写す |
 
-C/E/R/A/I/F はそれぞれ bp-conformance/entry/run/authoring/inspection/findings。行番号は今回のhashに対応する。各群で、source規則同時有効の正常 SAT、禁止結果追加の UNSAT、指定規則だけを外す弱化 SAT と具体値を区別する。bridgeの要求性質は仕様式から観測を導出して否定を探索し、要求性質自体を assert してから否定して UNSAT とする検査にはしない。
+C/E/R/A/I/F はそれぞれ bp-conformance/entry/run/authoring/inspection/findings。行番号は今回のhashに対応する。各群で、source規則同時有効の正常 SAT、禁止結果追加の UNSAT、指定規則だけを外す弱化 SAT と具体値を区別する。手書きした仕様式の下で観測の否定を探索したが、`bridge` と名付けた8件はassertの写しや局所帰結であり、要求適合の独立導出ではない。内訳は後掲の全8件の分類に示す。
 
 独立形式設計レビュー `bp_docs_formal_review` の条件全文を親から受領済み。同じ入力/状態valuationによるbridge、機能値と出現ID分離、文法観測→結果、host未検査の区別とA023接続、run同一性/状態副作用、呼出済結果未保存のpending、公開最小値と共有残枠の分離を適用する。文書修復1/2（`../spec-repair-1.json`）後の6仕様hashを固定し、影響したENTRY008・RUN018・A017を再読した。RUN018の読取不能状態はID/理由を別表示し、A017のhost危険4項目と判断点網羅2項目を分離する。修復前の草稿hashを最終実行の出典にしない。
 
 未検証: 224 SP全文の意味と要求の全能力保持は別の2名の意味レビュー担当に委ね、本担当は合格判定しない。actual Markdown parser、実host強制、実ファイル保存、実state形式、任意長連鎖、無限項目、全停止/再開経路、内部worker構成、既存実装の適合は保証しない。既存Node traceability成功を実装適合へ読み替えない。未読のSP本文は「問題なし」にしない。既存要求61queryの distinct-function・最大3呼出し・全域unknownOnlyFailure禁止の仮定は流用しない。
 
-## 出典の固定
+## 過去実行の出典の固定
 
-要求の現在hashは要求側reportの欠番表記整備後bridgeに対応する。solverが読むものは抽出したSMTであり、文書を直接parserで読んでいるわけではない。
+以下は過去実行時のhashで、8本文ともcommit `2bde39a56bb273b62adc2ae140c2c54690300b0e` の内容に一致する。要求hashは要求側reportの欠番表記整備後の版に対応する。PR213修復後の現在hashとは区別する。solverが読むものは抽出したSMTであり、文書を直接parserで読んでいるわけではない。
 
 | 仕様 | SHA-256 |
 |---|---|
@@ -44,12 +44,60 @@ C/E/R/A/I/F はそれぞれ bp-conformance/entry/run/authoring/inspection/findin
 |---|---:|---|
 | 全source同時有効 | 1 | SAT |
 | 前件を成立させた正常例 | 42 | SAT |
-| 同じvaluationからの要求bridgeの否定 | 8 | UNSAT |
+| assertの写し・局所帰結の否定（履歴上のquery名はbridge） | 8 | UNSAT。独立bridgeの導出数には含めない |
 | 禁止結果 | 13 | UNSAT |
 | 指定規則1つだけを外した弱化 | 9 | SAT、具体値を保存 |
-| 合計 | 73 | SAT52 / UNSAT21、独立期待との不一致0、solver error/unknown/timeout 0 |
+| 合計 | 73 | SAT52 / UNSAT21、実行前期待との不一致0、solver error/unknown/timeout 0 |
 
 各 query の期待値を実行前に静的SMTへ記した。生成担当として仕様全体への合格判定は出さず、この出所・式・期待・rawlogをfresh reviewerへ渡した。6仕様と2要求の実行前後hashは `spec-inputs.sha256` と一致した。親から、contextを分離したfresh reviewerによるSMT/rawlogの73 query再生と8 source hash一致、必須欠陥なしの結果を受領した。この独立確認も、以下に明記した有限部分規則の範囲に限る。
+
+## PR213で訂正した8件の分類
+
+PRの指摘4507865462を受け、`req*` 8定義とその参照assertを全件照合した。命名が別でも、同じ式をassertして否定すれば自明にUNSATになる。従来の「8件の要求bridgeを独立に導出した」と読める説明は撤回する。以下はモデル内の局所整合の観測であり、別の要求モデルや別実装との照合ではない。SMT・過去rawlogと73件の実行結果は変更しない。
+
+| query / 観測 | spec-checks.smt2の根拠 | 分類と確認できる範囲 |
+|---|---|---|
+| doc.bridge.reqD051 / reqD051 | L46–53のrowsValidとdocResultの選択式 | 判定表の適合枝の局所投影。Conformから取り出した見出し・行の非空条件であり、実文法抽出やD051の意味全体を独立検証しない |
+| host.bridge.D046 / reqD046 | L78–79のauthorVerdictの選択式 | 判定表のccKnownBad枝の局所投影。Passedにならないことは同じ選択式の枝から決まり、別のhost実効性や全既知不適合は検証しない |
+| host.bridge.disclosure / reqHostDisclosure | L74–77のccUnknownCount、codexUnknownCount、hostRiskFields | 条件代入と定数assertの写しの組合せ。実報告の欄や漏れを検査した証拠にはならない |
+| entry.bridge.O038-stop / reqO038Stop | L103とL108の後続起動の条件 | assertの前件/結論の局所投影と対偶。公開連鎖を独立の実行モデルから導出していない |
+| resume.bridge.unsaved-call-pending / reqPendingUnsaved | L158とL167のpending1の定義 | pending1の等式からの弱化。launched1は結論の導出に不要で、実際の呼出し/保存履歴からpendingを独立再構成していない |
+| reserve.bridge.reqBudget / reqBudget | L195–196 | 直接の写し。gReserve有効時のassertと同一であり、予約方式や実呼出数の正しさを導出しない |
+| finish.bridge.complete / reqCompleteVerified | L219–220 | gFinish有効時のassertからnot saveFailedを落とした弱い結論。完了条件を別の状態遷移から導出していない |
+| finish.bridge.save-failure / reqSaveFailure | L218とL221 | Blockedを非Completeへ弱めたenum上の局所投影。実保存失敗と保持の因果関係を独立検証していない |
+
+分類は直接の同式1件、写しの組合せ・局所投影・弱化7件、独立bridge導出0件である。上の8件を独立導出の件数・保証範囲に数えない。正常例・禁止例・弱化例のSAT/UNSATも、この手書きモデルを再生した局所整合の証拠に限定する。過去のfresh reviewerによる再生確認は、この8件を独立導出へ格上げする根拠ではない。
+
+## 可搬な再生例
+
+上の絶対パスのコマンドは過去実行の記録として残す。別checkoutでは、リポジトリrootから次を実行する。`Z3`はPATH上のz3または利用環境の実行ファイルを指定する環境変数で、まず版を確認する。記録で使用した版は5.3.3。query timeoutはSMT内で10秒、process上限はZ3の`-T:120`で指定する。GNU timeoutがある環境では追加してもよいが必須依存にはしない。
+
+```sh
+Z3="${Z3:-z3}"
+"$Z3" -version
+"$Z3" -T:120 smt.threads=2 sat.threads=2 -smt2 workflow-runs/bp-contract-scope/formal/spec-checks.smt2 > workflow-runs/bp-contract-scope/formal/pr213-spec-replay.log 2>&1
+```
+
+この再生はSMTの再実行であり、現在の文書から新たに式を抽出する処理ではない。現在の文書へ証拠を対応させるには、修正節とモデルの対応を再照合する。過去の`spec-inputs.sha256`とrawlogを現在sourceの成功として上書きしない。
+
+## PR213の現在sourceへの対応と再生
+
+現在source hashと、過去の2bde39aから変更された節の一覧は `../mechanical-verification.json` の `pr213.frozen_sources` / `pr213.source_comparison` を正とする。過去のhash・SMT・rawlogは変更していない。原文差分を既存式に照らし、次の範囲でのみ過去モデルとの関係を確認した。
+
+| 現在本文の変更箇所 | 既存SMTとの関係・今回の扱い |
+|---|---|
+| 要求Dのリスク章、Oの用語/リスク章 | 56件のPR見出し本文は変更されていない。対象をfan-outありと置く有限前提や機能enumは変更不要。追加した用語/RKの意味全体を形式検証したとはしない |
+| C対象範囲/C026、E016 | 空白・重複条件の整理。C026の両hostに同じPR IDを付ける規則は維持され、既存のhost/cap条件の値やguardは変わらない。E016のconcurrency指定の意味も変わらない |
+| R044/R017 | 重複参照と空白の整理。保存済み保持、停止再送と旧run拒否の条件は維持。既存の局所状態関係を再生した |
+| A018/A021/A043/A032/A034、F007/F014、I007/I022/I024 | 参照・表記の修復。今回モデル化した文法観測/合否/保存条件の変更はない。引用文・公開JSON・パス列挙の実処理はモデル外のまま |
+| A045とF034 | 形式結果の受理拒否時に同runで再起動/未着手再試行をせずBLOCKEDとする既存例外を、A045へ正本化してF034から正しい文書を参照する。既存式はsaveFailed時のBLOCKEDだけを扱い、resultRejected/retry状態を持たない。この句全体の独立検査は未実施であり、現在A045全体の適合証拠にしない |
+| 6仕様の検証方法・トレーサビリティ表 | 224件の方法を正本行へ分け、342対応はその行参照/未着手とした。これは将来の検証計画であり、既存SMTが新しい方法を実施したことにはならない。モデルの命題は変更していない |
+
+最終refreezeの小修復はF032とRUN033の検証方法行だけである。F032はskip空の正常完了とskip非空の完了拒否/未完報告を分け、RUN033はnext_argsを持たない状態なし停止を除外した。規範本文や公開contractの変更ではなく、SMTの命題は変更しない。前者に関連するskipRemainingの合否条件と後者の起動前nextArgs条件は既存モデルの局所句にあるが、これら2行の検証方法を実装に対して実施したとはしない。2行とその後のhashは `pr213.cycle2_method_edits` に記録した。
+
+可搬例をこのcheckoutのrootからPATH上のZ3 5.3.3で実行し、73件＝SAT52/UNSAT21、期待不一致・error・unknown 0を再現した。出力は保存済み `spec-raw.log` とbyte単位で一致したため、raw本体は既存の正本を参照し、新たな同一内容のrawは残さない。再生という別実行の条件・結果・hashは `../mechanical-verification.json` の `pr213.replay.spec` に記録した。この再生は現在本文からの独立導出ではなく、上記の未形式化句も検査済みに変えない。
+
+最終refreeze後に既存doc_checkを再実行し、current JSONのdigestとtree_digest、8本文のsource hash、INDEX2本の再導出一致を更新・照合した。224件の正本method行、342件の参照、全て未着手という機械的な個数・形を確認した。20指摘と16のnot_checkedは残っており、コマンド成功を文書全体や実装の合格へ変換していない。旧source/旧rawは履歴のまま保持し、現在の機械検査結果は `../doc-check-current.json` を唯一の正本とする。
 
 ## 観測した違いと限定
 

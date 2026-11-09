@@ -6,7 +6,7 @@
 
 - 本書は `####` 見出し 1 つを 1 仕様項目とする。
 - 本書が実現する要求は末尾のトレーサビリティ表を正とする。
-- 本書の判定基準を当てる者は 2 つある。create・update の検証役（PR-BPOPERATIONS-008）と、review のフローの観点（PR-BPOPERATIONS-024）である。ただし SP-BPCONFORMANCE-041 は、この 2 つでなく CLI の機械照合 が当てる（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。review の仕様の観点（PR-BPOPERATIONS-025）は、「性能・容量（対象スキルに課す確定値）」の章に照らす。
+- 本書の判定基準を当てる者は 2 つある。create・update の検証役（PR-BPOPERATIONS-008）と、review のフローの観点（PR-BPOPERATIONS-024）である。ただし SP-BPCONFORMANCE-041 は、この 2 つでなく CLI の機械照合が当てる（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-010）。review の仕様の観点（PR-BPOPERATIONS-025）は、「性能・容量（対象スキルに課す確定値）」の章に照らす。
 - 本書が扱わないもの:
   - 判定の結果を指摘・資産台帳にする方法（`docs/specifications/bp-findings.md`）
   - 停止の種類・状態・next_args・CLI（`docs/specifications/bp-run.md`）
@@ -324,7 +324,7 @@ SP-BPCONFORMANCE-023 で止まった run から再開した run は、`docs/spec
 - Codex runner の経路では、起動数の上限を渡す。渡す値は、その run の host の request の `limits.maxAgents` 以下でなければならない（`limits.maxAgents` を超える値を渡すと、上限に収めても runner に run 全体を失敗させられる）。
 - Claude Code の native Workflow の経路では、起動数の上限を渡さない。
 
-どちらかに反すれば、Codex runner の経路なら PR-BPDESIGNEDSKILL-022 を、native Workflow の経路なら PR-BPDESIGNEDSKILL-022 を不適合とする。経路の選び方（native-first の契約）は `docs/specifications/bp-entry.md` を正とする。
+どちらかに反すれば PR-BPDESIGNEDSKILL-022 を不適合とする。経路の選び方（native-first の契約）は `docs/specifications/bp-entry.md` を正とする。
 
 ## 性能・容量（対象スキルに課す確定値）
 
@@ -382,76 +382,122 @@ best-practices 自身の役の値は、次の表とする（依頼者の裁定�
 
 判断点の照合は表の全ての行と、列挙の網羅や理由の意味を調べない例を検査する。確定値と上限は実際に境界へ達する試験で照合する。評価の意味の質は bp-authoring の本物の agent の試走で確認し、模擬判定や有限表の検査で代用しない。
 
+検証方法の読み方と、決定的な検査・意味の判定・不適用の区別は、bp-run.md の「検証方法」を参照する。方法の正本は次の表の各 SP の 1 行とし、トレーサビリティ表は同じ方法を複製せずその行を参照する。
+
+| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |
+|---|---|---|
+| SP-BPCONFORMANCE-001 | 参照経路の静的照合・適合 fixture 比較 | create/update/review が同じ基準版と SP を参照し、基準を各 prompt へ別文で複製しないことを確認する。同じ違反題材の判定も比較する。 |
+| SP-BPCONFORMANCE-002 | 判定単位の決定的照合 | 参照する原則表の全行を独立に列挙し、得られた単位と 1 行 1 結果の対応を照合する。行の欠落・重複と別基準版を与える負例も含める。 |
+| SP-BPCONFORMANCE-003 | 適用表の全組テスト | 形・台帳・ fan-out の全組と W による run 分割、共有資産を与え、適用 SP ・不適合・対象外・複数 run の畳込みを照合する。要求統合で単位が広がる負例も試す。 |
+| SP-BPCONFORMANCE-041 | 表構文の全組 fixture テスト | 見出し 0/1/複数、区切りの有無、2 セル/欠落/空欄、空表、フェンス内例、範囲外、読取不能を与え判定表と理由を照合する。理由の意味や列挙の網羅だけで結果を変えず、機能別の未確認開示 1 件も確認する。 |
+| SP-BPCONFORMANCE-004 | 形の決定表の全組テスト・フローの独立レビュー | A/W/Q の有効・到達不能の全並びを与え、最初の到達形と拒否を照合する。実題材の答えの妥当性と未分割 run の違反は別 context で確認する。 |
+| SP-BPCONFORMANCE-005 | 探索適用の独立 fixture レビュー | 4 適用条件が全成立/1 つずつ不成立、1agent の 1 回で解ける題材を与え、Q3 の答えと形を確認する。例示題材の分類だけを普遍的な判定証明にしない。 |
+| SP-BPCONFORMANCE-006 | 根拠有無表の全組テスト・説明の独立レビュー | 重い run なし/あり、複数 run の説明完備/一部欠落を与え、適合か欠落 run 付き不適合を照合する。答えを強いた実際のフローの事実は原文と比較する。 |
+| SP-BPCONFORMANCE-007 | Workflow 有無の静的 fixture 検査 | ターンごとの指揮の対象に、自 plugin/対象内 script や callsite を個別に足し、不適合になることを確認する。W で分けた該当 run だけを見る例も含める。 |
+| SP-BPCONFORMANCE-008 | 部品と設計説明の独立レビュー | 各段が定義に合う題材、部品の例に無いが戻りの無い題材、戻りや名前/理由欠落の題材を比較し、部品の定義と説明の対応を判定する。 |
+| SP-BPCONFORMANCE-009 | 台帳適用の全組テスト | fan-out と確認範囲の宣言の要否、実際の台帳あり/なしを組み合わせ、必要/不要の両違反を照合する。記録台帳の存在を資産台帳と混同しない題材も使う。 |
+| SP-BPCONFORMANCE-039 | 記録要求表の行別 fixture 検査 | 各行の必要性質を 1 つずつ欠かした対象と準拠対象を与え、該当単位だけの不適合を確認する。原文の必要欄・保持・保存失敗・性能と未確認の扱いも照合する。 |
+| SP-BPCONFORMANCE-040 | 保存先だけを変える同値テスト | 内容と記録能力が同じ対象で保存先だけを変え、039 の判定が変わらないことを確認する。BP 自身は RUN007/039 の裁定済み保存先を別に照合する。 |
+| SP-BPCONFORMANCE-010 | 目標原則の独立 fixture レビュー | 原則表の各行を 1 つずつ欠く目標と準拠目標を与え、同じ単位で対象スキルと create の目標固定を判定する。数値や出所の決定部分は機械で照合する。 |
+| SP-BPCONFORMANCE-011 | 停止・再開の結合テスト・規範レビュー | 入力不足、待たれない入力、保存後の再開を題材に、原則表の各行に沿う停止/材料/再開を確認する。run 内で入力待ちする違反題材も比較する。 |
+| SP-BPCONFORMANCE-012 | 実行履歴の数値照合・原則レビュー | 複数項目を走らせ、同時実行上限と待機後の全件処理を観測する。体数決め打ち・項目切捨ての負例を原則表の単位で確認する。 |
+| SP-BPCONFORMANCE-013 | 設定の静的照合・ prompt の独立レビュー | 各役の model/effort の有無は 035 で判定し、prompt が原則表の入力を満たすかを別 context で読む。裁定で除外した値・測直し・役限定だけでは不適合にしないことも確認する。 |
+| SP-BPCONFORMANCE-014 | 権限境界のテスト・原則レビュー | 書く/書かない各役に許可/禁止操作を試し、原則表の権限と分離を確認する。host での確認結果は 019/020 の表へ照合し、設定の存在だけを実効性としない。 |
+| SP-BPCONFORMANCE-015 | 探索 fixture の履歴照合・原則レビュー | 計画・実行・回収・検証・停止と検証方式の各表の行を、準拠/違反題材で照合する。回数/乾きは確定値の試験、意味の受理は独立レビューで分ける。 |
+| SP-BPCONFORMANCE-034 | 時間制限の判定表テスト・ host 確認 | 探索型/非探索型、時間値の有無、Codex/native 経路の有無と確認可否を全組で与え、値・制限・強制不能開示と判定結果を照合する。 |
+| SP-BPCONFORMANCE-016 | 共有状態の更新・再送テスト | 不正 ID、競合、同内容再送、遅延更新、中断を与え、原則表の状態更新・受理分離・追記・決定的要約を照合する。要約の字数は 033 で確認する。 |
+| SP-BPCONFORMANCE-017 | 資産台帳の数値・参照テスト・原則レビュー | 安定 ID、結果の結付け、確認範囲と skip を複数資産の fixture で照合する。担当範囲が依存を欠く負例は独立に読み、本文が参照する全原則行へ対応付ける。 |
+| SP-BPCONFORMANCE-018 | 判定結果集合の受理・公開 schema テスト | 適用単位を全件持つ結果と、単位/結果/理由の欠落を与え、無判定を残さないことと機能別の全単位結果・指摘・未検査への出力対応を照合する。 |
+| SP-BPCONFORMANCE-019 | host 確認表の全組テスト | Claude の文書/名前付き一覧の可読性、一覧への依存、Codex の未確認を組み合わせ、適合/既知不適合/強いられた未検査と全未確認を照合する。一覧の見出しだけの有無で判定を変えないことも見る。 |
+| SP-BPCONFORMANCE-020 | 未確認制限の公開結果テスト | 一覧で確認済みの Claude 制限と未読時の全制限、Codex の全制限を与え、役・制限・ host ・理由の 4 項目が未確認だけに出ることを確認する。 |
+| SP-BPCONFORMANCE-021 | 対象スキルの入力 schema 検査 | 上限欄の省略/正整数、受取口の不存在、綴りの宣言欠落を持つ題材を与え、入力契約と適合判定を照合する。不正な値の停止は 037 で確認する。 |
+| SP-BPCONFORMANCE-037 | 不正上限の境界テスト | 正整数でない値と最小に満たない値を渡し、対象スキルが RUN037 どおり agent0 の BLOCKED ・理由と状態不変更を返すことを確認する。 |
+| SP-BPCONFORMANCE-022 | 並行作業と残枠の結合テスト | 実行中の残呼出し・新項目最悪・停止分の共有枠を競合させ、ちょうど収まる/1 回不足の境界で新規起動と停止記録が上限を超えないことを独立計数する。 |
+| SP-BPCONFORMANCE-023 | 上限不足と順位の結合テスト | 一部処理後に次項目が収まらない条件を与え、新規停止・開始済み終了・順位付き全残件・上限/起動数/件数を確認する。1 件も始められない条件は RUN037 へ分ける。 |
+| SP-BPCONFORMANCE-024 | 未着手からの再開テスト | 上限停止後に新 run を起動し、保存した順位の残りだけを処理して結果ありを再処理しないことを確認する。host ごとの上限授受と追加検証例外も照合する。 |
+| SP-BPCONFORMANCE-025 | 上限なしの増量・静的検査 | 入力項目を増やし、固定件数での切捨てや固定起動数停止が無いことを確認する。同時実行待ちと反復/試行の停止は別に許されることを原則と照合する。 |
+| SP-BPCONFORMANCE-026 | 経路と上限授受の全組テスト | native/Codex、上限なし/あり、host 上限の直前/一致/超過を組み合わせ、Codex の必要上限と native の禁止、同じ要求 ID への不適合を照合する。 |
+| SP-BPCONFORMANCE-027 | 並行実行の境界テスト | 同時実行の上限を超える件数を投入し、実際の同時数が上限以下で、残りが待機して完了することを観測する。runtime 設定/対象制御の方式差だけで判定を変えない。 |
+| SP-BPCONFORMANCE-028 | until-pass の回数境界テスト | 初回成功、上限直前成功、上限で不合格を返す項目を与え、最初を含む回数と最後の未達理由を照合する。 |
+| SP-BPCONFORMANCE-029 | 固定集合反復の回数境界テスト | 反復ごとの合否を制御し、初回/上限直前/一致での成功と未達停止を確認する。create/update への適用と再開後の増分は AUTHOR024/RUN013 に照合する。 |
+| SP-BPCONFORMANCE-030 | 探索の周数境界テスト | 上限の直前/一致で完了する探索と、上限で未完の探索を与え、周数と反復上限停止を履歴で確認する。 |
+| SP-BPCONFORMANCE-031 | 試行数と再開の境界テスト | 同じ意図/項目が結果を返さない題材で、初回を含む上限までの試行・打切り・理由を確認する。途中再開でも試行累計を数え直さないことを照合する。 |
+| SP-BPCONFORMANCE-032 | 乾き条件の決定表・履歴テスト | 新受理、空振り、既知、却下、全件失敗、未読ヒントを組み合わせ、連続した乾きの境界と同方向再確認の許容回数を照合する。 |
+| SP-BPCONFORMANCE-033 | 要約字数の境界テスト | 要約の長さを上限直前/一致/超過にする状態を与え、上限以下の字数と省いた種類/件数の宣言を独立計数する。元記録の保持も確認する。 |
+| SP-BPCONFORMANCE-035 | 全起動の静的検査・値差分 fixture | model/effort の全指定と 1 欄欠落を比較し、値だけの変更では対象の適合を変えないことを確認する。BP 自身の役の値は本項の表との一致を別に照合する。 |
+| SP-BPCONFORMANCE-036 | 確定値の参照・改定手順レビュー | 同じ値を参照する題材と二重正本/異値の題材で適合を比べる。値改定では eval 結果から正本と上位方針へ反映されているかを確認し、モデル値の例外も照合する。 |
+| SP-BPCONFORMANCE-038 | 判定不能の独立 fixture レビュー・公開結果テスト | 根拠記述の欠落/読取不能と、明示的な適合/違反を持つ題材を比較し、前者だけが理由付き未検査となり、適合にすり替わらないことを確認する。 |
+
 ## トレーサビリティ表
 
 整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001 | 適合/違反の fixture と境界入力で「判定基準の正本」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-001 | 適合/違反の fixture と境界入力で「判定基準の正本」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001 | 適合/違反の fixture と境界入力で「判定基準の正本」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002 | 適合/違反の fixture と境界入力で「判定の単位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002 | 適合/違反の fixture と境界入力で「判定の単位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-002 | 適合/違反の fixture と境界入力で「判定の単位」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-003 | 適合/違反の fixture と境界入力で「適用の判定表」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-003 | 適合/違反の fixture と境界入力で「適用の判定表」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-028 | SP-BPCONFORMANCE-003 | 適合/違反の fixture と境界入力で「適用の判定表」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-046 | SP-BPCONFORMANCE-003 | 適合/違反の fixture と境界入力で「適用の判定表」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPCONFORMANCE-003 | 適合/違反の fixture と境界入力で「適用の判定表」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-003 | 適合/違反の fixture と境界入力で「適用の判定表」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-051 | SP-BPCONFORMANCE-041 | 適合/違反の fixture と境界入力で「判断点の表の照合」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-004 | 適合/違反の fixture と境界入力で「形の判定の順序」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-005 | 適合/違反の fixture と境界入力で「探索グラフの適用条件」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | 適合/違反の fixture と境界入力で「重い形を強いた条件の記録」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-007 | 適合/違反の fixture と境界入力で「Workflow にしない判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-008 | 適合/違反の fixture と境界入力で「部品による組み立て」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-009 | 適合/違反の fixture と境界入力で「資産台帳の要否」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-028 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-029 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-032 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-034 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-035 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-036 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-040 | SP-BPCONFORMANCE-039 | 適合/違反の fixture と境界入力で「run の記録の判定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-029 | SP-BPCONFORMANCE-040 | 適合/違反の fixture と境界入力で「run の記録の置き場」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-010 | 適合/違反の fixture と境界入力で「目標の固定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | 適合/違反の fixture と境界入力で「目標の固定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-011 | 適合/違反の fixture と境界入力で「停止・再開と人間の入力」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012 | 適合/違反の fixture と境界入力で「体数と同時実行」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013 | 適合/違反の fixture と境界入力で「モデル・effort・prompt」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | 適合/違反の fixture と境界入力で「権限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015 | 適合/違反の fixture と境界入力で「探索グラフ」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-034 | 適合/違反の fixture と境界入力で「実行役の時間の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016 | 適合/違反の fixture と境界入力で「状態の書き込み」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | 適合/違反の fixture と境界入力で「資産台帳の原則」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-018 | 適合/違反の fixture と境界入力で「判定の範囲と結果の宣言」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-018 | 適合/違反の fixture と境界入力で「判定の範囲と結果の宣言」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 適合/違反の fixture と境界入力で「役ごとの制限の確かめ方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-046 | SP-BPCONFORMANCE-019 | 適合/違反の fixture と境界入力で「役ごとの制限の確かめ方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-020 | 適合/違反の fixture と境界入力で「確かめられなかった制限の報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | 適合/違反の fixture と境界入力で「確かめられなかった制限の報告」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-021 | 適合/違反の fixture と境界入力で「起動数の上限の受け取り」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-037 | 適合/違反の fixture と境界入力で「起動数の上限の入力が不正なとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-022 | 適合/違反の fixture と境界入力で「上限を渡された run の起動数」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-023 | 適合/違反の fixture と境界入力で「上限に収まらない項目」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-024 | 適合/違反の fixture と境界入力で「残した項目からの再開」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-021 | SP-BPCONFORMANCE-025 | 適合/違反の fixture と境界入力で「上限を渡されない run」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPCONFORMANCE-026 | 適合/違反の fixture と境界入力で「callsite の経路と上限の受け渡し」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-027 | 適合/違反の fixture と境界入力で「同時実行の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-027 | 適合/違反の fixture と境界入力で「同時実行の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028 | 適合/違反の fixture と境界入力で「until-pass の繰り返しの上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-011 | SP-BPCONFORMANCE-029 | 適合/違反の fixture と境界入力で「固定集合の反復型の反復の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-029 | 適合/違反の fixture と境界入力で「固定集合の反復型の反復の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-030 | 適合/違反の fixture と境界入力で「探索グラフの周の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-030 | 適合/違反の fixture と境界入力で「探索グラフの周の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-031 | 適合/違反の fixture と境界入力で「同じ意図の試行の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-031 | 適合/違反の fixture と境界入力で「同じ意図の試行の上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-032 | 適合/違反の fixture と境界入力で「乾きの定義と乾き停止」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-032 | 適合/違反の fixture と境界入力で「乾きの定義と乾き停止」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-033 | 適合/違反の fixture と境界入力で「要約の大きさの上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-033 | 適合/違反の fixture と境界入力で「要約の大きさの上限」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-035 | 適合/違反の fixture と境界入力で「役ごとのモデルと effort の指定」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-036 | 適合/違反の fixture と境界入力で「確定値の置き方」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-038 | 適合/違反の fixture と境界入力で「判定の単位を判定できないとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-038 | 適合/違反の fixture と境界入力で「判定の単位を判定できないとき」の本項の条件と観測結果を照合する。意味の判定は本物の agent の試走で別に確認する | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001 | [検証方法](#検証方法) の SP-BPCONFORMANCE-001 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-001 | [検証方法](#検証方法) の SP-BPCONFORMANCE-001 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001 | [検証方法](#検証方法) の SP-BPCONFORMANCE-001 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002 | [検証方法](#検証方法) の SP-BPCONFORMANCE-002 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002 | [検証方法](#検証方法) の SP-BPCONFORMANCE-002 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-002 | [検証方法](#検証方法) の SP-BPCONFORMANCE-002 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-003 | [検証方法](#検証方法) の SP-BPCONFORMANCE-003 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-003 | [検証方法](#検証方法) の SP-BPCONFORMANCE-003 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-028 | SP-BPCONFORMANCE-003 | [検証方法](#検証方法) の SP-BPCONFORMANCE-003 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-046 | SP-BPCONFORMANCE-003 | [検証方法](#検証方法) の SP-BPCONFORMANCE-003 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPCONFORMANCE-003 | [検証方法](#検証方法) の SP-BPCONFORMANCE-003 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-003 | [検証方法](#検証方法) の SP-BPCONFORMANCE-003 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-051 | SP-BPCONFORMANCE-041 | [検証方法](#検証方法) の SP-BPCONFORMANCE-041 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-004 | [検証方法](#検証方法) の SP-BPCONFORMANCE-004 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-005 | [検証方法](#検証方法) の SP-BPCONFORMANCE-005 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | [検証方法](#検証方法) の SP-BPCONFORMANCE-006 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-007 | [検証方法](#検証方法) の SP-BPCONFORMANCE-007 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-008 | [検証方法](#検証方法) の SP-BPCONFORMANCE-008 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-009 | [検証方法](#検証方法) の SP-BPCONFORMANCE-009 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-028 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-029 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-032 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-034 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-035 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-036 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-040 | SP-BPCONFORMANCE-039 | [検証方法](#検証方法) の SP-BPCONFORMANCE-039 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-029 | SP-BPCONFORMANCE-040 | [検証方法](#検証方法) の SP-BPCONFORMANCE-040 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-010 | [検証方法](#検証方法) の SP-BPCONFORMANCE-010 行 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | [検証方法](#検証方法) の SP-BPCONFORMANCE-010 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-011 | [検証方法](#検証方法) の SP-BPCONFORMANCE-011 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012 | [検証方法](#検証方法) の SP-BPCONFORMANCE-012 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013 | [検証方法](#検証方法) の SP-BPCONFORMANCE-013 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | [検証方法](#検証方法) の SP-BPCONFORMANCE-014 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015 | [検証方法](#検証方法) の SP-BPCONFORMANCE-015 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-034 | [検証方法](#検証方法) の SP-BPCONFORMANCE-034 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016 | [検証方法](#検証方法) の SP-BPCONFORMANCE-016 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | [検証方法](#検証方法) の SP-BPCONFORMANCE-017 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-018 | [検証方法](#検証方法) の SP-BPCONFORMANCE-018 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-018 | [検証方法](#検証方法) の SP-BPCONFORMANCE-018 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | [検証方法](#検証方法) の SP-BPCONFORMANCE-019 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-046 | SP-BPCONFORMANCE-019 | [検証方法](#検証方法) の SP-BPCONFORMANCE-019 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-020 | [検証方法](#検証方法) の SP-BPCONFORMANCE-020 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | [検証方法](#検証方法) の SP-BPCONFORMANCE-020 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-021 | [検証方法](#検証方法) の SP-BPCONFORMANCE-021 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-037 | [検証方法](#検証方法) の SP-BPCONFORMANCE-037 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-022 | [検証方法](#検証方法) の SP-BPCONFORMANCE-022 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-023 | [検証方法](#検証方法) の SP-BPCONFORMANCE-023 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-024 | [検証方法](#検証方法) の SP-BPCONFORMANCE-024 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-021 | SP-BPCONFORMANCE-025 | [検証方法](#検証方法) の SP-BPCONFORMANCE-025 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPCONFORMANCE-026 | [検証方法](#検証方法) の SP-BPCONFORMANCE-026 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-027 | [検証方法](#検証方法) の SP-BPCONFORMANCE-027 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-027 | [検証方法](#検証方法) の SP-BPCONFORMANCE-027 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028 | [検証方法](#検証方法) の SP-BPCONFORMANCE-028 行 | 未着手 |
+| PR-BPOPERATIONS-011 | SP-BPCONFORMANCE-029 | [検証方法](#検証方法) の SP-BPCONFORMANCE-029 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-029 | [検証方法](#検証方法) の SP-BPCONFORMANCE-029 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-030 | [検証方法](#検証方法) の SP-BPCONFORMANCE-030 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-030 | [検証方法](#検証方法) の SP-BPCONFORMANCE-030 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-031 | [検証方法](#検証方法) の SP-BPCONFORMANCE-031 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-031 | [検証方法](#検証方法) の SP-BPCONFORMANCE-031 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-032 | [検証方法](#検証方法) の SP-BPCONFORMANCE-032 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-032 | [検証方法](#検証方法) の SP-BPCONFORMANCE-032 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-033 | [検証方法](#検証方法) の SP-BPCONFORMANCE-033 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-033 | [検証方法](#検証方法) の SP-BPCONFORMANCE-033 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-035 | [検証方法](#検証方法) の SP-BPCONFORMANCE-035 行 | 未着手 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-036 | [検証方法](#検証方法) の SP-BPCONFORMANCE-036 行 | 未着手 |
+| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-038 | [検証方法](#検証方法) の SP-BPCONFORMANCE-038 行 | 未着手 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-038 | [検証方法](#検証方法) の SP-BPCONFORMANCE-038 行 | 未着手 |

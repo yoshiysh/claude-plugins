@@ -426,20 +426,21 @@ develop:review で置き換え、次を取り込む。
 
 **段 0 の範囲。** 「1 つのスキルに 1 つの形（または判定表の 1 つの行）を前提にする全ての箇所」と定義する。一覧で範囲を決めない。列挙は必ず漏れ、`make test` が落ちない経路（下の create・update の経路）の漏れは見つからない。段 0 の作業の最初に、create・update・review の 3 つの経路の入口から、形と判定表の行を運ぶ値を辿って、この定義に当たる箇所を探し直す。
 
-**定義に当たる箇所の例。** 見つけた手段：検証役と PR #176 の CI のレビューが、grep（語は `APPLICABILITY_QUESTIONS`・`applicability`・`shape`・`row`・`SHAPES`・「形の判定」・「最初に到達」）と該当の行の読み出しで挙げた。このうち `bp_author.js:265`・`:759`、`bp/units.mjs:109-125`、`bp/ops-inspect.mjs:99`・`:165`、`bp/ops-author.mjs:18`・`:234`、`bp_inspect.js:719-720`、`bp/constants.mjs:273`、`docs/specifications/bp-run.md:111` は、この文書を書く側も読んで確かめた。path の基点は 2 つ：`docs/`・`tests/` で始まるものはリポジトリ直下から、それ以外は `plugins/skill-creator/skills/skill-creator-best-practices/scripts/` から。
-- 要求：`docs/requirements/bp-designed-skill.md:20`・`:47`・`:50`・`:53`・`:56`（PR-001・002。形を 1 つ決める書き方）。
+**定義に当たる箇所の例。** 次は、3 つの経路の入口から形と適用行を辿る際の確認先である。検索語は `APPLICABILITY_QUESTIONS`・`applicability`・`shape`・`row`・`SHAPES`・「形の判定」・「最初に到達」を使う。文書は ID と責務、コードは symbol と責務を確認し、行番号やこの一覧だけで段 0 の範囲を閉じない。path の基点は、`docs/`・`tests/`・`tools/` で始まるものがリポジトリ直下、それ以外が `plugins/skill-creator/skills/skill-creator-best-practices/scripts/` である。
+
+- 要求：`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-001（形と部品の選択）、PR-BPDESIGNEDSKILL-002（重い形を選ぶ根拠）。
 - 仕様：
-  - `docs/specifications/bp-conformance.md` の用語の表（問い A・Q1・Q2・Q3、重い形）と SP-BPCONFORMANCE-003・004（形は最初に到達した 1 つ）、`:73-78`（SP-BPCONFORMANCE-006・007）、`:275`、`:294`
-  - `docs/specifications/bp-inspection.md:109`・`:113-121`（受理する並びの表）、`:123`、`:245`
-  - `docs/specifications/bp-run.md:111`（適用の判定は到達した形 1 つ）、`:593`（applicability の schema の `shape` が 1 つの値）
-  - `docs/specifications/bp-authoring.md:168`・`:231-232`・`:315`・`:571`
-- 両方の経路が通るコード：`bp/units.mjs:109-115`（`applicability()` の中で、判定表の行ごとに `form === SHAPES.turn` を見る。review からも、create・update の `bp/ops-author.mjs:18` の import と `:234` の `return { rows: applicability(ctx.criteriaDir) }` からも通る）。
-- review の経路のコード：`bp/constants.mjs:270` の `APPLICABILITY_QUESTIONS` と `bp_inspect.js:65` の写し、`bp/applicability.mjs`、`bp/ops-inspect.mjs:99`・`:165`（`shape` と `row` を 1 つずつ運ぶ）、`bp_inspect.js:719-720`。
-- create・update の経路のコード：`bp/ops-author.mjs:234`（判定表の行の一覧を返す）、`bp_author.js:265`（applicability の schema が `{row: integer}` の 1 つ）、`bp_author.js:759`（prompt が「当たる行を 1 つ選ぶ」）、`bp/units.mjs:122-125`（`checkConformance` が行 1 つで照らす）。この経路は問い A・Q を使わないので、W を足しても `make test` は落ちない。
-- テスト：`bp/applicability.test.mjs:16`、`bp/ops-inspect.test.mjs:274`、`APPLICABILITY_QUESTIONS` を読む `tests/bp-inspect-static.test.mjs`・`tests/bp-spelling.test.mjs`（リポジトリ直下）。
-- 写し：`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/` の要求・仕様の写し（同期の tool で更新する）。
-- 変えない見込みのもの：`bp/constants.mjs:273` の `SHAPES`（形の名前の集合は変わらない）。
-- 判定の模型の改め方（判定の単位を run の並びと各 run の組にする、`shape` を単位ごとの一覧にする）は、段 0 の要求・仕様で決める。この文書は改める必要と範囲だけを置く。
+  - `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-003・004（run の並びと各 run の適用と形）、006・007（重い形の根拠とターンごとの指揮）。
+  - `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006（適用判定の answers・runs と受理条件）、007（フローの判定）、024（返す適用判定）。
+  - `docs/specifications/bp-run.md` の SP-BPRUN-005（適用判定を含む論理的な状態）。内部 schema の形は実装の設計で決める。
+  - `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-012・017（作成時の形と適合判定）、021（判定単位の結果）、033（設計の説明の出力）。
+- 共通のコード：`bp/units.mjs` の `applicability()`（適用行の集合）と `checkConformance()`（適用単位の照合）。複数 run の行と判定の和を扱う責務を確認する。
+- review の経路：`bp/constants.mjs` の `APPLICABILITY_QUESTIONS`、`bp/applicability.mjs`、`bp/ops-inspect.mjs`、`bp_inspect.js`。問い・答え・適用判定の保存と検証役への配達が、run の並びと各 run を表せるかを確認する。
+- create・update の経路：`bp_author.js`、`bp/ops-author.mjs` と共通の単位照合。適合結果の schema・prompt・受理が、複数 run の適用と判定を欠かさず扱うかを確認する。
+- テスト：`bp/applicability.test.mjs`・`bp/ops-inspect.test.mjs` と、`tests/bp-inspect-static.test.mjs`・`tests/bp-spelling.test.mjs`。問い・適用・出力の受理境界を対象にし、古い段の表や内部操作の綴りを仕様の正本として固定しない。
+- 写し：`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/`。`tools/sync-bp-criteria.mjs` で正本と一致させる。
+- 形の名前の集合 `SHAPES` と、どの run に形を適用するかは別の責務である。名前を変えずに適用の単位を改められる。
+- 判定の模型は上記の要求・仕様を正本とし、この文書では改める必要と探索する責務だけを持つ。
 
 **検証の担い手。** 生成と検証を分ける。改稿は bp update の builder が行う。合否は、決定的なテスト（`make test`）、bp review、生成者と別の fresh な監査が持つ。司令塔は改稿しない。
 - bp review は段 1b の終わりと、各段で develop を直した後に毎回かける。

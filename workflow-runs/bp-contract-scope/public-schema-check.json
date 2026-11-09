@@ -1,5 +1,5 @@
 {
-  "method": "Lexical presence in the public interface section; expected fields transcribed from HEAD public tables and the report output delegated by those tables. This checks presence only, not behavior, type semantics, or complete equivalence.",
+  "method": "Lexical presence in each declared public contract item; expected keys retained from the historical public tables. Checks presence only, not behavior, type semantics, or complete equivalence.",
   "checks": [
     {
       "path": "docs/specifications/bp-entry.md",
@@ -238,5 +238,30 @@
       ]
     ],
     "matches": true
+  },
+  "pr213": {
+    "source_hashes": [
+      {
+        "path": "docs/specifications/bp-authoring.md",
+        "sha256": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4"
+      },
+      {
+        "path": "docs/specifications/bp-entry.md",
+        "sha256": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82"
+      },
+      {
+        "path": "docs/specifications/bp-findings.md",
+        "sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c"
+      },
+      {
+        "path": "docs/specifications/bp-inspection.md",
+        "sha256": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b"
+      },
+      {
+        "path": "docs/specifications/bp-run.md",
+        "sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+      }
+    ],
+    "scope": "Current declared SP item text, including callsite and recovery contracts outside the external-interface chapter; lexical presence only."
   }
 }

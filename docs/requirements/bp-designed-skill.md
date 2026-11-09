@@ -26,6 +26,12 @@
 - 配布先は Claude Code と Codex（Codex runner）である。host によって制限を確認・強制できる範囲が異なる。
 - 外から観測する条件・結果と検証方法は [bp-conformance.md](../specifications/bp-conformance.md) などの BP 仕様が具体化する。
 
+## リスクと影響
+
+| ID | 観点 | 判定 | 根拠 |
+|---|---|---|---|
+| RK-002 | 外部システムとの連携 | 該当 | 配布先の host によって役ごとの制限を確認・強制できる範囲と Codex runner の制約が異なる。実効性と未確認の範囲を区別する必要がある（PR-BPDESIGNEDSKILL-014・015・046） |
+
 ## 要求一覧
 
 ### 目的に合う形と設計制約
