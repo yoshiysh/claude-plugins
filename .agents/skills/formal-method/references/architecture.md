@@ -205,7 +205,14 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 - `run-daemon` は batch ごとに `batches/<batch_id>/tasks.json` を書く。各 task は `task_id`・`role`・`model`・`effort`・`prompt`・`output_schema`・`attempt_dir`・`return_path` を持つ。
 - prompt の全文は attempt の領域の `task.md` に置き、Workflow へは「その file を読む」短い指示だけを渡す（旧 `makeTask` を流用）。司令塔が長い本文を写す経路を作らないためである。
-- 役ごとの model・effort の正本は `scripts/lib/roles.mjs` の 1 箇所とする。
+- 役ごとの model・effort の正本は `scripts/lib/roles.mjs` の 1 箇所とする。担当に与える権限（台帳の `permissions`）の正本も同じ module の `AGENT_PERMISSIONS`（`["fresh-thread", "workspace-write"]`）とする。
+  - Workflow script（`scripts/formal-method-agents.js`）は CLI の module を import できないので、`meta.requirements` に同じ値を書く。一致は unit（`scripts/lib/roles.test.mjs`）が照らす。`AGENT_PERMISSIONS` は import する。Workflow script は import せず、ファイルの本文を次の規則で読む。
+    1. `meta` の範囲は、行頭の `export const meta = {` の行から、次の `}` だけの行まで。
+    2. その範囲の行のうち、`^\s*requirements:\s*\[([^\]]*)\],?\s*$` に当たる行がちょうど 1 つある。
+    3. 捕まえた中身を `,` で分け、各要素の前後の空白を除いたものが全て `^'[a-z-]+'$` に当たる。引用符を除いた並びを値とする。
+    4. 1〜3 のどれかが成り立たなければ不一致とする。値が `AGENT_PERMISSIONS` と順も含めて等しいときだけ一致とする。
+  - 理由（import しない）: import すると本文が実行され、ホストの global（`args`・`agent` など）が無いので落ちる。
+  - 理由: 台帳の値が Workflow script の宣言と食い違わないようにする。実際に起動した担当の権限との一致は保証しない（ホストが宣言どおりに与えたかを CLI は観測できない）。
   - 理由: `agent-work.md`「検証の入力と証拠を絞る」が、fan-out の agent ごとの明示を求める。
   - 照合が主の役（抽出の検証者・合成の検証者）は、中位のモデルにする。
   - 意味の判断が重い役（モデル作成役・忠実さの検証者・保証の検証者・原因の分類役）は、上位のモデルにする。
@@ -769,7 +776,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | adapt | `lib/checks/plan.mjs` の planCheck | 再試行・再利用を消し、並列の設定を含む query を拒む |
 | adapt | `lib/checks/det.mjs` | 構文・出力の形式を同じ記録に集める。確認の unit に原因の分類（反例・組合せ・問い）を足す |
 | adapt | controller の makeTask・openBatch・collectTask・registerWorklog | `lib/agents.mjs` に移す。段の名前を新しい `STAGES` にする |
-| adapt | `lib/roles.mjs` | 新しい役の集合で作り直す |
+| adapt | `lib/roles.mjs` | 新しい役の集合で作り直す。`AGENT_PERMISSIONS` を持つ |
 | adapt | `stages.mjs` の fetchTarget と文書規約の固定 | `lib/intake.mjs` に移す |
 | adapt | `formal-method-cli.mjs` の main と probeEnvironment | コマンドを作り直す。能力の確認を、run の領域を作る前に行う |
 | adapt | Workflow script、agents の 8 文書、`agent-obligations.md`、`artifact-formats.md`、`formal-method-knowledge.md` | 参照する仕様の ID と値を直す。形の正本を `schemas.mjs` にする。旧状態機械の語を消す。counterexample-analyst は原因の分類役（反例・組合せ・問い）に作り直す |

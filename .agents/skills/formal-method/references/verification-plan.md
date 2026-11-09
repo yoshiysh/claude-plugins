@@ -18,7 +18,7 @@
 
 | 層 | 何を確かめるか | 置き場と入口 |
 |---|---|---|
-| unit | `scripts/lib/` の純粋関数（依頼の検査、判定の集約、照合、グラフの導出、同時に動かす数の決め方）の入出力と、作用の境界を引数で差し替えて呼ぶ内部の入口（`publishResult`・`runExecution`）の振る舞い | `scripts/lib/**/*.test.mjs`。`make test` |
+| unit | `scripts/lib/` の純粋関数（依頼の検査、判定の集約、照合、グラフの導出、同時に動かす数の決め方）の入出力と、作用の境界を引数で差し替えて呼ぶ内部の入口（`publishResult`・`runExecution`）の振る舞い。`roles.mjs` の `AGENT_PERMISSIONS` と Workflow script の `meta.requirements` の一致（`scripts/lib/roles.test.mjs`。読み方は設計の担当の起動） | `scripts/lib/**/*.test.mjs`。`make test` |
 | 結合 | `formal-method-cli.mjs` を本番と同じ入口（標準入力の JSON）から呼び、担当の代わりの harness と差し替えた道具（`PATH` に置く偽の z3）で、結果・記録・観測できる process を確かめる | `scripts/*.test.mjs`、`scripts/test-fixtures/`。`make test` |
 | eval | 実際の model で担当を動かしたときの意味の判断。抽出の網羅、意味の食い違いの発見、原因の分類、司令塔が判定を足さないこと | `evals/evals.json`（T が実装の前に仕様から作る）。skill-creator の eval |
 | 形式 | 判定の規則とオラクルの一致、run の進行と停止・排他の性質、要求の整合 | `tests/formal/formal-method-skill/`、`tests/formal/formal-method-spec/`、`tests/formal/formal-method-requirements/` |
@@ -221,6 +221,7 @@ PR-002・005〜007・014 は形式化しない。
 - 単体・結合のテスト（`scripts/**/*.test.mjs`、`tests/formal/formal-method-skill/*.test.mjs`）と、担当の代わりの harness（`scripts/test-fixtures/`）
 - `evals/evals.json`（AC-01・02・04・06・08 の意味の部分、司令塔が判定を足さないこと、発火の境界）
 - 構造の契約の走査（`run.lock` を消すのは `releaseOwnLock` だけ）
+- 結合の台帳の照合: `ledger.json`・`salvage-ledger.json` の全ての entry が全ての欄を持ち、producer ごとの model・effort・permissions が `artifact-formats.md` の記録台帳のとおりであること
 - 同梱の規約と正本の一致の検査
 - 次のケース（契約の変更で増えたもの）: `start` が `run-daemon` の生きている間に返り、`run-daemon` の出力が `start` の標準出力に混ざらないこと。形式化 の行で `check_ids` が空で `reason` を持つ結果（判定が `未確認`、SP-007 なら `未実行`）。契約の検査が `stop_report.checks_*` と `performance.executions` に `kind: contract` で出ること。mutation と replay の `-T` が元の検査の値であること。`-model` の下での `unknown`（モデルが続いても `unknown`）と、上限を超えるモデル（判定は `反例` のまま、replay は `確認できず`、切り詰めが `Check.reason` に出る）。答えの後のモデルを読んでいる間に期限が来た実行が、答えで判定され `stopped_by: null` になること。`(check-sat)` が最後の input の最後の form でない計画（変異を含む）が計画の欠陥になること。`selection` の `chosen.tool` が `z3` でない性質と、計画作成役が返らない run で、性質の判定が `未実行`・`未確認` に正しく分かれること
 - `tests/formal/formal-method-skill/z3_streams.py` の実測の場合に、`-model` を渡した `sat`・`unsat`・`unknown`・`timeout` と、`(check-sat)` の後の誤った form を足す（F が測り、契約の表と照らす）

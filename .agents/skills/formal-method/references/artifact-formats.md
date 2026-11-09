@@ -916,6 +916,9 @@ Ledger = {
 }
 ```
 
+- `model`・`effort`・`permissions` は `producer` で決まる。
+  - 担当の `task_id`: その task の `model`・`effort`（`tasks.json` の値）と、`permissions` = `scripts/lib/roles.mjs` の `AGENT_PERMISSIONS`（`["fresh-thread", "workspace-write"]`。Workflow の `meta.requirements` の値で、役によらず同じ）。
+  - `"cli"`・`"salvage"`: `model: null`・`effort: null`・`permissions: []`。理由: agent でなく、Workflow が与える権限を持たない。
 - 同じ内容を複数の記録に正本として書かない（PR-032）。判定の正本は結果、道具の生の入出力の正本は `checks/` の証拠で、台帳は参照と指紋を持つ。
 
 ## id と参照の一覧

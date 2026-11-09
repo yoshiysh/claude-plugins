@@ -14,6 +14,7 @@ import { specAggregate, DEFAULT_FACTS } from './test-fixtures/spec-verdict.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { writerMergeScc, stopStageViolations, deriveGraph, crossingEdges, INTERRUPTS } from './test-fixtures/decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './test-fixtures/constants.mjs';
+import { ledgerEntryViolations, tasksById, AGENT_PERMISSIONS_CONTRACT, LEDGER_ENTRY_KEYS } from './test-fixtures/ledger-check.mjs';
 
 const P = (id, line, over = {}) => ({ id, file: 'spec.md', line, statement: `性質 ${id}`, query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, ...over });
 const prop = (result, id) => result.properties.find((p) => p.id === id);
@@ -109,6 +110,36 @@ test('SP-FORMALMETHOD-014 AC-13: 完了の run の記録は台帳に参照と指
   const kinds = new Set(ledger.entries.map((e) => e.kind));
   for (const k of ['request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'plan', 'mutations', 'query', 'execution_evidence', 'worklog']) assert.ok(kinds.has(k), `台帳に ${k}`);
   assert.ok(!ledger.entries.some((e) => e.producer !== 'cli' && e.kind === 'ledger'), '担当は台帳を書かない（PR-BPDESIGNEDSKILL-030）');
+});
+
+test('artifact-formats 記録台帳 SP-FORMALMETHOD-014: 完了の run の台帳の全ての entry が 9 欄を持ち、担当の entry は tasks.json の model・effort と AGENT_PERMISSIONS、cli の entry は null・null・[]', async () => {
+  const { status, harness } = await canonicalRun();
+  const dir = status.run_dir;
+  const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
+  const tasks = tasksById(dir);
+  assert.ok(tasks.size >= 1 && harness.memory.tasks.every((x) => tasks.has(x.task_id)), 'harness が受けた task は tasks.json にある');
+  assert.deepEqual(ledgerEntryViolations(ledger, tasks), []);
+  assert.ok(ledger.entries.some((e) => e.producer === 'cli'), 'cli の entry がある');
+  assert.ok(ledger.entries.some((e) => tasks.has(e.producer)), '担当の entry がある（担当の成果物・作業記録）');
+});
+
+test('記録台帳の検査の自己検査: 欄の欠け・cli の権限・担当の model の違い・知らない producer を拒み、契約どおりの entry を受ける', () => {
+  const tasks = new Map([['t1', { task_id: 't1', model: 'm-high', effort: 'high' }]]);
+  const base = { kind: 'worklog', ref: 'worklogs/cli-受付.json', hash: `sha256:${'0'.repeat(64)}`, stage: '受付', input_refs: [] };
+  const cliE = { ...base, producer: 'cli', model: null, effort: null, permissions: [] };
+  const agentE = { ...base, producer: 't1', model: 'm-high', effort: 'high', permissions: [...AGENT_PERMISSIONS_CONTRACT] };
+  const ok = (es) => ledgerEntryViolations({ entries: es }, tasks);
+  assert.deepEqual(ok([cliE, agentE, { ...cliE, producer: 'salvage' }]), []);
+  for (const k of LEDGER_ENTRY_KEYS) { const e = { ...cliE }; delete e[k]; assert.equal(ok([e]).length, 1, `${k} の欠け`); }
+  assert.equal(ok([{ ...cliE, permissions: ['fresh-thread'] }]).length, 1);
+  assert.equal(ok([{ ...cliE, model: 'm' }]).length, 1);
+  assert.equal(ok([{ ...cliE, producer: 'salvage', effort: 'high' }]).length, 1, 'salvage の effort は null');
+  assert.equal(ledgerEntryViolations({}, tasks).length, 1, 'entries の無い台帳');
+  assert.deepEqual(ledgerEntryViolations({ entries: [] }, tasks), [], '空の entries は許す');
+  assert.equal(ok([{ ...agentE, model: 'm-low' }]).length, 1);
+  assert.equal(ok([{ ...agentE, effort: 'low' }]).length, 1);
+  assert.equal(ok([{ ...agentE, permissions: ['workspace-write', 'fresh-thread'] }]).length, 1, '順の違い');
+  assert.equal(ok([{ ...agentE, producer: 't9' }]).length, 1);
 });
 
 test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-028・042: 決定的な処理の作業記録が段ごとにあり、適用した文書の規約の版と不変の写しを指す', async () => {

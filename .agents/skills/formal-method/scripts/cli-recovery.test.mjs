@@ -13,6 +13,7 @@ import { makeFakeBin, pathWithFake } from './test-fixtures/make-fake-bin.mjs';
 import { fileHash, snapshotTree, liveIdentity, makeRunDir, writeLock, writeStatus, statusOf } from './test-fixtures/fabricate.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
+import { ledgerEntryViolations, tasksById } from './test-fixtures/ledger-check.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; } };
@@ -70,6 +71,11 @@ test('cli-contract salvage 4・5 SP-FORMALMETHOD-015 AC-19: 保持者が死ん�
   assert.equal(ledger.kind, 'salvage');
   assert.equal(ledger.registered_result_hash, fileHash(join(dir, 'result.json')), '公開した結果の指紋が追補台帳に載る');
   assert.ok(r.records.ledger_refs.includes('salvage-ledger.json'));
+  // 台帳の entry の欄（artifact-formats「記録台帳」）: salvage の追補台帳と、あれば run-daemon の台帳
+  const tasks = tasksById(dir);
+  assert.ok(tasks.size >= 1, '担当を待っていた run には tasks.json がある');
+  assert.deepEqual(ledgerEntryViolations(ledger, tasks), [], 'salvage-ledger.json の entry');
+  if (existsSync(join(dir, 'ledger.json'))) assert.deepEqual(ledgerEntryViolations(JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8')), tasks), [], 'ledger.json の entry');
   const wl = JSON.parse(readFileSync(join(dir, 'salvage-worklog.json'), 'utf8'));
   assert.equal(wl.role, 'salvage');
   assert.equal(wl.stage, '集約');
