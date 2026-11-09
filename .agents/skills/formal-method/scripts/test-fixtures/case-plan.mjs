@@ -58,7 +58,8 @@ export const CASE_PLAN = {
       { id: 'cli-pipeline:-model と -T の実行の種類ごとの値', layer: 'auto' }],
     recovery: [{ id: 'cli-pipeline:独立な検査は最後まで動く（D1）', layer: 'auto' }],
     error: [{ id: 'cli-pipeline:常に成功を返す道具', layer: 'auto' }, { id: 'cli-pipeline:証人を読めない（モデルなし・形に合わない・固定できない・2 行・上限超え・stdout.txt の秘密値）', layer: 'auto' }],
-    boundary: [{ id: 'verdict-oracle:End の全 360 通り', layer: 'auto' }, { id: 'cli-pipeline:外からの照合', layer: 'auto' }, { id: 'result-schema:検査の kind と計画との照合の自己検査', layer: 'auto' }, { id: 'fake-z3:-model の出力の形の自己検査', layer: 'auto' }],
+    boundary: [{ id: 'verdict-oracle:End の全 360 通り', layer: 'auto' }, { id: 'cli-pipeline:外からの照合', layer: 'auto' }, { id: 'result-schema:検査の kind と計画との照合の自己検査', layer: 'auto' }, { id: 'fake-z3:-model の出力の形の自己検査', layer: 'auto' },
+      { id: 'scheduler:close・期限・停止の要求・出力の上限の順と答えの後の停止（runExecution）', layer: 'auto' }],
   },
   'AC-10': {
     normal: [{ id: 'cli-recovery:ps の標本で同時に複数', layer: 'auto' }],
@@ -94,7 +95,9 @@ export const CASE_PLAN = {
   'AC-19': {
     normal: [{ id: 'cli-pipeline:段の分かっている処理の失敗', layer: 'auto' }],
     recovery: [{ id: 'cli-recovery:salvage の 処理の中断', layer: 'auto' }],
-    error: [{ id: 'cli-pipeline:担当の失敗（返り値が無い・形が違う・cannot_proceed）× 抽出・モデル・計画', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline:担当の失敗（返り値が無い・形が違う・cannot_proceed）× 抽出・モデル・計画', layer: 'auto' },
+      { id: 'cli-pipeline:受け箱の batch の拒否（受け箱の読めない・JSON でない・形・batch_id、Workflow の返り値の読めない・形・batch_id・received・task の集合、timed_out・期限の後・未公開）', layer: 'auto' },
+      { id: 'cli-pipeline:照合役（5 観点）と原因の分類役の失敗（返らない・形が違う）は 確認できず の確認・原因未確認 の原因', layer: 'auto' }],
     boundary: [{ id: 'cli-pipeline:道具が無い（計画）・実行失敗（実行）・集約の条件だけ', layer: 'auto' }, { id: 'decomposition-check:停止の段の規則の自己検査', layer: 'auto' }, { id: 'cli-recovery:集約の段で公開できない（保存の失敗 は 集約）', layer: 'auto' }],
   },
   'AC-21': {

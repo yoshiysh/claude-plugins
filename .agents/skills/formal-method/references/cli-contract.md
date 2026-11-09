@@ -130,9 +130,15 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
   - `run_dir` に `status.json` が無いか、`batch_id` が `status.json` の開いている batch と違っても、公開はする。`run-daemon` が読むかは `run-daemon` が決める。
 - 受け箱の中身は `{"batch_id": string, "workflow_output_path": string}` 又は `{"batch_id": string, "timed_out": true}`。
 - `run-daemon` は、開いている batch の受け箱だけを読む。
-  - 読めない、JSON でない、上の形に合わない、`batch_id` が違う、`workflow_output_path` のファイルを読めない、又はその中身が [Workflow の返り値](artifact-formats.md#workflow-の返り値) の形に合わない場合、その batch の返り値を全て使わない。その batch の項目は `未確認` の扱いになり、理由が作業記録と結果に残る。
+  - 次のどれかに当たれば、**batch の拒否**とし、その batch の全ての task の返り値を使わず、成功に数えない。
+    - 受け箱を読めない、JSON でない、上の形に合わない、`batch_id` が違う。
+    - `timed_out: true` である。
+    - `run-daemon` が受け箱を読んだ時刻が `deadline_wall_ms` 以上である。期限との比較は batch につき 1 回、受け箱を読んだ時点だけで行い、各 `return_path` を読んだ時刻とは比べない。
+    - 期限（`deadline_wall_ms`）までに受け箱が公開されなかった（`run-daemon` が期限で batch を閉じた）。
+    - `workflow_output_path` のファイルを読めないか、その中身が [Workflow の返り値](artifact-formats.md#workflow-の返り値) の形に合わないか、その `batch_id` が開いている batch と違うか、`received` か `results` の task の集合が `tasks.json` と違う。
+  - batch の拒否では、その batch の全ての task を、[担当の返り値](artifact-formats.md#担当の返り値)の「成功に数えない」場合として扱う。task ごとに停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録し、`detail` に `batch_id`・`task_id`・拒否の原因を書く。作業記録は task ごとに、その task の `context.stage` の `worklogs/cli-<context.stage>.json` の `failures` に、`batch_id`・`task_id`・拒否の原因を 1 件ずつ書く（段の異なる task を含む batch では、複数の段の作業記録に分かれる）。
+    - 理由: 停止の報告の段が、失敗した処理の段と一致する（AC-19）。理由を batch に 1 件でなく task ごとに置くのは、既存の task 単位の `担当の失敗` と段の表（task の `context.stage`）にそのまま乗り、「batch の task は全て同じ段」という契約に無い前提を要らなくするためである。未作成の成果物と `未確認` の項目も task ごとに決まる。
   - 1 batch に受け箱は 1 つだけで、作り直しは受け付けない。
-  - `timed_out: true` か `deadline_wall_ms` を過ぎた後に読んだ返り値は、成功に数えない。
   - 担当の結論は、Workflow の返り値でなく、各 task の `return_path` を `run-daemon` が読んで得る。Workflow の返り値は、起動した task の値の照合にだけ使う。
 
 ## 生死の判定
@@ -267,7 +273,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 ### unit の入口（内部）
 
-次の 2 つは、unit で判断と作用を確かめるための**内部の入口**である。依頼元から見える入力の口ではない（CLI のコマンドとしては公開せず、依頼の内容を変えない）。テストは module を直接 import して呼ぶ。
+次の 2 つは、unit で判断と作用を確かめるための**内部の入口**である（scheduler の入口 `runExecution` は `architecture.md` の「期限と道具の終わりが重なったとき」に置く）。依頼元から見える入力の口ではない（CLI のコマンドとしては公開せず、依頼の内容を変えない）。テストは module を直接 import して呼ぶ。
 
 **1. `start` の判断**: `scripts/lib/start.mjs` の `decideStartOutcome(observation)`（純粋関数）
 

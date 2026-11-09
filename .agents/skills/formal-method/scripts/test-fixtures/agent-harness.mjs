@@ -2,10 +2,10 @@
 // artifact-formats.md の「担当の成果物」「担当の返り値」「task の一覧」「作業記録」の形だけで返り値を書き、submit する。
 // task から読むのは Task と TaskContext の欄だけ（unit_id・perspective・candidates・stage・run_dir・target_id）。
 // 受け取った task が契約の形（task.md の 4 つの見出し、役ごとの context）に合わなければ、その違反で失敗する。
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, mkdtempSync, chmodSync, linkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { cli, expectOk } from './cli-runner.mjs';
 import { deriveGraph, crossingEdges } from './decomposition-check.mjs';
@@ -78,6 +78,7 @@ export function defaultScenario(over = {}) {
     reviews: {},            // perspective → '成り立つ' | '成り立たない' | '確認できず'
     cause: { cause: '対象が性質を満たさない', grounds: 'モデルは出所を正しく表し、対象が性質に反する', questions: [] },
     returns: {},            // role → 'missing' | 'cannot_proceed' | 'bad_shape' | 'error'
+    returnsByPerspective: {}, // perspective → 'missing' | 'bad_shape'（returns より先に見る）
     mapping: {},            // property id → relation（既定 形式化）
     claim: null,            // null | 'match' | 'mismatch'（AC-12: z3 が Rust より速いという主張と、比べる条件）
     partition: null,        // (context.candidates, put, { graph, crossing, round }) → PartitionsFile の部分（AC-07）
@@ -276,8 +277,31 @@ function causeReturn(task, s) {
     record_ref: runRef(task, 'cause.json'), worklog_ref: runRef(task, 'worklog.json') };
 }
 
+// hooks.reject(status, list) → null | 拒否の型。型ごとに cli-contract「受け箱」の batch の拒否の条件の 1 つに当たる。
+//   wf_batch_id: Workflow の返り値の batch_id が開いている batch と違う。received: received の値が tasks.json と違う。
+//   set_missing・set_extra: results の task の集合が tasks と違う（欠ける・余分）。timed_out: 受け箱が timed_out: true。
+//   late: 期限の後に公開する。no_submit: 公開しない（run-daemon が期限で batch を閉じる）。
+//   wf_shape: Workflow の返り値が形に合わない（results が配列でない。submit は中身を読まないので submit で公開する）。
+//   受け箱そのものの不備は submit の入力の検査（cli-intake の shape）を通らないので、harness が submit と同じ手順
+//   （inbox/.tmp-* に書いて inbox/<batch_id>.json へ link）で直接公開する:
+//   inbox_unreadable: 読めれば受け付ける中身の、権限 000 のファイル（root では読めてしまうので、使うテストは root で skip する）。inbox_not_json: JSON でない。
+//   inbox_shape: workflow_output_path も timed_out も無い。inbox_batch_id: 中身の batch_id が違う。
+//   wf_unreadable: workflow_output_path が存在しないファイルを指す。
+export const REJECT_MODES = ['wf_batch_id', 'received', 'set_missing', 'set_extra', 'timed_out', 'late', 'no_submit',
+  'wf_shape', 'inbox_unreadable', 'inbox_not_json', 'inbox_shape', 'inbox_batch_id', 'wf_unreadable'];
+// submit と同じ手順で受け箱を公開する（一時ファイルに書いてから link するので、書きかけは見えない）
+function publishInbox(runDir, batchId, text, mode = 0o644) {
+  const inbox = join(runDir, 'inbox');
+  mkdirSync(inbox, { recursive: true });
+  const tmp = join(inbox, `.tmp-harness-${randomBytes(8).toString('hex')}`);
+  writeFileSync(tmp, text);
+  chmodSync(tmp, mode);
+  linkSync(tmp, join(inbox, `${batchId}.json`));
+  unlinkSync(tmp);
+}
+const LATE_MARGIN_MS = 1000;
 export function makeHarness(scenario, hooks = {}) {
-  const memory = { byRole: {}, rounds: {}, tasks: [], batches: [], violations: [], partition: null, models: [] };
+  const memory = { byRole: {}, rounds: {}, tasks: [], batches: [], violations: [], partition: null, models: [], rejected: [] };
   const wfDir = mkdtempSync(join(tmpdir(), 'fm-wf-'));
   async function onAgents(status, opts = {}) {
     const list = readJson(status.batch.tasks_path);
@@ -289,7 +313,8 @@ export function makeHarness(scenario, hooks = {}) {
       memory.byRole[task.role] = task;
       memory.rounds[task.role] = (memory.rounds[task.role] ?? 0) + 1;
       memory.violations.push(...taskViolations(task, status.run_dir, memory));
-      const mode = scenario.returns[task.role];
+      // 観点ごとの失敗（assurance-reviewer は nonformal と assurance の 2 観点を持つので、役でなく観点で選べるようにする）
+      const mode = (task.context.perspective && scenario.returnsByPerspective[task.context.perspective]) || scenario.returns[task.role];
       const received = { task_id: task.task_id, prompt: task.prompt, model: task.model, effort: task.effort, output_schema: task.output_schema };
       write(task, 'worklog.json', worklog(task));
       if (mode === 'missing') { results.push({ task_id: task.task_id, status: 'missing', received }); continue; }
@@ -309,8 +334,47 @@ export function makeHarness(scenario, hooks = {}) {
     }
     assert.deepEqual(memory.violations, [], 'run-daemon が出した task が契約（task.md の形・役と context）に合う');
     if (hooks.beforeSubmit) await hooks.beforeSubmit(status, list);
+    // batch の拒否（cli-contract「受け箱」）を起こす口。返り値は上のとおり全て書いたうえで、受け箱か Workflow の返り値だけを崩す。
+    const reject = hooks.reject ? hooks.reject(status, list) : null;
+    if (reject) {
+      assert.ok(REJECT_MODES.includes(reject), `harness の拒否の型 ${reject}`);
+      memory.rejected.push({ mode: reject, list });
+    }
+    if (reject === 'no_submit') return;
+    if (reject === 'late') {
+      // 期限（deadline_wall_ms）を過ぎてから公開する。待つ間に run-daemon が期限で batch を閉じても、どちらも batch の拒否である
+      while (Date.now() < list.deadline_wall_ms + LATE_MARGIN_MS) await new Promise((r) => setTimeout(r, 100));
+    }
+    if (reject === 'timed_out') {
+      expectOk(await cli('submit', { run_dir: status.run_dir, batch_id: list.batch_id, timed_out: true }, opts), 'submit');
+      return;
+    }
     const wf = join(wfDir, `${list.batch_id}.json`);
-    writeFileSync(wf, JSON.stringify({ batch_id: list.batch_id, results }));
+    const inboxModes = {
+      // 読めれば受け付ける中身にして、読めないことだけを拒否の原因にする
+      inbox_unreadable: () => {
+        writeFileSync(wf, JSON.stringify({ batch_id: list.batch_id, results }));
+        publishInbox(status.run_dir, list.batch_id, JSON.stringify({ batch_id: list.batch_id, workflow_output_path: wf }), 0o000);
+      },
+      inbox_not_json: () => publishInbox(status.run_dir, list.batch_id, '{"batch_id": '),
+      inbox_shape: () => publishInbox(status.run_dir, list.batch_id, JSON.stringify({ batch_id: list.batch_id })),
+      inbox_batch_id: () => {
+        writeFileSync(wf, JSON.stringify({ batch_id: list.batch_id, results }));
+        publishInbox(status.run_dir, list.batch_id, JSON.stringify({ batch_id: `${list.batch_id}-other`, workflow_output_path: wf }));
+      },
+      wf_unreadable: () => publishInbox(status.run_dir, list.batch_id, JSON.stringify({ batch_id: list.batch_id, workflow_output_path: join(wfDir, `${list.batch_id}-missing.json`) })),
+    };
+    if (inboxModes[reject]) { inboxModes[reject](); return; }
+    let output = { batch_id: list.batch_id, results };
+    if (reject === 'wf_shape') output = { batch_id: list.batch_id, results: 'not-an-array' };
+    if (reject === 'wf_batch_id') output = { ...output, batch_id: `${list.batch_id}-other` };
+    if (reject === 'received') output = { ...output, results: results.map((r, i) => (i === 0 ? { ...r, received: { ...r.received, effort: `${r.received.effort}-changed` } } : r)) };
+    if (reject === 'set_missing') output = { ...output, results: results.slice(1) };
+    if (reject === 'set_extra') {
+      const extra = { ...results[0], task_id: `${results[0].task_id}-extra`, received: { ...results[0].received, task_id: `${results[0].task_id}-extra` } };
+      output = { ...output, results: [...results, extra] };
+    }
+    writeFileSync(wf, JSON.stringify(output));
     expectOk(await cli('submit', { run_dir: status.run_dir, batch_id: list.batch_id, workflow_output_path: wf }, opts), 'submit');
   }
   return { onAgents, memory };

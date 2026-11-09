@@ -445,6 +445,23 @@ Confirmation = {
 ```
 
 - `deterministic` と `meaning` は別の配列で、一方の `成り立つ` を他方の代わりにしない（SP-012）。
+- **意味の確認の作り方**: 意味の確認は、`context.perspective` が非 null の task（抽出・形式化でない確認・忠実さ・保証・合成の検証者。原因の分類役は含まない）ごとに、CLI が `confirmations.meaning` に 1 つ作る。
+  - 共通の欄: `kind` = `context.perspective`、`item` = `unit_id`、`checker` = その `task_id`、`plan_id: null`、`end: null`、`materials` = `context.input_refs` の各 `ref` と、各 ref が指すファイルの、`tasks.json` を書く前に取った指紋（`run-daemon` が控え、後で取り直さない）。`property_ids`・`model_property_id` は下の表の「関わる性質」。
+  - 正常に返ったとき: `result` は `ReviewReturn.result`、`reason` は空でない文。
+  - task が `担当の失敗` になったとき（[担当の返り値](#担当の返り値)。batch の拒否を含む）: `result: "確認できず"`、`reason` は停止の理由 `担当の失敗` の `detail` と同じ文。返り値は使わない。理由: 確認を作らないと、確かめるはずだった unit が結果から消え、「確認が要らなかった」と区別できない。`Confirmation.result` に `未確認` の値は無く、確かめられなかったことは `確認できず` で表す。
+  - `result` が `確認できず` の意味の確認は、`unverified[]` にも `item` = `unit_id`、`reason` = 同じ文で写す。正本は `Confirmation` である（`unverified[]` は SP-003 の未検証・未確認の欄として機械的に読むための写し）。`stop_report` があれば、`unconfirmed_scope` に `unit_id` が入る。
+- **意味の確認から判定の入力への写し**（正常と失敗で共通。「全て成り立つ」は、その欄に関わる確認が 1 つ以上あって全て `成り立つ` のとき）
+
+  | 観点 | 関わる性質（`Confirmation.property_ids`・`model_property_id`） | 結果で決まる欄 | 成り立たないとき（失敗を含む）の性質の判定 |
+  |---|---|---|---|
+  | `extraction` | 無し（`[]`・null） | `extraction_coverage.complete`（全ての `extraction` の確認が成り立つときだけ true になりうる） | 性質の判定には写さない。`confirmations_unresolved` で完了を妨げる |
+  | `nonformal` | `context.property_ids`・null | その性質の `alternative_confirmed` | `成功` でない検査があれば段 1 の値。無ければ段 3 で値を返さず、段 5 の `未確認` |
+  | `fidelity` | `model_id` のモデルの全ての性質の `inventory_property_ids` の和（重複なし、辞書順）・null | その性質の `meaning_confirmed` | 下の注 |
+  | `assurance` | `context.property_ids`・`unit_id` の `assurance-` の後の id | その性質の `meaning_confirmed` | 下の注 |
+  | `composition` | 無し（`[]`・null） | 全ての契約の `meaning_confirmed`（[契約の判定](#分割と合成sp-008009)） | 契約が `検証済み` にならず、親の性質は合成の条件（SP-009）が成り立たない。下の注 |
+
+  - inventory の性質の `meaning_confirmed` は、その性質を `property_ids` に含む `fidelity` の確認と `assurance` の確認がそれぞれ 1 つ以上あり、それらが全て `成り立つ` ときだけ true である。
+  - 注（形式化できる性質）: 検査が 1 件以上あって全て `成功` なら、段 2 の条件が成り立たず段 5 の `未確認`。`成功` でない検査があれば段 1 の値。検査が 0 件なら段 4 か段 5 で、確認の結果によらない。
 
 ### 記録（SP-014）
 
@@ -609,7 +626,7 @@ PropertyFacts = {
 ```text
 GlobalFacts = {
   required_verdicts: [[Verdict]+],         // 必要な性質ごとの判定の集合
-  confirmations_unresolved: boolean,       // SP-012 の確認に未実行・失敗・未確認が残る
+  confirmations_unresolved: boolean,       // confirmations.deterministic か confirmations.meaning に result が 成り立つ でない要素が 1 つ以上ある（SP-012 の未実行・失敗・未確認）
   uncovered_combinations: int≥0,
   pending_questions: int≥0,
   all_records_saved: boolean,
@@ -777,7 +794,7 @@ CauseReturn = {
 ```
 
 - 返り値が無い、形が違う、`outputs`・`record_ref`・`worklog_ref` が attempt の領域の外か存在しない、`task_id`・`unit_id` が task と違う場合は、成功に数えない（作業記録の失敗の欄に理由が残る）。
-- これらの場合と `status: "cannot_proceed"` は、停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録する。`担当の失敗` は中断の理由ではない。run は止めずに次の段へ進み、その担当が作るはずの成果物は未作成、確認の項目は `未確認` になる。理由: 他の性質の検証を続ける（依頼者の決定）。そのうえで、`stop_report.stage` が失敗した処理の段になる（中断の理由が無いとき、段の並びで最も上流の段を取る規則による。AC-19）。
+- これらの場合、`status: "cannot_proceed"`、及び受け箱の batch の拒否（[CLI 契約](cli-contract.md#受け箱)。その batch の全ての task）は、停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録する。`担当の失敗` は中断の理由ではない。run は止めずに次の段へ進み、その担当が作るはずの成果物は未作成になる。`context.perspective` が非 null の task なら、その unit の確認は `result: "確認できず"` の `Confirmation` になる（[確認](#確認sp-004005012)）。原因の分類役の task なら、CLI がその `subject` の `Cause` を `cause: "原因未確認"`・`grounds` = `担当の失敗` の `detail` と同じ文・`classified_by` = その `task_id` で作る（全ての反例と組合せが `causes` に 1 つずつある規則を保つ。問いの `subject` なら、分類が `要求の不足` でないので問いとして返さない）。理由: 他の性質の検証を続ける（依頼者の決定）。そのうえで、`stop_report.stage` が失敗した処理の段になる（中断の理由が無いとき、段の並びで最も上流の段を取る規則による。AC-19）。
 - **性質の id の名前空間**:
   - inventory の性質の id: `PropertyResult.id`、`Inventory.properties[].id`、`context.property_ids`、`nonformal-<id>`、`Confirmation.property_ids`、`PlanFile.selection[].property_id`（道具の選択は、結果の性質ごとの `method` になるため）、`MutationsFile.unavailable[].property_id`（検出能力の結果は性質ごとの `detection` になるため）。
   - モデルの性質の id（`ModelFile.properties[].id`。run の全てのモデルを通して一意）: graph の `prop:<model_id>/<id>`、`assurance-<id>`、`Confirmation.model_property_id`、`PlanFile.checks[].target_id`（`kind: property` のとき）、`PlanFile.sanity[].model_property_id`、`MutationsFile.mutations[].property_id`（検出役の検査がモデルの性質の検査であるため）。
@@ -858,7 +875,7 @@ WorkflowOutput = { batch_id: Id,
               error?: string }] }
 ```
 
-- `received` の 5 つの値が `tasks.json` の同じ task と全て一致し、`results` の task の集合が `tasks` と一致するときだけ、その batch の返り値を使う。
+- `received` の 5 つの値が `tasks.json` の同じ task と全て一致し、`results` の task の集合が `tasks` と一致するときだけ、その batch の返り値を使う。一致しなければ batch の拒否（[CLI 契約](cli-contract.md#受け箱)）である。
 
 ## 作業記録
 

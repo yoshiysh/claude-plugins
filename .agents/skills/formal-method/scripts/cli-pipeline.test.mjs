@@ -9,7 +9,7 @@ import { join, relative } from 'node:path';
 import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { resultInvariants, refInvariants, RESULT_KEYS } from './test-fixtures/result-schema.mjs';
 import { fileHash } from './test-fixtures/fabricate.mjs';
-import { removeTree } from './test-fixtures/cli-runner.mjs';
+import { removeTree, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { specAggregate, DEFAULT_FACTS } from './test-fixtures/spec-verdict.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { writerMergeScc, stopStageViolations, deriveGraph, crossingEdges, INTERRUPTS } from './test-fixtures/decomposition-check.mjs';
@@ -393,6 +393,254 @@ for (const [role, kinds] of AGENT_FAIL) {
   }
 }
 
+// ---- 受け箱の batch の拒否（cli-contract「受け箱」、artifact-formats「担当の返り値」「Workflow の返り値」） ----
+// harness は返り値を全て done で書いたうえで、受け箱か Workflow の返り値だけを崩す（test-fixtures/agent-harness.mjs の hooks.reject）。
+// 拒否した batch の全ての task が、担当の失敗（段は task の context.stage）・作業記録の failures の 1 件・成果物の未作成になる。
+// 期限の 2 つの型（late・no_submit）は依頼の時間の上限で期限を近くに置く（担当の batch の期限は早い方。architecture「時計と資源」）。
+// late は、run-daemon が期限で batch を閉じたか、期限の後に受け箱を読んだかを外から区別しない（どちらも batch の拒否）。
+const ID_CHARS = 'A-Za-z0-9._-';
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hasId = (text, id) => new RegExp(`(^|[^${ID_CHARS}])${escapeRe(id)}([^${ID_CHARS}]|$)`).test(text);
+// batch_id と task_id を除いても、原因の文が残る（原因の語は契約が定めないので、空でないことだけを見る）
+const residue = (text, batchId, taskId) => text.split(taskId).join('').split(batchId).join('').replace(/[\s\p{P}\p{S}]/gu, '');
+const mentions = (text, batchId, taskId) => text.includes(batchId) && hasId(text, taskId) && residue(text, batchId, taskId).length > 0;
+const ROLE_KINDS = { extractor: ['inventory'], 'model-author': ['model', 'mapping'], 'plan-author': ['plan', 'mutations'] };
+const firstBatchWith = (role) => {
+  let done = false;
+  return (_s, list) => {
+    if (done || !list.tasks.some((x) => x.role === role)) return null;
+    done = true;
+    return 'pick';
+  };
+};
+function assertBatchRejected({ result, status, harness }) {
+  const issued = harness.memory.batches.map((b) => `${b.batch_id}: ${b.tasks.map((x) => x.role).join('・')}`);
+  assert.equal(harness.memory.rejected.length, 1, `拒否を起こした batch は 1 つ（0 なら拒否する役の batch が出なかった。出た batch: ${JSON.stringify(issued)}${result ? `、停止の理由: ${JSON.stringify(result.stop_report?.reasons ?? [])}` : ''}）`);
+  const { list } = harness.memory.rejected[0];
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(result.status, '停止');
+  const sr = result.stop_report;
+  assert.deepEqual(stopStageViolations(result), [], JSON.stringify(sr.reasons));
+  const created = sr.artifacts_created.map((x) => x.ref);
+  const notCreated = sr.artifacts_not_created.map((x) => x.kind);
+  for (const task of list.tasks) {
+    const stage = task.context.stage;
+    // 停止の理由: task ごとに 担当の失敗 を 1 つ、段は task の context.stage、detail に batch_id・task_id・原因
+    const rs = sr.reasons.filter((x) => x.code === '担当の失敗' && x.stage === stage && mentions(x.detail, list.batch_id, task.task_id));
+    assert.equal(rs.length, 1, `${task.task_id} の 担当の失敗（段 ${stage}、detail に batch_id・task_id・原因）: ${JSON.stringify(sr.reasons)}`);
+    // 作業記録: その task の段の worklogs/cli-<stage>.json の failures に 1 件
+    const log = join(status.run_dir, 'worklogs', `cli-${stage}.json`);
+    assert.ok(existsSync(log), `worklogs/cli-${stage}.json がある`);
+    const failures = readJson(log).failures.filter((f) => mentions(f, list.batch_id, task.task_id));
+    assert.equal(failures.length, 1, `cli-${stage}.json の failures に ${task.task_id} が 1 件: ${JSON.stringify(readJson(log).failures)}`);
+    // 期限内に書いた返り値でも成功に数えない: 成果物を生成済みに数えず、作るはずの成果物は未作成
+    assert.ok(!created.some((r) => r.startsWith(`attempts/${task.task_id}/`) && !r.endsWith('worklog.json')), `${task.task_id} の成果物を生成済みに数えない: ${created.join()}`);
+    for (const k of ROLE_KINDS[task.role] ?? []) assert.ok(notCreated.includes(k), `${k} は未作成: ${notCreated.join()}`);
+    // 照合役なら確認できず の確認、原因の分類役なら 原因未確認 の原因になる（artifact-formats「確認」「担当の返り値」）
+    if (task.context.perspective) assertReviewFailed(result, task, harness, { rejected: true });
+    else if (task.role === 'cause-analyst') assertCauseFailed(result, task, { rejected: true });
+    else assert.ok(!result.confirmations.meaning.some((c) => c.checker === task.task_id), `${task.task_id} の意味の確認を作らない`);
+  }
+  // 拒否した task の段は停止の理由の段に入る（AC-19）。中断の理由が無ければ、stop_report.stage は reasons の全ての段のうち
+  // Stage の並びで最も上流の段（artifact-formats「stop_report.stage の決め方」）。他の理由（例: 反例 は 実行）の段も含めて求める
+  const reasonStages = sr.reasons.map((x) => x.stage);
+  for (const task of list.tasks) assert.ok(reasonStages.includes(task.context.stage), `拒否した ${task.task_id} の段 ${task.context.stage} が停止の理由の段に入る`);
+  if (!sr.reasons.some((x) => INTERRUPTS.includes(x.code))) {
+    const STAGE_ORDER = ['受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約'];
+    const upstream = [...reasonStages].sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b))[0];
+    assert.equal(sr.stage, upstream, JSON.stringify(sr.reasons));
+  }
+  return list;
+}
+const REJECT_CASES = [
+  // [名前, 拒否の型, 拒否する batch の役, 依頼の差分, scenario の差分]
+  // 期限の 2 つの型は、依頼の時間の上限 24 秒（担当の batch の期限は開始から約 18 秒）で、遅い環境でも抽出役の batch が期限の前に出る余裕を取る
+  ['Workflow の返り値の batch_id が開いている batch と違う', 'wf_batch_id', 'extractor', {}],
+  ['received の値が tasks.json と違う', 'received', 'extractor', {}],
+  ['results の task の集合が tasks から欠ける', 'set_missing', 'extractor', {}],
+  ['results の task の集合に余分な task がある', 'set_extra', 'extractor', {}],
+  ['受け箱が timed_out: true（返り値は期限内に書いてある）', 'timed_out', 'extractor', {}],
+  ['受け箱が timed_out: true（モデル化の段の batch）', 'timed_out', 'model-author', {}],
+  ['期限の後に受け箱を公開する（返り値は期限内に書いてある）', 'late', 'extractor', { time_limit_seconds: 24 }],
+  ['期限までに受け箱を公開しない', 'no_submit', 'extractor', { time_limit_seconds: 24 }],
+  ['受け箱が timed_out: true（反例の原因の分類役の batch）', 'timed_out', 'cause-analyst', {}, { properties: [P('P1', 3, { query: { result: 'sat' } })] }],
+  ['受け箱を読めない（権限 000）', 'inbox_unreadable', 'extractor', {}],
+  ['受け箱が JSON でない', 'inbox_not_json', 'extractor', {}],
+  ['受け箱が形に合わない（workflow_output_path も timed_out も無い）', 'inbox_shape', 'extractor', {}],
+  ['受け箱の batch_id が開いている batch と違う', 'inbox_batch_id', 'extractor', {}],
+  ['受け箱の workflow_output_path のファイルを読めない（存在しない）', 'wf_unreadable', 'extractor', {}],
+  ['Workflow の返り値が形に合わない（results が配列でない）', 'wf_shape', 'extractor', {}],
+];
+for (const [name, mode, role, over, scenario = {}] of REJECT_CASES) {
+  test(`cli-contract 受け箱 batch の拒否 SP-FORMALMETHOD-015 AC-19: ${name}と、batch の全ての task が 担当の失敗（段は task の context.stage）になり、作業記録の failures に 1 件ずつ入り、成果物は未作成`, async (t) => {
+    if (mode === 'inbox_unreadable' && skipIfRoot(t)) return;
+    const pick = firstBatchWith(role);
+    const out = await runScenario(t, { request: canonicalRequest(over), scenario, hooks: { reject: (s, list) => (pick(s, list) ? mode : null) } });
+    const list = assertBatchRejected(out);
+    assert.ok(list.tasks.some((x) => x.role === role), `${role} の batch を拒否した`);
+  });
+}
+
+test('cli-contract 受け箱 batch の拒否 SP-FORMALMETHOD-015 AC-19: 確認の段の batch が timed_out だと、その確認は 確認できず になり、性質は 未確認 になり、stop_report.stage は確認', async (t) => {
+  const pick = firstBatchWith('fidelity-reviewer');
+  const out = await runScenario(t, { hooks: { reject: (s, list) => (pick(s, list) ? 'timed_out' : null) } });
+  const list = assertBatchRejected(out);
+  assert.ok(list.tasks.every((x) => x.context.stage === '確認'), '独立検証者の batch は確認の段（architecture「段と処理の順序」）');
+  assert.deepEqual(prop(out.result, 'P1').verdict, ['未確認'], '忠実さの確認が 確認できず なので meaning_confirmed が false で 未確認（artifact-formats「意味の確認から判定の入力への写し」の注）');
+  assert.equal(out.result.stop_report.stage, '確認');
+});
+
+// ---- 照合役と原因の分類役の失敗（artifact-formats「確認」の意味の確認の作り方・写しの表、「担当の返り値」、architecture「担当の起動」） ----
+// 失敗した task の 担当の失敗 の detail として許す文の集合。
+// batch の拒否では detail が batch_id・task_id を持つ（cli-contract「受け箱」）ので、その task の 1 つに絞る。
+// 他の経路では detail の中身を契約が定めないので、その段の 担当の失敗 の detail のどれかとする。
+function failureDetails(sr, task, { rejected = false } = {}) {
+  const at = sr.reasons.filter((x) => x.code === '担当の失敗' && x.stage === task.context.stage);
+  assert.ok(at.length >= 1, `${task.task_id} の段 ${task.context.stage} に 担当の失敗: ${JSON.stringify(sr.reasons)}`);
+  if (!rejected) return at.map((x) => x.detail);
+  const own = at.filter((x) => hasId(x.detail, task.task_id));
+  assert.equal(own.length, 1, `${task.task_id} の 担当の失敗: ${JSON.stringify(sr.reasons)}`);
+  return [own[0].detail];
+}
+// 写しの表の「関わる性質」
+function expectedPropertyIds(task, harness) {
+  const c = task.context;
+  if (c.perspective === 'fidelity') {
+    const ms = harness.memory.models.filter((m) => m.id === c.model_id).map((m) => readJson(join(m.task.attempt_dir, m.file)));
+    assert.ok(ms.length >= 1, `${c.model_id} のモデルを harness が書いた`);
+    return [...new Set(ms[ms.length - 1].properties.flatMap((p) => p.inventory_property_ids))].sort();
+  }
+  if (c.perspective === 'nonformal' || c.perspective === 'assurance') return c.property_ids;
+  return [];
+}
+// 意味の確認の共通の欄（artifact-formats「意味の確認の作り方」の共通の欄と写しの表の「関わる性質」）
+function assertConfirmationCommon(conf, task, harness) {
+  const c = task.context;
+  assert.equal(conf.kind, c.perspective);
+  assert.equal(conf.item, c.unit_id);
+  assert.equal(conf.checker, task.task_id);
+  assert.equal(conf.plan_id, null);
+  assert.equal(conf.end, null);
+  assert.equal(conf.model_property_id, c.perspective === 'assurance' ? c.unit_id.slice('assurance-'.length) : null);
+  assert.deepEqual(conf.property_ids, expectedPropertyIds(task, harness));
+  assert.deepEqual(conf.materials.map((m) => m.ref), c.input_refs.map((r) => r.ref), 'materials は context.input_refs の ref');
+  for (const m of conf.materials) {
+    const p = join(c.run_dir, m.ref);
+    if (existsSync(p) && statSync(p).isFile()) assert.equal(m.hash, fileHash(p), `${m.ref} の指紋`);
+  }
+}
+function assertReviewFailed(result, task, harness, opts = {}) {
+  const c = task.context;
+  const sr = result.stop_report;
+  assert.equal(result.status, '停止');
+  const details = failureDetails(sr, task, opts);
+  const confs = result.confirmations.meaning.filter((x) => x.item === c.unit_id && x.kind === c.perspective);
+  assert.equal(confs.length, 1, `${c.unit_id} の意味の確認がちょうど 1 つ: ${JSON.stringify(result.confirmations.meaning)}`);
+  const conf = confs[0];
+  assert.equal(conf.result, '確認できず');
+  assertConfirmationCommon(conf, task, harness);
+  assert.ok(details.includes(conf.reason), `reason は 担当の失敗 の detail と同じ文: ${conf.reason} / ${JSON.stringify(details)}`);
+  const detail = conf.reason;
+  assert.ok(!result.confirmations.deterministic.some((x) => x.checker === task.task_id), '意味の確認は deterministic に入れない');
+  assert.ok(result.unverified.some((u) => u.item === c.unit_id && u.reason === detail), `unverified[] に ${c.unit_id}: ${JSON.stringify(result.unverified)}`);
+  assert.ok(sr.unconfirmed_scope.includes(c.unit_id), `unconfirmed_scope に ${c.unit_id}: ${JSON.stringify(sr.unconfirmed_scope)}`);
+  assert.ok(sr.reasons.some((x) => x.code === '確認が終わっていない'), 'confirmations_unresolved が true で 確認が終わっていない');
+}
+function assertCauseFailed(result, task, opts = {}) {
+  const details = failureDetails(result.stop_report, task, opts);
+  const cs = result.causes.filter((x) => x.classified_by === task.task_id);
+  assert.equal(cs.length, 1, `${task.task_id} の原因がちょうど 1 つ: ${JSON.stringify(result.causes)}`);
+  assert.equal(cs[0].cause, '原因未確認');
+  assert.ok(details.includes(cs[0].grounds), `grounds は 担当の失敗 の detail と同じ文: ${cs[0].grounds} / ${JSON.stringify(details)}`);
+  assert.deepEqual(cs[0].subject, task.context.subject);
+  assert.ok(!result.confirmations.meaning.some((x) => x.checker === task.task_id), '原因の分類役の確認を作らない');
+  if (task.context.subject.kind === 'question') assert.ok(!result.questions.some((q) => q.id === task.context.subject.id), '原因未確認 の問いは questions[] に入らない');
+}
+const reviewTasks = (harness, perspective) => harness.memory.tasks.filter((x) => x.context.perspective === perspective);
+const REVIEW_FAIL_CASES = [
+  // [観点, 失敗の型, scenario（又はそれを返す関数）, 判定の確かめ]
+  ['fidelity', 'missing', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
+  ['fidelity', 'bad_shape', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
+  ['assurance', 'missing', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
+  ['assurance', 'bad_shape', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
+  ['nonformal', 'missing', { properties: [P('P1', 2, { formalizable: false })] }, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
+  ['nonformal', 'bad_shape', { properties: [P('P1', 2, { formalizable: false })] }, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
+  ['extraction', 'missing', {}, (r) => {
+    assert.equal(r.verified_scope.extraction_coverage.complete, false);
+    assert.deepEqual(prop(r, 'P1').verdict, ['検証済み'], '抽出の確認は性質の判定に写さない');
+  }],
+  // PART_SCENARIO は後で定義するので、テストの中で呼ぶ
+  ['composition', 'missing', () => PART_SCENARIO(), (r) => {
+    for (const k of r.decomposition.contracts) assert.ok(!k.verdict.includes('検証済み'), `契約 ${k.id} は検証済みにならない`);
+    assert.ok(!prop(r, 'P1').verdict.includes('検証済み'), '親の性質は検証済みにならない');
+  }],
+];
+for (const [perspective, mode, scenario, verdicts] of REVIEW_FAIL_CASES) {
+  test(`artifact-formats 確認 担当の返り値 SP-FORMALMETHOD-012・015 AC-19: ${perspective} の照合役が${mode === 'missing' ? '返らない' : '形の違う返り値を返す'}と、その unit の確認が 確認できず で 1 つでき、unverified・unconfirmed_scope に写り、確認が終わっていない で停止する`, async (t) => {
+    const base = typeof scenario === 'function' ? scenario() : scenario;
+    const { result, harness } = await runScenario(t, { scenario: { ...base, returnsByPerspective: { [perspective]: mode } } });
+    assert.deepEqual(resultInvariants(result), []);
+    const failed = reviewTasks(harness, perspective);
+    assert.ok(failed.length >= 1, `${perspective} の task が出る`);
+    for (const task of failed) assertReviewFailed(result, task, harness);
+    verdicts(result);
+    assert.deepEqual(stopStageViolations(result), []);
+  });
+}
+
+const CAUSE_Q = { id: 'Q9', missing_decision: 'R2 の y が x と等しいときの扱い', affected: ['P2'], options: ['許す', '許さない'] };
+const CAUSE_FAIL_CASES = [
+  // [名前, scenario, subject の kind]
+  ['反例の原因の分類役が返らない', { properties: [P('P1', 3, { query: { result: 'sat' } })], returns: { 'cause-analyst': 'missing' } }, 'counterexample'],
+  ['反例の原因の分類役が形の違う返り値を返す', { properties: [P('P1', 3, { query: { result: 'sat' } })], returns: { 'cause-analyst': 'bad_shape' } }, 'counterexample'],
+  ['作成役の問いの原因の分類役が返らない', { properties: [P('P1', 2), P('P2', 3)], questionsBy: { extractor: [CAUSE_Q] },
+    cause: { cause: '要求の不足', grounds: 'R2 は等しい場合を定めない', questions: [CAUSE_Q] }, returns: { 'cause-analyst': 'missing' } }, 'question'],
+];
+for (const [name, scenario, kind] of CAUSE_FAIL_CASES) {
+  test(`artifact-formats 担当の返り値 SP-FORMALMETHOD-011 AC-19: ${name}と、その subject の原因が 原因未確認・grounds は 担当の失敗 の detail・classified_by はその task で 1 つでき、確認は作らない`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario });
+    assert.deepEqual(resultInvariants(result), []);
+    const failed = harness.memory.tasks.filter((x) => x.role === 'cause-analyst' && x.context.subject?.kind === kind);
+    assert.ok(failed.length >= 1, `subject が ${kind} の原因の分類役の task が出る`);
+    for (const task of failed) assertCauseFailed(result, task);
+  });
+}
+
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 正常に返った照合役の確認は result が返り値の result で、reason は空でない文。確認できず は unverified[] に写る', async (t) => {
+  const reviews = { fidelity: '確認できず', assurance: '成り立たない' };
+  const { result, harness } = await runScenario(t, { scenario: { reviews } });
+  assert.deepEqual(resultInvariants(result), []);
+  const tasks = harness.memory.tasks.filter((x) => x.context.perspective);
+  assert.ok(tasks.length >= 1);
+  for (const task of tasks) {
+    const c = task.context;
+    const confs = result.confirmations.meaning.filter((x) => x.checker === task.task_id);
+    assert.equal(confs.length, 1, `${task.task_id} の意味の確認がちょうど 1 つ`);
+    const conf = confs[0];
+    assertConfirmationCommon(conf, task, harness);
+    assert.equal(conf.result, reviews[c.perspective] ?? '成り立つ', `${c.unit_id} の result は ReviewReturn.result`);
+    assert.equal(typeof conf.reason, 'string');
+    assert.ok(conf.reason.trim().length > 0, 'reason は空でない文');
+    if (conf.result === '確認できず') {
+      assert.ok(result.unverified.some((u) => u.item === c.unit_id && u.reason === conf.reason), `unverified[] に ${c.unit_id}`);
+      assert.ok(result.stop_report.unconfirmed_scope.includes(c.unit_id), `unconfirmed_scope に ${c.unit_id}: ${JSON.stringify(result.stop_report.unconfirmed_scope)}`);
+    }
+  }
+  // 成り立つ でない意味の確認が残るので confirmations_unresolved が true（artifact-formats「decideStatus」）
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'), JSON.stringify(result.stop_report.reasons));
+  assert.ok(result.confirmations.meaning.some((x) => x.kind === 'fidelity' && x.result === '確認できず'), '忠実さの確認できず の行が出る');
+});
+
+test('artifact-formats decideStatus SP-FORMALMETHOD-012・015: 意味の確認が 成り立たない だけ（確認できず が無い）でも confirmations_unresolved が true で、確認が終わっていない で停止する', async (t) => {
+  const { result } = await runScenario(t, { scenario: { reviews: { assurance: '成り立たない' } } });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.ok(result.confirmations.meaning.some((x) => x.kind === 'assurance' && x.result === '成り立たない'), '保証の確認が 成り立たない');
+  assert.ok(!result.confirmations.meaning.some((x) => x.result === '確認できず'), '確認できず の意味の確認は無い');
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'), JSON.stringify(result.stop_report.reasons));
+});
+
 // 担当の失敗 以外で、段が契約で決まる処理の失敗。
 const STAGE_CASES = [
   ['道具の実行が実行失敗で終わる（実行できない検査は 実行）', { properties: [P('P1', 2, { query: { mode: 'crash' } })] }, 'fake', '実行'],
@@ -544,6 +792,8 @@ test('SP-FORMALMETHOD-005・012 AC-04: 前提が互いに矛盾する（sanity �
   assert.ok(!p.verdict.includes('検証済み'), JSON.stringify(p.verdict));
   assert.ok(result.confirmations.deterministic.some((c) => c.kind === 'sanity' && c.property_ids.includes('P1') && c.model_property_id === 'P1' && c.result === '成り立たない'));
   assert.equal(result.status, '停止');
+  // deterministic の 成り立たない も未解決に数える（artifact-formats「decideStatus」の confirmations_unresolved）
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'), JSON.stringify(result.stop_report.reasons));
 });
 
 test('SP-FORMALMETHOD-013 AC-12: 取れない値は 0 でなく 取得できず・該当なし で示す（cost は取得できず、ビルドの無い道具の build_ms は該当なし、retries は 0 回）', async () => {
@@ -1002,7 +1252,7 @@ const PART_CASES = [
   // 契約の判定の facts は親の性質から取る（artifact-formats「分割と合成」の契約の判定）
   ['親の性質の前提の整合（sanity）が成り立たない（deterministic_confirmed が false）', { properties: [{ ...SM2_PROPS[0], sanity: { result: 'unsat' } }] }, {}, ['未確認'], ['未確認'], null],
   ['合成の意味の確認が成り立たない（meaning_confirmed が false）', { reviews: { composition: '成り立たない' } }, {}, ['未確認'], ['未確認'], null],
-  ['合成の意味の確認が無い（合成の検証者が返らない）', { returns: { 'composition-reviewer': 'missing' } }, {}, ['未確認'], ['未確認'], null],
+  ['合成の意味の確認が 確認できず（合成の検証者が返らない）', { returns: { 'composition-reviewer': 'missing' } }, {}, ['未確認'], ['未確認'], null],
   ['親の性質の chosen.tool が z3 でないのに契約・合成の条件の検査がある（欠陥として除く）', { editPlan: (plan) => ({ ...plan, selection: plan.selection.map((x) => ({ ...x, chosen: { ...x.chosen, tool: 'Rust' } })) }) }, {}, ['未実行'], ['未実行'],
     (r, harness) => { assertRevised(harness, 'plan-author', '計画'); assertExcluded(r, ['C-P1', 'C-K-a', 'C-CC1', 'C-CC2']); }],
   ['親の性質の全てで no_suitable_tool で、検査が無い（検査の欠けから除く）', notZ3NoChecks, {}, ['未実行'], ['未実行'],

@@ -196,7 +196,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 - `submit` は、`inbox/.tmp-<nonce>` に内容を書いて fsync し、`inbox/<batch_id>.json` へ link する。link が既にあれば失敗し、`duplicate` を返す。最後に一時ファイルを消す。
   - 理由: 排他作成してから書くと、書く途中の受け箱が見え、`run-daemon` が途中の内容を読む。link で公開すれば、見える受け箱は常に書き終えたものである。
-- `run-daemon` が受け箱を読めない、又は JSON・形が合わない場合は、その batch の返り値を全て使わず、batch の項目を `未確認` の扱いにする。理由は作業記録の失敗の欄と結果に残す。
+- 受け箱が batch の拒否に当たれば、その batch の返り値を全て使わず、各 task を担当の失敗として記録する（条件と記録の正本は `cli-contract.md` の受け箱）。
   - 受け箱は 1 batch に 1 つしか公開できないので、作り直しは受け付けない。理由: 2 つ目を受け付けると、どちらを使ったかが記録の外で決まる。
 - `run-daemon` は、開いている batch の `batch_id` の受け箱だけを読む。他の受け箱は読まずに、記録に残す。
 - 理由: 書く者が 1 つなので、旧版の `expected_seq`・所有札・lease が守っていた競合が起きない。
@@ -211,13 +211,13 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 意味の判断が重い役（モデル作成役・忠実さの検証者・保証の検証者・原因の分類役）は、上位のモデルにする。
 - Workflow script は判断しない（旧版を流用）。
   - task を並列に起動し、task_id ごとの `returned`・`missing`・`error` と、受け取った task の値を返す。
-  - `run-daemon` は、受け取った値を `tasks.json` と照合する。食い違えば、その batch の返り値を全て `未確認` の扱いにする。
+  - `run-daemon` は、受け取った値を `tasks.json` と照合する。食い違えば、batch の拒否として、その batch の返り値を全て使わない（同上）。
   - 担当の結論は、Workflow の返り値からではなく、`return_path` を `run-daemon` が直接読んで得る。
 - 実行環境: native の Workflow を優先し、無い Codex では `workflow:dynamic-workflow-runner` を active callsite から使う（`repository-operations.md`「実行と環境」）。
 - 独立検証者への入力は、原典・固定した成果物・検査の記録の参照だけにする。作成役の作業記録・attempt の領域のディレクトリは渡さない（「独立した確認」の定義）。
-- 担当の返り値が欠けた、形が違う、期限の後に届いた場合は、成功に数えない。
+- 担当の返り値が欠けた、形が違う、期限の後に届いた場合（batch の拒否を含む）は、成功に数えず、停止の理由 `担当の失敗` をその task の `context.stage` を段として記録する（正本は `artifact-formats.md` の担当の返り値）。
   - その担当が作るはずの成果物は未作成になる。
-  - 確認の unit なら、その項目の確認は `未確認` になる。
+  - `context.perspective` が非 null の task なら、その確認は `result: "確認できず"` の `Confirmation` として結果に残る。原因の分類役の task なら、`原因未確認` の `Cause` になる（正本は `artifact-formats.md` の確認と担当の返り値）。
   - 理由は作業記録の失敗の欄と結果に残す。
 
 ## 保存と排他
@@ -334,7 +334,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 理由: 時間の上限の無い依頼で、終わらない検査が run を終わらせなくなるのを防ぐ。
   - 退けた案: 検査にも上限を置かない。
 - 担当の batch にも、時間の上限の有無によらず内部の期限（定数。`schemas.mjs`）を置く。依頼の時間の上限があれば、早い方を使う。
-  - 期限までに返らなかった担当は欠測として扱う（[担当の起動](#担当の起動)）。run は止めずに次の段へ進む。
+  - 期限までに返らなかった担当は欠測として扱う（[担当の起動](#担当の起動)。`timed_out` の batch と期限の後に読んだ受け箱は、期限内に返った task も含めて batch の拒否になる。正本は `cli-contract.md` の受け箱）。run は止めずに次の段へ進む。
   - 理由: 担当が返らないと、run が終わらない。担当の応答に公平性は仮定できない。
   - 退けた案: 時間の上限が無ければ担当を待ち続ける。
 
@@ -351,6 +351,46 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - `stopped_by` を記録し、その後に届いた出力は判定に使わない（`tool_result` は `なし`）。
 - 理由: SP-011 の「始めた後、道具の結果を得る前に formal-method が中止した」と、網羅表の WF1（道具が返りを報告した後は止める対象が無い）・L138（依頼元の時間の上限では実行中の検査を止める）に合う。この規則は、網羅表で許される終わり方だけを作る。
 - `classifyCheck` の例外（[判定の集約](#判定の集約)）は、この規則の外れ（scheduler の欠陥）を見つけるためにだけ残す。
+
+**scheduler の unit の入口**（内部）: `scripts/lib/scheduler.mjs` の `runExecution(execution, io)`
+
+道具の 1 回の実行の始めから終わり方（`End`）までを決める関数で、上の規則の正本の実装である。scheduler の同時に動かす数と依存（D1）の処理は、実行ごとにこの関数を呼ぶ。依頼元から見える入力の口ではなく、テストは module を直接 import して呼ぶ（`cli-contract.md` の unit の入口と同じ扱い）。
+
+```text
+ExecutionSpec = {
+  execution_id: Id, kind: ExecKind,
+  query: Uint8Array,                       // 標準入力に渡すバイト列（checks/<execution_id>/input.smt2 の内容）
+  with_model: boolean,                     // -model を渡すか（property・composition だけ true）。kind から決まる値を呼び手が入れ、runExecution は kind を見ない
+  expected: "sat" | "unsat",                // cli-contract.md の「答えと tool_result の対応」の expected。mutation は MutationsFile.mutations[].expected_violation
+  tool_time_limit_seconds: int≥1,
+  deadline_ms: int | null                  // 検査に使える期限（clock.now() と同じ時間軸）。期限が無ければ null
+}
+ExecutionIo = {                            // 作用の境界。本番は node の timer・adapter の execute・停止の関数、テストは差し替える
+  clock: { now(): int, setTimer(at_ms: int, cb: () => void): unknown, clearTimer(handle: unknown): void },
+  spawn(execution: ExecutionSpec): ProcessHandle,   // 本番は group を作り children/ に記録して起動する
+  signal: AbortSignal                      // 停止の要求。scheduler の停止の関数が abort する
+}
+ProcessHandle = {
+  onStdout(cb: (chunk: Uint8Array) => void): void,
+  onStderr(cb: (chunk: Uint8Array) => void): void,
+  onClose(cb: (exit_code: int | null) => void): void,   // 道具の終了と、標準出力・標準エラーの読み終わりの両方。killGroup の後も 1 回だけ来る
+  killGroup(): void                        // process group を止める
+}
+ExecutionOutcome = { execution_id: Id, end: End, stdout: Uint8Array, stderr: Uint8Array, exit_code: int | null,
+  model_cut: "none" | "truncated" | "stopped_after_answer" }   // 答えの後のモデルを読み切らなかった理由。下の規則
+```
+
+- 戻り値は `Promise<ExecutionOutcome>`。`stdout` は受けたバイト列（`TOOL_OUTPUT_MAX_BYTES` までに切り詰めたもの）、`stderr` は受けたバイト列で、どちらも証拠として保存するためのもの。判定には使わない部分を含みうる。
+- `model_cut`: 答えの行を読み終えた後に標準出力が `TOOL_OUTPUT_MAX_BYTES` を超えたら `truncated`（その後に答えの後の停止が起きても `truncated`）、超えずに答えの後の停止が起きたら `stopped_after_answer`、他は `none`。`none` 以外なら、呼び手は証人を読めないものとする。`truncated` のときだけ、呼び手は `Check.reason`・replay の `Confirmation.reason` に固定の語「標準出力を TOOL_OUTPUT_MAX_BYTES で切り詰めた」を書く（`cli-contract.md` の出力の上限）。理由: 出力がちょうど上限で終わった場合と切り詰めた場合は `stdout` の長さで区別できず、答えの後の停止は `end` が通常の close と同じになる。
+- **始める前**: 呼ばれた時点で `deadline_ms` が非 null かつ `clock.now() ≥ deadline_ms`、又は `signal.aborted` なら、`spawn` を呼ばずに `started: false` の `End`（他の欄は既定）を返す。それ以外は `spawn` を呼び、`deadline_ms` が非 null なら `clock.setTimer(deadline_ms, …)` を置く。
+- **観測の順**: 終わり方を決める出来事は、close（`onClose` の callback）、期限（timer の callback）、停止の要求（`signal` の `abort` の事象）の 3 つ（加えて、下の出力の上限で止める場合）で、callback が呼ばれた順を観測の順とする。close を受けたときに `clock.now()` と期限を比べない。最初の出来事で終わり方が決まり、後の出来事は終わり方を変えない。
+  - close が最初: timer を外し、`killGroup` を呼ばない。`stdout`・`stderr`・`exit_code` を `cli-contract.md` の「読む順」に当てて `End` を作る（`stopped_by: null`、`time_limit_hit` は null か `道具`）。
+  - 期限が最初（`with_model: false`、又は答えの行を読み終える前）: `killGroup` を呼ぶ。`End` は `started: true`・`tool_result: "なし"`・`abnormal_exit: false`・`unreadable_output: false`・`stopped_by: "時間"`・`time_limit_hit: "依頼元"`。それまでに受けた出力によらない。
+  - 停止の要求が最初（`with_model: false`、又は答えの行を読み終える前）: `killGroup` を呼ぶ。`End` は期限と同じで、`stopped_by: "その他"`・`time_limit_hit: null`。
+  - 止めた後に来た close の `exit_code`（0 以外や null を含む）は `abnormal_exit` にしない。止めた後に受けた出力は判定に使わない。
+- **止めた後も close を待つ**: 止めた場合も、`onClose` が来てから戻る。テストの偽の process は、`killGroup` の後に close を出す。
+- **答えの後の停止**（`with_model: true`）: 標準出力の最初の空でない行を改行まで受けた時点（行が複数の chunk にまたがれば、改行を含む chunk を受けた時点）で、その行が `sat`・`unsat`・`unknown`・`timeout` のどれかなら、答えの行を読み終えたとする。その後、close より先に期限か停止の要求が来たら（上の「期限が最初」「停止の要求が最初」に当たらない）、`killGroup` を呼び、`End` は `cli-contract.md` の「答えの後の停止」のとおり（`stopped_by: null`、`time_limit_hit` は答えが `timeout` なら `道具`、他は null、`abnormal_exit`・`unreadable_output` は false、`tool_result` は答えの行で決める）。
+- **出力の上限**: 標準出力が `TOOL_OUTPUT_MAX_BYTES` を超えたときは `cli-contract.md` の出力の上限のとおりで、group を止める場合（`with_model: false`、又は答えの行を読み終える前に超えた）は、それを close・期限・停止の要求より先の出来事として `killGroup` を呼び、`End` は `started: true`・`tool_result: "なし"`・`abnormal_exit: false`・`unreadable_output: true`・`stopped_by: "その他"`・`time_limit_hit: null` とする。答えの行を読み終えた後に超えた場合は止めず、出来事にしない（`model_cut: "truncated"`）。答えの行を読み終えたかと上限を超えたかの前後は、chunk でなくバイトの位置で決める。答えの行の改行が標準出力の先頭から `TOOL_OUTPUT_MAX_BYTES` バイト以内にあれば、同じ chunk の中で上限を超えても、答えの行を読み終えた後に超えたとする。
 
 **同時に動かす数**（内部の選択）
 
@@ -373,7 +413,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 **formal-method が止めた検査**
 
-- 中止は、全て scheduler の停止の関数を通して行う。その検査の終わり方を「formal-method が止めた（時間・その他）」として記録する。
+- 中止は、全て scheduler の停止の関数を通して行う。`runExecution` が自分で group を止める場合（期限・停止の要求・出力の上限）は、`runExecution` がこの停止の関数の役を持つ。その検査の終わり方を「formal-method が止めた（時間・その他）」として記録する。
 - 判定は、[判定の集約](#判定の集約)の終わり方の分類で決める。道具の異常終了（`実行失敗`）と混同しない。
 - 理由: 旧版は、外から止めた process を signal の異常終了として `実行失敗` に数えていた。
 
@@ -430,7 +470,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 | `counterexamples[]` | 反例と原因 | 性質、出所、入力と経過、反した条件、再現の手順への参照 |
 | `causes[]` | 反例と原因 | 対象（反例か `対応できていない` 組合せか問い）、原因の 5 区分、根拠、分類した者 |
 | `confirmations` | （SP-005・SP-012） | `deterministic[]` と `meaning[]` を別の記録として持つ。各記録は `id`、項目、対象の性質（`property_ids` と `model_property_id`。形の正本は `artifact-formats.md`）、結果、確認した者、渡した資料を持つ。確認用の道具の実行（`kind`: `sanity`・`mutation`・`replay`）は `deterministic[]` に入れ、道具の終わり方と証拠の参照も持つ |
-| `unverified[]` | 未検証・未確認 | 項目と理由 |
+| `unverified[]` | 未検証・未確認 | 項目と理由。`result` が `確認できず` の意味の確認も写す（正本は `confirmations`。`artifact-formats.md` の確認） |
 | `questions[]` | 問い | 不足する判断、影響する性質又は遷移、選択肢 |
 | `records` | 記録への参照と保存できなかった記録 | `ledger_refs`（記録台帳と、salvage の追補があればそれ）、`saved[]`（参照と指紋）、`unsaved[]`（記録と理由）。結果のファイル自身も、どちらかに 1 項目として入る |
 | `stop_report` | 停止の報告 | 状態が `停止` のときだけ持つ。`stage`、`reasons[]`（各理由とその段）、`confirmed_scope`・`unconfirmed_scope`、`artifacts_created`・`artifacts_not_created`、`checks_running`・`checks_aborted`、`questions`（`questions[]` の ID）、`unsaved`（`records.unsaved` の参照） |

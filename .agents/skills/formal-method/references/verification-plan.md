@@ -18,7 +18,7 @@
 
 | 層 | 何を確かめるか | 置き場と入口 |
 |---|---|---|
-| unit | `scripts/lib/` の純粋関数（依頼の検査、判定の集約、照合、グラフの導出、同時に動かす数の決め方）の入出力 | `scripts/lib/**/*.test.mjs`。`make test` |
+| unit | `scripts/lib/` の純粋関数（依頼の検査、判定の集約、照合、グラフの導出、同時に動かす数の決め方）の入出力と、作用の境界を引数で差し替えて呼ぶ内部の入口（`publishResult`・`runExecution`）の振る舞い | `scripts/lib/**/*.test.mjs`。`make test` |
 | 結合 | `formal-method-cli.mjs` を本番と同じ入口（標準入力の JSON）から呼び、担当の代わりの harness と差し替えた道具（`PATH` に置く偽の z3）で、結果・記録・観測できる process を確かめる | `scripts/*.test.mjs`、`scripts/test-fixtures/`。`make test` |
 | eval | 実際の model で担当を動かしたときの意味の判断。抽出の網羅、意味の食い違いの発見、原因の分類、司令塔が判定を足さないこと | `evals/evals.json`（T が実装の前に仕様から作る）。skill-creator の eval |
 | 形式 | 判定の規則とオラクルの一致、run の進行と停止・排他の性質、要求の整合 | `tests/formal/formal-method-skill/`、`tests/formal/formal-method-spec/`、`tests/formal/formal-method-requirements/` |
@@ -70,7 +70,15 @@
 - T は表を読むパラメタライズドテストを書く（`tests/formal/formal-method-skill/verdict-oracle.test.mjs`）。
   - 判定が一意の行は、`classifyCheck` がその値を返すことを確かめる。
   - `unsat` の行（例: 依頼元の時間の上限に達したのに止めていない）と `除外` の行は、`classifyCheck` が例外で拒むことを確かめる。
-  - scheduler がその終わり方を作らないことも確かめる（scheduler の unit）。道具の終了と期限・停止の要求が重なる競合を偽の時計と偽の process で起こし、設計の「期限と道具の終わりが重なったとき」の規則で、表で許される行に正規化され、例外にならないことを確かめる。
+  - scheduler がその終わり方を作らないことも確かめる（scheduler の unit。`scripts/lib/scheduler.test.mjs`）。入口は設計の「scheduler の unit の入口」の `runExecution(execution, io)` で、`io.clock`・`io.spawn` を偽の時計と偽の process に、`io.signal` を `AbortController` の signal に差し替える。偽の process は `killGroup` の後に close を出す。次の順で出来事を起こし、各行で返った `end` が設計の規則どおりの値であること、`killGroup` を呼んだかが規則どおりであること、`classifyCheck(end)` が例外を投げないことを確かめる。
+    - close → 期限、close → 停止の要求（`stopped_by: null`。`killGroup` を呼ばない。`execution.expected` と偽の出力・終了コードを決め、`tool_result` と `time_limit_hit` まで `cli-contract.md` の読む順と答えの対応どおりか照らす）
+    - `with_model: false` で期限 → close（期限の前に答えの行を含む出力を受けていても `tool_result: "なし"`・`stopped_by: "時間"`・`time_limit_hit: "依頼元"`）
+    - `with_model: false` で停止の要求 → close（`stopped_by: "その他"`・`time_limit_hit: null`）
+    - 期限 → 停止の要求、停止の要求 → 期限（先の方で決まる）
+    - 止めた後の close が 0 以外か null の終了コード（`abnormal_exit: false`）
+    - `with_model: true` で答えの行を受けた後、close の前に期限（答えの行が chunk にまたがる場合を含む。`stopped_by: null`・`killGroup` を呼ぶ・`tool_result` は答えの行で決まる・`model_cut: "stopped_after_answer"`）。`with_model: true` で答えの行を読み終える前に期限（`stopped_by: "時間"`・`tool_result: "なし"`）
+    - 標準出力が `TOOL_OUTPUT_MAX_BYTES` を超える（`with_model: false` なら `stopped_by: "その他"`・`unreadable_output: true`。`with_model: true` で答えの行の後なら止めず、`end` は close が最初の行と同じで `model_cut: "truncated"`。答えの行の改行が上限以内で同じ chunk の終わりが上限を超える場合も同じ。出力がちょうど `TOOL_OUTPUT_MAX_BYTES` バイトで終わる場合は `model_cut: "none"`。`model_cut` の値を挙げていない他の行は全て `none`）
+    - 呼ぶ前に期限が過ぎているか停止の要求が済んでいる（`spawn` を呼ばず `started: false`）
 - 表は commit 済みの事実として読むので、このテストに Z3 は要らない。`make test` で走る。
 
 **照合 2: 性質の判定と完了（`questions.py`・`summary.txt`）**
