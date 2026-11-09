@@ -26,6 +26,7 @@
 node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 ```
 
+- 引数・標準入力・標準出力の規則（次の 2 項目と[誤りと終了コード](#誤りと終了コード)）は、[コマンド](#コマンド)の表の 4 つのコマンドに当てる。`run-daemon` の引数と標準入出力は、この節の最後の項目に従う。
 - `<command>` は 1 語。入力は標準入力の 1 つの JSON で渡す。引数で値を渡さない。
 - 出力は標準出力の 1 行の JSON。標準エラーは診断だけに使い、契約に含めない。
 - **入力の口は、各コマンドの標準入力の JSON だけ**である。検証の内容を決める入力は、`start` の `request`（依頼。SP-001）だけで、他のコマンドの入力は CLI が前に返した値である。
@@ -33,7 +34,11 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
   - `PATH`: 道具（`z3`）の実行体を探す。SP の検証方法の節の「実行環境に置く道具を差し替えて行う」の、実行環境そのものである。テストは `PATH` の先頭に偽の道具を置いて差し替える。専用の環境変数（旧版の道具の path の変数など）は持たない。理由: 専用の口は外の依頼元からも使えてしまう。
   - `CI`: 有無を `performance.location` に記録するだけで、振る舞いを変えない。
 - 作業ツリー（workspace）は、`start` を呼んだ process の現在のディレクトリとする。入力に含めない。
-- `run-daemon` は `start` が起動する内部のコマンドで、司令塔もテストも直接呼ばない。その引数（`run_id`・nonce・依頼の一時ファイルの path）は、`start` が自分で作った値だけを渡す。
+- `run-daemon` は `start` が起動する内部のコマンドで、司令塔もテストも直接呼ばない。
+  - argv は、コマンド名 `run-daemon`・`run_id`・nonce・一時の領域（`.tmp-<run_id>-<nonce>/`）の絶対 path の 4 つちょうどで、値は全て `start` が自分で作ったものである。
+  - 依頼は一時の領域の `request.input.json` からだけ読む。標準入力は読まない。
+  - `start` は、`run-daemon` の標準入力・標準出力・標準エラーを、自分のものにも pipe にも繋がずに起動する（3 つとも捨てる）。`run-daemon` が client に返すものは、全て `status.json` と [run の領域の配置](#run-の領域の配置)のファイルを通る。
+  - 理由: `start` の出力の 1 行の JSON に `run-daemon` の出力が混ざらない。また、`start` から継いだ pipe の書き端を `run-daemon` が開いたままにすると、`start` を呼んだ側が pipe の close を待ち、`run-daemon` が終わるまで `start` の呼出しが返らない。
 
 ## コマンド
 
@@ -102,7 +107,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 1. **入力の形**: 標準入力が `{"request": <JSON の値>}` の形か（`request` があるか）だけを見る。無ければ `E_INPUT`。`request` の中身は見ない。
 2. **保存先の能力の確認**: 保存先の root（`<workspace>/.formal-method/runs/`）に一時のディレクトリ（名前は `.probe-<nonce>/`。`.tmp-*` とは別の形）を作り、ファイルの書込み・fsync・ディレクトリの fsync を試し、作ったものを消す。
    - できなければ、`run-daemon` を起動せずに、受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、`daemon: null`）。停止の理由は `保存の失敗`。`records.saved` は空、`records.unsaved` に結果のファイル自身を含む全ての記録と理由を載せる（AC-13）。
-3. **起動**: `run_id`（UTC の時刻と乱数）と nonce を作る。`.tmp-<run_id>-<nonce>/` を作り、`request` を `request.input.json` に書いて fsync する。書く直前に[秘密値の走査](#run-の領域の配置)の型で走査し、見つかれば書かずに一時の領域を消し、`run-daemon` を起動せずに受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、停止の理由は `保存の失敗`、`records.unsaved` に依頼と全ての記録）。`run-daemon` を detach（新しい session と process group）で起動し、引数に `run_id`・nonce・一時の領域の path を渡す。起動した process の pid と開始時刻を控え、その終了を親として観測する。
+3. **起動**: `run_id`（UTC の時刻と乱数）と nonce を作る。`.tmp-<run_id>-<nonce>/` を作り、`request` を `request.input.json` に書いて fsync する。書く直前に[秘密値の走査](#run-の領域の配置)の型で走査し、見つかれば書かずに一時の領域を消し、`run-daemon` を起動せずに受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、停止の理由は `保存の失敗`、`records.unsaved` に依頼と全ての記録）。`run-daemon` を detach（新しい session と process group）で、標準入出力を繋がずに起動し、引数に `run_id`・nonce・一時の領域の path を渡す（[呼び方と入力の口](#呼び方と入力の口)）。起動した process の pid と開始時刻を控え、その終了を親として観測する。
 4. **`run-daemon` の作成**: `run-daemon` は一時の領域に `run.lock` を排他作成し、`<run_id>/` へ rename する。その後に最初の `status.json`（`seq: 1`）を書く。依頼の検査（[依頼](artifact-formats.md#依頼request)）はその後に行い、受け付けない依頼なら受付の段の `停止` の結果を、通常の保存（[結果と台帳の保存の失敗](#結果と台帳の保存の失敗)）で保存して返す。
 5. **待つ**: `start` は `START_WAIT_MS` を上限に、次を順に評価する。
    1. 起動そのものに失敗したか、起動した process が終わったと観測した。
@@ -222,7 +227,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `<run_id>/attempts/<task_id>/worklog.json` | 担当 | [作業記録](artifact-formats.md#作業記録) |
 | `<run_id>/attempts/<task_id>/<成果物>` | 担当 | 返り値の `outputs` が指すファイル |
 | `<run_id>/worklogs/cli-<段>.json` | `run-daemon` | 決定的な処理の作業記録（担当 `cli`） |
-| `<run_id>/checks/<execution_id>/{input.smt2,stdout.txt,stderr.txt,end.json}` | `run-daemon` | 道具の実行ごとの証拠。`end.json` は [終わり方](artifact-formats.md#検査の終わり方end) |
+| `<run_id>/checks/<execution_id>/{input.smt2,stdout.txt,stderr.txt,end.json}` | `run-daemon` | 道具の実行ごとの証拠。`execution_id` は、検査なら `Check.id`、道具を実行した確認（sanity・mutation・replay）なら `Confirmation.id` で、`Performance.executions[].id` と同じ値（実行と確認の id は 1 つの名前空間）。`end.json` は [終わり方](artifact-formats.md#検査の終わり方end) |
 | `<run_id>/children/<pgid>.json` | `run-daemon` | `{"pgid", "started_at"}`。道具の process group の記録 |
 | `<run_id>/ledger.json` | `run-daemon` | [記録台帳](artifact-formats.md#記録台帳) |
 | `<run_id>/result.json` | `run-daemon` か salvage（link。先に公開した方だけ） | [結果](artifact-formats.md#結果result)。run の結果の正本 |
@@ -233,7 +238,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `.tmp-<run_id>-<nonce>/request.input.json` | `start` | `start` が受け取った `request` の値そのまま。`run-daemon` だけが読む |
 
 - 記録は全て、一時ファイル・fsync・rename（又は link）・ディレクトリの fsync で書く。同じ path を別の内容で上書きしない（`state.json`・`status.json` を除く）。
-- **秘密値の走査**（依頼者の決定）: formal-method が書く記録（依頼の写し、担当の返り値・成果物・作業記録、確認の記録、道具の標準出力・標準エラー、作業記録、台帳、結果、表示）は、書く直前に下の型で走査する。見つかれば書かずに、その記録を保存できなかったもの（`records.unsaved`、停止の理由 `保存の失敗`）として扱い、値は診断にも残さない（型と行の番号だけ）。
+- **秘密値の走査**（依頼者の決定）: formal-method が書く記録（依頼の写し、担当の返り値・成果物（担当が書いた `.smt2` を含む）・作業記録、確認の記録、道具に渡す query（全ての実行の `checks/<execution_id>/input.smt2`。CLI が証人から作る replay の query（[証人](#証人)）を含む）、道具の標準出力・標準エラー、作業記録、台帳、結果、表示）は、書く直前に下の型で走査する。見つかれば書かずに、その記録を保存できなかったもの（`records.unsaved`、停止の理由 `保存の失敗`）として扱い、値は診断にも残さない（型と行の番号だけ）。
   - 対象の写し（`targets/`）は走査しない。理由: 利用者の作業ツリーに既にある内容で、写しによって新しく露出するものではない。
   - 型は誤検知の少ないものだけに絞り、次の閉じた集合とする。この集合に無い形は検出しない。
 
@@ -322,7 +327,20 @@ PublishOutcome = {
 ## Z3 の adapter
 
 - 実行体は `PATH` から `z3` を探す。見つからなければ、その道具を要る性質は `未実行`（SP-007）。
-- 使う option は `-in`（query を標準入力から）、`-T:<秒>`（道具自身の時間の上限）、`-version`（準備で版を読む）の 3 つだけ。`-T` の値は計画の検査ごとの値で、`TOOL_TIME_LIMIT_MAX_S` 以下の 1 以上の整数。
+- 使う option は `-in`（query を標準入力から）、`-T:<秒>`（道具自身の時間の上限）、`-model`（答えの後にモデルも出す）、`-version`（準備で版を読む）の 4 つだけ。`-T` の値は `TOOL_TIME_LIMIT_MAX_S` 以下の 1 以上の整数で、実行の種類ごとに次の 1 つの値に決まる。
+  - `property`・`composition`・`contract`: その検査の `PlanFile.checks[].tool_time_limit_seconds`。
+  - `sanity`: その `PlanFile.sanity[].tool_time_limit_seconds`。
+  - `mutation`: 検出役の検査（`MutationsFile.mutations[].detector_check_id`）の `tool_time_limit_seconds`。
+  - `replay`: 反例の検査（`Counterexample.check_id`）の `tool_time_limit_seconds`。
+  - 理由: 変異と replay は元の検査の範囲をそのまま検査するので、元の検査の値を使う。値は全て計画の照合で上限以下と確かめてあり、どの実行も[検査に使える期限](#定数)で止まるので、依頼元の時間の上限と残す時間を越えない。確認用の実行の値は、この規則で計画から導けるので、結果に値の欄を持たない。
+- **道具に渡す query**: 実行の `input_refs` のファイルのバイト列を、その順に、各ファイルの後に `\n` を 1 つ置いてつないだもの。これを `checks/<execution_id>/input.smt2` に保存して標準入力に渡す。
+  - `input_refs` の要素は、担当が書いた query（`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`PartitionsFile` の `contracts[].query_ref`・`composition_conditions[].query_ref`）だけを指せる。対象の写し（`targets/`）など他のファイルを指せば計画の欠陥である。理由: 書いた役の段で `(check-sat)` と書かない form を照らしたファイルだけを道具に渡す。対象の写しは秘密値の走査も受けない。
+  - 担当の query は全て `(check-sat)` を持つので、下のつなぎ方の照合により、今は `input_refs` の要素はちょうど 1 つである（型の `[Ref]+` は、つなぎ方の規則とともに残す）。変異の「最後の input を置き換える」は、その 1 つを `mutation_ref` に置き換えることである。
+  - 1 つの `.smt2` の `(check-sat)` の数と位置は、そのファイルを書いた役の段で照らす（[成果物の形式の担当の成果物](artifact-formats.md#担当の成果物)。欠陥の修正の巡はその役に戻る）。計画の照合は、つなぎ方だけを照らす: 検査・sanity・変異の各実行で、`(check-sat)` を持つ input が最後の 1 つだけであること。違えば計画の欠陥である。担当が書く `.smt2` は全て `(check-sat)` を持つので、実際には最後の input だけが担当の `.smt2` になる。理由: つないだ query の `(check-sat)` が最後の form でないと、その後の form が答えの後に出力を足し、答えの読みか証人を壊す。実測（Z3 5.3.3）では、誤った式（`(assert (foo))`）は `(error …)` の行と終了コード 1 を出し、`-model` の有無によらず `実行失敗` になる。未知のコマンド（`(foo)`）は `unsupported` と注釈の行を出して終了コード 0 で、`-model` を渡さない実行では読めない出力（`実行失敗`）になり、渡した実行では答えは正しく読めるがモデルの文字列が形に合わず、証人を読めない。
+  - 変異の query は、検出役の検査の `input_refs` の最後を変異（`mutation_ref`）に置き換えて、同じ規則でつなぐ。
+- `-model` は、実行の種類が `property` と `composition` の実行にだけ渡す（反例になりうる実行で、反例の再実行に証人が要る）。他の種類（`contract`・`sanity`・`mutation`・`replay`）には渡さない。
+  - 理由: 担当の query には `get-model` を書かせない（[成果物の形式](artifact-formats.md#modelモデル作成役)）。証人を取るのは CLI の役目なので、CLI が渡す option で取る。
+  - 退けた案: CLI が query の `(check-sat)` の後に `(get-model)` を足す。実測（macOS arm64、Z3 5.3.3）では、答えが `unsat` のとき標準出力に `(error "line … column …: model is not available")` が出て終了コードが 1 になる。読む順の 1 に当たって `判定以外のエラー` になり、成り立つ性質の検査が全て `実行失敗` になる。CLI は答えを前もって知らないので、`sat` のときだけ足すこともできない。
 - 子 process には環境変数を渡さない。process group を作って起動し、`children/` に記録してから待つ。
 - 依頼の時間の上限に達したら、formal-method が group を止める（終わり方の `stopped_by: "時間"`）。
 - query が並列の設定（`parallel.enable`、`check-sat-using` と `par-or`・`par-then`）を含めば、計画の照合で拒む。
@@ -332,21 +350,23 @@ PublishOutcome = {
 | 場合 | 標準出力 | 標準エラー | 終了コード |
 |---|---|---|---|
 | 答え | `sat`・`unsat`・`unknown` のどれか 1 行 | — | 0 |
-| 道具自身の時間の上限 | `timeout` | — | 0 |
+| 答え（`-model` を渡した） | 答えの 1 行と、それに続く 0 行以上のモデル。実測では `sat` と、一部の `unknown` の後にモデルが出て、`unsat` の後には出ない | — | 0 |
+| 道具自身の時間の上限 | `timeout`（実測では `-model` を渡しても 1 行だけ） | — | 0 |
 | 構文の誤り | `(error …)` の行 | — | 1 |
 | メモリ不足 | （答えの行なし） | `(error "out of memory")` | 101 |
 
-Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの表に足す。
+Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの表に足す（`-model` を渡したときの `sat`・`unknown`・`timeout` の出力を含む）。
 
 **読む順**（道具が自分で終わったとき。formal-method が止めた場合は `tool_result: "なし"`）
 
+0. `-model` を渡した実行で、標準出力の最初の空でない行が `sat`・`unsat`・`unknown`・`timeout` のどれかなら、その行を答えの行とし、続く全ての行をモデルの文字列とする。モデルの文字列は 1〜4 の読みに使わず、読めるかどうかで `tool_result` を変えない（[証人](#証人)）。以下の 1〜4 は、答えの行とモデルの文字列を除いた行と終了コードで見る。そのため `-model` を渡した実行では、答えの後の `(error …)` の行はモデルの文字列に入り、1 に当たらない。終了コードが 0 でなければ 3 の `abnormal_exit` になる（どちらも判定は `実行失敗` で、意図どおりである）。
 1. 標準出力に `(error` で始まる行があれば、`tool_result: "判定以外のエラー"`。
-2. 標準出力の空でない行がちょうど 1 つで、終了コードが 0 なら、その行で決める。
+2. 終了コードが 0 で、答えの行がある（0 で決めた）か、標準出力の空でない行がちょうど 1 つ（その行が答えの行）なら、答えの行で決める。
    - `unsat`・`sat` は、下の「答えと `tool_result` の対応」で決める。
    - `unknown` は `判定できない`。理由（`:reason-unknown`）は読まない。
    - `timeout` は `判定できない` で、`time_limit_hit: "道具"`。
 3. それ以外で終了コードが 0 でなければ、`abnormal_exit: true`、`tool_result: "なし"`。
-4. それ以外（終了コードが 0 で、空でない行が無い、2 つ以上、又は上のどの値でもない）は、`tool_result: "なし"`、`unreadable_output: true`。
+4. それ以外（終了コードが 0 で、空でない行が無い、2 に当たらずに 2 つ以上ある、又は答えの行が上のどの値でもない）は、`tool_result: "なし"`、`unreadable_output: true`。
 - 標準エラーは証拠として保存するだけで、読む順に使わない。
 
 **答えと `tool_result` の対応**（どの実行も、答えが `expected` と同じなら `満たす`、`sat`・`unsat` のうち違う方なら `反する`）
@@ -358,10 +378,36 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 | 合成の条件（`composition`） | 契約の連言 ∧ ¬全体の性質 | `unsat` | `満たす` | `反する`（親の性質の反例） | 検査の判定 |
 | 前提の整合（`sanity`） | 前提（と初期状態・到達例） | `sat` | `反する`（前提の矛盾） | `満たす` | 確認の記録 |
 | 変異（`mutation`） | 検出役の検査の query の最後の input を変異に置き換えたもの | `expected_violation` | `unsat` が期待なら `満たす`（検出）、そうでなければ `反する`（検出せず） | `sat` が期待なら `満たす`、そうでなければ `反する` | 検出能力の確認 |
-| 反例の再実行（`replay`） | 反例の検査の query ∧ 証人の値 | `sat` | `反する`（再現せず） | `満たす`（再現） | 確認の記録 |
+| 反例の再実行（`replay`） | 反例の検査の query ∧ 証人の値（下の [証人](#証人)） | `sat` | `反する`（再現せず） | `満たす`（再現） | 確認の記録 |
 
 - `unknown`・`timeout`・`(error` の扱いは、どの種類でも上の読む順のとおりである。
-- 出力が `TOOL_OUTPUT_MAX_BYTES` を超えたら、formal-method が group を止め、`stopped_by: "その他"`、`unreadable_output: true` とする。
+- **出力の上限**: 標準出力が `TOOL_OUTPUT_MAX_BYTES` を超えたら、次のとおりにする。
+  - `-model` を渡した実行で、上限までに答えの行（0 で決める行）を読み終えていれば、group を止めない。上限を超えた分は読んで捨て、`stdout.txt` には上限までのバイト列だけを保存する。答えはそのまま読み、モデルの文字列は途中までなので、証人を読めないものとする。切り詰めたことは、その検査の `Check.reason` と replay の `Confirmation.reason` に、固定の語「標準出力を TOOL_OUTPUT_MAX_BYTES で切り詰めた」を含めて書く。理由: 答えは読めているので、モデルの大きさで判定を変えない。止めない実行も `-T` と検査に使える期限で終わる。
+  - それ以外は、formal-method が group を止め、`stopped_by: "その他"`、`unreadable_output: true` とする（判定は `未実行`）。
+- **答えの後の停止**: `-model` を渡した実行で、答えの行を読み終えた後、モデルを読んでいる（又は読み捨てている）間に期限か停止の要求が来たら、group を止める。この実行は、答えの行を読み終えた時点で道具の結果を得たものとし、答えの行で決める（2 の終了コードの条件は当てない）。`stopped_by: null`、`time_limit_hit` は答えの値のとおり（`timeout` なら `道具`、他は null）、`abnormal_exit`・`unreadable_output` は false とし、証人は読めないものとする。理由: 判定がモデルの大きさで変わらないようにする（上の出力の上限と同じ）。止めたのはモデルの読み取りで、検査ではない。この組は、道具の結果を得た後に止めるものは無いとするオラクルの規則（網羅表の WF1）の、止めていない行と同じになる。
+- 道具を実行した確認（`sanity`・`mutation`・`replay`）の `Confirmation.result` は、その `end` に `classifyCheck` を当てた値で決める。`成功` なら `成り立つ`、`反例` なら `成り立たない`、他の値なら `確認できず`。
+
+### 証人
+
+反例の再実行（SP-012 の決定的な検査）の入力を作る手順。
+
+- **取る実行**: `-model` を渡した実行（`property`・`composition`）で、判定が `反例` のもの（`property`・`composition` の `expected` は `unsat` だけなので、答えの行は `sat` である）。
+- **読む元**: その実行の `checks/<execution_id>/stdout.txt` を、保存と再読込の照合に通った後に読み直したバイト列の、答えの行より後の部分（モデルの文字列）。保存できなかった場合（秘密値の走査で書かなかった場合を含む）は、証人を読めないとする。理由: 再実行の入力を保存した証拠だけから作ると、記録から再現を辿れる。
+- **モデルの形**: モデルの文字列から SMT-LIB の注釈（文字列の literal の外の `;` から行末まで）を除いたものが、S 式としてちょうど 1 つの list であること。list の後に空白以外が残れば、形に合わない。list の要素のうち `(define-fun <記号> () <値の sort> <項>)`（引数の無い定義）だけを使い、他の要素（引数のある `define-fun`、`declare-fun`、`forall` など）は使わない。
+- **証人の値**: 使う要素のうち、記号が反例の検査の query（`checks/<execution_id>/input.smt2`）の `declare-const` か、引数の無い `declare-fun` で宣言されていて、項が次の閉じた集合の literal であるもの。
+  - `true`・`false`。数字の列（例 `12`）と `(- <数字の列>)`。小数（例 `1.5`）と `(- <小数>)`・`(/ <小数> <小数>)`・`(- (/ <小数> <小数>))`。`#x` と 16 進の列、`#b` と 0・1 の列。文字列の literal。
+  - 集合に無い項（`(as const …)`・`as-array`・`lambda`・`root-obj`・補助の記号 `k!0` や `U!val!0` を含む項など）の記号と、モデルに無い記号は、値を固定しない。
+  - 理由: literal は replay の query の中でそのまま読め、他の記号に依らない。他の形は、補助の記号の宣言や論理の制約（量化子を許さない `QF_*` の logic など）に依り、replay の query を壊しうる。
+  - 固定する記号が 1 つも無ければ、証人を読めないとする（何も固定しない replay は反例を再現したことにならない）。
+- **replay の query**: 反例の検査の `input.smt2` のバイト列の、ただ 1 つの `(check-sat)` の form の直前に、固定する記号ごとに `(assert (= <記号> <項>))` と改行 `\n` 1 つからなる 1 行を、モデルの要素の順に挿入したもの。
+  - `<項>` は、注釈を除いたモデルの文字列の、その項の最初の文字から最後の文字までを写し、文字列の literal の外の空白の並び（改行を含む）を空白 1 つにまとめたもの。
+  - 固定しなかった記号は、replay の `Confirmation.reason` に名前を挙げる。挙げるのは query で宣言された記号のうち固定しなかったもの（モデルに無い、引数がある、項が literal でない）だけで、宣言の順に並べる。query で宣言されていない補助の記号（`k!0` など）は挙げない。
+  - replay の実行は、この query を `checks/<replay の execution_id>/input.smt2` に保存して、`expected: "sat"` で実行する。`Counterexample.replay.steps_ref` は、この `input.smt2` を指す。
+- **証人を読めないとき**（`stdout.txt` を保存できなかった、モデルが無い、出力の上限で途中まで、形に合わない、固定する記号が無い）:
+  - replay の実行を始めない。replay の `Confirmation` は `result: "確認できず"`、`end` は始めていない終わり方（`started: false`、`tool_result: "なし"`、`abnormal_exit: false`、`unreadable_output: false`、`stopped_by: null`、`time_limit_hit: null`）、`reason` に読めなかった理由を持つ。
+  - `Counterexample.replay.steps_ref` は、反例の検査の `checks/<execution_id>/input.smt2` を指す。
+  - 反例の検査の `end` と `verdict` は変えない（答えの行は読めたので、`反する`・`反例` のまま）。理由: 証人を読めないことを `end` で表すと、`tool_result` が `なし` 以外で `unreadable_output: true` の組になり、[起こらない組](artifact-formats.md#検査の終わり方end)に当たる。モデルを答えの読みに使わないので、終わり方の組と判定の表は変わらない。
+- **秘密値**: replay の `input.smt2` は、CLI が道具の出力から作る新しい記録なので、書く直前に[秘密値の走査](#run-の領域の配置)を当てる。見つかれば書かずに、replay を始めず（`確認できず`）、その記録を保存できなかったもの（停止の理由 `保存の失敗`）として扱う。
 
 ## 定数
 

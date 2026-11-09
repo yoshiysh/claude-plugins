@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import { cli, cliEnv, drive, expectOk, expectRejected, makeWorkspace, removeTree, RUNS, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { listTree, fileHash } from './test-fixtures/fabricate.mjs';
 import { resultInvariants, validate, Status } from './test-fixtures/result-schema.mjs';
+import { execFileSync } from 'node:child_process';
+import { basename } from 'node:path';
+import { pathWithout } from './test-fixtures/make-fake-bin.mjs';
 
 function workspaceWithTarget() {
   const ws = makeWorkspace();
@@ -261,6 +264,45 @@ test('SP-FORMALMETHOD-001・014 AC-15: 受付で止めた run は、run-daemon �
   const runlog = join(dir, 'worklogs', 'cli-受付.json');
   assert.ok(existsSync(runlog), '入った段（受付）の作業記録 worklogs/cli-受付.json がある');
   assert.equal(JSON.parse(readFileSync(runlog, 'utf8')).stage, '受付');
+});
+
+// ---- 起動の手順: run-daemon の引数と標準入出力（cli-contract「呼び方と入力の口」「起動の手順」3） ----
+const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; } };
+test('cli-contract 呼び方と入力の口・起動の手順 3: start は run-daemon の生きている間に返り（標準入出力を繋がない）、標準出力は start の 1 行の JSON だけで、run-daemon の argv はコマンド名・run_id・nonce・一時の領域の絶対 path の 4 つ', async (t) => {
+  const ws = workspaceWithTarget();
+  let daemonPid = null;
+  t.after(async () => {
+    if (daemonPid) {
+      try { process.kill(-daemonPid, 'SIGKILL'); } catch { try { process.kill(daemonPid, 'SIGKILL'); } catch { /* 終了済み */ } }
+      for (let i = 0; i < 100 && isAlive(daemonPid); i += 1) await new Promise((r) => setTimeout(r, 50));
+    }
+    removeTree(ws);
+  });
+  // 担当を待つ状態で start が返る（担当の harness を動かさないので、run-daemon は担当の返り値を待ち続ける）
+  const env = cliEnv({ path: pathWithout(['z3']) });
+  const r = await cli('start', { request: baseRequest() }, { cwd: ws, env });
+  let status = expectOk(r, 'start').status;
+  assert.equal(r.lines, 1, 'start の標準出力は 1 行の JSON だけ（run-daemon の出力が混ざらない）');
+  // start は最初の status.json をそのまま返す（cli-contract.md:117）ので working もありうる。担当を待つ状態まで wait で進める
+  assert.ok(['working', 'run_agents'].includes(status.action), JSON.stringify(status));
+  for (let i = 0; i < 20 && status.action === 'working'; i += 1) {
+    const w = expectOk(await cli('wait', { run_dir: status.run_dir, status_seq: status.seq }, { cwd: ws, env }), 'wait');
+    if (w.outcome !== 'still_waiting') status = w.status;
+  }
+  assert.equal(status.action, 'run_agents', '担当を待つ状態（run-daemon は生きている）');
+  assert.ok(status.daemon, 'run-daemon の識別を返す');
+  daemonPid = status.daemon.pid;
+  // runCli は start の標準出力の close で返る。run-daemon が pipe を継いでいれば、ここで生きていることはない
+  assert.equal(isAlive(daemonPid), true, 'start は run-daemon の生きている間に返る');
+  const runId = basename(status.run_dir);
+  const argv = execFileSync('ps', ['-ww', '-o', 'args=', '-p', String(daemonPid)], { encoding: 'utf8' }).trim().split(/\s+/);
+  const at = argv.indexOf('run-daemon');
+  assert.ok(at >= 0, `run-daemon のコマンド名: ${argv.join(' ')}`);
+  const rest = argv.slice(at + 1);
+  assert.equal(rest.length, 3, `run-daemon の後の引数は run_id・nonce・一時の領域の 3 つ: ${rest.join(' ')}`);
+  assert.equal(rest[0], runId);
+  assert.equal(rest[1], status.daemon.nonce);
+  assert.equal(rest[2].replace(/\/$/, ''), join(ws, RUNS, `.tmp-${runId}-${status.daemon.nonce}`), '一時の領域の絶対 path');
 });
 
 test('SP-FORMALMETHOD-013 AC-12: 受付で止めた結果でも、CI の有無が performance.location に分かれる', async (t) => {

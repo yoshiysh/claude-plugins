@@ -84,8 +84,8 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 | 受付 | 依頼の検査（SP-001）、保存先の確認、対象の取得と版の固定、文書規約の版の固定 | 無し | 依頼が受け付けられた |
 | 洗い出し | 走査範囲・出所・引用の指紋の照合（coverage） | 抽出役（対象ごと） | 全ての対象の抽出を回収した |
 | モデル化 | 対応表の照合、状態×出来事の組合せの分類、経路の照合、図の導出と突き合わせ、query の構文の検査 | モデル作成役（1 体） | モデルを回収して照合した |
-| 計画 | 依存グラフと分割候補の導出、分割の照合、計画の照合、道具の候補表の作成 | 分割作成役（候補が 2 つ以上のときだけ）、計画作成役 | 計画を照合した |
-| 実行 | 道具の実行の全て（性質の検査、合成の条件の検査、確認用の実行＝前提の整合・変異・反例の再実行）を、同じ同時実行の数と時間の上限の下で行う。その後、決定的な検査（SP-012）を行う | 無し | 全ての検査が終わった、又は時間の上限に達した |
+| 計画 | 依存グラフと分割候補の導出、分割の照合、計画の照合、道具の候補表の作成（計画の `selection` から結果の `method` を作る。道具の名前と adapter の id の関係は `artifact-formats.md` の plan と mutations の「道具の名前」） | 分割作成役（候補が 2 つ以上のときだけ）、計画作成役 | 計画を照合した |
+| 実行 | 道具の実行の全て（性質の検査、部分の契約の検査、合成の条件の検査、確認用の実行＝前提の整合・変異・反例の再実行）を、同じ同時実行の数と時間の上限の下で行う。その後、決定的な検査（SP-012）を行う | 無し | 全ての検査が終わった、又は時間の上限に達した |
 | 確認 | 確認の unit の組立て | 抽出・形式化でない確認・忠実さ・保証・合成の各独立検証者、原因の分類役（反例・`対応できていない` 組合せ・作成役の問いごと） | 全ての unit を回収した |
 | 集約 | 判定の集約、完了の条件、性能の記録、結果・報告・作業記録・記録台帳の保存と再読込 | 無し | 結果を保存した、又は結果をその場で返した |
 
@@ -97,11 +97,15 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 保存できない記録があった
   - 依頼を受け付けなかった
   - CLI の内部の誤り
-- 問いに依存する性質（作成役が `blocked_by_question` に挙げたもの）は、モデル化と計画の対象から外す。その他の性質の処理は続ける（D2）。外した性質の判定は、[判定の集約](#判定の集約)で `未確認` になる（SP-011 の「回答を待つ問いに依存する」場合）。
+- 問いに依存する性質（作成役が `blocked_by_question` に挙げたもの）は、挙げた段より後の段の対象から外す。挙げた段までに作った成果物は残す。
+  - 抽出役が挙げた性質（`Inventory.properties[].blocked_by_question`）: モデル化と計画の対象から外す。モデル作成役の task の `context.property_ids` に入れないので、mapping の行を持たない。
+  - モデル作成役が挙げた性質（`AuthorReturn.blocked_by_question`）: 計画の対象から外す。その性質の mapping の行は残り、形式化 の行は `check_ids` が空で `reason`（回答を待つ問いの id）を持つ。
+  - 計画作成役が挙げた性質: その性質の検査を書かない。mapping の 形式化 の行は同じく `check_ids` が空で `reason` を持つ。
+  - どの段で外しても、`depends_on_questions` に問いの id を持つ。その他の性質の処理は続ける（D2）。外した性質の判定は、[判定の集約](#判定の集約)で `未確認` になる（SP-011 の「回答を待つ問いに依存する」場合）。
 - **修正の巡**: 作成役の成果物に機械の照合が欠陥を見つけたら、同じ段で同じ役に、欠陥の一覧を入力にして作り直させる。
   - 上限は 2 巡で、定数は `scripts/lib/schemas.mjs` に置く。
   - 前の巡の欠陥が 1 件も減らなければ、上限の前でも打ち切る。
-  - 残った欠陥は、関係する性質の未検証・未確認の理由として結果に残す。止めずに次の段へ進む。
+  - 残った欠陥は、関係する性質の未検証・未確認の理由として結果に残す。止めずに次の段へ進む。欠陥の残った計画の要素は実行せず、結果の検査にも数えない（正本は `artifact-formats.md` の検査の節）。
   - 理由: 形の誤り（span の不一致、未定義の参照）は、作り直せば直ることが多い。上限を持たずに直させると収束しない（`agent-work.md`「反復を収束させる」）。
   - 退けた案 1: 欠陥で run を止める。D1・D2 の方針に反し、他の性質の検証まで失う。
   - 退けた案 2: 独立検証者の不合格でも作り直す。検査をやり直すことになり、D4 に反する。
@@ -156,7 +160,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 `start` は依頼を検査しない。依頼の検査・対象の取得・版と指紋の照合・写しの保存は、全て `run-daemon` が同じ読み込みのバイト列で行う（照合と保存の間に内容が変わる余地を無くすため。受付で止めた run の記録も lock の下で保存できる）。`run-daemon` を起動せずに `start` が返す結果（保存先に書けない、起動の失敗、rename の前の crash）は保存せず、`run_dir: null`・`seq: 0` で返す。
 
-`start` は `run_id` と nonce を決め、一時の領域に依頼を置き、引数として渡して `run-daemon` を detach で起動する。自分が起動した process の pid と開始時刻を控え、その process の終了を親として観測する。次の順に評価する。
+`start` は `run_id` と nonce を決め、一時の領域に依頼を置き、引数として渡して `run-daemon` を detach で起動する。`run-daemon` の引数と標準入出力の扱いは `cli-contract.md` の呼び方と入力の口が正本である。自分が起動した process の pid と開始時刻を控え、その process の終了を親として観測する。次の順に評価する。
 
 1. 起動そのものに失敗した（spawn の誤り）か、`run-daemon` が終わったと観測した。
    - 最終の名前の run の領域があれば、salvage と同じ規則で結果を作り、`terminal` で返す（rename の後、最初の `status.json` の前に落ちた場合）。
@@ -296,7 +300,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - `stop_report.stage` は、中断の理由（`依頼の不備`・`起動の失敗`・`時間の上限`・`保存の失敗`・`内部の誤り`・`処理の中断`）があれば、最初に記録されたものの段とする。中断の理由が無く完了の条件で止まった場合だけ、理由の段のうち最も上流の段とする（正本は `artifact-formats.md`）。
   - 理由: AC-19 は「段の分かっている処理で失敗を起こし、停止の報告の段がその処理の作業記録の段と一致する」ことを観測する。終わった段（集約）を返すと、失敗を起こした段と一致しない。
   - 退けた案: 常に run が終わった段を返す。
-- `stop_report.checks_running`・`checks_aborted` には、性質の検査だけでなく、確認用の実行（sanity・mutation・replay）も入れる。
+- `stop_report.checks_running`・`checks_aborted` には、性質・部分の契約・合成の条件の検査だけでなく、確認用の実行（sanity・mutation・replay）も入れる。
 
 **保存先に書けないとき（AC-13）**
 
@@ -338,6 +342,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 検査の終わり方は、scheduler が 1 つの event loop の中で先に観測した出来事だけで決める。
 
+- `-model` を渡した実行では、答えの行の読み終わりを「出力の読み終わり」とする。答えの後のモデルを読んでいる間に期限か停止の要求が来たら group を止めるが、検査は止めていないものとして答えで判定する（`stopped_by` は null。正本は `cli-contract.md` の答えの後の停止）。
 - 道具の終了（close）と出力の読み終わりを、期限か停止の要求より先に観測した場合:
   - その検査は止めていない（`stopped_by` は null）。
   - 実行中に依頼元の時間の上限には達していない（`time_limit_hit` は null か `道具`）。
@@ -357,7 +362,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 **数える単位**
 
-- scheduler が同時に動かす数と時間の上限を当てて数える単位は、道具の実行の全てである。確認用の実行（sanity・mutation・replay）も、性質の検査と同じ数と上限の下で動く。
+- scheduler が同時に動かす数と時間の上限を当てて数える単位は、道具の実行の全てである。部分の契約の検査と確認用の実行（sanity・mutation・replay）も、性質の検査と同じ数と上限の下で動く。
 - 時間の上限で止めた確認用の実行も、`stop_report` の実行中・中止した検査の一覧に、`kind` を付けて出す。
 - 理由: 確認用の実行も時間を使う。時間の上限（SP-010）の「実行中の検査を止め、始めていない検査を始めない」を、確認用の実行にも当てないと、上限の後に道具が動き続ける。
 
@@ -383,13 +388,11 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   | メモリ不足 | （答えの行なし） | `(error "out of memory")` | 101 |
   | 構文の誤り | `(error …)` の行 | — | 1 |
 
-- 読み方は、次の順に決める。
-  1. 標準出力に `(error` の行があれば、「判定以外のエラー」。
-  2. 標準出力に答えの行がちょうど 1 つあり、終了コードが 0 なら、その答え。
-  3. それ以外で終了コードが 0 でなければ、「異常終了」。
-  4. それ以外（終了コードが 0 で、答えの行が無い、又は 2 つ以上）は、`tool_result` を「なし」とし、SP-011 の受け皿の `実行失敗`（どの返りも無く、他の値の条件にも当たらない）で拾う。
+- 読み方の規則の正本は `cli-contract.md` の読む順で、要点は次のとおり。
+  - `(error` の行は「判定以外のエラー」、答えの行が 1 つで終了コードが 0 ならその答え、それ以外で終了コードが 0 でなければ「異常終了」、残りは `tool_result` を「なし」とし、SP-011 の受け皿の `実行失敗`（どの返りも無く、他の値の条件にも当たらない）で拾う。
+  - `-model` を渡した実行（性質と合成の条件の検査）では、最初の空でない行が `sat`・`unsat`・`unknown`・`timeout` のどれかなら、それを答えの行とし、続く行はモデルとして答えの読みに使わない（反例の再実行の証人にだけ使う）。
   - 標準エラーは証拠として保存するだけで、読み方には使わない。
-  - メモリ不足は 3 の異常終了に、構文の誤りは 1 の判定以外のエラーに当たる。どちらも formal-method が止めていない道具なので、`実行失敗` になる（SP-011）。
+  - メモリ不足は異常終了に、構文の誤りは判定以外のエラーに当たる。どちらも formal-method が止めていない道具なので、`実行失敗` になる（SP-011）。
   - 理由: 標準エラーの文面で読み分けると、道具の版で文面が変わったときに黙って読み違える。
 - `(error …)` は、Z3 が `check-sat` の答え（sat・unsat・unknown）の代わりに出す診断である。SP-011 の `unknown` の条件「道具が判定できないと返した」は、答えとしての `unknown` に当たる。メモリ不足の `(error "out of memory")` は答えではないので、`unknown` と読まない。
   - 退けた案: `(error "out of memory")` を `unknown` と読む。答えではない出力を答えとして扱うことになる。
@@ -421,8 +424,8 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 | `status` | 状態 | `完了` か `停止`（SP-015） |
 | `verified_scope` | 検証した対象と範囲 | `targets`（id、取得先、版又は内容の指紋）、`include`、`exclude`（項目と理由）、`external_assumptions`（対象が依存する外部のもの）、`unread`（読めなかった箇所と理由。SP-004） |
 | `properties[]` | 性質ごとの結果 | 下の表 |
-| `checks[]` | （SP-010 の検査の記録） | 性質の検査（`kind: property`）と合成の条件の検査（`kind: composition`）だけを持つ。欄は `id`、`kind`、`model_id`、`assumptions`、`scope`、`unit`、`state`（`実行した`・`実行していない`）、`verdict`（検査の判定 6 値。実行していない検査は `未実行`）、`end`（終わり方。下記）、`reason`、`evidence_refs`、`completed_scope`・`incomplete_scope`（途中で止まったとき）。部分の契約の検査は `decomposition.contracts[]` の側に持つ |
-| `models[]` | 形式モデルと対応 | `id`、`ref`、`covers`（対象・状態・出来事・前提・制約・扱わない範囲。SP-005）、`mapping`（要求・目標 ↔ 性質 ↔ モデルの要素 ↔ 検査）、`unmapped`（対応の無い要求・目標・性質・モデルの要素）、`combinations`（状態×出来事ごとの 3 区分と根拠。SP-006）、`paths`（検証した経路・対象外にした経路と理由）、`diagram`（図、図とモデルの要素の対応、余分・欠けた要素、省いた条件。導出できなければ理由）。状態遷移を検証したモデルは `behavior` も持つ（下記） |
+| `checks[]` | （SP-010 の検査の記録） | 計画した検査の全て、つまり性質の検査（`kind: property`）、合成の条件の検査（`kind: composition`）、部分の契約の検査（`kind: contract`）を持つ。欄は `id`、`kind`、`model_id`、`assumptions`、`scope`、`unit`、`state`（`実行した`・`実行していない`）、`verdict`（検査の判定 6 値。実行していない検査は `未実行`）、`end`（終わり方。下記）、`reason`、`evidence_refs`、`completed_scope`・`incomplete_scope`（途中で止まったとき）。部分の契約と検査の結び付きは `decomposition.contracts[].check_ids` に持ち、`properties[].check_ids` には入れない |
+| `models[]` | 形式モデルと対応 | `id`、`ref`、`covers`（対象・状態・出来事・前提・制約・扱わない範囲。SP-005）、`mapping`（要求・目標 ↔ 性質 ↔ モデルの要素 ↔ 検査。形式化 の行で検査が無いときは、検査の無い理由を持つ。その性質は `未確認`、SP-007 の場合は `未実行`。正本は `artifact-formats.md`）、`unmapped`（対応の無い要求・目標・性質・モデルの要素）、`combinations`（状態×出来事ごとの 3 区分と根拠。SP-006）、`paths`（検証した経路・対象外にした経路と理由）、`diagram`（図、図とモデルの要素の対応、余分・欠けた要素、省いた条件。導出できなければ理由）。状態遷移を検証したモデルは `behavior` も持つ（下記） |
 | `decomposition` | 分割と合成 | [依存グラフと合成](#依存グラフと合成)の形。分割しなかったときも `graph`・`criteria`・`candidates` と採らなかった理由を持つ |
 | `counterexamples[]` | 反例と原因 | 性質、出所、入力と経過、反した条件、再現の手順への参照 |
 | `causes[]` | 反例と原因 | 対象（反例か `対応できていない` 組合せか問い）、原因の 5 区分、根拠、分類した者 |
@@ -448,7 +451,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 | `evidence_refs`、`reason` | 証拠への参照、判定の理由 |
 | `depends_on_questions` | 回答を待つ問いの ID |
 
-AC-09 の外からの照合は、`properties[].check_ids` が指す `checks[].verdict` から、SP-011 の集約の規則を当て直す形で行う。確認用の道具の実行を `checks[]` に入れないのは、性質の検査の集合に混ざると、外から当て直した判定の集合が実装の判定と食い違うからである。
+AC-09 の外からの照合は、`properties[].check_ids` が指す `checks[].verdict` から、SP-011 の集約の規則を当て直す形で行う。部分の契約の検査は `checks[]` にあっても `properties[].check_ids` に入らないので、この照合に入らない。確認用の道具の実行を `checks[]` に入れないのは、性質の検査の集合に混ざると、外から当て直した判定の集合が実装の判定と食い違うからである。
 
 - 退けた案: 確認用の道具の実行も `checks[]` に性質の参照付きで並べる。前提の矛盾を見つけた sanity の結果が、外の照合では成功でない検査として集合に入ってしまう。
 
@@ -517,7 +520,7 @@ AC-09 の外からの照合は、`properties[].check_ids` が指す `checks[].ve
 - 段 1 は、形式化できない性質にも当てる。成功でない検査がある性質を `別手段で確認済み` にしないためである（SP-011 の「成功でない検査があるならば」は性質の区別を置かない）。
 - `未確認` は段 5 でだけ付くので、他の成功でない値と同じ集合に入らない。
 - 問いに依存して検査を作らなかった性質（[段と処理の順序](#段と処理の順序)）は、検査が 0 件で SP-007 の場合でもないので、段 5 で `未確認` になる。オラクルの Q6 は、計画した検査を始めなかった入力を扱う（r11 では答えが未確定）。この設計ではその入力が生じない。
-- 性質の検査に数えるのは、`kind` が `property` と `composition` の検査だけである。
+- 性質の検査に数えるのは、`kind` が `property` と `composition` の検査だけである。`kind: contract` の検査は、部分の契約（内部の性質）の判定にだけ数える（入力の正本は `artifact-formats.md` の契約の判定）。
   - `sanity`（前提の整合・初期状態の存在）、`mutation`（変異）、`replay`（反例の再実行）は、SP-005・SP-012 の確認の記録として `confirmations` に入れる。
   - これらが成り立たなければ、`検証済み` の条件が成り立たない（`未確認` の受け皿になる）。
   - 理由: 前提の矛盾を見つけた検査を `実行失敗` や `反例` に数えると、仕様の値の意味（道具の異常、性質に反する例）と食い違う。旧版の `unexpected_unsat → execution_error` はこの誤りだった。
@@ -576,10 +579,10 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
 **分割したときの性質の扱い**
 
 - 各部分の契約は、親の性質から作る内部の性質（`derived_from` に親の ID を持つ）とする。
-  - 内部の性質は、部分のモデルの上で通常の検査と判定を持つ。判定は同じ `aggregateProperty` で決める。
+  - 内部の性質は、部分のモデルの上で通常の検査（`kind: contract`。`checks[]` に入る）と判定を持つ。判定は同じ `aggregateProperty` で決める。入力の各欄の取り方は `artifact-formats.md` の契約の判定が正本で、親の性質の合成の条件を入力にしない（循環させない）。
   - 内部の性質は依頼元の「必要な性質」に数えない（SP-015 の完了の条件は親の性質で評価する）。
   - 結果では `properties[]` に入れず、`decomposition.contracts[]` に置く。理由は、`properties[]` を読む側（別のスキル、AC-02・AC-14 の検査）が、必要でない性質を必要な性質と読まないためである。
-- 親の性質の検査は、合成の条件の検査（`kind: composition`）である。
+- 親の性質の検査は、合成の条件の検査（`kind: composition`）である。合成の条件も、契約と同じく `derived_from` に親の性質を持つ（形の正本は `artifact-formats.md`）。
   - 部分の契約の連言から親の性質を導く含意の検査と、横断する性質の合成後の検査がある。
   - これらが反する例を返せば、親の性質の `反例` になる。原因の分類役が、`形式モデルの欠陥`（契約が弱い）か `対象が性質を満たさない` かを根拠付きで分ける（SP-011）。
 - 親の性質が `検証済み` になるのは、次の全てが成り立つときだけである（SP-009）。
@@ -716,7 +719,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | adapt | `lib/verdict.mjs` | [判定の集約](#判定の集約)の 3 関数に作り直す |
 | adapt | `lib/report.mjs` | `lib/result.mjs`（結果の組立て）と `lib/render.mjs`（表示）に分けて作り直す |
 | adapt | `lib/adapters/z3.mjs` の decode | 終わり方の記録（`end`）を返す形にする。判定は付けない |
-| adapt | `lib/adapters/z3.mjs` の execute と adapter の宣言 | 使う option は `-in`・`-T`・`-version` のまま。CPU を宣言する（Z3 は 1） |
+| adapt | `lib/adapters/z3.mjs` の execute と adapter の宣言 | 使う option は `-in`・`-T`・`-model`・`-version`（正本は `cli-contract.md`）。CPU を宣言する（Z3 は 1） |
 | adapt | `lib/adapters/z3.mjs` の validate | 並列の設定（`parallel.enable`、`par-or` など）を含む query を拒む |
 | adapt | `lib/scheduler.mjs` | 最初の失敗で全てを止めることをやめる。中止は停止の関数を通す。確認用の実行も数える。再試行を消す |
 | adapt | `lib/process.mjs` | 止めた理由を必ず `stopped_by` に残す。メモリの標本で止める処理（旧 `stop('memory')`）を除き、記録のためだけに測る。CPU 時間の標本を足す |
@@ -742,7 +745,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | A: スキル・担当・Workflow の作成役 | `SKILL.md`、`agents/*.md`、`references/agent-obligations.md`、`references/formal-method-knowledge.md`、Workflow script、`references/document-rules.md`（正本の写し） |
 | B: 決定的な CLI（Node）の作成役 | `scripts/formal-method-cli.mjs`、`scripts/lib/**/*.mjs`（テストを除く）、`references/cli-contract.md`（作り直す。旧版に残る `cpu_slots`・`memory_bytes`・`FORMAL_METHOD_HOST_CONFIG`・`FORMAL_METHOD_Z3`・seq・lease・`release-lock` の記述は全て消す）、`references/artifact-formats.md` |
 | T: テストの作成役（仕様だけを見る） | `scripts/*.test.mjs`、`scripts/lib/**/*.test.mjs`、`scripts/test-fixtures/**`、`tests/formal/formal-method-skill/*.test.mjs`、`evals/evals.json`、同梱の規約と正本の一致の検査、`run.lock` を消す呼出しの所在の走査 |
-| F: 形式検証の作成役 | `tests/formal/formal-method-skill/` の TLA+ モデルと入口、`tests/formal/formal-method-requirements/`、旧 `tests/formal/formal-method/` と旧 `tests/formal/formal-method-skill/` のモデル一式の削除、`.github/workflows/verification.yml` と `Makefile` の formal の入口の更新（未 commit の旧 job は外す）、オラクルの Z3 のパスを環境から読む修正と対応表、`tests/formal/formal-method-spec/` を repo に残すための commit への同梱（今は未追跡）、Linux（CI の ubuntu）での Z3 の出力の流れと終了コードの実測と `cli-contract.md` の表への追記 |
+| F: 形式検証の作成役 | `tests/formal/formal-method-skill/` の TLA+ モデルと入口、`tests/formal/formal-method-requirements/`、旧 `tests/formal/formal-method/` と旧 `tests/formal/formal-method-skill/` のモデル一式の削除、`.github/workflows/verification.yml` と `Makefile` の formal の入口の更新（未 commit の旧 job は外す）、オラクルの Z3 のパスを環境から読む修正と対応表、`tests/formal/formal-method-spec/` を repo に残すための commit への同梱（今は未追跡）、Linux（CI の ubuntu）での Z3 の出力の流れと終了コード（`-model` を渡したときのモデルの形を含む）の実測と `cli-contract.md` の表への追記 |
 
 - `evals/evals.json` は T が持つ。理由: eval は担当（agent）の振る舞いを確かめる検証であり、担当を作る A が書くと生成と検証が同じ役になる（`agent-work.md`「生成と検証を分離する」）。T は実装の前に、仕様から eval のケースと期待を作る。
 - `run.lock` の削除の所在の走査は T が書く。T に渡すのは、`cli-contract.md` に書く構造の契約（「`run.lock` を消す呼出しは `scripts/lib/store.mjs` の `releaseOwnLock` だけで、nonce の照合の後にだけ消す」）である。実装のコードは渡さない。走査は契約に照らして実装を検査する。

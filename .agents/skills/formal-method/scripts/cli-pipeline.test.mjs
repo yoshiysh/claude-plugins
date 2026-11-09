@@ -3,22 +3,71 @@
 // 正本: SP-FORMALMETHOD-003〜015、artifact-formats.md「結果」「検査の終わり方」、cli-contract.md「Z3 の adapter」。
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, relative } from 'node:path';
 import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { resultInvariants, refInvariants, RESULT_KEYS } from './test-fixtures/result-schema.mjs';
 import { fileHash } from './test-fixtures/fabricate.mjs';
 import { removeTree } from './test-fixtures/cli-runner.mjs';
 import { specAggregate, DEFAULT_FACTS } from './test-fixtures/spec-verdict.mjs';
+import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { writerMergeScc, stopStageViolations, deriveGraph, crossingEdges, INTERRUPTS } from './test-fixtures/decomposition-check.mjs';
+import { TOOL_OUTPUT_MAX_BYTES } from './test-fixtures/constants.mjs';
 
 const P = (id, line, over = {}) => ({ id, file: 'spec.md', line, statement: `性質 ${id}`, query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, ...over });
 const prop = (result, id) => result.properties.find((p) => p.id === id);
 const checksOf = (result, p) => p.check_ids.map((id) => result.checks.find((c) => c.id === id));
+const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
+const runRefOf = (runDir, dir, name) => relative(runDir, join(dir, name));
+const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
+// 最後の plan-author の task の計画（harness が書いたもの）
+function planOf(harness) {
+  const t = harness.memory.byRole['plan-author'];
+  return { plan: readJson(join(t.attempt_dir, 'plan.json')), mutations: readJson(join(t.attempt_dir, 'mutations.json')) };
+}
+// 道具に渡す query: input_refs のファイルのバイト列を順に、各ファイルの後に \n を 1 つ置いてつないだもの（cli-contract「Z3 の adapter」）
+const queryOf = (runDir, refs) => refs.map((r) => `${readFileSync(join(runDir, r), 'utf8')}\n`).join('');
+// 実行の証拠は checks/<execution_id>/ にあり、execution_id は検査なら Check.id、確認なら Confirmation.id（cli-contract「run の領域の配置」）
+const evidence = (runDir, id, name) => join(runDir, 'checks', id, name);
+const inputOf = (runDir, id) => readFileSync(evidence(runDir, id, 'input.smt2'), 'utf8');
+// その実行の input.smt2 を受け取った偽の z3 の呼出し（指紋で引く）
+const callsFor = (log, text) => log.filter((e) => e.kind === 'query-start' && e.query_sha256 === sha256hex(text));
+// 欠陥が残った計画の要素は実行せず、どの欄にも載せず、unverified[] に「計画の欠陥: <計画の id>」で載る（artifact-formats「検査」）
+function assertExcluded(result, ids) {
+  for (const id of ids) {
+    const u = result.unverified.find((x) => x.item.includes(`計画の欠陥: ${id}`));
+    assert.ok(u, `unverified[] の item に 計画の欠陥: ${id}: ${JSON.stringify(result.unverified)}`);
+    assert.ok(u.reason.length > 0, 'reason に残った欠陥の理由');
+    assert.ok(!result.checks.some((c) => c.id === id), `${id} は checks[] に無い`);
+    const confs = [...result.confirmations.deterministic, ...result.confirmations.meaning];
+    assert.ok(!confs.some((c) => c.plan_id === id), `${id} から確認を作らない`);
+    for (const p of result.properties) assert.ok(!p.check_ids.includes(id));
+    if (result.stop_report) assert.ok(![...result.stop_report.checks_running, ...result.stop_report.checks_aborted].some((x) => x.id === id));
+    assert.ok(!result.performance.executions.some((x) => x.id === id), `${id} は performance.executions に無い`);
+  }
+}
+const tOf = (call) => Number(call.args.find((a) => a.startsWith('-T:'))?.slice(3));
+const tasksOf = (harness, role) => harness.memory.tasks.filter((x) => x.role === role);
+// 修正の巡: 同じ役に 2 つ目以降の task が出て、revise_defects_ref が非 null（artifact-formats「task の一覧」）
+function assertRevised(harness, role, stage) {
+  const ts = tasksOf(harness, role);
+  assert.ok(ts.length >= 2, `${role} に修正の巡の task が出る（${ts.length} 件）`);
+  assert.equal(ts[0].context.revise_defects_ref, null, '最初の巡は revise_defects_ref が null');
+  for (const x of ts.slice(1)) {
+    assert.notEqual(x.context.revise_defects_ref, null, '修正の巡の task は revise_defects_ref を持つ');
+    assert.equal(x.context.stage, stage, `修正の巡は同じ段（${stage}）`);
+  }
+}
 
-function assertRecordsConsistent(status, result) {
+// harness を渡すと、採った計画（最後の plan-author の計画）で、計画との照合（refInvariants）も当てる
+function assertRecordsConsistent(status, result, harness = null) {
   const dir = status.run_dir;
-  assert.deepEqual(refInvariants(result, (ref) => (existsSync(join(dir, ref)) ? readFileSync(join(dir, ref), 'utf8') : null)), [], '起点が run の領域の Ref が実在する');
+  const read = (ref) => (existsSync(join(dir, ref)) ? readFileSync(join(dir, ref), 'utf8') : null);
+  const t = harness?.memory.byRole['plan-author'];
+  const adopted = t && existsSync(join(t.attempt_dir, 'plan.json')) ? { plan: runRefOf(dir, t.attempt_dir, 'plan.json'), mutations: runRefOf(dir, t.attempt_dir, 'mutations.json') } : null;
+  if (harness) assert.ok(adopted || !t, '採った計画がある');
+  assert.deepEqual(refInvariants(result, read, adopted), [], '起点が run の領域の Ref が実在し、結果が採った計画と合う');
   const savedRefs = new Set(result.records.saved.map((s) => s.ref));
   for (const s of result.records.saved) {
     assert.ok(existsSync(join(dir, s.ref)), `saved の ${s.ref} がある`);
@@ -36,7 +85,7 @@ const canonicalRun = async () => {
 after(async () => { if (canonical) { const c = await canonical.catch(() => null); if (c) removeTree(c.ws); } });
 
 test('SP-FORMALMETHOD-015 AC-14 AC-21: 全ての条件が成り立つ依頼は 完了 になり、stop_report は null で、結果は schema に通る', async () => {
-  const { result, status } = await canonicalRun();
+  const { result, status, harness } = await canonicalRun();
   assert.deepEqual(resultInvariants(result), []);
   assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
   assert.equal(result.stop_report, null);
@@ -44,7 +93,7 @@ test('SP-FORMALMETHOD-015 AC-14 AC-21: 全ての条件が成り立つ依頼は �
   assert.deepEqual(Object.keys(result).sort(), [...RESULT_KEYS].sort());
   assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
   assert.equal(status.action, 'terminal');
-  assertRecordsConsistent(status, result);
+  assertRecordsConsistent(status, result, harness);
 });
 
 test('SP-FORMALMETHOD-014 AC-13: 完了の run の記録は台帳に参照と指紋で載り、結果のファイルと台帳は saved に hash null で載る', async () => {
@@ -139,12 +188,20 @@ test('SP-FORMALMETHOD-005・012 AC-04: 意味の確認の記録が、項目の�
   assert.ok(a.bounds.length >= 1);
 });
 
-test('cli-contract Z3 の adapter: 道具に渡す option は -in・-T:<秒>・-version だけで、子 process に環境変数を渡さない', async () => {
-  const { log } = await canonicalRun();
+test('cli-contract Z3 の adapter: 道具に渡す option は -in・-T:<秒>・-model・-version だけで、-model は性質の検査にだけ渡し、子 process に環境変数を渡さない', async () => {
+  const { log, result, status } = await canonicalRun();
   const calls = log();
   assert.ok(calls.length >= 1, '道具を呼んだ');
+  // 正準のシナリオの実行は、性質の検査・sanity・変異（反例が無いので replay は無い）。checks/<execution_id>/input.smt2 で呼出しを引く
+  const execs = [...result.checks.map((c) => [c.id, c.kind]), ...result.confirmations.deterministic.filter((c) => c.end?.started).map((c) => [c.id, c.kind])];
+  assert.deepEqual([...new Set(execs.map(([, k]) => k))].sort(), ['mutation', 'property', 'sanity']);
+  for (const [id, kind] of execs) {
+    const cs = callsFor(calls, inputOf(status.run_dir, id));
+    assert.ok(cs.length >= 1, `${kind} ${id} の input.smt2 で道具を呼ぶ`);
+    for (const c of cs) assert.equal(c.args.includes('-model'), kind === 'property', `${kind} の引数 ${JSON.stringify(c.args)}`);
+  }
   for (const c of calls) {
-    for (const a of c.args) assert.match(a, /^(-in|-version|-T:([1-9]\d*))$/, JSON.stringify(c.args));
+    for (const a of c.args) assert.match(a, /^(-in|-version|-model|-T:([1-9]\d*))$/, JSON.stringify(c.args));
     const t = c.args.find((a) => a.startsWith('-T:'));
     if (t) assert.ok(Number(t.slice(3)) <= 600, 'TOOL_TIME_LIMIT_MAX_S 以下');
     assert.ok(!c.env_keys.includes('FM_TEST_MARKER') && !c.env_keys.includes('PATH') && !c.env_keys.includes('HOME'), JSON.stringify(c.env_keys));
@@ -182,6 +239,10 @@ test('SP-FORMALMETHOD-010・011・015 AC-09: 4 性質の判定が区別され、
   assert.ok(cx[0].sources.length >= 1 && cx[0].input_and_trace && cx[0].violated_condition);
   assert.ok(result.confirmations.deterministic.some((c) => c.id === cx[0].replay.confirmation_id && c.kind === 'replay'));
   assert.ok(existsSync(join(status.run_dir, cx[0].replay.steps_ref)), '再現の手順への参照が実在する');
+  // 偽の z3 は -model の sat の後に実測の形のモデルを出すので、証人から replay の query を作って実行し、反例を再現する（cli-contract「証人」）
+  const replay = result.confirmations.deterministic.find((c) => c.id === cx[0].replay.confirmation_id);
+  assert.equal(replay.result, '成り立つ', replay.reason);
+  assert.equal(replay.end.started, true);
   assert.ok(result.causes.some((c) => c.subject.kind === 'counterexample' && c.subject.id === cx[0].id));
   const codes = result.stop_report.reasons.map((r) => r.code);
   assert.ok(codes.includes('反例') && codes.includes('必要な性質が検証の成功でない'), codes.join());
@@ -214,7 +275,8 @@ test('SP-FORMALMETHOD-012 AC-09: 常に成功を返す道具では、変異の�
 // ---- AC-05: 道具の失敗 ----
 // [名前, 道具, query の指示, 期待の検査の判定, 期待の End の一部]
 const TOOL_CASES = [
-  ['答えとしての unknown', 'fake', { result: 'unknown' }, 'unknown', { tool_result: '判定できない', abnormal_exit: false, unreadable_output: false }],
+  // 性質の検査には -model を渡すので、偽の z3 は unknown の後にもモデルを出す（実測の一部の unknown）。モデルは答えの読みに使わない
+  ['答えとしての unknown（-model の下でモデルが続く）', 'fake', { result: 'unknown' }, 'unknown', { tool_result: '判定できない', abnormal_exit: false, unreadable_output: false }],
   ['道具自身の時間の上限（timeout）', 'fake', { result: 'timeout' }, '時間切れ', { tool_result: '判定できない', time_limit_hit: '道具' }],
   ['-T を超える応答の遅れ', 'fake', { sleepMs: 5000 }, '時間切れ', { tool_result: '判定できない', time_limit_hit: '道具' }],
   ['異常終了（出力なし、終了コード 3）', 'fake', { mode: 'crash' }, '実行失敗', { tool_result: 'なし', abnormal_exit: true, unreadable_output: false, stopped_by: null }],
@@ -222,15 +284,19 @@ const TOOL_CASES = [
   ['構文の誤り（標準出力に (error …)、終了コード 1）', 'fake', { mode: 'syntax-error' }, '実行失敗', { tool_result: '判定以外のエラー', abnormal_exit: false, unreadable_output: false }],
   ['読めない出力（知らない 1 行）', 'fake', { result: 'maybe' }, '実行失敗', { tool_result: 'なし', unreadable_output: true, abnormal_exit: false }],
   ['読めない出力（空）', 'fake', { mode: 'empty' }, '実行失敗', { tool_result: 'なし', unreadable_output: true, abnormal_exit: false }],
-  ['読めない出力（2 行）', 'fake', { mode: 'multi' }, '実行失敗', { tool_result: 'なし', unreadable_output: true, abnormal_exit: false }],
+  // -model を渡した実行で最初の行が答えでなければ、読む順 0 に当たらず 4 で読めない（sat と unsat の 2 行は下の証人の表）
+  ['読めない出力（答えでない行で始まる 2 行）', 'fake', { mode: 'multi-junk' }, '実行失敗', { tool_result: 'なし', unreadable_output: true, abnormal_exit: false }],
+  // -model の下では答えの後の (error …) の行はモデルの文字列に入り、終了コード 1 で abnormal_exit（cli-contract「読む順」0・3）
+  ['答えの後の誤った form（sat・(error …)・モデル、終了コード 1）', 'fake', { mode: 'error-after-answer' }, '実行失敗', { tool_result: 'なし', abnormal_exit: true, unreadable_output: false, stopped_by: null }],
 ];
 for (const [name, tool, query, verdict, end] of TOOL_CASES) {
   test(`SP-FORMALMETHOD-007・011 AC-05: ${name} は検査の判定 ${verdict} になり、性質は成功にならず、状態は 停止`, async (t) => {
     const scenario = { toolTimeLimit: 2, properties: [P('P1', 2, { query })] };
-    const { result } = await runScenario(t, { scenario, tool });
+    const { result, log } = await runScenario(t, { scenario, tool });
     const p = prop(result, 'P1');
     const [c] = checksOf(result, p);
     assert.equal(c.verdict, verdict);
+    if (query.result === 'unknown') assert.ok(log().some((e) => e.kind === 'query-end' && e.model === 'real'), '偽の z3 が unknown の後にモデルを出した');
     for (const [k, v] of Object.entries(end)) assert.equal(c.end[k], v, `end.${k}`);
     assert.ok(p.verdict.includes(verdict));
     assert.equal(result.status, '停止');
@@ -518,12 +584,12 @@ for (const [name, claim, expected, kept] of CLAIM_CASES) {
   test(`SP-FORMALMETHOD-013 AC-12: ${name}`, async (t) => {
     const { result } = await runScenario(t, { scenario: { claim } });
     const m = prop(result, 'P1').method;
-    const cc = m.comparison_conditions.find((c) => c.compared.includes('Z3') && c.compared.includes('Rust'));
+    const cc = m.comparison_conditions.find((c) => c.compared.includes('z3') && c.compared.includes('Rust'));
     assert.ok(cc, JSON.stringify(m.comparison_conditions));
     assert.equal(cc.result, expected);
     if (claim === 'mismatch') assert.equal(cc.matches.scope && cc.matches.assurance, false);
     else assert.ok(Object.values(cc.matches).every(Boolean));
-    const z3 = m.candidates.find((c) => c.name === 'Z3');
+    const z3 = m.candidates.find((c) => c.name === 'z3');
     assert.equal(z3.performance_claim !== null, kept);
     assert.deepEqual(resultInvariants(result), []);
   });
@@ -545,18 +611,6 @@ function assertGraphMatches(status, result) {
   assert.deepEqual(g.unconfirmed.map((u) => u.relation), mine.unconfirmed.map((u) => u.relation), '未確認の関係');
   return mine;
 }
-
-const SM2 = {
-  states: ['s0'], events: ['ea', 'eb'], initial: 's0',
-  variables: [{ id: 'a', sort: 'Int', domain: '0..3', init: '0' }, { id: 'b', sort: 'Int', domain: '0..3', init: '0' }],
-  transitions: [
-    { id: 'ta', from: 's0', event: 'ea', to: 's0', guard: '(< a 3)', updates: [{ var: 'a', term: '(+ a 1)' }], unchanged: ['b'], source_ids: ['E-P1'] },
-    { id: 'tb', from: 's0', event: 'eb', to: 's0', guard: '(and (>= a 0) (< b 3))', updates: [{ var: 'b', term: '(+ b 1)' }], unchanged: ['a'], source_ids: ['E-P1'] },
-  ],
-  forbidden: [], uncovered: [], goals: [],
-};
-const SM2_SMT = '(declare-const a Int)\n(declare-const b Int)\n(assert (and (>= a 0) (>= b 0)))\n(assert (not (>= (+ a b) 0)))';
-const SM2_PROPS = [{ id: 'P1', file: 'spec.md', line: 2, statement: 'a と b の和は 0 以上', query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, smt: SM2_SMT }];
 
 test('SP-FORMALMETHOD-008 AC-06 analysis: 返されたモデルから依存グラフを導出の規則で導き直すと返された graph と一致し、writer-merge-scc/1 を当て直すと candidates と一致する（正準のシナリオ）', async () => {
   const { result, status } = await canonicalRun();
@@ -580,19 +634,8 @@ test('SP-FORMALMETHOD-008・009 AC-06・AC-07: 書き手の違う 2 つの組を
   if (!d.adopted) for (const p of result.properties) assert.ok(!p.verdict.includes('検証済み') || d.parts.length === 0, '候補だけで独立に検証できると示さない');
 });
 
-// ---- AC-07: 境界の契約と合成 ----
-// 部分を跨ぐ辺ごとに境界を 1 つ置き、その前提を 確認できない前提 にする（edge_id は規則の辺の id）。
-// parts の要素は graph の要素の id で書き、1 つの部分は 1 つのモデル（model_id）に属する
-const PARTS = [{ id: 'part-a', model_id: 'M1', owns_variables: ['var:M1/a'], transitions: ['tr:M1/ta'] }, { id: 'part-b', model_id: 'M1', owns_variables: ['var:M1/b'], transitions: ['tr:M1/tb'] }];
-const partitionWithUnconfirmedAssumption = (_cands, put, { crossing }) => ({
-  parts: PARTS,
-  boundaries: crossing(PARTS).map((e) => ({
-    edge_id: e.id, producer: 'part-a', consumer: 'part-b', shared_symbols: [e.to.replace(/^var:M1\//, '')], assumption: 'a は 0 以上', guarantee: 'a は 0 以上',
-    assumption_basis: { kind: '確認できない前提', reason: '環境が a を 0 以上に保つという前提が依頼に無い' }, responsible: ['K-a'],
-  })),
-  contracts: [{ id: 'K-a', model_id: 'M1', derived_from: 'P1', part_id: 'part-a', statement: 'a は 0 以上', query_ref: put('K-a.smt2', '; fake-result: unsat\n(declare-const a Int)\n(assert (< a 0))\n(check-sat)\n') }],
-  composition_conditions: [{ id: 'CC1', model_id: 'M1', statement: 'K-a ならば P1', query_ref: put('CC1.smt2', '; fake-result: unsat\n(declare-const a Int)\n(assert (< a 0))\n(check-sat)\n'), depends_on: ['K-a'] }],
-});
+// ---- AC-07: 境界の契約と合成（分割の fixture は test-fixtures/partition.mjs） ----
+const partitionWithUnconfirmedAssumption = partitionFixture();
 
 test('SP-FORMALMETHOD-009 AC-07 analysis: 部分の前提を確認できない分割では全体の性質が検証済みにならず、跨ぐ辺ごとに境界があり、分割前の要素は規則の id で対応・対応なし・除外のちょうど 1 つに入る', async (t) => {
   const { result, status } = await runScenario(t, { scenario: { stateMachine: SM2, properties: SM2_PROPS, partition: partitionWithUnconfirmedAssumption } });
@@ -701,3 +744,562 @@ test('SP-FORMALMETHOD-005・008 AC-06: モデルが 2 つのとき、graph は�
   for (const p of ['P1', 'P2']) assert.deepEqual(prop(result, p).verdict, ['検証済み'], p);
   for (const c of result.checks) assert.ok(['M1', 'M2'].includes(c.model_id));
 });
+
+// ---- 証人と replay（cli-contract「Z3 の adapter」「証人」、artifact-formats「反例と原因」） ----
+// 反例の検査の query（input_refs をつないだもの）と、replay の input.smt2（Counterexample.replay.steps_ref）
+function counterexampleQueries(status, result, harness, propertyId) {
+  const x = result.counterexamples.find((c) => c.property_id === propertyId);
+  assert.ok(x, `${propertyId} の反例`);
+  const { plan } = planOf(harness);
+  const check = plan.checks.find((c) => c.id === x.check_id);
+  const original = inputOf(status.run_dir, x.check_id);
+  assert.equal(original, queryOf(status.run_dir, check.input_refs), '反例の検査の input.smt2 は input_refs をつないだもの');
+  return { x, check, original, stepsText: readFileSync(join(status.run_dir, x.replay.steps_ref), 'utf8') };
+}
+
+test('cli-contract 証人 AC-09: replay の input.smt2 は反例の検査の query の (check-sat) の直前に、固定する記号ごとの literal の assert をモデルの要素の順に 1 行ずつ持ち、他のバイト列は変えない', async (t) => {
+  // 偽の z3 の real のモデル: 宣言の逆順に f（引数あり）・arr=((as const …) 0)・y=2・w=#b000・v=#x00・b=true・r=(- (/ 3.0 2.0))・x=2、最後に k!0=5（宣言の無い補助の記号）
+  const smt = '(declare-const x Int)\n(declare-const r Real)\n(declare-const b Bool)\n(declare-const v (_ BitVec 8))\n(declare-const w (_ BitVec 3))\n(declare-fun y () Int)\n(declare-const arr (Array Int Int))\n(declare-fun f (Int) Int)\n(assert (> x (f 1)))';
+  const scenario = { properties: [P('P1', 2, { query: { result: 'sat' }, smt })] };
+  const { result, status, harness } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRecordsConsistent(status, result, harness);
+  const { x, original, stepsText } = counterexampleQueries(status, result, harness, 'P1');
+  const at = original.lastIndexOf('(check-sat)');
+  assert.ok(stepsText.startsWith(original.slice(0, at)) && stepsText.endsWith(original.slice(at)), 'replay の query は (check-sat) の直前に挿入しただけ');
+  const inserted = stepsText.slice(at, stepsText.length - (original.length - at));
+  // literal の項の値だけを、モデルの要素の順に固定する。(as const …)・引数のある定義・宣言の無い k!0 は固定しない。
+  // <項> はモデルの文字列から写し、空白の並び（改行を含む）を空白 1 つにまとめるので、assert は 1 行（cli-contract「証人」replay の query）
+  // assert はモデルの要素の順（宣言の順ではない）
+  const expected = ['(assert (= y 2))', '(assert (= w #b000))', '(assert (= v #x00))', '(assert (= b true))', '(assert (= r (- (/ 3.0 2.0))))', '(assert (= x 2))'];
+  assert.equal(inserted, expected.map((l) => `${l}\n`).join(''), `挿入した行: ${JSON.stringify(inserted)}`);
+  assert.equal(stepsText, inputOf(status.run_dir, x.replay.confirmation_id), 'steps_ref は checks/<replay の Confirmation.id>/input.smt2');
+  const replay = result.confirmations.deterministic.find((c) => c.id === x.replay.confirmation_id);
+  assert.equal(replay.kind, 'replay');
+  assert.equal(replay.result, '成り立つ', '偽の z3 は replay の query にも sat を返す（再現）');
+  // reason に挙げるのは宣言された記号のうち固定しなかったもの（arr: 項が literal でない、f: 引数がある）を宣言の順（モデルの順は f・arr）で、補助の記号 k!0 は挙げない
+  assertNamedInOrder(replay.reason, ['arr', 'f'], ['k!0', 'x', 'y']);
+});
+
+// reason に記号を語として、この順に挙げ、absent の記号を挙げない
+function assertNamedInOrder(reason, names, absent = []) {
+  const pos = (sym) => reason.search(new RegExp(`(^|[^A-Za-z0-9_!])${sym.replace('!', '\\!')}([^A-Za-z0-9_!]|$)`));
+  const ps = names.map(pos);
+  assert.ok(ps.every((x) => x >= 0), `${names.join('・')} を挙げる: ${reason}`);
+  assert.deepEqual([...ps].sort((a, b) => a - b), ps, `宣言の順（${names.join('・')}）: ${reason}`);
+  for (const a of absent) assert.equal(pos(a), -1, `${a} は挙げない: ${reason}`);
+}
+
+// 証人の規則を区別するモデル（cli-contract「証人」のモデルの形・証人の値・replay の query）。偽の z3 の model-text で、このモデルをそのまま出させる
+const WITNESS_SMT = ['p Int', 'q Bool', 'n Int', 'd Real', 'e Real', 't String', 'u String', 'm Int', 'h Real', 'lm (Array Int Int)', 'aa (Array Int Int)', 'g Int']
+  .map((x) => `(declare-const ${x})`).join('\n') + '\n(declare-fun ff (Int) Int)\n(assert (> p (ff 1)))';
+const WITNESS_MODEL = [
+  '(',
+  '  ; 注釈の中の定義は使わない (define-fun m () Int 9)',
+  '  (define-fun g () Int',
+  '    (-',
+  '      7))',
+  '  (define-fun u () String',
+  '    "x;y") ; 文字列の literal の中の ; は注釈でない',
+  '  (define-fun t () String',
+  '    "ab")',
+  '  (define-fun e () Real',
+  '    (/ 1.0 3.0))',
+  '  (define-fun d () Real',
+  '    1.5)',
+  '  (define-fun n () Int',
+  '    (- 3))',
+  '  (define-fun q () Bool',
+  '    false)',
+  '  (define-fun p () Int',
+  '    4)',
+  '  (define-fun h () Real',
+  '    (root-obj (+ (^ x 2) (- 2)) 1))',
+  '  (define-fun lm () (Array Int Int)',
+  '    (lambda ((x!1 Int)) 0))',
+  '  (define-fun aa () (Array Int Int)',
+  '    (_ as-array k!0))',
+  '  (define-fun k!0 ((x!0 Int)) Int',
+  '    0)',
+  '  (define-fun ff ((x!0 Int)) Int',
+  '    1)',
+  ')',
+].join('\n');
+test('cli-contract 証人: 注釈を除き（literal の中の ; は残す）、literal（false・(- 数字)・小数・(/ 小数 小数)・文字列・複数行の項）だけを空白をまとめて固定し、root-obj・lambda・as-array・引数のある関数・モデルに無い記号は固定せず宣言の順に reason に挙げる', async (t) => {
+  const scenario = { properties: [P('P1', 2, { query: { result: 'sat', 'model-text': JSON.stringify(WITNESS_MODEL) }, smt: WITNESS_SMT })] };
+  const { result, status, harness } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  const { x, original, stepsText } = counterexampleQueries(status, result, harness, 'P1');
+  const at = original.lastIndexOf('(check-sat)');
+  const expected = ['(assert (= g (- 7)))', '(assert (= u "x;y"))', '(assert (= t "ab"))', '(assert (= e (/ 1.0 3.0)))', '(assert (= d 1.5))', '(assert (= n (- 3)))', '(assert (= q false))', '(assert (= p 4))'];
+  assert.equal(stepsText, original.slice(0, at) + expected.map((l) => `${l}\n`).join('') + original.slice(at));
+  const replay = result.confirmations.deterministic.find((c) => c.id === x.replay.confirmation_id);
+  assert.equal(replay.result, '成り立つ', replay.reason);
+  // 宣言の順: m（モデルに無い）・h（root-obj）・lm（lambda）・aa（as-array）・ff（引数がある）。k!0 は宣言されていないので挙げない
+  assertNamedInOrder(replay.reason, ['m', 'h', 'lm', 'aa', 'ff'], ['k!0']);
+});
+
+// 秘密値（cli-contract「run の領域の配置」の秘密値の走査）: 見つかった記録は書かず、値は出力に残らない
+const SECRET = 'AKIAABCDEFGHIJKLMNOP';
+function assertSecretNowhere(out, runDir) {
+  assert.ok(!JSON.stringify(out.result).includes(SECRET), '結果に値が残らない');
+  assert.ok(!out.statuses.some((x) => JSON.stringify(x).includes(SECRET)), 'Status に値が残らない');
+  // 担当が自分で書いた attempts/ と、対象の写し targets/ は formal-method の記録でないので見ない
+  const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (['attempts', 'targets'].includes(e.name) && d === runDir ? [] : walk(join(d, e.name))) : [join(d, e.name)]));
+  for (const f of walk(runDir)) assert.ok(!readFileSync(f).includes(SECRET), `${relative(runDir, f)} に値が残らない`);
+}
+test('cli-contract 証人・秘密値の走査: モデルに秘密値の型があれば stdout.txt を保存せず、証人を読めないので replay は始まらず 確認できず。反例の検査は 反例 のまま、停止の理由に 保存の失敗、値は出力に残らない', async (t) => {
+  const smt = '(declare-const x Int)\n(declare-const tok String)\n(assert (> x 1))';
+  const out = await runScenario(t, { scenario: { properties: [P('P1', 2, { query: { result: 'sat', model: 'secret' }, smt })] } });
+  const { result, status } = out;
+  assert.deepEqual(resultInvariants(result), []);
+  const [c] = checksOf(result, prop(result, 'P1'));
+  assert.equal(c.verdict, '反例');
+  assert.equal(c.end.tool_result, '反する');
+  const x = result.counterexamples.find((y) => y.check_id === c.id);
+  assert.ok(x, '反例');
+  const replay = result.confirmations.deterministic.find((y) => y.id === x.replay.confirmation_id);
+  assert.equal(replay.result, '確認できず');
+  assert.deepEqual(replay.end, NOT_STARTED_END);
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((r) => r.code === '保存の失敗'), JSON.stringify(result.stop_report.reasons));
+  assert.ok(result.records.unsaved.length >= 1, '保存できなかった記録');
+  assertSecretNowhere(out, status.run_dir);
+});
+
+test('cli-contract 秘密値の走査: 担当が書いた .smt2 の注釈に秘密値の型があれば、その記録と、それを含む input.smt2 を書かず、停止の理由は 保存の失敗 で、値は出力に残らない', async (t) => {
+  const out = await runScenario(t, { scenario: { editModelQuery: (text, { kind }) => (kind === 'property' ? `; token ${SECRET}\n${text}` : text) } });
+  const { result, status } = out;
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((r) => r.code === '保存の失敗'), JSON.stringify(result.stop_report.reasons));
+  assert.ok(result.records.unsaved.length >= 1, '保存できなかった記録');
+  assertSecretNowhere(out, status.run_dir);
+});
+
+// 証人を読めないとき: 反例の検査は 反例 のまま、replay は始めず 確認できず、steps_ref は反例の検査の query を指す
+const NOT_STARTED_END = { started: false, tool_result: 'なし', abnormal_exit: false, unreadable_output: false, stopped_by: null, time_limit_hit: null };
+const WITNESS_CASES = [
+  ['モデルが無い', { result: 'sat', model: 'none' }],
+  ['形に合わないモデル（list の後に form が残る）', { result: 'sat', model: 'malformed' }],
+  ['固定する記号が無いモデル（literal でない項だけ）', { result: 'sat', model: 'unfixable' }],
+  ['答えの後の行が list でない（sat と unsat の 2 行。読む順 0 で 2 行目はモデルの文字列）', { mode: 'multi' }],
+  ['TOOL_OUTPUT_MAX_BYTES を超えるモデル（上限までに答えを読めたので止めない）', { result: 'sat', model: 'huge' }],
+];
+for (const [name, query] of WITNESS_CASES) {
+  test(`cli-contract 証人 AC-09: ${name}では、反例の検査は 反例 のまま、replay を始めず 確認できず で、steps_ref は反例の検査の query を指す`, async (t) => {
+    const { result, status, harness } = await runScenario(t, { scenario: { properties: [P('P1', 2, { query })] } });
+    assert.deepEqual(resultInvariants(result), []);
+    const [c] = checksOf(result, prop(result, 'P1'));
+    assert.equal(c.verdict, '反例');
+    assert.deepEqual({ tool_result: c.end.tool_result, abnormal_exit: c.end.abnormal_exit, unreadable_output: c.end.unreadable_output, stopped_by: c.end.stopped_by },
+      { tool_result: '反する', abnormal_exit: false, unreadable_output: false, stopped_by: null }, 'モデルは答えの読みに使わない');
+    assert.deepEqual(prop(result, 'P1').verdict, ['反例']);
+    const { x, original, stepsText } = counterexampleQueries(status, result, harness, 'P1');
+    assert.equal(stepsText, original, 'steps_ref は反例の検査の input.smt2');
+    const replay = result.confirmations.deterministic.find((y) => y.id === x.replay.confirmation_id);
+    assert.equal(replay.result, '確認できず');
+    assert.deepEqual(replay.end, NOT_STARTED_END);
+    assert.ok(replay.reason.length > 0, '読めなかった理由');
+    const TRUNCATED = '標準出力を TOOL_OUTPUT_MAX_BYTES で切り詰めた';
+    if (query.model === 'huge') {
+      assert.equal(statSync(evidence(status.run_dir, c.id, 'stdout.txt')).size, TOOL_OUTPUT_MAX_BYTES, 'stdout.txt は上限までのバイト列');
+      for (const reason of [c.reason, replay.reason]) assert.ok(reason.includes(TRUNCATED), `固定の語: ${reason}`);
+    } else {
+      assert.ok(!c.reason.includes(TRUNCATED), '切り詰めていない実行に固定の語を書かない');
+    }
+  });
+}
+
+test('cli-contract Z3 の adapter: -model は property・composition の実行にだけ渡し、-T は検査・sanity は計画の値、mutation は検出役の検査の値、replay は反例の検査の値', async (t) => {
+  const scenario = {
+    stateMachine: SM2, toolTimeLimit: 30,
+    properties: [{ ...SM2_PROPS[0], query: { result: 'sat' }, toolTimeLimit: 17 }],
+    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'] }),
+    editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => ({ ...c, tool_time_limit_seconds: { 'C-K-a': 11, 'C-CC1': 13, 'C-CC2': 14 }[c.id] ?? c.tool_time_limit_seconds })) }),
+  };
+  const { result, status, harness, log } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  const calls = log();
+  const { plan, mutations } = planOf(harness);
+  const dir = status.run_dir;
+  const expectRun = (what, text, model, seconds) => {
+    const cs = callsFor(calls, text);
+    assert.ok(cs.length >= 1, `${what} の query（input_refs をつないだもの）で道具を呼ぶ`);
+    for (const c of cs) {
+      assert.equal(c.args.includes('-model'), model, `${what} の -model: ${JSON.stringify(c.args)}`);
+      assert.equal(tOf(c), seconds, `${what} の -T`);
+    }
+  };
+  // 実行ごとに checks/<execution_id>/input.smt2 を読み、input_refs をつないだものと一致し、それを受け取った呼出しの引数を見る
+  const confs = result.confirmations.deterministic;
+  const execIds = new Set(result.performance.executions.map((e) => e.id));
+  const expectExec = (what, id, expectedQuery, model, seconds) => {
+    const text = inputOf(dir, id);
+    if (expectedQuery !== null) assert.equal(text, expectedQuery, `${what} の input.smt2 は input_refs をつないだもの`);
+    assert.ok(execIds.has(id), `${what} の id ${id} は performance.executions[].id`);
+    expectRun(what, text, model, seconds);
+  };
+  for (const c of plan.checks) expectExec(`${c.kind} ${c.id}`, c.id, queryOf(dir, c.input_refs), c.kind === 'property' || c.kind === 'composition', c.tool_time_limit_seconds);
+  for (const s of plan.sanity) {
+    const conf = confs.find((x) => x.kind === 'sanity' && x.plan_id === s.id);
+    expectExec(`sanity ${s.id}`, conf.id, queryOf(dir, s.input_refs), false, s.tool_time_limit_seconds);
+  }
+  for (const m of mutations.mutations) {
+    const det = plan.checks.find((c) => c.id === m.detector_check_id);
+    // input_refs は担当の query ちょうど 1 つで、変異はそれを mutation_ref に置き換える（cli-contract.md:337-338）。
+    // 変異の input.smt2 は mutation_ref の内容（検出役の検査の query ではない）
+    assert.equal(det.input_refs.length, 1);
+    const conf = confs.find((x) => x.kind === 'mutation' && x.plan_id === m.id);
+    expectExec(`mutation ${m.id}`, conf.id, queryOf(dir, [m.mutation_ref]), false, det.tool_time_limit_seconds);
+    assert.notEqual(inputOf(dir, conf.id), inputOf(dir, det.id), '変異の query は検出役の検査の query と違う');
+  }
+  const x = result.counterexamples.find((c) => c.property_id === 'P1');
+  assert.ok(x, 'P1 の反例');
+  expectExec('replay', x.replay.confirmation_id, null, false, plan.checks.find((c) => c.id === x.check_id).tool_time_limit_seconds);
+});
+
+// ---- 部分の契約の検査と合成の条件（artifact-formats「検査」「分割と合成」） ----
+const PART_SCENARIO = (over = {}, part = {}) => ({ stateMachine: SM2, properties: SM2_PROPS, partition: partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'], ...part }), ...over });
+const dropChecks = (...ids) => (plan) => ({ ...plan, checks: plan.checks.filter((c) => !ids.includes(c.id)) });
+
+test('artifact-formats 検査・分割と合成 AC-07・AC-09: 契約の検査は checks[] に kind contract で現れ properties[].check_ids に入らず、契約に依らない合成の条件の検査も親の check_ids に入り、全てそろえば親は 検証済み', async (t) => {
+  const { result, status, harness } = await runScenario(t, { scenario: PART_SCENARIO() });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRecordsConsistent(status, result, harness);
+  const d = result.decomposition;
+  assert.equal(d.adopted, true, d.reason);
+  const kc = result.checks.find((c) => c.id === 'C-K-a');
+  assert.equal(kc?.kind, 'contract', '契約の検査は checks[] に kind contract');
+  assert.deepEqual(d.contracts.find((k) => k.id === 'K-a').check_ids, ['C-K-a']);
+  assert.deepEqual(d.contracts.find((k) => k.id === 'K-a').verdict, ['検証済み']);
+  for (const p of result.properties) assert.ok(!p.check_ids.includes('C-K-a'), `${p.id}.check_ids に契約の検査が入らない`);
+  for (const m of result.models) for (const row of m.mapping) assert.ok(!row.check_ids.includes('C-K-a'), 'mapping の check_ids に契約の検査が入らない');
+  assert.deepEqual([...prop(result, 'P1').check_ids].sort(), ['C-CC1', 'C-CC2', 'C-P1'], '性質の検査と、derived_from が P1 の合成の条件の検査（契約に依らない CC2 を含む）');
+  for (const cc of d.composition_conditions) assert.equal(cc.derived_from, 'P1');
+  assert.ok(result.performance.executions.some((e) => e.id === 'C-K-a' && e.kind === 'contract'), 'performance.executions に kind contract');
+  assert.deepEqual(prop(result, 'P1').verdict, ['検証済み'], '全ての契約が 検証済み で、derived_from の合成の条件が全て成功');
+});
+
+// 欠けた検査: 計画に無いので checks[] に無く、その契約・合成の条件の check_ids は空
+const missingCheck = (id, where) => (r, harness) => {
+  assertRevised(harness, 'plan-author', '計画');
+  assert.ok(!r.checks.some((c) => c.id === id), `計画に無い ${id} は checks[] に無い`);
+  const owner = where === 'contract' ? r.decomposition.contracts.find((k) => k.id === 'K-a') : r.decomposition.composition_conditions.find((c) => c.id === 'CC1');
+  assert.deepEqual(owner.check_ids, []);
+};
+// 親の性質の全てで no_suitable_tool（chosen.tool が z3 でない）。検査も変異も無ければ検査の欠けから除くので修正の巡は出ない
+const notZ3NoChecks = {
+  editPlan: (plan) => ({ ...plan, selection: plan.selection.map((x) => ({ ...x, chosen: { ...x.chosen, tool: 'Rust' } })), checks: [] }),
+  editMutations: (m) => ({ ...m, mutations: [], unavailable: m.mutations.map(() => ({ property_id: 'P1', reason: 'z3 で実行しない', alternative: null })) }),
+};
+const PART_CASES = [
+  // [名前, scenario の上書き, 分割の上書き, 契約 K-a の期待の判定, 親 P1 の期待の判定, 追加の検査]
+  ['契約の検査が 反例', {}, { contract: { result: 'sat' } }, ['反例'], ['未確認'], null],
+  ['契約の検査が 時間切れ（道具自身の時間の上限）', {}, { contract: { result: 'timeout' } }, ['時間切れ'], ['未確認'], null],
+  ['契約の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks('C-K-a') }, {}, ['未確認'], ['未確認'], missingCheck('C-K-a', 'contract')],
+  ['契約に依る合成の条件の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks('C-CC1') }, {}, ['検証済み'], ['未確認'], missingCheck('C-CC1', 'condition')],
+  ['契約に依らない合成の条件の検査が 反例', {}, { cond: { CC2: { result: 'sat' } } }, ['検証済み'], ['反例'], null],
+  // 契約の判定の facts は親の性質から取る（artifact-formats「分割と合成」の契約の判定）
+  ['親の性質の前提の整合（sanity）が成り立たない（deterministic_confirmed が false）', { properties: [{ ...SM2_PROPS[0], sanity: { result: 'unsat' } }] }, {}, ['未確認'], ['未確認'], null],
+  ['合成の意味の確認が成り立たない（meaning_confirmed が false）', { reviews: { composition: '成り立たない' } }, {}, ['未確認'], ['未確認'], null],
+  ['合成の意味の確認が無い（合成の検証者が返らない）', { returns: { 'composition-reviewer': 'missing' } }, {}, ['未確認'], ['未確認'], null],
+  ['親の性質の chosen.tool が z3 でないのに契約・合成の条件の検査がある（欠陥として除く）', { editPlan: (plan) => ({ ...plan, selection: plan.selection.map((x) => ({ ...x, chosen: { ...x.chosen, tool: 'Rust' } })) }) }, {}, ['未実行'], ['未実行'],
+    (r, harness) => { assertRevised(harness, 'plan-author', '計画'); assertExcluded(r, ['C-P1', 'C-K-a', 'C-CC1', 'C-CC2']); }],
+  ['親の性質の全てで no_suitable_tool で、検査が無い（検査の欠けから除く）', notZ3NoChecks, {}, ['未実行'], ['未実行'],
+    (r, harness) => { assert.equal(tasksOf(harness, 'plan-author').length, 1, '修正の巡は出ない'); assert.deepEqual(r.checks, []); }],
+];
+for (const [name, over, part, contractVerdict, parentVerdict, extra] of PART_CASES) {
+  test(`artifact-formats 分割と合成 SP-FORMALMETHOD-009 AC-07: ${name}なら、契約は ${contractVerdict.join()}、親の性質は ${parentVerdict.join()}`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario: PART_SCENARIO(over, part) });
+    assert.deepEqual(resultInvariants(result), []);
+    const k = result.decomposition.contracts.find((x) => x.id === 'K-a');
+    assert.deepEqual(k.verdict, contractVerdict);
+    assert.deepEqual(prop(result, 'P1').verdict, parentVerdict);
+    if (extra) extra(result, harness);
+    if (contractVerdict[0] === '反例') {
+      // 契約の反例は Counterexample を作らず、has_counterexample にも数えない
+      assert.ok(!result.counterexamples.some((x) => x.check_id === 'C-K-a'), '契約の検査から反例を作らない');
+      assert.deepEqual(result.counterexamples, []);
+      assert.ok(!result.stop_report.reasons.some((r) => r.code === '反例'), '契約の反例は停止の理由 反例 に数えない');
+      assert.ok(k.reason.length > 0);
+    }
+    if (parentVerdict[0] === '反例') assert.ok(result.counterexamples.some((x) => x.check_id === 'C-CC2' && x.property_id === 'P1'), '合成の条件の反例は親の性質の反例');
+    assert.equal(result.status, '停止');
+  });
+}
+
+test('artifact-formats 分割と合成: 合成の条件の derived_from が別のモデルの性質を指す分割は分割の欠陥で、分割作成役に修正の巡が出て、直した分割が結果に入る', async (t) => {
+  const scenario = {
+    modelPropPrefix: 'MP-',
+    properties: [{ ...SM2_PROPS[0] }, P('P2', 3, { smt: SMT_A })],
+    models: [{ id: 'M1', propertyIds: ['P1'], stateMachine: SM2 }, { id: 'M2', propertyIds: ['P2'], stateMachine: { ...SM_A, transitions: SM_A.transitions.map((x) => ({ ...x, source_ids: ['E-P2'] })) } }],
+    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1'], derivedFrom: (round) => (round === 1 ? 'MP-P2' : 'MP-P1') }),
+  };
+  const { result, harness } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'partition-author', '計画');
+  for (const x of [...result.decomposition.contracts, ...result.decomposition.composition_conditions]) assert.equal(x.derived_from, 'MP-P1', `${x.id} は同じモデル M1 の性質を指す`);
+});
+
+// ---- 検査の欠けと 形式化 の行（artifact-formats「形式モデルと対応」「plan と mutations」） ----
+function assertNoChecksRow(result, id) {
+  const rows = result.models.flatMap((m) => m.mapping).filter((r) => r.property_id === id && r.relation === '形式化');
+  assert.ok(rows.length >= 1, `${id} の 形式化 の行`);
+  for (const r of rows) { assert.deepEqual(r.check_ids, []); assert.ok(r.reason && r.reason.length > 0, '検査の無い理由'); }
+  assert.deepEqual(prop(result, id).check_ids, []);
+  assert.ok(prop(result, id).reason.length > 0);
+}
+
+test('artifact-formats plan と mutations 検査の欠け: モデルの性質の検査が無い計画は計画の欠陥で修正の巡が出て、直れば通常の結果になる', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { editPlan: (plan, { round }) => (round === 1 ? dropChecks('C-P1')(plan) : plan) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'plan-author', '計画');
+  assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+});
+
+test('artifact-formats 形式モデルと対応 検査の欠け: 修正の巡の後も検査が欠ければ止めずに進み、形式化 の行は check_ids が空で reason を持ち、性質は 未確認', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { editPlan: dropChecks('C-P1') } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'plan-author', '計画');
+  assertNoChecksRow(result, 'P1');
+  assert.deepEqual(prop(result, 'P1').verdict, ['未確認']);
+  assert.ok(tasksOf(harness, 'fidelity-reviewer').length >= 1, '止めずに確認の段へ進む');
+  assert.equal(result.status, '停止');
+});
+
+const NO_PLAN_CASES = [
+  // [名前, 道具, 計画作成役の返り方, 期待の判定]
+  ['計画作成役が返らず、道具がある', 'fake', 'missing', ['未確認']],
+  ['計画作成役が cannot_proceed を返し、道具がある', 'fake', 'cannot_proceed', ['未確認']],
+  ['計画作成役が返らず、道具が無い（SP-007）', 'absent', 'missing', ['未実行']],
+];
+for (const [name, tool, mode, verdict] of NO_PLAN_CASES) {
+  test(`artifact-formats 検査の欠け SP-FORMALMETHOD-007・011: ${name}と、計画が無いので全ての検査が欠け、形式化 の行は check_ids が空で reason を持ち、性質は ${verdict.join()}`, async (t) => {
+    const { result } = await runScenario(t, { scenario: { returns: { 'plan-author': mode } }, tool });
+    assert.deepEqual(resultInvariants(result), []);
+    assert.deepEqual(result.checks, []);
+    assertNoChecksRow(result, 'P1');
+    assert.deepEqual(prop(result, 'P1').verdict, verdict);
+    assert.equal(prop(result, 'P1').method, null, '計画が無い性質の method は null');
+    assert.equal(result.status, '停止');
+  });
+}
+
+// ---- 計画の照合（artifact-formats「plan と mutations」、cli-contract「Z3 の adapter」の道具に渡す query） ----
+const setSelection = (fn) => (plan) => ({ ...plan, selection: fn(plan.selection) });
+const z3Candidate = (sel) => sel.candidates.find((c) => c.name === 'z3');
+const withChosen = (tool) => setSelection((sel) => sel.map((x) => ({ ...x, chosen: { ...x.chosen, tool } })));
+// 欠陥が残ったときの期待: 欠陥の残った計画の要素（検査・sanity・変異）は除き（assertExcluded）、性質は道具があれば 未確認、SP-007 なら 未実行
+// （artifact-formats「検査」）。selection の欠け・重なりが残った性質も、その検査を欠陥の残った要素として除き、method は null（artifact-formats.md:733）。
+const sp007 = (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未実行']); };
+const selectionLeft = (r) => {
+  assertExcluded(r, ['C-P1']);
+  assert.equal(prop(r, 'P1').method, null, 'method は null');
+  assert.deepEqual(prop(r, 'P1').verdict, ['未確認'], 'no_suitable_tool は準備の結果だけ（z3 はある）');
+  assert.ok(r.stop_report.reasons.some((x) => x.code === '必要な性質が検証の成功でない'), JSON.stringify(r.stop_report.reasons));
+};
+const PLAN_DEFECTS = [
+  // [名前, scenario の上書き（巡ごと）, 欠陥が残ったときの期待]
+  ['selection の要素が欠ける', { editPlan: setSelection(() => []) }, selectionLeft],
+  ['selection の要素が重なる', { editPlan: setSelection((sel) => [...sel, structuredClone(sel[0])]) }, selectionLeft],
+  // モデルの性質ごとに PlanFile.sanity が 1 つ以上ある（artifact-formats.md:743 の検査の欠け）
+  ['sanity の無い計画', { editPlan: (plan) => ({ ...plan, sanity: [] }) },
+    (r) => { assert.ok(!r.confirmations.deterministic.some((c) => c.kind === 'sanity'), 'sanity の確認は無い'); assertNoSanityConfirmed(r); }],
+  // property・contract・composition の検査の expected は unsat（artifact-formats.md:731）
+  ['kind property の検査の expected が unsat でない', { editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => (c.id === 'C-P1' ? { ...c, expected: 'sat' } : c)) }) },
+    (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
+  ['chosen.tool が表記の揺れ（Z3）で候補の名前に無い', { editPlan: withChosen('Z3') }, sp007],
+  ['chosen.tool が候補に無い名前', { editPlan: withChosen('cvc5') }, sp007],
+  ['z3 の検証器の候補が無い', { editPlan: setSelection((sel) => sel.map((x) => ({ ...x, candidates: x.candidates.map((c) => (c.name === 'z3' ? { ...c, name: 'cvc5' } : c)), chosen: { ...x.chosen, tool: 'cvc5' } }))) }, sp007],
+  ['chosen.tool が z3 でない性質に kind property の検査がある', { editPlan: withChosen('Rust') }, sp007],
+  ['kind contract の検査の target_id がモデルの性質の id', { editPlan: (plan) => ({ ...plan, checks: [...plan.checks, { ...plan.checks[0], id: 'C-bad', kind: 'contract', target_id: 'P1' }] }) },
+    (r) => { assertExcluded(r, ['C-bad']); assert.ok(r.checks.some((c) => c.id === 'C-P1'), '欠陥の無い検査は実行する'); }],
+  // input_refs が指せるのは担当の query だけ（cli-contract.md:337）。担当の query 2 つを並べると、(check-sat) を持つ input が最後でない
+  ['担当の query 2 つを並べた検査（(check-sat) を持つ input が最後でない）', { editPlan: (plan, { mref }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [mref(`${c.target_id}-sanity.smt2`), ...c.input_refs] } : c)) }) },
+    // 検出役の検査の input_refs を使う変異 MU-P1 も、最後の input を置き換えた後も (check-sat) を持つ input が最後でないので除く
+    (r) => { assertExcluded(r, ['C-P1', 'MU-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認'], '検査の欠けと同じ'); }],
+  ['input_refs が担当の query でないファイル（対象の写し）を指す検査', { editPlan: (plan, { targetRef }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [targetRef('spec.md'), ...c.input_refs] } : c)) }) },
+    (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
+  ['(check-sat) が最後の form でない変異（計画作成役の .smt2）', { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('mut-bad.smt2', '; mutation bad\n(declare-const x Int)\n(check-sat)\n(assert (> x 0))\n') })) }) },
+    (r) => {
+      // 変異を全て除かれた性質: detection は 検出能力未確認・mutations []・reason に除いた変異の計画の id。run は 停止 で理由に 検出能力未確認（artifact-formats.md:731）
+      assertExcluded(r, ['MU-P1']);
+      const det = prop(r, 'P1').detection;
+      assert.equal(det.status, '検出能力未確認');
+      assert.deepEqual(det.mutations, []);
+      assert.ok(det.reason.includes('MU-P1'), `reason に除いた変異の id: ${det.reason}`);
+      assert.ok(r.stop_report.reasons.some((x) => x.code === '検出能力未確認'), JSON.stringify(r.stop_report.reasons));
+    }],
+];
+const onlyRound1 = (fn) => (x, ctx) => (ctx.round === 1 ? fn(x, ctx) : x);
+for (const [name, edits, persisted] of PLAN_DEFECTS) {
+  test(`artifact-formats plan と mutations 計画の照合: ${name}計画は計画の欠陥で、修正の巡が出て、直れば通常の結果になる`, async (t) => {
+    const scenario = Object.fromEntries(Object.entries(edits).map(([k, fn]) => [k, onlyRound1(fn)]));
+    const { result, harness, status } = await runScenario(t, { scenario });
+    assert.deepEqual(resultInvariants(result), []);
+    assertRevised(harness, 'plan-author', '計画');
+    assertRecordsConsistent(status, result, harness);
+    assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+    assert.equal(z3Candidate(prop(result, 'P1').method.candidates)?.role, '検証器');
+    assert.equal(prop(result, 'P1').method.chosen.tool, 'z3', 'method は selection を写す');
+    assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+  });
+  if (persisted) {
+    test(`artifact-formats plan と mutations 計画の照合: ${name}欠陥が修正の巡の後も残れば、止めずに進み、性質の判定が規則どおり`, async (t) => {
+      const { result, harness, status } = await runScenario(t, { scenario: edits });
+      assert.deepEqual(resultInvariants(result), []);
+      assertRevised(harness, 'plan-author', '計画');
+      assertRecordsConsistent(status, result, harness);
+      persisted(result);
+      assert.equal(result.status, '停止');
+    });
+  }
+}
+
+test('artifact-formats no_suitable_tool の決め方 SP-FORMALMETHOD-007: chosen.tool が z3 でなく検査も変異も無い性質は、計画の欠陥でなく（修正の巡が出ない）、未実行 で method は選んだ道具を示す', async (t) => {
+  const scenario = {
+    editPlan: (plan) => ({ ...withChosen('Rust')(plan), checks: [] }),
+    editMutations: (m) => ({ ...m, mutations: [], unavailable: [{ property_id: 'P1', reason: 'z3 で実行しない', alternative: null }] }),
+  };
+  const { result, harness } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(tasksOf(harness, 'plan-author').length, 1, '検査の欠けから除くので修正の巡は出ない');
+  assert.deepEqual(prop(result, 'P1').verdict, ['未実行']);
+  assert.equal(prop(result, 'P1').method.chosen.tool, 'Rust');
+  assert.equal(result.status, '停止');
+});
+
+// 担当が書く .smt2 の規則（(check-sat) をちょうど 1 つ最後の form に置き、get-model・set-option・push などを書かない）は、
+// そのファイルを書いた役の段で照らす（artifact-formats「担当の成果物」）
+const SMT_VIOLATIONS = [
+  ['(check-sat) の後に form がある', (q) => `${q}(assert true)\n`],
+  ['(check-sat) が 0 個', (q) => q.replace('(check-sat)\n', '')],
+  ['(check-sat) が 2 個', (q) => `${q}(check-sat)\n`],
+  ['get-model を書いた', (q) => q.replace('(check-sat)', '(get-model)\n(check-sat)')],
+  ['set-option を書いた', (q) => `(set-option :produce-models true)\n${q}`],
+  ['push を書いた', (q) => q.replace('(check-sat)', '(push 1)\n(check-sat)')],
+];
+const appendAfterCheckSat = (when) => (text, { round, kind }) => (kind === 'property' && when(round) ? `${text}(assert true)\n` : text);
+for (const [name, violate] of SMT_VIOLATIONS) {
+  for (const kind of ['property', 'sanity']) {
+    test(`artifact-formats 担当の成果物: モデル作成役の ${kind} の query で${name}と、モデル化の照合の欠陥で、モデル作成役に修正の巡が出て、直れば通常の結果になる`, async (t) => {
+      const editModelQuery = (text, ctx) => (ctx.kind === kind && ctx.round === 1 ? violate(text) : text);
+      const { result, harness } = await runScenario(t, { scenario: { editModelQuery } });
+      assert.deepEqual(resultInvariants(result), []);
+      assertRevised(harness, 'model-author', 'モデル化');
+      assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+      assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+    });
+  }
+}
+
+// sanity の確認が無い（除いた sanity がある）性質は deterministic_confirmed が false で 未確認、run は述語 1 で 停止（artifact-formats.md:593）
+function assertNoSanityConfirmed(r) {
+  assert.deepEqual(prop(r, 'P1').verdict, ['未確認']);
+  assert.equal(r.status, '停止');
+  const codes = r.stop_report.reasons.map((x) => x.code);
+  assert.ok(codes.includes('必要な性質が検証の成功でない'), codes.join());
+  assert.ok(!codes.includes('確認が終わっていない'), `述語 2 に当たらない: ${codes.join()}`);
+}
+test('artifact-formats 担当の成果物・検査: 修正の巡の後も sanity の query の違反が残れば、その sanity は計画の欠陥として除かれ、確認を作らず、性質は 未確認 で run は述語 1 で 停止', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { editModelQuery: (text, { kind }) => (kind === 'sanity' ? `${text}(assert true)\n` : text) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'model-author', 'モデル化');
+  assertExcluded(result, ['S-P1']);
+  assert.ok(!result.confirmations.deterministic.some((c) => c.kind === 'sanity' && c.property_ids.includes('P1')), 'P1 の sanity の確認は無い');
+  assertNoSanityConfirmed(result);
+});
+
+// 分割作成役の契約・合成の条件の query は、計画の段の分割の照合で照らし、修正の巡は分割作成役に出る
+const PARTITION_QUERY_VIOLATIONS = [['契約', 'contract', 'C-K-a'], ['合成の条件', 'composition', 'C-CC1']];
+// persist が false なら 1 巡目だけ違反し、修正の巡で直す
+const partitionViolating = (which, persist) => (cands, put, ctx) => {
+  const base = partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'] })(cands, put, ctx);
+  if (!persist && ctx.round > 1) return base;
+  const bad = (x, id) => ({ ...x, query_ref: put(`${id}-bad.smt2`, `; ${which} ${id}\n(declare-const a Int)\n(check-sat)\n(assert (< a 0))\n`) });
+  return which === 'contract'
+    ? { ...base, contracts: base.contracts.map((k) => bad(k, k.id)) }
+    : { ...base, composition_conditions: base.composition_conditions.map((c) => (c.id === 'CC1' ? bad(c, c.id) : c)) };
+};
+for (const [label, which, checkId] of PARTITION_QUERY_VIOLATIONS) {
+  test(`artifact-formats 担当の成果物: 分割作成役の${label}の query の (check-sat) が最後の form でないと、分割の照合の欠陥で分割作成役に修正の巡が出て、直れば通常の結果になる`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), partition: partitionViolating(which, false) } });
+    assert.deepEqual(resultInvariants(result), []);
+    assertRevised(harness, 'partition-author', '計画');
+    assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+  });
+  test(`artifact-formats 担当の成果物・検査: 分割作成役の${label}の query の違反が修正の巡の後も残れば、その検査（${checkId}）は除かれ、親の性質は 検証済み にならない`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), partition: partitionViolating(which, true) } });
+    assert.deepEqual(resultInvariants(result), []);
+    assertRevised(harness, 'partition-author', '計画');
+    assertExcluded(result, [checkId]);
+    assert.deepEqual(prop(result, 'P1').verdict, ['未確認']);
+  });
+}
+
+test('artifact-formats 担当の成果物・検査: 修正の巡の後も (check-sat) の位置の違反が残った .smt2 を使う検査は計画の欠陥として除かれ（unverified[] に載り、どの欄にも無い）、性質は 未確認', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { editModelQuery: appendAfterCheckSat(() => true) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'model-author', 'モデル化');
+  assertExcluded(result, ['C-P1']);
+  assert.deepEqual(prop(result, 'P1').verdict, ['未確認']);
+  assert.equal(result.status, '停止');
+});
+
+// ---- 道具を実行した確認の result（cli-contract「Z3 の adapter」: end に classifyCheck を当て、成功 → 成り立つ、反例 → 成り立たない、他 → 確認できず） ----
+const SANITY_CASES = [
+  ['sat（期待どおり）', { result: 'sat' }, '成り立つ'],
+  ['unsat（前提の矛盾）', { result: 'unsat' }, '成り立たない'],
+  ['unknown', { result: 'unknown' }, '確認できず'],
+  ['timeout', { result: 'timeout' }, '確認できず'],
+  ['異常終了', { mode: 'crash' }, '確認できず'],
+  // sanity には -model を渡さないので、sat と unsat の 2 行は読む順 0 に当たらず読めない出力
+  ['sat と unsat の 2 行（-model なしでは読めない）', { mode: 'multi' }, '確認できず'],
+  // -model を渡さない実行では、答えの後の (error …) の行は読む順 1 に当たる
+  ['答えの後の誤った form（-model なしで sat と (error …)、終了コード 1）', { mode: 'error-after-answer' }, '確認できず', { tool_result: '判定以外のエラー', abnormal_exit: false }],
+];
+for (const [name, sanity, expected, end = {}] of SANITY_CASES) {
+  test(`cli-contract Z3 の adapter: 前提の整合（sanity）の道具が ${name} を返すと、確認の result は ${expected}`, async (t) => {
+    const { result } = await runScenario(t, { scenario: { properties: [P('P1', 2, { sanity })] } });
+    assert.deepEqual(resultInvariants(result), []);
+    const cs = result.confirmations.deterministic.filter((c) => c.kind === 'sanity' && c.property_ids.includes('P1'));
+    assert.equal(cs.length, 1);
+    assert.equal(cs[0].result, expected, cs[0].reason);
+    assert.equal(cs[0].end.started, true);
+    for (const [k, v] of Object.entries(end)) assert.equal(cs[0].end[k], v, `end.${k}`);
+  });
+}
+
+// ---- 問いに依存する性質は、挙げた段より後の段から外す（architecture.md:100-104、artifact-formats.md:740） ----
+const QUESTION = { id: 'Q1', missing_decision: 'R2 の y が x と等しいときの扱い', affected: ['P2'], options: ['許す', '許さない'] };
+const QUESTION_CASES = [
+  // [問いを挙げた役, P2 の 形式化 の行]
+  ['extractor', 'none'],
+  ['model-author', 'empty'],
+  ['plan-author', 'empty'],
+];
+for (const [role, row] of QUESTION_CASES) {
+  test(`architecture 段と処理の順序 artifact-formats 検査の欠け: ${role} が問いに依存すると挙げた性質は後の段から外れ、修正の巡が出ず、${row === 'none' ? 'mapping の行を持たず' : '形式化 の行は check_ids が空で reason を持ち'}、depends_on_questions に問いの id を持ち 未確認`, async (t) => {
+    const scenario = {
+      properties: [P('P1', 2), P('P2', 3)],
+      questionsBy: { [role]: [QUESTION] },
+      cause: { cause: '要求の不足', grounds: 'R2 は等しい場合を定めない', questions: [QUESTION] },
+    };
+    const { result, harness } = await runScenario(t, { scenario });
+    assert.deepEqual(resultInvariants(result), []);
+    assert.equal(tasksOf(harness, 'plan-author').length, 1, '問いに依存する性質の検査の欠けは計画の欠陥でない');
+    const rows = result.models.flatMap((m) => m.mapping).filter((x) => x.property_id === 'P2');
+    if (row === 'none') {
+      assert.deepEqual(rows, [], '抽出役が挙げた性質はモデル化から外れ、mapping の行を持たない');
+      assert.deepEqual(prop(result, 'P2').check_ids, []);
+    } else {
+      assertNoChecksRow(result, 'P2');
+      if (role === 'model-author') for (const x of rows.filter((y) => y.relation === '形式化')) assert.ok(x.reason.includes('Q1'), `reason に問いの id: ${x.reason}`);
+    }
+    assert.ok(prop(result, 'P2').depends_on_questions.includes('Q1'), JSON.stringify(prop(result, 'P2').depends_on_questions));
+    assert.deepEqual(prop(result, 'P2').verdict, ['未確認']);
+    assert.ok(prop(result, 'P1').check_ids.length >= 1, '他の性質の検査は続ける');
+    assert.equal(result.status, '停止');
+  });
+}

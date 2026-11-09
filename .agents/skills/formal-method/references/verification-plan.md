@@ -41,7 +41,7 @@
 | AC-06 | ○ graph | ○ | ○ 実行時の参照 | △ 性質ベース | 結合（analysis）: 返されたモデルからグラフを T の独立の実装で導き直し、要素・辺・箇所が一致すること。返された `criteria` を当て直して候補が一致すること。候補だけで独立に検証できると示されないこと。実行時にしか決まらない参照を含む対象でその関係が未確認として示されることは、主に eval と inspection で確かめる。理由: その参照をモデルにどう書くかはモデル作成役が決め、CLI が機械的に見つけられるのは宣言の無い記号・添字・関数の値による参照に限られる。結合は、その形の参照が未確認に出ることだけを補う |
 | AC-07 | ○ compose | ○ | ○ 合成の検証者 | △ | 結合（analysis）: 分割前後の要素と契約・責任・合成の条件を T の独立の照合で突き合わせ、`unmatched`・`excluded` と一致すること。相互の前提だけの分割、環境の前提が依頼に無い分割で `検証済み` にならないこと |
 | AC-08 | △ 原因の受付 | ○ 構造 | ○ | | eval: 判定に要る決まりが無い対象で `要求の不足` と問い（不足・影響先・選択肢）になること。性質に反する対象で `対象が性質を満たさない` になること。結合: 問いに依存する性質が成功にならないこと。inspection: `形式モデルの欠陥`・`分類処理の欠陥` とされたものを、根拠とモデル・出所で読む |
-| AC-09 | ○ 集約 | ○ | | ○ オラクル | 結合: 偽の z3 が成り立つ・反する・判定できない・時間の上限を返す 4 性質で、各判定が区別され、反例の項目が揃い、`停止` になること。独立な検査が D1 のとおり最後まで動くことも見る。常に成功を返す道具では変異の検出が `検出せず` になり、成功にならないこと。外からの照合: 各性質の `properties[].check_ids`（結び付きの正本）が指す `checks[].verdict` に SP-011 の集約の規則を当て直し、性質の判定の集合と一致すること。確認用の道具の実行（`confirmations`）は照合に入れない。オラクル: [判定のオラクル照合](#判定のオラクル照合) |
+| AC-09 | ○ 集約 | ○ | | ○ オラクル | 結合: 偽の z3 が成り立つ・反する・判定できない・時間の上限を返す 4 性質で、各判定が区別され、反例の項目が揃い、`停止` になること。独立な検査が D1 のとおり最後まで動くことも見る。常に成功を返す道具では変異の検出が `検出せず` になり、成功にならないこと。`property`・`composition` の検査の道具の引数に `-model` があり、他の種類（`contract`・`sanity`・`mutation`・`replay`）に無いこと。反例の replay の `input.smt2` が、反例の検査の query の `(check-sat)` の直前に証人の値の assert を持つこと。形に合わないモデルでは、反例の検査は `反例` のままで、replay が始まらず `確認できず` になること（[CLI 契約の証人](cli-contract.md#証人)）。部分の契約の検査が `checks[]` に `kind: contract` で現れ、`properties[].check_ids` に入らないこと。外からの照合: 各性質の `properties[].check_ids`（結び付きの正本）が指す `checks[].verdict` に SP-011 の集約の規則を当て直し、性質の判定の集合と一致すること。確認用の道具の実行（`confirmations`）は照合に入れない。オラクル: [判定のオラクル照合](#判定のオラクル照合) |
 | AC-10 | △ 同時に動かす数 | ○ demonstration | | △ | 結合: 互いに依存しない性質を複数持つ対象を与え、`ps` の標本で、道具の process が同時に複数あることを見る（偽の z3 に応答を遅らせる指示を書いて、重なりを観測できるようにする）。時間の上限で止めた場合に、完了と未完了の範囲が示されることを見る。確認用の実行も時間の上限で止まり、`stop_report` に出ることを見る。CPU とメモリの上限は観測しない（要求・仕様の対象外） 時間の上限が小さい依頼（1 秒）では、期限の過ぎた担当と道具を出さず、`停止` と理由 `時間の上限` を返し、完了と未完了の範囲が示されることを見る。 |
 | AC-12 | ○ performance・条件の照合 | ○ | | | 結合（結果だけで観測する）: 環境変数 `CI` の有無で `performance` の実行の場所が分かれること。取れない値が `取得できず` で 0 と区別されること。道具の候補を比べた性質で `method.comparison_conditions` があり、性質・前提・範囲・保証・判定の規則の版の一致を確かめた結果を持つこと。条件の一致しない候補の組（範囲や保証の違う候補）では `一致を確認できず` となり、優劣が示されないこと。改善の候補の検討の結果が「この run では採用しない」で、結果のどこにも、条件の一致を確かめていない改善・優劣が現れないこと。初回とキャッシュの区別は観測しない（要求・仕様から外した） **条件の一致しない比較の作り方**: 担当の代わりの harness が、計画作成役の返り値（`PlanFile`）に、`performance_claim` を持ち `comparison_basis` の範囲・保証が他の候補と違う候補を書く。結果の `method.comparison_conditions` が `一致を確認できず` になり、その候補の `performance_claim` が `null` で、`reason` と `chosen` の理由に優劣が出ないことを見る。条件が一致する組では `一致を確認` になることも見る。依頼や環境に新しい口は要らない（harness は担当の返り値の契約だけを使う）。 |
 | AC-13 | △ | ○ | | △ | 結合: 保存先の root を書込み不可にして `start` し、標準出力の結果が `停止` で、`records.saved` が空、`records.unsaved` に結果のファイルを含む全ての記録と理由が出ること。途中の段で書込み不可にして（ディレクトリの権限を変える）、保存できたものの参照と保存できなかったものが分かれることも見る |
@@ -194,7 +194,8 @@ PR-002・005〜007・014 は形式化しない。
 | `references/artifact-formats.md` | 依頼・結果・終わり方・判定の 3 関数・担当の成果物と返り値・task・Workflow の返り値・作業記録・台帳の形 |
 | `references/verification-plan.md`（この文書） | 層の割当て、オラクルの照合の方法、ケースの観点 |
 | `tests/formal/formal-method-spec/`（`gen.py`・`questions.py`・`endstates.py`・`enum_table.txt`・`summary.txt`） | 判定のオラクル（r11、290 行版の仕様）。Z3 は環境変数 `Z3` |
-| `scripts/test-fixtures/fake-z3.mjs` | 流用できる偽の z3。T が、受け取った引数の記録、応答の遅延、構文の誤り（標準出力に `(error …)`、終了コード 1）、メモリ不足（標準エラーに `(error "out of memory")`、終了コード 101）、常に成功を返す振る舞いを足す |
+| `scripts/test-fixtures/fake-z3.mjs` | 流用できる偽の z3。T が、受け取った引数の記録、応答の遅延、構文の誤り（標準出力に `(error …)`、終了コード 1）、メモリ不足（標準エラーに `(error "out of memory")`、終了コード 101）、常に成功を返す振る舞い、`-model` を受けたとき `sat`・`unknown` の後に実測の形のモデルを出す振る舞い、形に合わないモデルを出す振る舞い、`TOOL_OUTPUT_MAX_BYTES` を超えるモデルを出す振る舞いを足す |
+| `scripts/test-fixtures/result-schema.mjs` | 結果の形と不変の照合。T が契約に合わせて直す: `Check.kind` に `contract`、形式化 の行は `check_ids` が空なら `reason` が非 null、`check_ids` の各欄・`Counterexample.check_id`・`detector_check_id` の `kind`、`composition_conditions[].check_ids` の空を許すこと（[成果物の形式](artifact-formats.md)の検査・分割と合成・反例と原因・plan と mutations の節） |
 | `docs/guidelines/documentation.md` と、同梱の写し `references/document-rules.md` の path | 一致の検査を T が書く（写しは A が作る） |
 | `docs/guidelines/testing.md`、`docs/guidelines/javascript.md`、`docs/guidelines/agent-work.md` | テストの規約 |
 
@@ -213,6 +214,8 @@ PR-002・005〜007・014 は形式化しない。
 - `evals/evals.json`（AC-01・02・04・06・08 の意味の部分、司令塔が判定を足さないこと、発火の境界）
 - 構造の契約の走査（`run.lock` を消すのは `releaseOwnLock` だけ）
 - 同梱の規約と正本の一致の検査
+- 次のケース（契約の変更で増えたもの）: `start` が `run-daemon` の生きている間に返り、`run-daemon` の出力が `start` の標準出力に混ざらないこと。形式化 の行で `check_ids` が空で `reason` を持つ結果（判定が `未確認`、SP-007 なら `未実行`）。契約の検査が `stop_report.checks_*` と `performance.executions` に `kind: contract` で出ること。mutation と replay の `-T` が元の検査の値であること。`-model` の下での `unknown`（モデルが続いても `unknown`）と、上限を超えるモデル（判定は `反例` のまま、replay は `確認できず`、切り詰めが `Check.reason` に出る）。答えの後のモデルを読んでいる間に期限が来た実行が、答えで判定され `stopped_by: null` になること。`(check-sat)` が最後の input の最後の form でない計画（変異を含む）が計画の欠陥になること。`selection` の `chosen.tool` が `z3` でない性質と、計画作成役が返らない run で、性質の判定が `未実行`・`未確認` に正しく分かれること
+- `tests/formal/formal-method-skill/z3_streams.py` の実測の場合に、`-model` を渡した `sat`・`unsat`・`unknown`・`timeout` と、`(check-sat)` の後の誤った form を足す（F が測り、契約の表と照らす）
 
 **T が返すもの**
 

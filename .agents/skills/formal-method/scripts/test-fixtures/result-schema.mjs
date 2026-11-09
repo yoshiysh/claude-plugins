@@ -125,7 +125,7 @@ const PropertyResult = obj({
   method: nullable(Method), check_ids: arr(Id), confirmation_ids: arr(Id), evidence_refs: arr(Ref), reason: str, depends_on_questions: arr(Id),
 });
 const Check = obj({
-  id: Id, kind: lit('property', 'composition'), model_id: Id, assumptions: arr(str), scope: str, unit: str,
+  id: Id, kind: lit('property', 'composition', 'contract'), model_id: Id, assumptions: arr(str), scope: str, unit: str,
   tool_time_limit: obj({ seconds: intGe(1), source: lit('計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）') }),
   state: lit('実行した', '実行していない'), verdict: CheckVerdict, end: End, reason: str, evidence_refs: arr(Ref),
   completed_scope: nullable(str), incomplete_scope: nullable(str),
@@ -180,7 +180,8 @@ const Decomposition = obj({
   adopted: bool, reason: str,
   parts: arr(obj({ id: Id, model_id: Id, owns_variables: arr(str), transitions: arr(str) })),
   boundaries: arr(Boundary), contracts: arr(Contract),
-  composition_conditions: arr(obj({ id: Id, model_id: Id, statement: str, check_ids: arr1(Id), depends_on: arr(Id) })),
+  // check_ids は空を許す（artifact-formats「plan と mutations」の検査の欠け）。derived_from は親の性質（モデルの性質の id）
+  composition_conditions: arr(obj({ id: Id, model_id: Id, derived_from: Id, statement: str, check_ids: arr(Id), depends_on: arr(Id) })),
   correspondence: obj({ matched: arr(obj({ element: str, to: arr1(str) })), unmatched: arr(str), excluded: arr(obj({ element: str, reason: str })) }),
 });
 export const Question = obj({ id: Id, missing_decision: str, affected: arr1(str), options: arr1(str) });
@@ -268,13 +269,16 @@ export function resultInvariants(r) {
     if (p.formalizable === (p.nonformal_reason !== null)) errs.push(`${p.id}: nonformal_reason は形式化できないときだけ非 null`);
     for (const s of p.sources) if ((s.kind === 'location') !== (s.id === null)) errs.push(`${p.id}: sources の location は id が null`);
     for (const id of p.check_ids) if (!r.checks.some((c) => c.id === id)) errs.push(`${p.id}: check_ids の ${id} が checks に無い`);
+    // 性質と検査の結び付きに入るのは kind property・composition だけ（部分の契約の検査は入らない）
+    for (const c of r.checks) if (p.check_ids.includes(c.id) && !PROPERTY_CHECK_KINDS.includes(c.kind)) errs.push(`${p.id}: check_ids の ${c.id} が kind ${c.kind}（property・composition だけ）`);
   }
   for (const c of r.checks) {
     if (c.state === '実行していない' && (c.verdict !== '未実行' || c.end.started !== false)) errs.push(`${c.id}: 実行していない検査は 未実行 で end.started false`);
   }
   for (const m of r.models) for (const row of m.mapping) {
     if (row.relation === '対応なし' && row.reason === null) errs.push(`${m.id}: 対応なし の行の reason が null`);
-    if (row.relation === '形式化' && row.check_ids.length === 0) errs.push(`${m.id}: 形式化 の行の check_ids が空`);
+    // 形式化 の行は、check_ids が空でないか、空で reason（計画にその性質の検査が無い理由）が非 null
+    if (row.relation === '形式化' && row.check_ids.length === 0 && row.reason === null) errs.push(`${m.id}: 形式化 の行の check_ids が空で reason が null`);
   }
   for (const x of r.counterexamples) if (!r.causes.some((c) => c.subject.kind === 'counterexample' && c.subject.id === x.id)) errs.push(`${x.id}: 反例に原因が無い`);
   if (r.stop_report) {
@@ -306,12 +310,31 @@ export function resultInvariants(r) {
   if (new Set(g.edges.map((e) => e.id)).size !== g.edges.length) errs.push('辺の id が重なる');
   for (const b of r.decomposition.boundaries) if (!g.edges.some((e) => e.id === b.edge_id)) errs.push(`境界の edge_id ${b.edge_id} が graph.edges に無い`);
   errs.push(...idInvariants(r));
+  // 欠陥が残った計画の要素は実行せず、checks[]・confirmations（plan_id）・それを指す欄に載せない
+  const defects = planDefectIds(r);
+  const confsAll = [...r.confirmations.deterministic, ...r.confirmations.meaning];
+  for (const id of defects) {
+    if (r.checks.some((c) => c.id === id)) errs.push(`計画の欠陥 ${id} が checks[] にある`);
+    if (confsAll.some((c) => c.plan_id === id)) errs.push(`計画の欠陥 ${id} から作った確認が confirmations にある`);
+    const refs = [...r.properties.flatMap((p) => p.check_ids), ...r.models.flatMap((m) => m.mapping.flatMap((x) => x.check_ids)),
+      ...r.decomposition.contracts.flatMap((k) => k.check_ids), ...r.decomposition.composition_conditions.flatMap((c) => c.check_ids),
+      ...(r.stop_report ? [...r.stop_report.checks_running, ...r.stop_report.checks_aborted].map((x) => x.id) : []), ...r.performance.executions.map((x) => x.id)];
+    if (refs.includes(id)) errs.push(`計画の欠陥 ${id} を指す欄がある`);
+  }
   const savedRefs = r.records.saved.map((s) => s.ref);
   for (const u of r.records.unsaved) if (u.ref && savedRefs.includes(u.ref)) errs.push(`${u.ref} が saved と unsaved の両方にある`);
   return errs;
 }
 
 export { arr1, str0, num };
+
+// 欠陥が残った計画の要素（検査・sanity・変異）の id。unverified[] の item がちょうど「計画の欠陥: <計画の id>」の項目から読む（artifact-formats「検査」）
+export function planDefectIds(r) {
+  return new Set(r.unverified.map((u) => u.item.match(/^計画の欠陥: ([A-Za-z0-9._-]+)$/)?.[1]).filter(Boolean));
+}
+
+// 性質と検査の結び付き（PropertyResult.check_ids・Model.mapping[].check_ids）に入る検査の kind
+export const PROPERTY_CHECK_KINDS = ['property', 'composition'];
 
 // artifact-formats「id と参照の一覧」の、結果の中で確かめられる「一意の範囲」と「実在を確かめる所（集約の照合）」。
 // 結果の中の参照が欠けていれば、集約の照合で 内部の誤り で止めるはずの壊れた結果である。
@@ -367,15 +390,20 @@ export function idInvariants(r) {
   const cands = new Set(d.candidates.map((c) => c.id));
   const parts = new Set(d.parts.map((x) => x.id));
   const contracts = new Set(d.contracts.map((x) => x.id));
+  // 検査を指す欄は checks[] に、その欄の kind で実在する（artifact-formats「検査」「反例と原因」、id と参照の一覧）
+  const checksOfKind = (...kinds) => new Set(r.checks.filter((c) => kinds.includes(c.kind)).map((c) => c.id));
+  const propChecks = checksOfKind(...PROPERTY_CHECK_KINDS);
   for (const p of r.properties) {
-    exists(`${p.id}.check_ids`, p.check_ids, execs);
+    exists(`${p.id}.check_ids`, p.check_ids, propChecks);
     exists(`${p.id}.confirmation_ids`, p.confirmation_ids, confIds);
     exists(`${p.id}.detection.mutations[].confirmation_id`, p.detection.mutations.map((m) => m.confirmation_id), confIds);
     exists(`${p.id}.depends_on_questions`, p.depends_on_questions, qs);
   }
   for (const c of confs) exists(`確認 ${c.id}.property_ids`, c.property_ids, props);
   for (const x of r.counterexamples) {
-    exists(`反例 ${x.id}.check_id`, [x.check_id], checks);
+    exists(`反例 ${x.id}.check_id（kind property・composition）`, [x.check_id], propChecks);
+    const c = r.checks.find((y) => y.id === x.check_id);
+    if (c && c.verdict !== '反例') errs.push(`反例 ${x.id}.check_id の ${c.id} の verdict が ${c.verdict}（反例 の検査だけ）`);
     exists(`反例 ${x.id}.property_id`, [x.property_id], props);
     exists(`反例 ${x.id}.replay.confirmation_id`, [x.replay.confirmation_id], confIds);
   }
@@ -390,7 +418,7 @@ export function idInvariants(r) {
   }
   exists('Check.model_id', r.checks.map((c) => c.model_id), models);
   for (const m of r.models) {
-    for (const row of m.mapping) exists(`${m.id}.mapping[].check_ids`, row.check_ids, checks);
+    for (const row of m.mapping) exists(`${m.id}.mapping[].check_ids（kind property・composition）`, row.check_ids, propChecks);
     if (m.combinations.applicable) for (const cell of m.combinations.cells) {
       if (!m.covers.states.includes(cell.state) || !m.covers.events.includes(cell.event)) errs.push(`${m.id} の組合せ ${cell.state}/${cell.event} が covers に無い`);
     }
@@ -407,12 +435,12 @@ export function idInvariants(r) {
   const partModel = new Map(d.parts.map((p) => [p.id, p.model_id]));
   for (const k of d.contracts) {
     exists(`契約 ${k.id}.part_id`, [k.part_id], parts);
-    exists(`契約 ${k.id}.check_ids`, k.check_ids, execs);
+    exists(`契約 ${k.id}.check_ids（kind contract）`, k.check_ids, checksOfKind('contract'));
     if (partModel.has(k.part_id) && partModel.get(k.part_id) !== k.model_id) errs.push(`契約 ${k.id} の model_id が部分と違う`);
   }
   for (const c of d.composition_conditions) {
     exists(`合成の条件 ${c.id}.model_id`, [c.model_id], models);
-    exists(`合成の条件 ${c.id}.check_ids`, c.check_ids, execs);
+    exists(`合成の条件 ${c.id}.check_ids（kind composition）`, c.check_ids, checksOfKind('composition'));
     for (const dep of c.depends_on) {
       const k = d.contracts.find((x) => x.id === dep);
       if (k && k.model_id !== c.model_id) errs.push(`合成の条件 ${c.id} の契約 ${dep} が別のモデル`);
@@ -422,7 +450,7 @@ export function idInvariants(r) {
     exists(`境界 ${b.edge_id} の producer・consumer`, [b.producer, b.consumer], parts);
     exists(`境界 ${b.edge_id}.responsible`, b.responsible, new Set([...contracts, ...execs]));
     if (b.assumption_basis.kind === '他の部分の保証') exists('assumption_basis.contract_id', [b.assumption_basis.contract_id], contracts);
-    if (b.assumption_basis.kind === '共同不変条件') exists('assumption_basis.check_ids', b.assumption_basis.check_ids, execs);
+    if (b.assumption_basis.kind === '共同不変条件') exists('assumption_basis.check_ids', b.assumption_basis.check_ids, checks);
   }
   for (const el of [...d.correspondence.matched.map((m) => m.element), ...d.correspondence.unmatched, ...d.correspondence.excluded.map((e) => e.element)]) {
     if (d.graph.nodes.length && !nodes.has(el)) errs.push(`correspondence の要素 ${el} が graph に無い`);
@@ -432,17 +460,26 @@ export function idInvariants(r) {
     exists('stop_report.questions', r.stop_report.questions, qs);
   }
   exists('performance.executions[].id', r.performance.executions.map((x) => x.id), execs);
+  // kind contract の検査は、ちょうど 1 つの Contract.check_ids に現れる
+  for (const c of r.checks.filter((x) => x.kind === 'contract')) {
+    const n = d.contracts.filter((k) => k.check_ids.includes(c.id)).length;
+    if (n !== 1) errs.push(`kind contract の検査 ${c.id} が ${n} 個の Contract.check_ids に現れる（ちょうど 1 つ）`);
+  }
   // モデルの性質の id（graph の prop:<model_id>/<id> で引ける範囲）
   const modelProps = new Set(d.graph.nodes.filter((n) => n.kind === 'property').map((n) => n.id.replace(/^prop:[^/]+\//, '')));
   if (modelProps.size) {
     exists('Confirmation.model_property_id', confs.map((c) => c.model_property_id).filter((x) => x !== null), modelProps);
-    exists('Contract.derived_from', d.contracts.map((k) => k.derived_from), modelProps);
+    // 契約と合成の条件の derived_from は、同じ model_id のモデルの性質を指す（分割の照合）
+    const propNodes = new Set(d.graph.nodes.filter((n) => n.kind === 'property').map((n) => n.id));
+    for (const k of d.contracts) if (!propNodes.has(`prop:${k.model_id}/${k.derived_from}`)) errs.push(`Contract.derived_from の ${k.derived_from} が ${k.model_id} のモデルの性質に実在しない`);
+    for (const c of d.composition_conditions) if (!propNodes.has(`prop:${c.model_id}/${c.derived_from}`)) errs.push(`composition_conditions[].derived_from の ${c.derived_from} が ${c.model_id} のモデルの性質に実在しない`);
   }
   return errs;
 }
 
 // 起点が run の領域の Ref の実在（fs を読む）。readRun(ref) は文字列か null を返す。
-export function refInvariants(r, readRun) {
+// adopted: 採った計画の Ref（{ plan, mutations }。最後の計画作成役の成果物）。渡さなければ、保存された plan・mutations が 1 つずつのときだけ当てる
+export function refInvariants(r, readRun, adopted = null) {
   const errs = [];
   const need = (name, ref) => { if (readRun(ref) === null) errs.push(`${name} の Ref ${ref} が run の領域に無い`); };
   for (const m of r.models) need(`Model ${m.id}.ref`, m.ref);
@@ -464,6 +501,44 @@ export function refInvariants(r, readRun) {
   for (const c of confs) {
     if (c.plan_id === null || !planIds[c.kind]) continue;
     if (!planIds[c.kind].has(c.plan_id)) errs.push(`確認 ${c.id} の plan_id ${c.plan_id} が計画（${c.kind === 'sanity' ? 'PlanFile.sanity' : 'MutationsFile.mutations'}）に無い`);
+  }
+  // 計画との照合（artifact-formats「検査」「plan と mutations」）。保存された plan・mutations の記録が 1 つずつのときだけ当てる
+  // （修正の巡で複数の計画が保存されると、どれを採ったかは結果から決まらない）。
+  const onlyRecord = (kind) => {
+    const texts = r.records.saved.filter((s) => s.kind === kind).map((s) => readRun(s.ref)).filter((t) => t !== null);
+    return texts.length === 1 ? JSON.parse(texts[0]) : null;
+  };
+  const fromRef = (ref) => { const t = ref ? readRun(ref) : null; return t === null ? null : JSON.parse(t); };
+  let plan = adopted ? fromRef(adopted.plan) : onlyRecord('plan');
+  const mutationsFile = adopted ? fromRef(adopted.mutations) : onlyRecord('mutations');
+  const d = r.decomposition;
+  const defects = planDefectIds(r);
+  if (plan) {
+    // checks は PlanFile.checks の要素のうち、欠陥が残らなかったもの（unverified[] の「計画の欠陥」に無いもの）ごとに 1 つ、同じ id と kind で持つ
+    plan = { ...plan, checks: plan.checks.filter((c) => !defects.has(c.id)) };
+    const key = (c) => `${c.id}\0${c.kind}`;
+    if (plan.checks.map(key).sort().join('\n') !== r.checks.map(key).sort().join('\n')) errs.push('checks が、欠陥の残らなかった PlanFile.checks の要素ごとに 1 つ（同じ id と kind）でない');
+    // Contract.check_ids は、kind contract で target_id がその契約の id の検査を、計画の順に持つ
+    for (const k of d.contracts) {
+      const want = plan.checks.filter((c) => c.kind === 'contract' && c.target_id === k.id).map((c) => c.id);
+      if (k.check_ids.join('\n') !== want.join('\n')) errs.push(`契約 ${k.id}.check_ids が計画の順の kind contract の検査（${want.join(',')}）でない`);
+    }
+    // PropertyResult.check_ids は、その性質を inventory_property_ids に含むモデルの性質の kind property の検査と、
+    // そのモデルの性質を derived_from に持つ合成の条件の kind composition の検査（集合として比べる）
+    const modelProps = r.models.flatMap((m) => { const t = readRun(m.ref); return t === null ? [] : (JSON.parse(t).properties ?? []); });
+    for (const p of r.properties) {
+      const mps = modelProps.filter((mp) => (mp.inventory_property_ids ?? []).includes(p.id)).map((mp) => mp.id);
+      const conds = d.composition_conditions.filter((c) => mps.includes(c.derived_from)).map((c) => c.id);
+      const want = plan.checks.filter((c) => (c.kind === 'property' && mps.includes(c.target_id)) || (c.kind === 'composition' && conds.includes(c.target_id))).map((c) => c.id).sort();
+      if ([...p.check_ids].sort().join('\n') !== want.join('\n')) errs.push(`${p.id}.check_ids が、モデルの性質の検査と合成の条件の検査の集合（${want.join(',')}）でない`);
+    }
+  }
+  // MutationsFile.mutations[].detector_check_id は kind property の検査で、その target_id は同じ要素の property_id
+  if (plan && mutationsFile) {
+    for (const m of mutationsFile.mutations.filter((x) => !defects.has(x.id))) {
+      const c = plan.checks.find((x) => x.id === m.detector_check_id);
+      if (!c || c.kind !== 'property' || c.target_id !== m.property_id) errs.push(`変異 ${m.id} の detector_check_id ${m.detector_check_id} が、target_id ${m.property_id} の kind property の検査でない`);
+    }
   }
   // モデルの中の名前は、そのモデルのファイルと組で確かめる
   for (const m of r.models) {

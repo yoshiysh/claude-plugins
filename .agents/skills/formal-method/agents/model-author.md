@@ -38,7 +38,7 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
   - `forbidden` には、出所に禁止が書かれている組だけを `source_ids` 付きで入れる。遷移が書かれていないことは禁止の根拠にならない。決まりが無い組は `uncovered` に、足りない情報を `missing_info` に書く。
   - 目標・完了・停止・再開先を `goals` に書き、到達可能性の性質に結び付ける。
 - 状態遷移を扱わないなら `state_machine: null` とし、理由と入出力の契約（`io_contracts`）を書く。
-- 性質ごとに query を書く。性質の query は「前提 ∧ ¬性質」で `expected: "unsat"`。前提の整合・初期状態の存在・自明でない到達例を確かめる sanity の query（`sat` を期待）も書く。前提が矛盾すると、どの性質も成り立ってしまうためである。query は `(check-sat)` をちょうど 1 つ持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない。
+- 性質ごとに query を書く。性質の query は「前提 ∧ ¬性質」で `expected: "unsat"`。前提の整合・初期状態の存在・自明でない到達例を確かめる sanity の query（`sat` を期待）も書く。前提が矛盾すると、どの性質も成り立ってしまうためである。query は `(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/artifact-formats.md#担当の成果物)）。違反はモデル化の照合（query の構文の検査）で欠陥になり、修正の巡でこの役に戻る。
 - 性質ごとの `assurance` は、query が実際に調べる範囲で決める。有限化したなら `範囲を限った検査` と全ての境界を書き、`無界の証明` にしない。進行性には公平性の前提を書く。
 - 対応表の行は、出所の要求・目標ごとに作る。形式化できるのに対応を作れない性質は、行を消さずに `relation: "対応なし"` と理由で残す。
 - 判断が要る不足は問いにし、依存する性質を `blocked_by_question` に入れる。

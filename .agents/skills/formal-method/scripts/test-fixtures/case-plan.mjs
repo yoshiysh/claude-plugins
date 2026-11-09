@@ -30,8 +30,9 @@ export const CASE_PLAN = {
   'AC-05': {
     normal: [{ id: 'cli-pipeline:候補に Rust と Z3', layer: 'auto' }],
     recovery: { notApplicable: '道具の失敗を再試行しない（依頼者の決定 1）' },
-    error: [{ id: 'cli-pipeline:道具を除く・異常終了・メモリ不足・構文の誤り・読めない出力', layer: 'auto' }],
-    boundary: [{ id: 'cli-pipeline:答えとしての unknown・道具自身の時間の上限・-T を超える遅れ', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline:道具を除く・異常終了・メモリ不足・構文の誤り・読めない出力', layer: 'auto' }, { id: 'cli-pipeline:sanity の確認の result（classifyCheck）', layer: 'auto' },
+      { id: 'cli-pipeline:計画の照合（selection の欠けと重なり・道具の名前・z3 の候補・target_id・(check-sat) の位置）', layer: 'auto' }],
+    boundary: [{ id: 'cli-pipeline:答えとしての unknown（-model の下でモデルが続く）・道具自身の時間の上限・-T を超える遅れ', layer: 'auto' }, { id: 'cli-pipeline:chosen.tool が z3 でなく検査の無い性質は 未実行', layer: 'auto' }],
   },
   'AC-06': {
     normal: [{ id: 'cli-pipeline:グラフの箇所の照合', layer: 'auto' }, { id: 'cli-pipeline:分割しなかった結果', layer: 'auto' }, { id: 'evals:5', layer: 'eval' }],
@@ -40,9 +41,10 @@ export const CASE_PLAN = {
     boundary: [{ id: 'cli-pipeline:書き手の違う 2 組で候補が 2 つ', layer: 'auto' }, { id: 'decomposition-check:導出の規則と手順の自己検査', layer: 'auto' }],
   },
   'AC-07': {
-    normal: [{ id: 'cli-pipeline:分割作成役が同じ候補を受け取る', layer: 'auto' }],
-    recovery: { notApplicable: '合成の条件の再試行は契約に無い（依頼者の決定 1）' },
-    error: [{ id: 'cli-pipeline:確認できない前提の分割で検証済みにならない', layer: 'auto' }],
+    normal: [{ id: 'cli-pipeline:分割作成役が同じ候補を受け取る', layer: 'auto' }, { id: 'cli-pipeline:契約の検査と合成の条件の検査がそろえば親は検証済み', layer: 'auto' }],
+    recovery: [{ id: 'cli-pipeline:derived_from が別のモデルを指す分割の修正の巡', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline:確認できない前提の分割で検証済みにならない', layer: 'auto' }, { id: 'cli-pipeline:契約の反例・契約の検査の欠け・合成の条件の検査の欠け・契約に依らない合成の条件の反例', layer: 'auto' },
+      { id: 'cli-pipeline:契約の判定の facts（時間切れ・sanity・意味の確認・no_suitable_tool）', layer: 'auto' }, { id: 'cli-pipeline:分割作成役の query の違反', layer: 'auto' }],
     boundary: [{ id: 'cli-pipeline:分割前の要素（規則の id）が対応・対応なし・除外のちょうど 1 つ、跨ぐ辺ごとに境界', layer: 'auto' }],
   },
   'AC-08': {
@@ -52,14 +54,15 @@ export const CASE_PLAN = {
     boundary: { notApplicable: '原因の 5 区分は担当の判断で、境界の値を持たない' },
   },
   'AC-09': {
-    normal: [{ id: 'cli-pipeline:4 性質の判定', layer: 'auto' }, { id: 'verdict-oracle:照合1・2', layer: 'auto' }],
+    normal: [{ id: 'cli-pipeline:4 性質の判定', layer: 'auto' }, { id: 'verdict-oracle:照合1・2', layer: 'auto' }, { id: 'cli-pipeline:証人から作る replay の query', layer: 'auto' }, { id: 'cli-pipeline:証人の規則（注釈・literal・literal でない項・モデルに無い記号）', layer: 'auto' },
+      { id: 'cli-pipeline:-model と -T の実行の種類ごとの値', layer: 'auto' }],
     recovery: [{ id: 'cli-pipeline:独立な検査は最後まで動く（D1）', layer: 'auto' }],
-    error: [{ id: 'cli-pipeline:常に成功を返す道具', layer: 'auto' }],
-    boundary: [{ id: 'verdict-oracle:End の全 360 通り', layer: 'auto' }, { id: 'cli-pipeline:外からの照合', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline:常に成功を返す道具', layer: 'auto' }, { id: 'cli-pipeline:証人を読めない（モデルなし・形に合わない・固定できない・2 行・上限超え・stdout.txt の秘密値）', layer: 'auto' }],
+    boundary: [{ id: 'verdict-oracle:End の全 360 通り', layer: 'auto' }, { id: 'cli-pipeline:外からの照合', layer: 'auto' }, { id: 'result-schema:検査の kind と計画との照合の自己検査', layer: 'auto' }, { id: 'fake-z3:-model の出力の形の自己検査', layer: 'auto' }],
   },
   'AC-10': {
     normal: [{ id: 'cli-recovery:ps の標本で同時に複数', layer: 'auto' }],
-    recovery: [{ id: 'cli-recovery:時間の上限で止め、完了と未完了の範囲', layer: 'auto' }],
+    recovery: [{ id: 'cli-recovery:時間の上限で止め、完了と未完了の範囲', layer: 'auto' }, { id: 'cli-recovery:答えの後の停止と契約の検査の中止', layer: 'auto' }],
     error: [{ id: 'cli-recovery:時間の上限の後に始めない', layer: 'auto' }, { id: 'cli-pipeline:時間の上限 1 秒', layer: 'auto' }],
     boundary: [{ id: 'cli-pipeline:検査ごとの記録と内部の上限', layer: 'auto' }],
   },
@@ -78,13 +81,14 @@ export const CASE_PLAN = {
   'AC-14': {
     normal: [{ id: 'cli-pipeline:全て成り立つときだけ完了', layer: 'auto' }, { id: 'verdict-spec:decideStatus', layer: 'auto' }],
     recovery: { notApplicable: '完了の判定は集約の段の決定的な処理' },
-    error: [{ id: 'cli-pipeline:1 つずつ残すと停止', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline:1 つずつ残すと停止', layer: 'auto' }, { id: 'cli-pipeline:検査の欠けと計画が無い run（未確認・未実行）', layer: 'auto' }, { id: 'cli-pipeline:問いに依存する性質は検査の欠けから除く', layer: 'auto' },
+      { id: 'cli-pipeline:モデル作成役の .smt2 の規則（property・sanity）', layer: 'auto' }],
     boundary: [{ id: 'cli-pipeline:必要な性質が 0 件・検出能力未確認', layer: 'auto' }, { id: 'verdict-oracle:Q10 群', layer: 'auto' }],
   },
   'AC-15': {
-    normal: [{ id: 'cli-scope:集まりの規則', layer: 'auto' }],
+    normal: [{ id: 'cli-scope:集まりの規則', layer: 'auto' }, { id: 'cli-intake:start は run-daemon の生きている間に返り、run-daemon の argv は 4 つ', layer: 'auto' }],
     recovery: [{ id: 'cli-scope:未知のキーは拒まず unverified', layer: 'auto' }],
-    error: [{ id: 'cli-intake:受け付けない依頼（9 の code）', layer: 'auto' }, { id: 'cli-intake:秘密値の型', layer: 'auto' }],
+    error: [{ id: 'cli-intake:受け付けない依頼（9 の code）', layer: 'auto' }, { id: 'cli-intake:秘密値の型', layer: 'auto' }, { id: 'cli-pipeline:担当の .smt2 の秘密値', layer: 'auto' }],
     boundary: [{ id: 'cli-scope:時間の上限 1・一致する指紋・深い .formal-method', layer: 'auto' }, { id: 'cli-intake:秘密値の型に無い形', layer: 'auto' }],
   },
   'AC-19': {

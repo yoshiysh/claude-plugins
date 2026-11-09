@@ -12,6 +12,7 @@ import { makeHarness, defaultScenario } from './test-fixtures/agent-harness.mjs'
 import { makeFakeBin, pathWithFake } from './test-fixtures/make-fake-bin.mjs';
 import { fileHash, snapshotTree, liveIdentity, makeRunDir, writeLock, writeStatus, statusOf } from './test-fixtures/fabricate.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
+import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; } };
@@ -208,6 +209,41 @@ test('SP-FORMALMETHOD-010 AC-10: 依頼元の時間の上限に達すると、�
   const deadline = started + (limit - Math.min(60, limit / 4)) * 1000 + 3000;
   for (const e of out.log().filter((x) => x.kind === 'query-start')) assert.ok(e.at_ms <= deadline, '時間の上限の後に道具の実行を始めない');
   for (const c of r.checks.filter((x) => x.state === '実行していない')) assert.equal(c.verdict, '未実行');
+  await sleep(500);
+  for (const pid of [...new Set(out.log().map((e) => e.pid))]) assert.equal(alive(pid), false, `道具の process ${pid} が残らない`);
+});
+
+test('cli-contract 答えの後の停止 AC-10: -model の実行で答えの行の後にモデルを読む間に依頼元の期限が来ると、group を止めるが検査は答えで判定され stopped_by null。実行中の契約の検査は kind contract で stop_report に出る', { timeout: 400000 }, async (t) => {
+  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 150/4 秒) = 37.5 秒）なので、担当が返る時間を残す
+  const limit = 150;
+  const scenario = {
+    stateMachine: SM2, toolTimeLimit: 300,
+    // 性質の検査は sat を返した後、モデルの残りを 280 秒遅らせる。部分の契約の検査は答えの前に 280 秒遅らせる
+    properties: [{ ...SM2_PROPS[0], query: { result: 'sat', 'model-sleep-ms': 280000 } }],
+    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1'], contract: { 'sleep-ms': 280000 } }),
+  };
+  const out = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: limit }), scenario });
+  const r = out.result;
+  assert.deepEqual(resultInvariants(r), []);
+  assert.equal(r.status, '停止');
+  assert.ok(r.stop_report.reasons.some((x) => x.code === '時間の上限'));
+  const c = r.checks.find((x) => x.id === 'C-P1');
+  assert.equal(c.state, '実行した');
+  assert.equal(c.verdict, '反例', '答えの行（sat）で判定する');
+  assert.deepEqual(c.end, { started: true, tool_result: '反する', abnormal_exit: false, unreadable_output: false, stopped_by: null, time_limit_hit: null });
+  // 証人は読めないので、反例の replay は始めず 確認できず
+  const x = r.counterexamples.find((y) => y.check_id === 'C-P1');
+  assert.ok(x, '反例 の検査から反例を作る');
+  const replay = r.confirmations.deterministic.find((y) => y.id === x.replay.confirmation_id);
+  assert.equal(replay.result, '確認できず');
+  assert.equal(replay.end.started, false);
+  const k = r.checks.find((y) => y.id === 'C-K-a');
+  assert.equal(k?.kind, 'contract');
+  assert.equal(k.verdict, '時間切れ');
+  assert.equal(k.end.stopped_by, '時間');
+  const stopped = [...r.stop_report.checks_aborted, ...r.stop_report.checks_running];
+  assert.ok(stopped.some((y) => y.id === 'C-K-a' && y.kind === 'contract'), `止めた契約の検査が kind contract で出る: ${JSON.stringify(stopped)}`);
+  assert.ok(!stopped.some((y) => y.id === 'C-P1'), '答えを得た検査は止めた検査に入らない');
   await sleep(500);
   for (const pid of [...new Set(out.log().map((e) => e.pid))]) assert.equal(alive(pid), false, `道具の process ${pid} が残らない`);
 });
