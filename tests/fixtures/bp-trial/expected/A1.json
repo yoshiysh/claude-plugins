@@ -4,7 +4,7 @@
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-028",
       "spec": "SP-BPINSPECTION-011",
-      "method": "fixture（指示でない文の欠陥と、好みの違いだけの箇所を含む対象スキルで、どちらも指摘にならず、担当の資産が減らないことを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-011 行",
       "checks": [
         {
           "clause": "fixture（",
@@ -39,13 +39,19 @@
           "clause": "担当の資産が減らない",
           "by": "coverage"
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-011 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-028",
       "spec": "SP-BPINSPECTION-012",
-      "method": "fixture（上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず、PA-3 の一部の未検査の観点が載ることを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-012 行",
       "checks": [
         {
           "clause": "fixture（",
@@ -75,13 +81,19 @@
           },
           "min": 1
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-012 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-028",
       "spec": "SP-BPINSPECTION-013",
-      "method": "fixture（モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず、PA-4 の未検査の観点が載ることを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-013 行",
       "checks": [
         {
           "clause": "fixture（",
@@ -109,6 +121,12 @@
             "value": "PA-4"
           },
           "min": 1
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-013 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     }

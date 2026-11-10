@@ -114,7 +114,7 @@ test('運搬役が写さない大きい値は作業ファイルと sum で渡し
   assert.equal(ok.code, EXIT.ok);
 });
 
-test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数は judgedOk に入る', async (t) => {
+test('SP-BPFINDINGS-007: CLI 経由の verdicts の受理は ok === true で、件数は judgedOk に入る', async (t) => {
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);

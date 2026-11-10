@@ -1,0 +1,267 @@
+{
+  "method": "Lexical presence in each declared public contract item; expected keys retained from the historical public tables. Checks presence only, not behavior, type semantics, or complete equivalence.",
+  "checks": [
+    {
+      "path": "docs/specifications/bp-entry.md",
+      "item": "SP-BPENTRY-013",
+      "expected_public_keys": [
+        "function",
+        "request",
+        "target",
+        "root",
+        "files",
+        "grounds",
+        "from",
+        "nextArgs",
+        "answer",
+        "maxLaunches",
+        "skillDir",
+        "key",
+        "host"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-entry.md",
+      "item": "SP-BPENTRY-016",
+      "expected_public_keys": [
+        "limits.maxAgents",
+        "limits.timeoutMs",
+        "limits.concurrency",
+        "limits.agentTimeoutMs",
+        "modelMap"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-run.md",
+      "item": "SP-BPRUN-032",
+      "expected_public_keys": [
+        "stopKind",
+        "reason",
+        "nextArgs",
+        "state",
+        "run",
+        "launches",
+        "writtenFiles",
+        "unverifiedRoleLimits",
+        "performance",
+        "unsavedRecords",
+        "path",
+        "action",
+        "verified",
+        "role",
+        "writable"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-run.md",
+      "item": "SP-BPRUN-033",
+      "expected_public_keys": [
+        "function",
+        "state"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-authoring.md",
+      "item": "SP-BPAUTHORING-032",
+      "expected_public_keys": [
+        "verification",
+        "decision",
+        "iterations",
+        "units",
+        "forcedUnchecked",
+        "basisConstraints",
+        "contract",
+        "ledger",
+        "findings",
+        "formalVerification"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-authoring.md",
+      "item": "SP-BPAUTHORING-033",
+      "expected_public_keys": [
+        "skill",
+        "designNote",
+        "path",
+        "startLine",
+        "endLine",
+        "text",
+        "verification",
+        "findings",
+        "residualRisks",
+        "receivedGrounds",
+        "excludedCallsites"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-authoring.md",
+      "item": "SP-BPAUTHORING-034",
+      "expected_public_keys": [
+        "unverified",
+        "stoppedStage",
+        "verification",
+        "findings",
+        "residualRisks",
+        "excludedCallsites",
+        "reason",
+        "toDecide",
+        "impact",
+        "remainingWork"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-inspection.md",
+      "item": "SP-BPINSPECTION-024",
+      "expected_public_keys": [
+        "targets",
+        "viewpoint",
+        "files",
+        "section",
+        "fingerprint",
+        "readable",
+        "reason",
+        "name",
+        "path",
+        "sha256",
+        "applicability",
+        "run",
+        "shape",
+        "row",
+        "uncheckedViewpoints",
+        "target",
+        "stoppedStage"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-findings.md",
+      "item": "SP-BPFINDINGS-029",
+      "expected_public_keys": [
+        "id",
+        "function",
+        "viewpoint",
+        "kind",
+        "assets",
+        "quote",
+        "content",
+        "fix",
+        "state",
+        "stateRun",
+        "judgement",
+        "dismissReason",
+        "judgedOnCurrent",
+        "path",
+        "loc"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-findings.md",
+      "item": "SP-BPFINDINGS-030",
+      "expected_public_keys": [
+        "findings",
+        "ledger",
+        "uncheckedViewpoints",
+        "coverage",
+        "skip",
+        "outcomes",
+        "unrefuted",
+        "rejected"
+      ],
+      "missing": []
+    },
+    {
+      "path": "docs/specifications/bp-run.md",
+      "item": "SP-BPRUN-018",
+      "expected_public_keys": [
+        "state",
+        "nextArgs",
+        "stoppedStage",
+        "pending",
+        "unreadable"
+      ],
+      "missing": []
+    }
+  ],
+  "restored_outcomes_mapping": {
+    "path": "docs/specifications/bp-findings.md",
+    "item": "SP-BPFINDINGS-030",
+    "expected": [
+      [
+        "指摘あり",
+        "finding"
+      ],
+      [
+        "却下された指摘だけ",
+        "dismissed_only"
+      ],
+      [
+        "確認済みで問題なし",
+        "ok"
+      ],
+      [
+        "見ただけ",
+        "seen_only"
+      ],
+      [
+        "skip",
+        "skip"
+      ]
+    ],
+    "observed": [
+      [
+        "指摘あり",
+        "finding"
+      ],
+      [
+        "却下された指摘だけ",
+        "dismissed_only"
+      ],
+      [
+        "確認済みで問題なし",
+        "ok"
+      ],
+      [
+        "見ただけ",
+        "seen_only"
+      ],
+      [
+        "skip",
+        "skip"
+      ]
+    ],
+    "matches": true
+  },
+  "pr213": {
+    "source_hashes": [
+      {
+        "path": "docs/specifications/bp-authoring.md",
+        "sha256": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4"
+      },
+      {
+        "path": "docs/specifications/bp-entry.md",
+        "sha256": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82"
+      },
+      {
+        "path": "docs/specifications/bp-findings.md",
+        "sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c"
+      },
+      {
+        "path": "docs/specifications/bp-inspection.md",
+        "sha256": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b"
+      },
+      {
+        "path": "docs/specifications/bp-run.md",
+        "sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+      }
+    ],
+    "scope": "Current declared SP item text, including callsite and recovery contracts outside the external-interface chapter; lexical presence only."
+  }
+}

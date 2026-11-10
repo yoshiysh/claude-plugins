@@ -4,12 +4,18 @@
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-024",
       "spec": "SP-BPINSPECTION-007",
-      "method": "fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-007 行",
       "checks": [
         {
           "clause": "SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認",
           "by": "injections",
           "viewpoint": "flow"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-007 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
@@ -17,12 +23,18 @@
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-025",
       "spec": "SP-BPINSPECTION-008",
-      "method": "fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-008 行",
       "checks": [
         {
           "clause": "同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認",
           "by": "injections",
           "sp": "SP-BPCONFORMANCE-027"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-008 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     }

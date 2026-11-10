@@ -8,7 +8,8 @@ import { assetTexts } from '../plugins/skill-creator/skills/skill-creator-best-p
 import { specUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { applicability, forcedReason } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
 import { CRITERIA, EXPECTED_FILE, FIXTURE_DIR, MEASURES, accompanyProblems, belongs, forcedBy, forcedReasons, inject, injectable, main, pick, read, render } from '../tools/read-bp-trial.mjs';
-import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
+import { testTitles } from './helpers/bp-docs.mjs';
+import { verifiedTraceRows } from '../tools/lib/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXPECTED = JSON.parse(readFileSync(EXPECTED_FILE, 'utf8'));
@@ -23,8 +24,16 @@ async function tmp(t) {
 
 function reviewTrialRows() {
   const text = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-conformance.md'), 'utf8');
-  return tableAfter(text, '| 要求 ID | 仕様項目 ID | 測る試走 |').filter(([, , how]) => how.startsWith('review の試走')).map(([req, spec]) => ({ req, spec }));
+  return verifiedTraceRows(text);
 }
+
+// 以下の読み取り単体試験では従来の仕込みの条件だけを入力として使う。
+// 正本の追加条件は EXPECTED に残し、記録を読む結合試験で未完了を確かめる。
+const MEASURED = {
+  ...EXPECTED,
+  rows: EXPECTED.rows.map((row) => ({ ...row, unmeasured: (row.unmeasured ?? []).filter((u) => u.clause !== `${row.spec} の検証方法表の全入力条件・境界`) })),
+};
+const pairKey = (row) => `${row.req}|${row.spec}`;
 
 test('検証方法（bp-conformance）: 試走の題材の正解表の単位が全て、判定基準の写しから作った閉集合と、題材が到達する判定表の行の単位にあり、強いられた未検査を含まない', () => {
   assert.equal(ROW.form, '探索グラフ型');
@@ -77,8 +86,10 @@ test('検証方法（bp-conformance）: 置き換え元が仕込む前の版に�
   assert.throws(() => inject(twice, again), /ちょうど 1 回現れない/);
 });
 
-test('検証方法（bp-conformance）: 試走の表で review の試走が測る行の全ての仕様項目 ID に、仕込み・強いられた未検査・run 全体・測らないのどれかの読み方があり、強いられた未検査は写しの出所と一致し、決定的なテストで測る句はそのテストがある', () => {
-  assert.deepEqual(EXPECTED.rows.map((r) => `${r.req}|${r.spec}`), reviewTrialRows().map((r) => `${r.req}|${r.spec}`));
+test('検証方法（bp-conformance）: 正解表の行は現行の検証方法を参照し、全ての仕様項目 ID に、仕込み・強いられた未検査・run 全体・測らないのどれかの読み方があり、強いられた未検査は写しの出所と一致し、決定的なテストで測る句はそのテストがある', () => {
+  const current = new Set(reviewTrialRows().map(pairKey));
+  assert.equal(new Set(EXPECTED.rows.map(pairKey)).size, EXPECTED.rows.length);
+  for (const row of EXPECTED.rows) assert.ok(current.has(pairKey(row)), pairKey(row));
   for (const row of EXPECTED.rows) {
     assert.deepEqual(Object.keys(row.measures), row.spec.split(',').map((s) => s.trim()), row.req);
     for (const [sp, m] of Object.entries(row.measures)) {
@@ -120,11 +131,11 @@ const ALL = () => EXPECTED.injections.map((i) => finding(i));
 const allPending = (r) => r.rows.every((x) => x.status === '作成中');
 
 test('検証方法（bp-conformance）: 試走の読み取りが、全て当たった run では試走で測らない句の無い行だけを完了にする', () => {
-  const all = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: EXPECTED });
+  const all = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: MEASURED });
   assert.equal(all.valid, true);
   assert.equal(all.hits, EXPECTED.injections.length);
   for (const r of all.rows) {
-    const row = EXPECTED.rows.find((x) => x.req === r.req);
+    const row = MEASURED.rows.find((x) => pairKey(x) === pairKey(r));
     const unmeasured = Object.values(row.measures).some((m) => m.by === MEASURES.none) || (row.unmeasured ?? []).length > 0;
     assert.equal(r.status, unmeasured ? '作成中' : '完了', r.req);
   }
@@ -146,7 +157,7 @@ test('検証方法（bp-conformance）: 基準の run の完了・指摘 0・行
     干渉: { injected: injectedResult([finding(first, { kind: rest.find((i) => i.viewpoint === first.viewpoint).unit }), ...rest.map((i) => finding(i))]) },
   };
   for (const [label, c] of Object.entries(cases)) {
-    const r = read({ baseline: c.baseline ?? CLEAN, injected: c.injected ?? injectedResult(ALL()), expected: EXPECTED });
+    const r = read({ baseline: c.baseline ?? CLEAN, injected: c.injected ?? injectedResult(ALL()), expected: MEASURED });
     assert.equal(r.valid, false, label);
     assert.ok(allPending(r), label);
   }
@@ -154,17 +165,17 @@ test('検証方法（bp-conformance）: 基準の run の完了・指摘 0・行
 
 test('検証方法（bp-conformance）: 行の仕様項目の偽陽性（どの指摘かを出す）・外れ・強いられた未検査の欠けと範囲や理由の違いは、その行だけを作成中にする', () => {
   const [first, ...rest] = EXPECTED.injections;
-  const ownRows = (unit) => EXPECTED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(unit, sp))).map((r) => r.req);
-  const missed = read({ baseline: CLEAN, injected: injectedResult(rest.map((i) => finding(i))), expected: EXPECTED });
+  const ownRows = (unit) => EXPECTED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(unit, sp))).map(pairKey);
+  const missed = read({ baseline: CLEAN, injected: injectedResult(rest.map((i) => finding(i))), expected: MEASURED });
   assert.equal(missed.valid, true);
-  for (const r of missed.rows.filter((x) => ownRows(first.unit).includes(x.req))) assert.equal(r.status, '作成中', r.req);
+  for (const r of missed.rows.filter((x) => ownRows(first.unit).includes(pairKey(x)))) assert.equal(r.status, '作成中', r.req);
 
   const spec = EXPECTED.injections.find((i) => i.viewpoint === 'spec');
   const elsewhere = finding({ ...spec, file: 'SKILL.md', section: ['trace-cause'] });
-  const stray = read({ baseline: CLEAN, injected: injectedResult([...ALL(), elsewhere]), expected: EXPECTED });
+  const stray = read({ baseline: CLEAN, injected: injectedResult([...ALL(), elsewhere]), expected: MEASURED });
   assert.equal(stray.valid, true);
   for (const r of stray.rows) {
-    if (!ownRows(spec.unit).includes(r.req)) continue;
+    if (!ownRows(spec.unit).includes(pairKey(r))) continue;
     assert.equal(r.status, '作成中', r.req);
     assert.ok(r.falsePositives.some((f) => f.includes(spec.unit) && f.includes('SKILL.md#trace-cause')), `${r.req}: どの偽陽性かを出さない`);
   }
@@ -174,7 +185,7 @@ test('検証方法（bp-conformance）: 行の仕様項目の偽陽性（どの�
   const listed = (edit) => injectedResult(ALL(), { uncheckedViewpoints: EXPECTED.forced.map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason, ...(f === permission ? edit : {}) })) });
   for (const [label, edit] of [['欠け', null], ['範囲の違い', { scope: 'whole' }], ['理由の違い', { reason: 'SP-BPCONFORMANCE-034' }]]) {
     const injected = edit === null ? injectedResult(ALL(), { uncheckedViewpoints: EXPECTED.forced.filter((f) => f !== permission).map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason })) }) : listed(edit);
-    const r = read({ baseline: CLEAN, injected, expected: EXPECTED });
+    const r = read({ baseline: CLEAN, injected, expected: MEASURED });
     assert.equal(r.rows.find((x) => x.req === 'PR-BPDESIGNEDSKILL-010').status, '作成中', label);
   }
 });
@@ -184,10 +195,10 @@ test('検証方法（bp-conformance）: 正解表が仕込みに伴うと宣言�
   assert.ok(declaring.length > 0);
   assert.deepEqual(accompanyProblems(EXPECTED), []);
   for (const i of declaring) {
-    const rowsOf = EXPECTED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(i.unit, sp))).map((r) => r.req);
+    const rowsOf = EXPECTED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(i.unit, sp))).map(pairKey);
     const extra = i.accompanies.map((u) => finding({ ...i, unit: u }));
-    const with_ = read({ baseline: CLEAN, injected: injectedResult([...ALL(), ...extra]), expected: EXPECTED });
-    const base = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: EXPECTED });
+    const with_ = read({ baseline: CLEAN, injected: injectedResult([...ALL(), ...extra]), expected: MEASURED });
+    const base = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: MEASURED });
     assert.equal(with_.valid, true, i.unit);
     assert.equal(with_.interference, 0, i.unit);
     assert.deepEqual(with_.falsePositives, [], i.unit);
@@ -195,14 +206,14 @@ test('検証方法（bp-conformance）: 正解表が仕込みに伴うと宣言�
     assert.deepEqual(with_.rows.map((r) => r.status), base.rows.map((r) => r.status), i.unit);
     assert.ok(render(with_).split('\n').some((l) => l.startsWith('伴う単位の指摘: ') && l.includes(i.accompanies[0]) && l.includes(i.file)), i.unit);
 
-    const only = read({ baseline: CLEAN, injected: injectedResult([...ALL().filter((f) => f.kind !== i.unit), ...extra]), expected: EXPECTED });
+    const only = read({ baseline: CLEAN, injected: injectedResult([...ALL().filter((f) => f.kind !== i.unit), ...extra]), expected: MEASURED });
     assert.equal(only.valid, true, i.unit);
     assert.equal(only.hitList.find((h) => h.unit === i.unit).hit, false, i.unit);
-    for (const r of only.rows.filter((x) => rowsOf.includes(x.req))) assert.equal(r.status, '作成中', r.req);
+    for (const r of only.rows.filter((x) => rowsOf.includes(pairKey(x)))) assert.equal(r.status, '作成中', r.req);
 
-    const elsewhere = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: i.accompanies[0], file: 'SKILL.md', section: ['trace-cause'] })]), expected: EXPECTED });
+    const elsewhere = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: i.accompanies[0], file: 'SKILL.md', section: ['trace-cause'] })]), expected: MEASURED });
     assert.equal(elsewhere.accompanied.length, 0, i.unit);
-    for (const r of elsewhere.rows.filter((x) => rowsOf.includes(x.req))) assert.equal(r.status, '作成中', r.req);
+    for (const r of elsewhere.rows.filter((x) => rowsOf.includes(pairKey(x)))) assert.equal(r.status, '作成中', r.req);
   }
 });
 
@@ -220,7 +231,7 @@ test('検証方法（bp-conformance）: 伴う単位の種類の指摘でも、�
     仕込んだ資産の外にまたがる: spanning,
   };
   for (const [label, f] of Object.entries(cases)) {
-    const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), f]), expected: EXPECTED });
+    const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), f]), expected: MEASURED });
     assert.equal(r.accompanied.length, 0, label);
     assert.equal(r.falsePositives.length, 1, label);
     assert.equal(r.interference, 1, label);
@@ -233,7 +244,7 @@ test('検証方法（bp-conformance）: 伴う単位と宣言していない確�
   const i = EXPECTED.injections.find((x) => x.accompanies && x.unseen.some((u) => !x.accompanies.includes(u)));
   assert.ok(i);
   const undeclared = i.unseen.find((u) => !i.accompanies.includes(u));
-  const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: undeclared })]), expected: EXPECTED });
+  const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: undeclared })]), expected: MEASURED });
   assert.equal(r.valid, false);
   assert.equal(r.interference, 1);
   assert.ok(allPending(r));
@@ -288,4 +299,12 @@ test('SP-BPINSPECTION-025: 強いられた未検査の理由は CLI の forcedRe
   assert.doesNotMatch(tool, /\b(always|turnForm)\.get\(/);
   const ops = readFileSync(path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp', 'ops-inspect.mjs'), 'utf8');
   assert.doesNotMatch(ops, /\b(always|turnForm)\.get\(/);
+});
+
+test('検証方法（bp-conformance）: 現行計画の未測定条件は全て当たる旧仕込みの結果でも完了にしない', () => {
+  const result = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: EXPECTED });
+  assert.equal(result.valid, true);
+  assert.equal(result.hits, EXPECTED.injections.length);
+  assert.ok(result.rows.length > 0);
+  assert.ok(result.rows.every((row) => row.unmeasured.length > 0 && row.status === '作成中'));
 });

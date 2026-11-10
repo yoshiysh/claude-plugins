@@ -77,7 +77,7 @@ async function inspectWrites(t, env) {
   assert.equal(good.shape, 'ターンごとの指揮', good.reason);
 }
 
-test('SP-BPRUN-006・SP-BPRUN-031: 書き込みの操作の全てが、同じ要求の 2 回目を記録を足さずに受け、読み出しの操作は記録を変えない', async (t) => {
+test('SP-BPRUN-006: 書き込みの操作の全てが、同じ要求の 2 回目を記録を足さずに受け、読み出しの操作は記録を変えない', async (t) => {
   const seen = new Set();
   const violations = [];
   const scenarios = [

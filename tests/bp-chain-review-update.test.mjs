@@ -1,18 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
+import { tableAfter } from './helpers/bp-docs.mjs';
 import path from 'node:path';
 import {
   REPO_ROOT, assetIds, candidateVerifier, defaults, inspectArgs, runAuthor, runInspect, setupInspect, updateArgs, viewOf, writePayload,
 } from './helpers/bp-harness.mjs';
 
-const RUN = readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-// SP-BPFINDINGS-029 の表は項目の名前だけを持ち、綴りは SP-BPRUN-031 の report の行の findings が持つ（その綴りで照らす）。
-const FINDING_FIELDS = (() => {
-  const row = RUN.split('\n').find((l) => l.startsWith('| `report` |'));
-  const m = /`findings`（SP-BPFINDINGS-029 の項目: ([^）]+)）/.exec(row);
-  return [...m[1].matchAll(/`(\w+)`/g)].map((x) => x[1]);
-})();
+const FINDINGS = readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-findings.md'), 'utf8');
+const FINDING_FIELDS = tableAfter(FINDINGS, '| 項目 | 綴り | 中身 |').flatMap(([, spelling]) => [...spelling.matchAll(/`(\w+)`/g)].map((m) => m[1]));
 const VIEWPOINT = { review: 'flow', audit: 'audit' };
 const INSTRUCTION = { kind: '利用者の指示', text: '手順の節を短くする' };
 
@@ -25,7 +21,13 @@ for (const fn of ['review', 'audit']) {
       env: s.env,
       args: inspectArgs(fn, s.target),
       scenario: {
-        verify: candidateVerifier({ viewpoint: VIEWPOINT[fn] }),
+        verify: async (prompt, ...args) => {
+          const result = await candidateVerifier({ viewpoint: VIEWPOINT[fn] })(prompt, ...args);
+          // review と update の両方に適用する単位で、同じ種類の指摘を別台帳へ記録する。
+          if (fn === 'review') for (const c of result.candidates) c.kind = 'SP-BPCONFORMANCE-004';
+          await writePayload(prompt, result);
+          return result;
+        },
         refute: async () => ((refutes += 1) === 1 ? { verdict: 'uphold', reason: '維持' } : { verdict: 'reject', reason: '基準に反しない' }),
       },
     });
@@ -49,7 +51,9 @@ for (const fn of ['review', 'audit']) {
       const result = await defaults.verify(prompt, options, env);
       const iteration = calls.slice(0, call.n).filter((c) => c.role === 'write').length;
       if (options.label !== 'verifier:conformance' || iteration !== 1 || !assetIds(prompt).includes(open.assets[0].id)) return result;
-      const unit = result.units.find((u) => u.unit === open.kind && u.result === 'conform') ?? result.units.find((u) => u.result === 'conform');
+      const sameKind = result.units.find((u) => u.unit === open.kind && u.result === 'conform');
+      if (fn === 'review') assert.ok(sameKind, '両機能に適用される C004 が update の単位に無い');
+      const unit = sameKind ?? result.units.find((u) => u.result === 'conform');
       const key = { asset: open.assets[0].id, viewpoint: 'conformance', kind: unit.unit };
       result.judgements.find((j) => j.asset === key.asset).judgement = 'candidate';
       result.candidates = [{ ...key, quote: 'L1: 本文', content: 'c', fix: 'f' }];

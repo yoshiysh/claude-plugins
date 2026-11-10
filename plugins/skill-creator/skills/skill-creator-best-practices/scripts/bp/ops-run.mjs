@@ -96,7 +96,7 @@ function startOutput(view, dir, run, extra = {}) {
   return { state: view.state.id, run, workDir: path.join(dir, WORK_DIR), groundIds: view.grounds.map((g) => g.id), ...extra, progress: progress(view), summary: summarize(view) };
 }
 
-// 運搬役の失敗で開始を送り直しても状態と run が増えないよう、呼び出し側の key で同じ開始を見分ける（SP-BPRUN-031）。
+// 運搬役の失敗で開始を送り直しても状態と run が増えないよう、呼び出し側の key で同じ開始を見分ける（SP-BPRUN-003）。
 async function existingStart(root, id, req) {
   const dir = id ? stateDir(root, id) : null;
   const view = dir ? buildView(await readAll(dir)) : null;
