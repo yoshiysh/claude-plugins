@@ -10,7 +10,7 @@
 
 [要求文書](../requirements/formal-method.md) の PR-FORMALMETHOD-001〜012・014・015 を実現する formal-method の、依頼元から見た振る舞いを定める。依頼元が渡すもの、formal-method が返すもの、報告の中身、完了と停止の条件及び拒否する入力を扱う。役割の配置、処理の順序、内部の状態及び保存の手順は扱わない。
 
-作業記録の共通要求は [bp-designed-skill.md](../requirements/bp-designed-skill.md) の PR-BPDESIGNEDSKILL-028〜036・038〜040・042 を参照し、本書はその内容を写さない。
+作業記録の共通要求は [bp-designed-skill.md](../requirements/bp-designed-skill.md) の PR-BPDESIGNEDSKILL-028・029・032・040・034・035・036 を参照し、本書はその内容を写さない。
 
 ## 用語定義
 
@@ -193,7 +193,7 @@ formal-method は、性能の記録から問題を見直すとき、検査範囲
 
 #### SP-FORMALMETHOD-014 記録の保存と参照
 
-formal-method は、作業記録、証拠及び記録台帳を PR-BPDESIGNEDSKILL-028〜036・038〜040・042 に従って保存し、保存した記録への参照を結果に示さなければならない。
+formal-method は、作業記録、証拠及び記録台帳を PR-BPDESIGNEDSKILL-028・029・032・040・034・035・036 に従って保存し、保存した記録への参照を結果に示さなければならない。
 
 保存できない記録があるならば、formal-method は停止し、保存できたものへの参照と、保存できなかった記録及び理由を結果に示さなければならない。保存できなかった記録を、保存したと示してはならない。
 

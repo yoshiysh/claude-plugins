@@ -1,0 +1,14 @@
+[
+  {
+    "path": "docs/requirements/bp-operations.md",
+    "before": "3b0f28d4c1056e47eb6f47dfbe736b32e80e011f09bacc9f857945ea006261ff",
+    "after": "d4ee96ac94e53d96bfae8a1971d5a23cb2cb0d12a3b7b5a8381843e98de6e2fb",
+    "change": "expand abbreviated vacant IDs on one declaration line only"
+  },
+  {
+    "path": "docs/requirements/bp-designed-skill.md",
+    "before": "60b6c7d82795be0d7e890121e8cf044ef063086305fe86994699d55b7d0b3275",
+    "after": "92f3cad53bb3d2c78913a5dcf2b7d719fc3a020fdba9796608b6226c6ea0b01d",
+    "change": "expand abbreviated vacant IDs on one declaration line only"
+  }
+]

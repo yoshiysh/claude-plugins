@@ -135,5 +135,5 @@ BP によるスキルの作成・評価、要求文書の作成及びその他�
 
 #### PR-FORMALMETHOD-015 記録を保持して停止を報告する
 
-- formal-method は、作業記録、証拠及び参照について、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028〜036・038〜040・042 に従わなければならない。
+- formal-method は、作業記録、証拠及び参照について、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028・029・032・040・034・035・036 に従わなければならない。
 - formal-method は、完了前に止まったならば、止まった段と理由、確認済み・未確認の範囲、生成済みと未作成の成果物及び保存できなかった記録を区別して報告しなければならない。依頼範囲で必要な検証又は独立した意味の確認に、未対応・未実行・unknown・時間切れ・実行失敗又は未確認が残るか、必要な記録を保存できないならば、formal-method は run を完了と報告してはならない。

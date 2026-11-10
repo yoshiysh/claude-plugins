@@ -1,0 +1,60 @@
+{
+  "base": "4c53a3f",
+  "active_specs": 224,
+  "requirements": 56,
+  "trace_pairs": 342,
+  "removed_internal_items": {
+    "SP-BPRUN-031": "内部 CLI 操作と serialized state の設計へ。外部の振る舞いは SP-BPRUN-003・006・032・033 と各機能の契約に保持。",
+    "SP-BPAUTHORING-036": "内部の回番号/ID の符号化は設計へ。項目の同一性と再開での分離は SP-BPRUN-038 に保持。",
+    "SP-BPENTRY-025": "runner のファイル別修正手順は実装設計へ。caller の互換条件は SP-BPENTRY-024 に保持。"
+  },
+  "implementation_verification": "not run against revised contracts",
+  "repair": "PR213 docs cycle2 final freeze",
+  "public_schema_groups": 11,
+  "public_schema_missing_keys": 0,
+  "doc_check": {
+    "findings": 20,
+    "not_checked": 16,
+    "not_document_approval": true
+  },
+  "review_relay": "independent-review-relay.md",
+  "source_hashes": [
+    {
+      "path": "docs/specifications/bp-authoring.md",
+      "sha256": "77c1fdb5ed8786c3ade59a1f2acf09c77ed0c19948bb3e4b1aa10ceb89cb56e4"
+    },
+    {
+      "path": "docs/specifications/bp-conformance.md",
+      "sha256": "050a1bdcef7a526e23a82d3cc9980b6f1c8b5cfc4cde636e61fc44fe518527b4"
+    },
+    {
+      "path": "docs/specifications/bp-entry.md",
+      "sha256": "c1229fc5db2dfb35122eba1473712ecddcb2b46fc3dc36f5ffc224d873e84c82"
+    },
+    {
+      "path": "docs/specifications/bp-findings.md",
+      "sha256": "9129b0f9ccd1159015166c8cc0d03a947de6b916af369e730a0f79fdc29e186c"
+    },
+    {
+      "path": "docs/specifications/bp-inspection.md",
+      "sha256": "03fd8c2014cec79d8343f5d07a7f9e57a0e07550c50bf1ad396754c41df1f49b"
+    },
+    {
+      "path": "docs/specifications/bp-run.md",
+      "sha256": "f1e07e8076af924eb65da9d92cb229f584fb2cf45a43037d65f5a0ac2fdc0d5f"
+    },
+    {
+      "path": "docs/requirements/bp-designed-skill.md",
+      "sha256": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c"
+    },
+    {
+      "path": "docs/requirements/bp-operations.md",
+      "sha256": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0"
+    }
+  ],
+  "canonical_method_rows": 224,
+  "trace_statuses": [
+    "未着手"
+  ],
+  "historical_source_ref": "formal/spec-inputs.sha256"
+}

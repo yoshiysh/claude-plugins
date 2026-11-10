@@ -5,11 +5,10 @@ import { conformanceUnits, hasChapter, kindsFor, parseDoc, read, specUnits } fro
 
 const PR = 'PR-BPDESIGNEDSKILL-';
 const SP = /^SP-BPCONFORMANCE-\d{3}$/;
-const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*)[^。]*はどの行でも当たる/;
+const ALWAYS = /どの形にも当たる ((?:SP-BPCONFORMANCE-)?\d{3}(?:・\d{3})*)/;
 const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
 // 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
-const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`] });
-// Claude Code で確かめない制限（SP-BPCONFORMANCE-019）は、PR-BPDESIGNEDSKILL-014 の単位と「権限」の表の最後の行の 2 つの出所を持つ。
+// 強いられた未検査は、制限の照合そのものと「権限」の表の最後の行だけ。要求の統合で他の仕様項目へ広げない。
 const CLAUDE_CODE_UNCHECKED = 'SP-BPCONFORMANCE-019';
 const FORCED_BY = Object.freeze({ always: CLAUDE_CODE_UNCHECKED, permission: CLAUDE_CODE_UNCHECKED });
 
@@ -18,7 +17,7 @@ function numbers(text) {
   for (const m of text.matchAll(/(\d{3})(?:〜(\d{3}))?/g)) {
     const from = Number(m[1]);
     const to = m[2] ? Number(m[2]) : from;
-    for (let n = from; n <= to; n += 1) out.push(`${PR}${String(n).padStart(3, '0')}`);
+    for (let n = from; n <= to; n += 1) out.push(`SP-BPCONFORMANCE-${String(n).padStart(3, '0')}`);
   }
   return out;
 }
@@ -72,12 +71,12 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   // 落としてよいのは、読める章のどれにも属さない仕様項目だけ。見出しの無い仕様項目と、読める章にあって単位を持たない仕様項目は写しの破損なので止まる。
   const chapters = chapterOf(nodes);
   const readable = new Set([CRITERIA_CHAPTERS.functional, ...CRITERIA_CHAPTERS.others]);
-  const unitsOf = (req) => (trace.get(req) ?? []).flatMap((sp) => {
+  const unitsOf = (sp) => {
     const list = bySpec.get(sp);
-    if (!list && (capacity || !chapters.has(sp) || readable.has(chapters.get(sp)))) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
+    if (!list && (capacity || !chapters.has(sp) || readable.has(chapters.get(sp)))) internal(`適用の判定表の仕様項目が判定基準の写しに無い: ${sp}`);
     return list ?? [];
-  });
-  return { table, always, bySpec, unitsOf };
+  };
+  return { table, always, bySpec, unitsOf, trace };
 }
 
 // 理由の選び方を CLI と読み取りの tool で割らないため、SP-BPINSPECTION-025 の規則をここ 1 箇所で当てる。
@@ -87,9 +86,9 @@ export function forcedReason(sources, unit) {
 
 // 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも）。
 export function forcedSources(criteriaDir, options) {
-  const { bySpec, unitsOf } = sources(criteriaDir, options);
+  const { bySpec } = sources(criteriaDir, options);
   const always = new Map();
-  for (const req of FORCED_REQUIREMENTS.always) unitsOf(req).forEach((u) => always.set(u.value, FORCED_BY.always));
+  for (const u of bySpec.get(CLAUDE_CODE_UNCHECKED) ?? []) always.set(u.value, FORCED_BY.always);
   const permission = bySpec.get(PERMISSION_SP) ?? [];
   const lastPermission = permission.filter((u) => /\/t1\/r\d+$/.test(u.value)).at(-1);
   if (lastPermission) always.set(lastPermission.value, FORCED_BY.permission);
@@ -97,13 +96,14 @@ export function forcedSources(criteriaDir, options) {
 }
 
 export function applicability(criteriaDir, options) {
-  const { table, always, unitsOf } = sources(criteriaDir, options);
+  const { table, always, unitsOf, trace } = sources(criteriaDir, options);
   const forcedAlways = forcedSources(criteriaDir, options).always;
-  const alwaysReqs = always[1].split('・').map((n) => `${PR}${n}`);
+  const alwaysSpecs = numbers(always[1]);
   return table.rows.map(([form, ledger, fanout, result], i) => {
-    const reqs = [...new Set([...alwaysReqs, ...numbers(result.split('が当た')[0])])].sort();
+    const specs = [...new Set([...alwaysSpecs, ...numbers(result.split('。')[0])])].sort();
+    const reqs = [...trace].filter(([, ids]) => ids.some((sp) => specs.includes(sp))).map(([req]) => req).sort();
     const seen = new Map();
-    for (const u of reqs.flatMap(unitsOf)) if (!seen.has(u.value)) seen.set(u.value, u);
+    for (const u of specs.flatMap(unitsOf)) if (!seen.has(u.value)) seen.set(u.value, u);
     const units = [...seen.values()];
     const forced = units.filter((u) => forcedAlways.has(u.value)).map((u) => u.value);
     return { row: i + 1, form, ledger, fanout, requirements: reqs, units: units.map((u) => ({ value: u.value, meaning: u.meaning })), forced };

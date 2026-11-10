@@ -1,6 +1,6 @@
 # エージェントの作業
 
-目的を満たす最小の成果を、検証できる範囲で完成させるための規約。配置・配布・実行は [repository-operations.md](repository-operations.md)、コード・テスト・文書の共通基準は [README.md](README.md) を参照する。
+目的を満たす最小の成果を、検証できる範囲で完成させるための規約。配置・配布・実行は [repository-operations.md](https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/repository-operations.md)、コード・テスト・文書の共通基準は [README.md](https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/README.md) を参照する。
 
 ## 目的と範囲を固定する
 

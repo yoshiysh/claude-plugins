@@ -629,7 +629,7 @@ test('SP-BPRUN-020・SP-BPRUN-040・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-022�
   }
 });
 
-test('SP-BPRUN-031・SP-BPRUN-006: 結果を書いた運搬役が応答を失っても、同じ要求の送り直しで記録が 1 回分のままになる', async (t) => {
+test('SP-BPRUN-006: 結果を書いた運搬役が応答を失っても、同じ要求の送り直しで記録が 1 回分のままになる', async (t) => {
   const s = await setup(t);
   if (!s) return;
   let dropped = 0;
@@ -679,7 +679,7 @@ test('SP-BPRUN-018・SP-BPRUN-038: 段の途中で停止の記録を書かずに
   assert.deepEqual(second.calls.filter((c) => c.role === 'verify').map((c) => c.label), ['verifier:goal']);
 });
 
-test('SP-BPRUN-031: 検証役の結果を要求に含めて運ぶ形（PAYLOAD_MODE inline）でも同じく完了する', async (t) => {
+test('SP-BPRUN-006: 検証役の結果を要求に含めて運ぶ形（PAYLOAD_MODE inline）でも同じく完了する', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const scriptPath = await variant(t, [["const PAYLOAD_MODE = 'file'", "const PAYLOAD_MODE = 'inline'"]]);
@@ -688,7 +688,7 @@ test('SP-BPRUN-031: 検証役の結果を要求に含めて運ぶ形（PAYLOAD_M
   assert.ok(calls.filter((c) => c.prompt.includes(' verdicts <<')).every((c) => !c.prompt.includes('payloadFile')));
 });
 
-test('SP-BPRUN-031: 作業ファイルに書いた結果が返り値と食い違うと E_TRANSPORT で試行の失敗として扱い、BLOCKED にしない', async (t) => {
+test('SP-BPRUN-006: 作業ファイルに書いた結果が返り値と食い違うと E_TRANSPORT で試行の失敗として扱い、BLOCKED にしない', async (t) => {
   const s = await setup(t);
   if (!s) return;
   let n = 0;
@@ -889,7 +889,7 @@ test('SP-BPRUN-021: 最悪の経路で、開始は 2 回、fan-out の項目は�
   assert.equal(v - w, 3);
 });
 
-test('SP-BPRUN-028・SP-BPRUN-031: 結果を書く運搬役が応答を失うと同じ要求を 1 回送り直し、送り直しの E_RESULT・E_TRANSPORT・E_LOCK は試行の失敗として数えて BLOCKED にしない', async (t) => {
+test('SP-BPRUN-028・SP-BPRUN-006: 結果を書く運搬役が応答を失うと同じ要求を 1 回送り直し、送り直しの E_RESULT・E_TRANSPORT・E_LOCK は試行の失敗として数えて BLOCKED にしない', async (t) => {
   const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
   const lost = await setup(t);
   if (!lost) return;
@@ -1098,7 +1098,7 @@ test('SP-BPRUN-005・SP-BPRUN-006: 検証の段の並行の運搬役を子 proce
   assert.equal(result.stopKind, 'complete', result.reason);
 });
 
-test('SP-BPRUN-020・SP-BPRUN-031: 運搬役がまとめた要求の途中まで実行して応答を失っても、停止の記録は CLI が状態から導いた未着手の項目で書かれる', async (t) => {
+test('SP-BPRUN-020・SP-BPRUN-006: 運搬役がまとめた要求の途中まで実行して応答を失っても、停止の記録は CLI が状態から導いた未着手の項目で書かれる', async (t) => {
   const { commands } = await import('./helpers/bp-harness.mjs');
   const s = await setup(t);
   if (!s) return;
@@ -1359,7 +1359,7 @@ test('SP-BPAUTHORING-031・SP-BPAUTHORING-013: 設計の説明の拒否と一覧
   assert.deepEqual(result.unverified, [{ path: 'SKILL.md', action: 'write' }, { path: outside, outside: true }]);
 });
 
-test('SP-BPRUN-031・SP-BPFINDINGS-015: 未反証の記録と試行の失敗の組を毎回送り直しても、未反証の記録は試行ごとに 1 つで、上限の回の送り直しも受けて検証役による BLOCKED になる', async (t) => {
+test('SP-BPRUN-006・SP-BPFINDINGS-015: 未反証の記録と試行の失敗の組を毎回送り直しても、未反証の記録は試行ごとに 1 つで、上限の回の送り直しも受けて検証役による BLOCKED になる', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const seen = new Set();
@@ -1384,7 +1384,7 @@ test('SP-BPRUN-031・SP-BPFINDINGS-015: 未反証の記録と試行の失敗の�
   assert.deepEqual([...view.stops.values()].map((x) => x.cause ?? null), ['verifiers']);
 });
 
-test('SP-BPRUN-031・SP-BPAUTHORING-005: 上限の回の未反証の記録と試行の失敗の組の応答だけを失っても、打ち切り・検証が成り立たない合否・cause verifiers の BLOCKED になり、再開は台帳の段から始める', async (t) => {
+test('SP-BPRUN-006・SP-BPAUTHORING-005: 上限の回の未反証の記録と試行の失敗の組の応答だけを失っても、打ち切り・検証が成り立たない合否・cause verifiers の BLOCKED になり、再開は台帳の段から始める', async (t) => {
   const s = await setup(t);
   if (!s) return;
   let first = true;

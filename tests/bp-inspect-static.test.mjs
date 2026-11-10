@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, criteriaNoteOf, inspectArgs, resumeArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
 import { INPUT_KEYS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { STAGES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { PATHS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/applicability.mjs';
 import { tableAfter } from './helpers/bp-docs.mjs';
 
@@ -53,10 +54,10 @@ async function promptsOf(t, fn, scenario = {}) {
   return { s, calls };
 }
 
-test(`SP-BPINSPECTION-001・SP-BPRUN-038・SP-BPFINDINGS-018: meta.phases が SP-BPINSPECTION-001 の表の段の列の順に並び、各段の名前が SP-BPRUN-038 の slug の表にあり、見直しと合否の操作を要求に入れない${BOTH}`, () => {
-  const phases = literal('meta').phases.map((p) => p.title);
-  assert.deepEqual(phases, tableAfter(INSPECTION, '| 順 | 段 | 部品 | 起動する役 | 機能 | 項目 | 定める項目 |').map((r) => r[1]));
-  const slugs = new Map(tableAfter(RUN, '段の slug は次の表とする。').map(([name, slug]) => [slug.replace(/`/g, ''), name.split('・')]));
+test(`SP-BPINSPECTION-001・SP-BPRUN-038・SP-BPFINDINGS-018: meta.phases の検証を2つの記録上の段へ展開すると公開された段の順に並び、各 slug の名前が CLI と一致し、見直しと合否の操作を要求に入れない${BOTH}`, () => {
+  const phases = literal('meta').phases.flatMap((p) => p.title === '検証' ? ['検証', '追加の検証'] : [p.title]);
+  assert.deepEqual(phases, tableAfter(RUN, '| create・update | review・audit |')[0][1].split('、').map((name) => name.replace('（review だけ）', '')));
+  const slugs = new Map(Object.entries(STAGES).map(([slug, name]) => [slug, [name]]));
   for (const [slug, title] of Object.entries(literal('STAGE_TITLES'))) assert.ok(slugs.get(slug)?.includes(title), `${slug}: ${title}`);
   const used = [];
   walk(AST, (n) => { if (n.type === 'MemberExpression' && n.object.name === 'OPS') used.push(n.property.name); });

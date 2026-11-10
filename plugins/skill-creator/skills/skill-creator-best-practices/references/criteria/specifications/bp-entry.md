@@ -15,15 +15,15 @@
 - 複数の機能にまたがる依頼の、順の実行と結果の受け渡し
 - SKILL.md の Workflow callsite: 経路（Claude Code の native Workflow と Codex runner）の選び方、callsite の入力、起動数の上限の渡し方、Codex runner の request に書く値
 - 利用者への返り値
-- Codex runner の経路の前提と、その前提のために runner と runtime README に入れる変更（SP-BPENTRY-024・SP-BPENTRY-025）
+- Codex runner の経路の前提（SP-BPENTRY-024）
 
-経路の選び方（SP-BPENTRY-014）は、best-practices 自身の callsite の仕様であると同時に、`docs/specifications/bp-conformance.md` が対象スキルの callsite を PR-BPDESIGNEDSKILL-022・023 に照らすときの経路の選び方の正本である（SP-BPCONFORMANCE-026 がここを参照する）。起動数の上限の値と request の項目（SP-BPENTRY-015・016）は best-practices 自身の callsite にだけ当て、対象スキルが渡す値の基準は SP-BPCONFORMANCE-026 に従う。
+経路の選び方（SP-BPENTRY-014）は、best-practices 自身の callsite の仕様であると同時に、`docs/specifications/bp-conformance.md` が対象スキルの callsite を PR-BPDESIGNEDSKILL-022 に照らすときの経路の選び方の正本である（SP-BPCONFORMANCE-026 がここを参照する）。起動数の上限の値と request の項目（SP-BPENTRY-015・016）は best-practices 自身の callsite にだけ当て、対象スキルが渡す値の基準は SP-BPCONFORMANCE-026 に従う。
 
 次の事柄は他の文書が定め、本文書は参照だけにする。
 
 | 事柄 | 正本 |
 |---|---|
-| run の境界、状態、停止の種類、next_args、CLI、起動数の上限を受け取った run の振る舞い、共通の異常系 | `docs/specifications/bp-run.md` |
+| run の境界、状態、停止の種類と next_args、起動数の上限を受け取った run の振る舞い、共通の異常系 | `docs/specifications/bp-run.md` |
 | create・update の流れ、create が作るスキルの置き場、修正の根拠が 0 件のときの扱い | `docs/specifications/bp-authoring.md` |
 | review・audit の観点と流れ | `docs/specifications/bp-inspection.md` |
 | 指摘の形と修正の根拠の形 | `docs/specifications/bp-findings.md` |
@@ -31,8 +31,7 @@
 
 ### 本文書が実現する要求
 
-- 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-001・PR-BPOPERATIONS-002・PR-BPOPERATIONS-038・PR-BPOPERATIONS-039・PR-BPOPERATIONS-048・PR-BPOPERATIONS-049
-- 併せて実現: PR-BPOPERATIONS-036、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-022・PR-BPDESIGNEDSKILL-023（best-practices 自身の入力と callsite に当てたもの。主担当は `docs/specifications/bp-conformance.md`）
+本書の各仕様項目と要求の対応は、末尾のトレーサビリティ表を正とする。
 
 ## 用語定義
 
@@ -73,16 +72,18 @@ best-practices の SKILL.md は、create・review・update・audit の 4 機能�
 marketplace への登録・公開は `docs/requirements/bp-operations.md` のスコープ外である。
 
 #### SP-BPENTRY-004 機能の列の作り方
-入口は、当てた機能を依頼が述べる順に並べて機能の列を作らなければならない。依頼が順を述べずに複数の機能を求めるとき、review・audit を update より前に置かなければならない（update は review・audit の結果を修正の根拠として受け取るため：PR-BPOPERATIONS-036）。同じ機能が列に 2 回以上現れてよい（例: review → update → review）。
+入口は、依頼が指定した順を尊重して機能の列を作らなければならない。順を指定しない場合は、対象の作成や修正の根拠など、機能間の入出力の依存関係から順を決めなければならない。依存関係で順が一意に決まらない場合は、run を起動する前に利用者へ確認しなければならない。たとえば review と audit の間に依存も順の指定も無い場合、勝手に順を固定してはならない。
+
+指定された順が依存関係と矛盾する場合も、起動前に矛盾と不足する入力を示して確認しなければならない。同じ機能が複数回現れる列は許容する。
 
 #### SP-BPENTRY-005 機能が 1 つに決まらない部分
 依頼の 1 つの部分が SP-BPENTRY-003 の 2 つ以上の行に当たり、どちらかに決まらないとき、入口は run を起動する前に、どの機能かを利用者にターンの中で尋ねなければならない。推測で一方を選んではならない（選び違えると、頼まれていない機能の run に費用を払う）。尋ねるのは run の外なので、SP-BPRUN-002 の禁止には当たらない。
 
 #### SP-BPENTRY-006 対象スキルのパスの一覧
-review・update・audit の run を起動する前に、入口は、CLI に対象スキルのパスの一覧（形は `docs/specifications/bp-run.md` の用語定義）を作らせ（SP-BPRUN-031）、callsite の入力に渡さなければならない（run の開始の入力：SP-BPRUN-003）。一覧の根は、依頼が指す対象スキルのディレクトリとする。一覧に入れるファイルは SP-BPENTRY-022 に、一覧を作れないときは SP-BPENTRY-023 に従う。create の対象スキルのパスの決め方は `docs/specifications/bp-authoring.md` に従う。連鎖の 2 番目以降の機能の対象スキルは SP-BPENTRY-009 に従う。
+review・update・audit の run を起動する前に、入口は、対象スキルのパスの一覧（形は `docs/specifications/bp-run.md` の用語定義）を確定し、callsite の入力に渡さなければならない（run の開始の入力：SP-BPRUN-003）。一覧の根は、依頼が指す対象スキルのディレクトリとする。一覧に入れるファイルは SP-BPENTRY-022 に、一覧を作れないときは SP-BPENTRY-023 に従う。create の対象スキルのパスの決め方は `docs/specifications/bp-authoring.md` に従う。連鎖の 2 番目以降の機能の対象スキルは SP-BPENTRY-009 に従う。
 
 #### SP-BPENTRY-022 パスの一覧に入れるファイル
-対象スキルのパスの一覧に入れるファイルは、次のとおりとしなければならない（範囲は `docs/requirements/bp-operations.md` の用語「対象スキル」）。callsite を workflow script に解決する規則は本項だけに置き、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-022、連鎖の SP-BPENTRY-009、CLI がパスの一覧を作る処理と取り直す処理（SP-BPRUN-031）は本項を参照する。
+対象スキルのパスの一覧に入れるファイルは、次のとおりとしなければならない（範囲は `docs/requirements/bp-operations.md` の用語「対象スキル」）。callsite を workflow script に解決する規則は本項だけに置き、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-022、連鎖の SP-BPENTRY-009、パスの一覧の作成と取り直しは本項を参照する。
 
 - 根のディレクトリの中の全てのファイル
 - 対象スキルの SKILL.md にある Workflow callsite が起動する、自分の plugin の workflow script。`Workflow({ name: "<plugin>:<meta.name>" })` の callsite は、`<plugin>` が対象スキルの属する plugin であるときだけ、その plugin の `workflows/` 直下で literal の `meta.name` が一致するファイルに解決する。`Workflow({ scriptPath })` の callsite は、対象スキルのディレクトリを基準に解決する（`references/claude-workflow-compatibility.md` の Caller 境界の固定の節）
@@ -96,7 +97,7 @@ review・update・audit の run を起動する前に、入口は、CLI に対�
 入口は、機能の列を前から順に、1 つの機能につき 1 つの run として起動しなければならない。前の機能の run が返り値を返す前に、次の機能の run を起動してはならない。
 
 #### SP-BPENTRY-008 次の機能へ進む条件
-入口が次の機能の run を起動してよいのは、前の機能の run が完了で止まったときだけとする。前の run が完了以外で止まったとき、入口は次の機能の run を起動してはならず、前の run の返り値と未実行の機能を利用者に返さなければならない（SP-BPENTRY-021）。進むかどうかは CLI の `chain-next` の操作（`docs/specifications/bp-run.md` の SP-BPRUN-031）が前の run の状態から答え、入口はその答えに従う。前の run が返り値を返さずに終わったとき（native Workflow と Codex runner のどちらの経路でも、起動の失敗・error・timeout・不正な結果を含む）は、入口は `chain-next` を呼ばずに SP-BPENTRY-017 に従う。前の run が返り値を返したが状態を作らずに止まったとき（返り値に状態 ID が無い：SP-BPRUN-032。`chain-next` は前の run の状態 ID を必須の入力にする）は、入口は `chain-next` を呼ばずに完了以外の停止として扱い、次の機能の run を起動せずに、その run を `chain-report` の `runs` に `{"function", "result"}` の形で渡さなければならない。
+次の機能を起動してよいのは、前の機能が完了の返り値を返した場合だけとする。次の機能の入力の確認は、その機能の定めに委ねなければならない。update が扱う修正の根拠が 0 件の場合も、入口で起動を遮断せず、SP-BPAUTHORING-029 の入力確認により、状態を作らず needs_input と受領・除外の件数を返さなければならない。完了以外で止まった場合は、返り値と未実行の機能を返して連鎖を止めなければならない。状態を作る前の停止も同じ扱いとする。返り値が無い場合は SP-BPENTRY-017 に従い、失敗を成功として補ってはならない。
 
 #### SP-BPENTRY-009 前の機能の結果の渡し方
 入口は、次の機能の run の入力を、前の機能の run の返り値から次の判定表に従って作らなければならない。
@@ -120,12 +121,12 @@ review・update・audit の run を起動する前に、入口は、CLI に対�
 | update | audit | 対象スキルのディレクトリを前の run と同じにし、パスの一覧を SP-BPENTRY-006 で作り直す。指摘は渡さない |
 | update | update | 対象スキルのディレクトリを前の run と同じにし、パスの一覧を SP-BPENTRY-006 で作り直す。修正の根拠は、依頼の中の利用者の修正の指示だけにする |
 
-入口は、この判定表の結果を CLI の `chain-next` の操作に作らせ、出力の `input` を書き換えずに `launch-args` の操作（SP-BPENTRY-013）へ渡さなければならない。review・audit の指摘の一覧は、前の run の状態 ID の参照の形（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-031）で渡る。
+表の入力を、前の結果と依頼の修正指示から改変せずに作らなければならない。review・audit の指摘は SP-BPFINDINGS-031 の結果参照の形で渡し、入口で書き写してはならない。
 
 前の機能が create・update のときにパスの一覧を作り直すのは、update が全体を作り直してよく（PR-BPOPERATIONS-018）、create・update の run の後に自分の plugin の workflow script が増減していることがあるからである。review・audit は対象スキルを書き換えないので、一覧を引き継ぐ。create・update の指摘を修正の根拠として渡さないのは、修正の根拠の形（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-031 の表）に create・update の指摘が無いからである。修正の根拠が 0 件になった update の扱いは `docs/specifications/bp-authoring.md` に従う。
 
 #### SP-BPENTRY-010 結果を書き換えずに渡す
-入口は、前の run の返り値から次の run へ渡す指摘の一覧を、返り値のまま渡さなければならない（パスの一覧は SP-BPENTRY-009 の判定表に従う）。指摘の一覧は前の run の参照の形で渡し（SP-BPENTRY-009）、入口は指摘を書き写してはならない。同じバイト列であることは、CLI の開始の操作が参照を前の状態の返り値の指摘の一覧に展開することで保つ（SP-BPFINDINGS-031）。入口は、指摘を要約・言い換え・並べ替えしてはならず、状態（open・dismissed）や観点で絞ってもならない（絞るのは SP-BPFINDINGS-031）。利用者の修正の指示は、依頼の文言をそのまま渡さなければならない。
+review・audit の指摘の一覧は、完了した前の run の参照として渡し、次の機能が受け取る内容・順序・状態を前の結果と同じに保たなければならない。入口で要約・言い換え・並べ替えや、状態・観点での絞り込みをしてはならない。update が扱う指摘の選別は SP-BPFINDINGS-031 に従い、利用者の修正指示も原文のまま渡さなければならない。
 
 #### SP-BPENTRY-011 当たる機能が無い依頼
 依頼の全ての部分が SP-BPENTRY-003 で「当たる機能が無い」になったとき、入口は run を 1 つも起動してはならず、当たる機能が無いことを利用者に返さなければならない（SP-BPENTRY-021）。
@@ -157,11 +158,11 @@ callsite は、best-practices の Workflow に次の入力を渡さなければ�
 | 再開 | next_args | 止まった run が返した next_args を、1 字も変えずに渡す |
 | 再開 | 利用者の回答 | 利用者が回答を足したときだけ、next_args と別の項目として、回答の文言をそのまま渡す（SP-BPRUN-033） |
 | 再開 | 起動数の上限 | SP-BPENTRY-015 に従う |
-| * | スキルのディレクトリ | 渡す。best-practices のスキルのディレクトリの絶対パス（script は自分の位置を解けず、運搬役が呼ぶ CLI のパスをこれから作る：`plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md` §13） |
-| * | 起動の key | 渡す。CLI の `key` の操作で起動ごとに得た値（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `start` の `key`。script は乱数を作れない） |
-| * | 経路 | 渡す。`launch-args` が、その起動で SP-BPENTRY-014 により選んだ経路を `route` と同じ値で足す |
+| * | スキルのディレクトリ | 渡す。best-practices のスキルのディレクトリの絶対パス |
+| * | 起動の key | 渡す。起動の再送を識別できる、起動ごとに得た値。英数字と `.`・`_`・`-` だけの文字列とする |
+| * | 経路 | 渡す。その起動で SP-BPENTRY-014 により選んだ経路を示す |
 
-綴りは次の表とする。script の定数 `INPUT_KEYS` と CLI の定数 `INPUT_KEYS` に置き、表との一致はテストが照らす。表に無い項目と、その起動の種類で「渡さない」とした項目を持つ入力は、script が agent を起動せずに BLOCKED で止める（SP-BPRUN-037 と同じく状態を書かない）。
+綴りは次の表とする。表に無い項目と、その起動の種類で「渡さない」とした項目を持つ入力は、script が agent を起動せずに BLOCKED で止める（SP-BPRUN-037 と同じく状態を書かない）。
 
 | 項目 | 綴り | 渡すとき |
 |---|---|---|
@@ -174,9 +175,9 @@ callsite は、best-practices の Workflow に次の入力を渡さなければ�
 | 起動数の上限 | `maxLaunches` | SP-BPENTRY-015 |
 | スキルのディレクトリ | `skillDir` | 常に。`'` を含むパスは受けない（運搬役が呼ぶコマンドで CLI のパスを `'` で囲む） |
 | 起動の key | `key` | 常に |
-| 経路 | `host` | 常に。`launch-args` が `route` と同じ値（`native`・`codex`）で足す（SP-BPENTRY-014 で起動ごとに選ぶ経路を、run の開始の記録と性能の記録の「取得できなかった」に使う：`docs/specifications/bp-run.md` の SP-BPRUN-046）。`native`・`codex` のどれでもない値は、script が agent を起動せずに BLOCKED で止める |
+| 経路 | `host` | 常に。`native`・`codex` のどちらかで表す（SP-BPENTRY-014 で起動ごとに選ぶ経路を、run の開始の記録と性能の記録の「取得できなかった」に使う：`docs/specifications/bp-run.md` の SP-BPRUN-046）。`native`・`codex` のどれでもない値は、script が agent を起動せずに BLOCKED で止める |
 
-callsite は、入力を CLI の `launch-args` の操作（`docs/specifications/bp-run.md` の SP-BPRUN-031）に作らせ、出力の `args` を書き換えずに Workflow に渡さなければならない（綴りと起動の種類ごとの項目を SKILL.md に書き写すと、表と食い違う）。`launch-args` は、起動の種類で渡さない項目を持つ入力を拒否する。
+入力の作成手段は実装の設計で決めるが、起動の種類で渡さないとした項目、未定義の項目と不正な host を持つ入力は、agent を起動せず状態を作らずに BLOCKED として拒否しなければならない。
 
 #### SP-BPENTRY-014 経路の選び方
 callsite は、Workflow を起動するたびに、次の判定表で経路を選ばなければならない（native-first の経路の契約：[設計時点の出典／旧規約 @ c7759f1]、`references/claude-workflow-compatibility.md` の目的の節）。この規則は再開の起動にも当てる。
@@ -207,34 +208,20 @@ Codex runner の経路で、callsite は request に次を書かなければな�
 | request の項目 | 書くもの |
 |---|---|
 | `limits.maxAgents` | 省略してはならない。値は runner が受ける上限の 1000 とする（native の run は上限を持たないので、上限の役目は runner に収めることだけである：SP-BPENTRY-015） |
-| `limits.timeoutMs` | 省略してはならない（runner の既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。値は公開前の本物の agent での試走の記録の最長の run の所要時間の 2 倍を時間の単位で切り上げた値とし、入口の操作のモジュールの定数（`docs/specifications/bp-run.md` の SP-BPRUN-031）にだけ置く。試走は Claude Code の native Workflow でだけ記録できる（`docs/specifications/bp-run.md` の「検証方法」）ので、Codex runner の値も native の run の所要時間から決める（runner の上で同じ run がどれだけかかるかは測っていない）。試走の記録が無い間は、旧 caller の先例の値を置く |
-| `limits.concurrency` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-027 が定める best-practices 自身の `CONCURRENCY` の値とし、`launch-args` が判定基準の写しから読む（runner の既定の 2 に任せると、script の同時実行の定数が runner で絞られる） |
-| `limits.agentTimeoutMs` | 試走の記録の最長の 1 体の所要時間（native Workflow の run の記録の agent ごとの所要時間）の 2 倍を、`limits.timeoutMs` と同じ定数にだけ置く。置くまでは省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
-| `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（全ての `agent()` が model を明示する（SP-BPRUN-023）ので、対応が欠けると、runner はその名前を使う最初の `agent()` を dispatch する前に例外を投げ、run 全体が失敗する：`scripts/runtime/models.mjs` の 27〜28 行、runtime README の Explicit live execution の節）。`modelMap` の鍵は、SP-BPCONFORMANCE-035 の best-practices の役の表の `model` の列の名前の全てとする。値は、起動する host がその時の Codex の model を明示で選んで埋める（Codex の model の名前を本書群に書くと、Codex の版で黙って古くなる）。callsite は、値の欠けた `modelMap` で起動してはならない |
+| `limits.timeoutMs` | 省略してはならない（runner の既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。値は公開前の本物の agent での試走の記録の最長の run の所要時間の 2 倍を時間の単位で切り上げた値とし、一箇所を正本にして参照する。試走は Claude Code の native Workflow でだけ記録できる（`docs/specifications/bp-run.md` の「検証方法」）ので、Codex runner の値も native の run の所要時間から決める（runner の上で同じ run がどれだけかかるかは測っていない）。試走の記録が無い間は、旧 caller の先例の値を置く |
+| `limits.concurrency` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-027 が定める best-practices 自身の同時実行の上限とする（runner の既定の 2 に任せると、script の同時実行の定数が runner で絞られる） |
+| `limits.agentTimeoutMs` | 試走の記録の最長の 1 体の所要時間（native Workflow の run の記録の agent ごとの所要時間）の 2 倍を、時間上限の値と同じ正本に置く。置くまでは省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
+| `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（全ての `agent()` が model を明示する（SP-BPRUN-023）ので、対応が欠けると、runner はその名前を使う最初の `agent()` を dispatch する前に例外を投げ、run 全体が失敗する：runtime README の Explicit live execution の節）。`modelMap` の鍵は、SP-BPCONFORMANCE-035 の best-practices の役の表の `model` の列の名前の全てとする。値は、起動する host がその時の Codex の model を明示で選んで埋める（Codex の model の名前を本書群に書くと、Codex の版で黙って古くなる）。callsite は、値の欠けた `modelMap` で起動してはならない |
 | workspace の mode と `requirements` | 4 機能とも書き込みのできる mode にし、`requirements` にその mode に合う capability を宣言する。review・audit も運搬役が作業場所の状態を CLI で書く（SP-BPRUN-008）。runner の既定は読み取りだけで、`requirements` は run の作成前に照合される（runtime README の Explicit live execution の節）。host に `updatePolicy`・`updateContract` を書かない（SP-BPENTRY-024） |
 
-callsite は、`limits.maxAgents` を省略した request で起動してはならない（runner の既定の `limits.maxAgents` は、開始と停止の運搬役だけで使い切る数であり、SP-BPRUN-021 が要るとする起動数に満たないので、run が必ず BLOCKED になる）。request の項目と値は `launch-args` の操作が出す（SP-BPENTRY-013）。`limits.maxAgents` と workspace の mode の値は入口の操作のモジュールの定数に置き（`docs/specifications/bp-run.md` の SP-BPRUN-031）、他の項目の値の置き場と出所は上の表のその行に従う。
+callsite は、`limits.maxAgents` を省略した request で起動してはならない（runner の既定の `limits.maxAgents` は、開始と停止の運搬役だけで使い切る数であり、SP-BPRUN-021 が要るとする起動数に満たないので、run が必ず BLOCKED になる）。request を作る内部の手順は実装の設計で決め、同じ値の正本を複数にしてはならない。
 
 Codex runner で review・audit が対象スキルを書き換えていないことは、SP-BPRUN-025・SP-BPRUN-026 で扱う。同時実行の上限は SP-BPCONFORMANCE-027 に従う。
 
 #### SP-BPENTRY-024 Codex runner の経路の前提
-本文書の Codex runner の経路は、runner が source の `meta.name` や `args` の値によって特定の caller を特別に扱わないことを前提にする（依頼者の裁定）。今の runner は、`meta.name` が `skill-creator-review` で `args.mode` が `update` の run を skill-creator の update として扱い、host の `updateContract`（`createWorkflow` では `updatePolicy`）が無ければ失敗させる（`scripts/runtime/runtime.mjs` の 69〜75 行、`scripts/runtime/adapter.mjs` の 45・97・113〜119 行、runtime README の 80〜87 行）。best-practices の update は対象スキルへ直接書く（SP-BPRUN-008）ので、staging への書き込みと承認後の適用を求めるこの扱いとは両立しない。今の runner のこの扱いは source の名前 `skill-creator-review` と `args.mode` の両方を条件にし（`scripts/runtime/runtime.mjs` の 34〜37・69〜72 行、`scripts/runtime/resume.mjs` の 150 行）、best-practices の source の名前（`best-practices-author`・`best-practices-inspect`）はそれと違うので、SP-BPENTRY-025 の変更の入っていない runner でも best-practices の update の run はこの扱いに入らない。callsite は runner の版を見分けない。
+Codex runner の経路は、source の名前や args の値に基づき特定の caller を特別扱いしないことを前提とする（依頼者の裁定）。4 機能は宣言した workspace の mode と capability に基づいて実行され、update には対象への書き込みを許す。callsite は host に `updatePolicy`・`updateContract` を渡してはならない。
 
-#### SP-BPENTRY-025 runner と runtime README の変更
-SP-BPENTRY-024 の前提のために、`plugins/workflow/skills/dynamic-workflow-runner/` に次の変更を入れなければならない。コードの形は本文書では定めない。
-
-| 変更する箇所 | 変更 |
-|---|---|
-| `scripts/runtime/runtime.mjs` の、`meta.name === 'skill-creator-review'` と `args.mode` による分岐（32〜38 行・69〜75 行）と、`scripts/runtime/resume.mjs` の同じ分岐（150 行） | 外す。source の名前と `args` の値で実行の条件を変えない |
-| `scripts/runtime/adapter.mjs` の `updatePolicy` の検証と結び付け（45 行・97 行・113〜119 行）と、host の `updateContract` の受け取り | 外す。外した host の項目は、runtime README の Explicit live execution の節のとおり、未知の項目として拒否されるようになる |
-| runtime README の skill-creator の caller の段落（80〜87 行） | 消す |
-| 上の分岐と項目を使う他の箇所（`scripts/runtime/update-contract.mjs` と、`grep -E 'skill-creator-review\|updateContract\|updatePolicy\|creatorUpdate'` で当たる runner の skill の中のコード・テスト・文書） | 外した分岐に合わせて直すか消す |
-| リポジトリ直下の `tests/` の、上の分岐と項目を前提にするテスト（`dynamic-workflow-adapter.test.mjs`・`skill-creator-workflow-meta.test.mjs`・`workflow-callers.test.mjs`。どれも上の grep に当たる） | 外した分岐に合わせて直すか消す |
-| 今の skill-creator の caller が runner に渡す `updatePolicy`・`updateContract` の扱い（`plugins/skill-creator/` の中） | 新しい best-practices と同じ変更で置き換える（分岐を外した runner は、この項目を未知の項目として拒否する） |
-
-変更の後に、runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で、上の grep に当たる箇所が 0 件であることを確かめる。ただし次の 2 つは照らす範囲から除く。判定基準の写し（`references/criteria/`）は本書を写すので、grep の式そのものに当たる。本項の「`meta.name` が `skill-creator-review` で `args.mode` が `update` の source が他の source と同じ条件で動く」ことを照らす runner のテストは、その名前を含まなければ書けない。
-
-runner の `requirements` の照合と workspace の mode（runtime README の Explicit writable and isolated checkouts の節）は変えない。best-practices の update が対象スキルに書けるのは、SP-BPENTRY-016 の workspace の mode による。
+runner との互換性と権限を確認できない場合は起動失敗として報告し、互換性を成立させるコードの分岐・ファイル・修正手順は BP の外部契約に含めない。
 
 ## エラー処理と異常系
 
@@ -246,8 +233,8 @@ runner の `requirements` の照合と workspace の mode（runtime README の E
 #### SP-BPENTRY-018 どの経路も無い
 native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-runner` も使えないとき、入口は run を起動してはならず、`workflow` plugin の install が要ることを利用者に返さなければならない（Codex は plugin の依存を自動で install しない。依存は利用者が個別に導入する：[repository-operations の現行案内]、設計時点の出典：[設計時点の出典／旧規約 @ c7759f1]）。
 
-#### SP-BPENTRY-019 create を列の先頭以外に置く依頼
-依頼が、他の機能の後に create を求めるとき、入口は run を 1 つも起動してはならず、その機能の列を組めないことと、組めない理由（create の入力は依頼文だけで、前の機能の結果を渡す形が無い：PR-BPOPERATIONS-003）を利用者に返さなければならない。
+#### SP-BPENTRY-019 指定順と依存の矛盾
+他の機能の後に create を置く指定など、列の順と入出力の依存関係が矛盾する場合、run を起動する前に、組めない依存関係・不足する入力を示して利用者に順または依頼の修正を確認しなければならない。指定を黙って並べ替えたり、依頼の無い入力を補ったりしてはならない。確認が済むまでは列を実行してはならない。
 
 #### SP-BPENTRY-020 渡せる形でない前の結果
 連鎖の次の機能が update で、前の review・audit の run が完了で止まったのに、返り値の指摘の一覧が SP-BPFINDINGS-029 の項目を欠くとき、入口は update の run を起動してはならない。入口は、欠けた項目を補ったり作り直したりしてはならず、前の run の返り値・欠けた項目・未実行の機能を利用者に返さなければならない。
@@ -255,7 +242,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 ## 外部インタフェース
 
 #### SP-BPENTRY-021 利用者への返り値
-入口は、1 件の依頼に対して次を利用者に返さなければならない。入口は、返り値を CLI の `chain-report` の操作（`docs/specifications/bp-run.md` の SP-BPRUN-031）に状態から組み立てさせ、出力を書き換えずに返す。
+入口は、1 件の依頼に対して次を利用者に返さなければならない。返り値の作成は保存された実行結果に基づき、元の内容を書き換えずに行わなければならない。
 
 | 項目 | 返すとき | 中身 |
 |---|---|---|
@@ -273,60 +260,75 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 
 ## 検証方法
 
-各仕様項目は、次の手段のどれかで確かめる。項目ごとの手段と測るものは、トレーサビリティ表の検証方法の列に置く。
+入力となる依頼・対象・修正根拠・host を変えた fixture で、起動する機能と順、起動しない機能、次へ渡す入力、返り値を観測する。順の指定がある/無い、依存が決まる/決まらない/矛盾、前の機能の完了/停止/返り値なし、対象の不足、外れた依頼と呼び出しも含める。
 
-| 手段 | 中身 |
-|---|---|
-| 振り分けの eval | 依頼文の fixture ごとに、期待する機能の列・当たらなかった部分・run を起動しないことを用意し、入口が作る機能の列と照らす |
-| 静的な照合 | SKILL.md の本文を読み、callsite の経路の選び方・入力の項目・起動数の上限の有無・request の項目を照らす |
-| 連鎖の結合テスト | agent を模擬の backend に置き換えた run の返り値を入口に渡し、次の run の入力・起動の有無・利用者への返り値を照らす（Codex runner の runtime は模擬の backend でのテストを持つ：runtime README の Install and verify without inference の節） |
-| CLI の単体テスト | `docs/specifications/bp-run.md` の「検証方法」の同名の手段 |
-| runner のテストの実行 | SP-BPENTRY-025 の変更を入れた runner について、runner の skill の中のテストとリポジトリ直下の `tests/` のテストを模擬の backend で走らせ、結果を照らす（runtime README の Install and verify without inference の節） |
+呼び出し側との入力・runner request は公開された項目と拒否条件に照合し、内部のコマンド名やモジュール配置を合格条件にしない。自然文の機能選択の質は、本物の agent を使う依頼群の eval で、期待する機能と未検査範囲を比較する。
+
+検証方法の読み方と、決定的な検査・意味の判定・不適用の区別は、bp-run.md の「検証方法」を参照する。方法の正本は次の表の各 SP の 1 行とし、トレーサビリティ表は同じ方法を複製せずその行を参照する。
+
+| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |
+|---|---|---|
+| SP-BPENTRY-001 | 入口の結合テスト | 4 機能を各 1 件依頼し、同じ入口から該当機能だけが別 run で実行されることを確認する。機能未指定の扱いは 003 ・ 005 で検査する。 |
+| SP-BPENTRY-002 | 入口と run 境界の静的照合・結合テスト | 単独/複数機能の依頼で起動前に列が確定し、run 内で別機能へ振り分け直されないことを実行記録と入力で確かめる。 |
+| SP-BPENTRY-003 | 依頼分類の eval | 新規作成・評価・監査・指摘修正・利用者指示・範囲外の依頼と複合依頼を与え、選ばれた機能と非該当部分を独立した期待表に照合する。 |
+| SP-BPENTRY-004 | 順序表の決定的テスト・依頼分類の eval | 明示順・依存で決まる順・依存だけで決まらない順・指定と依存の矛盾・同じ機能の再出現を与え、実行順または起動前の確認を照合する。 |
+| SP-BPENTRY-005 | 曖昧依頼の eval | 1 機能に決まる依頼と複数解釈が残る依頼を対にし、後者だけが起動前に機能を尋ね、推測で run を始めないことを確認する。 |
+| SP-BPENTRY-006 | 対象解決の結合テスト | 既存スキルの根と自 plugin の呼出しを渡し、起動入力の一覧が確定した対象と一致することを確かめる。対象不明は 023 で扱う。 |
+| SP-BPENTRY-022 | 対象ファイル列挙の fixture テスト | 根内ファイル、同 plugin/別 plugin の名前呼出し、相対 scriptPath、symlink を含む題材で、対象に含める実体と除外を確認する。 |
+| SP-BPENTRY-023 | 対象不足・解決失敗の入口テスト | 根が不明な依頼と一部 callsite だけ解けない依頼を与え、前者は確認で起動 0、後者は解けた範囲を実行し除外文言・行・パスを返すことを確認する。 |
+| SP-BPENTRY-007 | 連鎖の結合テスト | 前 run の応答を遅延させた 2 機能以上の列で、同時起動せず列順に 1run ずつ実行することを観測する。長さ 1 と同機能の反復も含める。 |
+| SP-BPENTRY-008 | 連鎖停止の結合テスト | 前 run の完了/各未完停止/状態なし停止/返り値なしを与え、後続の実行可否を照合する。完了 review の根拠 0 件を update へ渡し、callee の needs_input と件数を確認する。 |
+| SP-BPENTRY-009 | 機能間入力のパラメタライズドテスト | 前機能と次機能の表の全組を与え、対象・指摘・利用者指示の有無、書換え後の一覧更新を照合する。後方 create は 019 の確認へ送る。 |
+| SP-BPENTRY-010 | 受渡しの内容同一性テスト | open/dismissed と複数観点を混ぜた指摘、順序を持つ利用者指示を渡し、次機能の入力が原文・順・状態を保持し、入口で絞られないことを確かめる。 |
+| SP-BPENTRY-011 | 範囲外依頼の eval ・起動記録照合 | 全て非該当の依頼を渡し、run が 0 件で、非該当の説明と 4 機能名が返ることを確認する。該当部分が混ざる場合は 012 へ分ける。 |
+| SP-BPENTRY-012 | 混合依頼の eval | 該当/非該当が混ざる依頼と全非該当を与え、該当部分だけを実行し、外れた原文が非実行として返ることを確認する。 |
+| SP-BPENTRY-013 | 入力 schema の決定的テスト | 新規 4 機能/再開/回答あり再開について必須・禁止・未知の各欄、不正 host を変え、渡すキーと起動前 BLOCKED ・ agent0 ・状態なしを照合する。 |
+| SP-BPENTRY-014 | 経路選択の全組テスト | native の有無と試行状態の有効組を与え、native 優先、native 失敗後の runner 禁止、native 無しの runner 利用を確認する。両方使えない場合は 018 で確認する。 |
+| SP-BPENTRY-015 | host 別入力の結合テスト | 新規/再開で native と Codex を切り替え、上限の有無と Codex request の maxAgents との一致を照合する。next_args の上限を再利用しないことも見る。 |
+| SP-BPENTRY-016 | request の schema 照合・測定記録照合 | runner request の必須欄、modelMap の欠け、同時実行・総起動上限、書込み capability を検査する。試走あり/なしで時間上限の出所と丸めを照合する。 |
+| SP-BPENTRY-024 | runner 契約の静的照合・結合テスト | 異なる source 名と args の同等機能を与え、宣言した mode/capability だけで実行条件が決まり、禁止 host 欄を渡さないことを確認する。互換性確認不能時の起動失敗も観測する。 |
+| SP-BPENTRY-017 | host 失敗を注入する結合テスト | native/runner の起動失敗・ timeout ・不正結果・無応答を与え、後続未実行、失敗原文の保持、native からの切替禁止、復旧案内を確認する。 |
+| SP-BPENTRY-018 | 依存欠落の入口テスト | native も runner も無い環境を与え、run を起動せず workflow plugin 導入の案内を返すことを確認する。runner だけ利用可能な正常例と対にする。 |
+| SP-BPENTRY-019 | 依存矛盾の eval ・起動記録照合 | 後方 create を含む指定矛盾と依存に合う指定を与え、矛盾時は不足入力と修正確認を返し、回答前の run が 0 件であることを確認する。 |
+| SP-BPENTRY-020 | 不正結果を渡す連鎖テスト | 完了 review/audit の必須指摘欄を 1 つずつ欠かし、update を起動せず、元結果・欠落欄・未実行機能が返ることを確認する。構造が正しい根拠 0 件とは区別する。 |
+| SP-BPENTRY-021 | 公開結果の schema ・内容照合 | 単独/連鎖の完了・停止・ host 失敗・非該当・除外 callsite の各結果で、返す欄、元 run 結果の同一性、再開案内と再開依頼の列を照合する。 |
 
 ## トレーサビリティ表
 
+整理後の契約を実装が満たすかは未検証である。旧版のテストの「完了」を持ち越さず、各行は現契約に対応する実行証拠が得られてから更新する。
+
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-001 | SP-BPENTRY-001 | 静的な照合（SKILL.md が 4 機能のそれぞれで Workflow を 1 run として起動する） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-013 | 静的な照合（callsite の入力の項目が機能と起動の種類ごとに表と一致する） | 作成中 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | CLI の単体テスト（`launch-args` が Codex runner の経路で出す request が `limits.maxAgents`・`modelMap` の全ての鍵・書き込みのできる workspace の mode を持つ） | 完了 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-013, SP-BPENTRY-016 | CLI の単体テスト（`launch-args` が Codex runner の経路で出す request の `limits.concurrency` が 3 で、どちらの経路でも `args` が `route` と同じ値の `host` を持つ）と script の模擬実行（`native`・`codex` のどれでもない `host` の入力で、agent を起動せずに BLOCKED で止まる） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | 静的な照合（SKILL.md の手順が、`launch-args` の request の `modelMap` の値を host の Codex の model で埋め、`limits`・workspace の mode・`requirements` を書き換えずに渡す） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-018 | 振り分けの eval（native も runner も無い環境で run を起動せず install を案内する） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-002 | 静的な照合（振り分けが run の起動より前の手順にあり、script に振り分けが無い） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-003 | 振り分けの eval（4 機能のそれぞれに当たる依頼文が、その機能だけの列になる） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-005 | 振り分けの eval（review と audit のどちらにも読める依頼で、run を起動せずに尋ねる） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-006 | 連鎖の結合テスト（review・update・audit の run の入力に、根が対象スキルのディレクトリのパスの一覧が渡る） | 完了 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 完了 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 連鎖の結合テスト（解決できない callsite が行番号とともに返り値に外したものとして載る） | 完了 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 振り分けの eval（対象スキルを特定できない依頼で run を起動せずに尋ねる） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-004 | 振り分けの eval（順を述べた依頼と述べない依頼で、期待する列になる） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 連鎖の結合テスト（前の run の返り値より前に次の run が起動されない） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 連鎖の結合テスト（前の run が needs_input・BLOCKED で止まると次の run を起動せず、未実行の機能を返す） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 静的な照合（SKILL.md の手順が、次の機能を起動するかを `chain-next` の答えに従って決め、答えの入力を書き換えずに `launch-args` に渡す） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（判定表の行ごとに、次の run の対象スキルと修正の根拠が表と一致し、update の後に足された workflow script が次の review の一覧に入る） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-010 | 連鎖の結合テスト（open と dismissed の指摘を含む review・audit の返り値の指摘の一覧が、入口に書き写されずに参照の形で渡り、update の修正の根拠の記録に同じバイト列で入る） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-012 | 振り分けの eval（一部が当たらない依頼で、当たった部分だけを実行し、当たらなかった部分を返す） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（返り値に各 run の返り値が列の順に変えずに載り、止まったときは未実行の機能と next_args が載る） | 完了 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 静的な照合（SKILL.md の手順が、`chain-report` の出力を書き換えずに利用者へ返す） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-017 | 連鎖の結合テスト（native の起動の失敗で runner に切り替えず、未実行の機能と再開の手段を返す） | 作成中 |
-| PR-BPOPERATIONS-048 | SP-BPENTRY-008, SP-BPENTRY-021 | 連鎖の結合テスト（review が完了以外で止まった review → update の依頼で、update を起動せず、review の返り値を連なりの返しにし、update を未実行の機能として返す） | 未着手 |
-| PR-BPOPERATIONS-048 | SP-BPENTRY-017 | 連鎖の結合テスト（Codex runner の経路で review の run が結果を返さずに終わったとき、update を起動せず、host の失敗の内容と未実行の機能と再開の手段を返す） | 未着手 |
-| PR-BPOPERATIONS-049 | SP-BPENTRY-009, SP-BPENTRY-020 | 連鎖の結合テスト（create → update の依頼で、create の結果を update の修正の根拠の代わりに渡さない。指摘の項目を欠く前の結果で update を起動しない） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-019 | 振り分けの eval（review の後に create を求める依頼で run を起動しない） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-020 | 連鎖の結合テスト（項目の欠けた指摘の一覧で update の run を起動しない） | 完了 |
-| PR-BPOPERATIONS-039 | SP-BPENTRY-003 | 振り分けの eval（marketplace への公開だけを求める依頼が「当たる機能が無い」になる） | 未着手 |
-| PR-BPOPERATIONS-039 | SP-BPENTRY-011 | 振り分けの eval（当たる機能が無い依頼で run が 0 件起動され、当たる機能が無いことを返す） | 未着手 |
-| PR-BPOPERATIONS-039 | SP-BPENTRY-021 | 振り分けの eval（当たる機能が無いときの返り値に、当たる機能が無いことと 4 機能の名前がある） | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPENTRY-009 | 連鎖の結合テスト（review・audit → update で、指摘の一覧が修正の根拠として渡る） | 完了 |
-| PR-BPOPERATIONS-036 | SP-BPENTRY-010 | 連鎖の結合テスト（入口が指摘を絞らず、update の受け手で dismissed が除かれる） | 完了 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPENTRY-013 | 静的な照合（SKILL.md の callsite の契約に起動数の上限の項目がある） | 作成中 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-014 | 静的な照合（native が無いときだけ Codex runner の経路を選び、native の失敗で切り替えない） | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-015 | 連鎖の結合テスト（Codex runner の経路で、最初の起動と再開の起動の両方に `limits.maxAgents` と同じ値の上限が渡る） | 完了 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-016 | 静的な照合（`limits.maxAgents` を省略した request で起動しない） | 作成中 |
-| PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-014 | 静的な照合（native Workflow が道具の一覧にあれば native の経路を 1 回だけ選ぶ） | 未着手 |
-| PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-015 | 連鎖の結合テスト（native Workflow の経路で、最初の起動と再開の起動のどちらにも上限が渡らない） | 完了 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-024 | 連鎖の結合テスト（模擬の backend の Codex runner で、update の run が `updatePolicy`・`updateContract` の無い host で起動でき、対象スキルに書ける） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-025 | 静的な照合（runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で SP-BPENTRY-025 の grep が 0 件）と runner のテストの実行（`meta.name` が `skill-creator-review` で `args.mode` が `update` の source が、他の source と同じ条件で動く） | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-001 | [検証方法](#検証方法) の SP-BPENTRY-001 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-002 | [検証方法](#検証方法) の SP-BPENTRY-002 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-003 | [検証方法](#検証方法) の SP-BPENTRY-003 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-004 | [検証方法](#検証方法) の SP-BPENTRY-004 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-005 | [検証方法](#検証方法) の SP-BPENTRY-005 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-006 | [検証方法](#検証方法) の SP-BPENTRY-006 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-022 | [検証方法](#検証方法) の SP-BPENTRY-022 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-023 | [検証方法](#検証方法) の SP-BPENTRY-023 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-007 | [検証方法](#検証方法) の SP-BPENTRY-007 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | [検証方法](#検証方法) の SP-BPENTRY-008 行 | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPENTRY-009 | [検証方法](#検証方法) の SP-BPENTRY-009 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | [検証方法](#検証方法) の SP-BPENTRY-009 行 | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPENTRY-010 | [検証方法](#検証方法) の SP-BPENTRY-010 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-010 | [検証方法](#検証方法) の SP-BPENTRY-010 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-011 | [検証方法](#検証方法) の SP-BPENTRY-011 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-012 | [検証方法](#検証方法) の SP-BPENTRY-012 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPENTRY-013 | [検証方法](#検証方法) の SP-BPENTRY-013 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-013 | [検証方法](#検証方法) の SP-BPENTRY-013 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-014 | [検証方法](#検証方法) の SP-BPENTRY-014 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-015 | [検証方法](#検証方法) の SP-BPENTRY-015 行 | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-016 | [検証方法](#検証方法) の SP-BPENTRY-016 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | [検証方法](#検証方法) の SP-BPENTRY-016 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-024 | [検証方法](#検証方法) の SP-BPENTRY-024 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-017 | [検証方法](#検証方法) の SP-BPENTRY-017 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-018 | [検証方法](#検証方法) の SP-BPENTRY-018 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-019 | [検証方法](#検証方法) の SP-BPENTRY-019 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-020 | [検証方法](#検証方法) の SP-BPENTRY-020 行 | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-021 | [検証方法](#検証方法) の SP-BPENTRY-021 行 | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | [検証方法](#検証方法) の SP-BPENTRY-021 行 | 未着手 |
+
+## ID の扱い
+
+欠番: SP-BPENTRY-025。内部実現を固定した項目を廃止した。外部の性質は対応する本文の契約で保持し、欠番は再利用しない。
