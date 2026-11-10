@@ -991,12 +991,12 @@ id と参照の全ての欄の、名前空間・一意の範囲・実在の確�
 
 | 欄 | 名前空間 | モデルが 2 つ以上で一意か | 実在を確かめる所 | 起点 |
 |---|---|---|---|---|
-| `SourceRef.target_id`・`Pointer.target_id`（kind `location`）・`unread[].target_id` | 依頼の id（target） | 一意 | 受付の照合（`pointer_unresolved`） | — |
-| `SourceRef.file`・`Pointer.file`・`unread[].file`・`fixed.files[].path` | FilePath | 一意 | 受付の照合 | 対象 |
+| `SourceRef.target_id`・`Pointer.target_id`（kind `location`）・`unread[].target_id` | 依頼の id（target） | 一意 | 受付の照合（`pointer_unresolved`）。inventory の `elements[].source` と `external_dependencies[].source` は洗い出しの照合で、`target_id` がその inventory の対象と等しいこと | — |
+| `SourceRef.file`・`Pointer.file`・`unread[].file`・`fixed.files[].path` | FilePath | 一意 | 受付の照合。inventory の `elements[].source` と `external_dependencies[].source` は洗い出しの照合で、その対象の写しのファイルにあり、`span` が行の範囲の中にあること | 対象 |
 | `Pointer.id`（kind `target`・`goal`・`known_requirement`） | 依頼の id | 一意 | 受付の照合 | — |
 | `fixed.snapshot_ref`・`Model.ref`・`Location.file`・`evidence_refs`・`Records.*.ref`・`ledger_refs`・`steps_ref`・`materials[].ref`・`Worklog.inputs[].ref`・`unreadable_inputs[].ref`・`document_rules.ref`・`Ledger.entries[].ref`・`input_refs[].ref` | Ref | 一意 | 書いた者が書いた直後の再読込、集約の照合（結果の参照の再読込） | run |
 | `Location.pointer` | JSON Pointer か `form:` | 一意（`file` と組で） | 依存グラフの導出 | モデル・`.smt2` |
-| `PropertyResult.id`・`AuthorReturn.blocked_by_question`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中）、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
+| `PropertyResult.id`・`AuthorReturn.blocked_by_question`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中と、run の他の対象の最後に照合した inventory との重なり。重なりは `other` の欠陥）、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
 | `Inventory.properties[].source_ids`・`io_contracts[].source_ids`・`transitions[].source_ids`・`forbidden[].source_ids` | inventory の要素の id | 一意 | 洗い出しの照合（性質の出所）、モデル化の照合（モデルの出所） | — |
 | `sources[].id`（kind `goal`・`known_requirement`） | 依頼の id | 一意 | 洗い出しの照合 | — |
 | `Model.id`・`Check.model_id`・`context.model_id`・`MappingFile.model_id`・`parts[].model_id`・`Contract.model_id`・`composition_conditions[].model_id`・`Cause.subject.model_id`・`PlanFile.checks[].model_id` | model_id | 一意 | モデル化の照合（mapping とモデルの組）、計画の照合 | — |

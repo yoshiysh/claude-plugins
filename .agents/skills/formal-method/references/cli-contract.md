@@ -118,7 +118,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
    3. `START_WAIT_MS` に達したとき:
       - `<run_id>/run.lock` があれば、`{"seq": 0, "action": "working", "run_dir": ..., "batch": null, "result": null, "daemon": <run.lock の識別>}` を返す。司令塔は `wait`（`status_seq: 0`）に進む。
       - 無ければ、控えた識別と一致する process の group を止め（SIGKILL）、終了を `START_STOP_WAIT_MS` まで待ってから 1 を評価し直す。その間に終了を観測できなければ、終わったものとして 1 を評価し直す。ただし一時の領域は消さず（終了を観測していないので、6 の規則による）、返す結果の `unverified[]` に一時の領域の path と理由「run-daemon を止めたが終了を観測できなかった」を載せる。理由: SIGKILL は拒めないので process は終わるが、終了の観測を待ち続けると、前景の呼出しが `CALL_MAX_MS` を越える。
-6. **残った一時の領域**: `start` は、自分が起動して終了を観測した process の `.tmp-<run_id>-<nonce>/` だけを消す。他の `.tmp-*` は消さない。消せなければ、返す結果の `unverified[]` に path と理由を載せる。
+6. **残った一時の領域**: `start` は、自分が起動して終了を観測した process と、起動そのもの（spawn）に失敗した process の `.tmp-<run_id>-<nonce>/` だけを消す。他の `.tmp-*` は消さない。消せなければ、返す結果の `unverified[]` に path と理由を載せる。
 
 `run-daemon` を起動しないで `start` が返す結果（2 と 5-1 の後半）は、保存しない。理由: 保存先に書けないか、run の領域（lock を持つ者の領域）が無いので、書く者がいない。構造の契約「`result.json` を書くのは `run-daemon` だけ」はそのまま成り立つ。
 
@@ -173,6 +173,11 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
       - 結果には、時刻・pid・nonce など、作った者や作った時で変わる値を入れない。キーの順は辞書順に固定する。そのため、勝者でも、勝者が死んだ後に続けた salvage でも、同じ入力から同じ内容の結果ができる。
       - `performance` の salvage の所要時間と run 全体の所要時間は `取得できず` とし、理由を「salvage の結果は作った者と時刻によらない内容にするため、時刻を記録しない」とする。
    3. 作業記録 `salvage-worklog.json` と追補台帳 `salvage-ledger.json` を同じく決定的に作り、[公開の手順](#結果と台帳の保存の失敗)で公開する。
+      - **秘密値の走査**: 公開の前に、作業記録・追補台帳・結果の 3 つを[秘密値の走査](#run-の領域の配置)の型で走査する。どれか 1 つに当たれば、3 つとも公開せず（3 と 4 を行わない）、次の R' を標準出力で返す。
+        - `status: "停止"`・`provisional: true`。`stop_report.reasons` は、`処理の中断`（2 のとおり）の後に `保存の失敗`（段 `集約`）と `記録の未保存`（段 `集約`）。
+        - 中身を持たない: `properties`・`checks`・`models`・`counterexamples`・`causes`・`questions` は `[]`、`confirmations` は両方 `[]`、`decomposition` は分割しなかったときの形、`unverified` は `[{item: "結果の内容", reason}]`、`verified_scope` と `performance` は値を持たない形で理由を持つ。
+        - `records.unsaved` に `salvage_worklog`（`salvage-worklog.json`）・`salvage_ledger`（`salvage-ledger.json`）・`result`（`result.json`）と理由。他の記録は、保存済み（指紋が非 null）のものを `saved` に、他を `unsaved` に載せる。ただし、その一覧の `ref` にも型が当たるなら、`saved` は空、`unsaved` は上の 3 つだけにする。
+        - 理由: 3 つは互いを参照する（台帳は結果の指紋を、結果は台帳と作業記録の参照を持つ）ので、一部だけを公開すると参照の先が欠ける。中身を持つ R' を返すと、秘密値が標準出力に出る。値は診断にも残さない（上の一般の規則）。`run-daemon` の集約が秘密値で結果を書かないときも、同じ形の R' を `status.json` で返す。
    4. 結果を **`result.json`** に、同じ手順で公開する（`run-daemon` と同じ名前）。既にあれば、既にある結果を読んで返す。
 - `run-daemon` は、`state.json`・`status.json`・`result.json`・`ledger.json` を書く直前に毎回 `salvage.mark` を確かめ、あれば何も書かずに終わる。この確認は、生死の判定が誤ったときの作業の重なりを減らすためのもので、結果の一意は次の節の「1 つの名前への公開」で守る。
 
@@ -273,7 +278,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 - 最終の名前の run の領域の `<run_id>/run.lock` を消す呼出しは、`scripts/lib/store.mjs` の関数 `releaseOwnLock` の中にだけある。`releaseOwnLock` は、`run.lock` の `nonce` が自分のものと一致することを確かめた後にだけ消す。他のどこにも、`<run_id>/run.lock` を消す・上書きする呼出しは無い。
 - 一時の領域 `.tmp-<run_id>-<nonce>/` を最終の名前へ rename する呼出しは、`scripts/lib/store.mjs` の関数 `publishRunDir`（`run-daemon` だけが呼ぶ）の中にだけある。rename されるのは領域のディレクトリで、`run.lock` は領域ごと移る。
-- `.tmp-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeOwnTmp` の中にだけある。`removeOwnTmp` は、自分が作った `run_id` と nonce の領域を、次のどれかの場面でだけ消す: (1) 自分が起動した process の終了を観測した後、(2) `request.input.json` に秘密値の型を見つけ、`run-daemon` を起動していないとき、(3) `request.input.json` の書込みか fsync が失敗し、`run-daemon` を起動していないとき。
+- `.tmp-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeOwnTmp` の中にだけある。`removeOwnTmp` は、自分が作った `run_id` と nonce の領域を、次のどれかの場面でだけ消す: (1) 自分が起動した process の終了を観測した後、(2) `request.input.json` に秘密値の型を見つけ、`run-daemon` を起動していないとき、(3) `request.input.json` の書込みか fsync が失敗し、`run-daemon` を起動していないとき、(4) `run-daemon` の起動そのもの（spawn）が失敗したとき（起動の手順 5-1 の「起動そのものに失敗した」）。
 - `.probe-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeProbeDir` の中にだけある（能力の確認の後）。この領域は rename されていない（最終の名前の run の領域ではない）ので、その中の `run.lock` は上の `<run_id>/run.lock` に当たらない。
 - 走査の検査は、この 4 つの関数名と file の組で、lock・一時の領域を消す・rename する呼出しの所在を照合する。
 - `state.json`・`status.json`・`ledger.json` を書くのは、`run-daemon` の process だけである。`result.json` は `run-daemon` か salvage が link でだけ作る。
