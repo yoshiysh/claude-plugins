@@ -21,7 +21,7 @@ test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-040: 同梱の写し references/doc
   assert.ok(existsSync(COPY), `${COPY} が無い（A が正本から写す）`);
 });
 
-test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-040・042: 同梱の写しは正本 docs/guidelines/documentation.md とバイト列で一致する', (t) => {
+test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-040: 同梱の写しは正本 docs/guidelines/documentation.md とバイト列で一致する', (t) => {
   const canonical = findCanonical();
   if (!canonical) { t.skip('正本を持つリポジトリの外（配布先）で動いている'); return; }
   assert.ok(existsSync(COPY), `${COPY} が無い`);

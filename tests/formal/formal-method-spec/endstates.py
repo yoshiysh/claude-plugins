@@ -1,8 +1,16 @@
 # Enumerate the end-states of one check and decide whether the check verdict (L148-152, L157, L138) is unique.
 # Run: python3 -I endstates.py  (writes enum_table.txt)
-import itertools, os, subprocess
+import itertools, json, os, subprocess, sys
 
-Z3 = os.environ.get("Z3", "/Users/yoshi/.codex/workflow-runs/claude-plugins/formal-method-prd/tools/z3-5.3.3-arm64-osx-13.3/bin/z3")
+Z3 = os.environ.get("Z3")
+
+
+def z3_path():
+    # check.py・z3_streams.py と同じく、Z3 が未設定か絶対 path でなければ止める（作者の環境の path を既定にしない）
+    if not Z3 or not os.path.isabs(Z3):
+        print(json.dumps({"error": "Set Z3 to the absolute path of the z3 executable"}))
+        sys.exit(1)
+    return Z3
 HERE = os.path.dirname(os.path.abspath(__file__))
 D = os.path.join(HERE, "out", "enum")
 RET = ["Ok", "Cex", "Undec", "Err", "Crash", "Unread", "NotStarted", "NoReturn"]  # what the tool returned
@@ -58,7 +66,7 @@ def smt(ret, stop, tl, extra):
 
 def z(text, fn):
     open(fn, "w").write(text)
-    p = subprocess.run([Z3, "-T:20", "-smt2", fn], capture_output=True, text=True)
+    p = subprocess.run([z3_path(), "-T:20", "-smt2", fn], capture_output=True, text=True)
     open(fn[:-5] + ".out", "w").write(p.stdout + p.stderr)
     return p.stdout
 

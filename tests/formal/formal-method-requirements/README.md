@@ -13,7 +13,6 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-requirements/check
 - 1 ケースごとに JSON を 1 行、標準出力に出し、最後に集計の行を出す。期待と違うケースが 1 つでもあれば exit 1（仕様で決める点のケースは数えない）。
 - 最初に `PRD.sha256` の指紋と、要求文書・仕様書の今の指紋を照合する。違えば、どの query も回さずに exit 1。
   - 指紋は、模型・性質・対応を確かめた上でだけ更新する。新しい要求に古い結果を流用しないためである。
-  - 今の値は、未 commit の変更を含む作業ツリーの 2 文書から作った。
 - CI では `verification.yml` の `formal-method-z3` job が、版と SHA-256 を固定した Linux の Z3 で走らせる。
 
 ## 何をどう確かめるか
@@ -56,7 +55,7 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-requirements/check
 
 ## 結果（macOS arm64、Z3 5.3.3）
 
-38 ケース（指紋 2、トレーサビリティ 1、query 35）。query のうち 33 は期待どおりで、2 つは「仕様で決める点」として一致・不一致に数えない（exit 0）。
+39 ケース（指紋 2、トレーサビリティ 1、query 36）。query のうち 34 は期待どおりで、2 つは「仕様で決める点」として一致・不一致に数えない（exit 0）。集計の行の `total` は指紋と query の数（38）で、トレーサビリティは `total` に含めない（不一致なら `mismatched` に数える）。
 
 **仕様で決める点**（依頼者の決定。要求文書は変えない）
 
@@ -66,7 +65,7 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-requirements/check
 | `R4_unhandled_not_complete` | sat（完了しうる） | PR-015 の列挙に「未検証」が無いので、対応できていない組合せが残る run が完了しないことは要求からは導けない。完了の条件は仕様 SP-015 が定める |
 
 - この 2 つは、結果を JSON に `kind: "spec_decides"`・`match: null`・`reason` で残し、変異も回さない。
-- 前の版にあった解釈 `I_PR015_unhandled_is_unmapped_*`（対応できていない組合せは PR-015 の未対応に当たる）は、要求の文に無い読みなので外した。
+- 「対応できていない組合せは PR-015 の未対応に当たる」という解釈は、要求の文に無い読みなので模型に置かない。
 
 query の結論が何に依るかは、C の unsat core で分かる。各ケースの JSON の `rests_on_interpretation_only` が true のものは、要求の文（`PR` の規則）を 1 つも使わず、解釈（`I_`）と定義だけから導けた結論で、要求からの結論ではない。
 

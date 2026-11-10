@@ -185,7 +185,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 **結果は 1 つの名前 `result.json` にだけ公開する**（`run-daemon` も salvage も）。link の排他で勝者が決まるので、生死の判定が誤っても、公開される結果は 1 つである。
 
-- 理由: 前の稿は、`run-daemon` の `result.json` と salvage の `salvage-result.json` の 2 つの名前に公開し、「`salvage.mark` を確かめてから書く」で重ならないようにしていた。生死を誤判定すると、印の確認と書込みの間の隙間で両方が公開され、結果が 2 つになる（形式検証の `lock-misjudge-*`）。1 つの名前への link なら、確認と書込みが 1 つの不可分な操作になる。
+- 理由: 前の稿は、`run-daemon` の `result.json` と salvage の `salvage-result.json` の 2 つの名前に公開し、「`salvage.mark` を確かめてから書く」で重ならないようにしていた。生死を誤判定すると、印の確認と書込みの間の隙間で両方が公開され、結果が 2 つになる（形式検証の `lock-mut-two_names` が、2 つの名前に公開する変異を不変 `OneResultPublished` の反例で拒む）。1 つの名前への link なら、確認と書込みが 1 つの不可分な操作になる。
 - 退けた案: 印の確認を lock で守る。salvage は lock を取らない（保持者が死んでいれば lock は解けず、取れない）ので、守れない。
 
 **公開の手順**（この文書で「公開する」は全てこの手順。`salvage.mark`・受け箱を除く）: 一時ファイルに書いて fsync し、最終の名前へ link で公開し、ディレクトリを fsync し、再読込して指紋を照合する。照合に通って初めて保存できたとする。
@@ -232,7 +232,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 | path（root から） | 書く者 | 中身 |
 |---|---|---|
-| `index/<run_id>.json` | `run-daemon` | `{"run_id", "run_dir", "created_stage": "受付"}`。過去の run を辿る索引（PR-038） |
+| `index/<run_id>.json` | `run-daemon` | `{"run_id", "run_dir", "created_stage": "受付"}`。過去の run を辿る索引（PR-034） |
 | `.tmp-<run_id>-<nonce>/` | `start`（作成）、`run-daemon`（`run.lock`） | rename の前の一時の領域。run としても結果としても扱わない |
 | `<run_id>/run.lock` | `run-daemon`（排他作成） | `{"pid", "started_at", "nonce", "role": "run-daemon"}` |
 | `<run_id>/state.json` | `run-daemon`（rename） | 内部の状態。形は契約の外で、client と salvage は保存済みの範囲を知るためだけに読む（結果の有無の判定には使わない） |

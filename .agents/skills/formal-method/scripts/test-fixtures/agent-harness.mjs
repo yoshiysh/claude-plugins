@@ -3,8 +3,7 @@
 // task から読むのは Task と TaskContext の欄だけ（unit_id・perspective・candidates・stage・run_dir・target_id）。
 // 受け取った task が契約の形（task.md の 4 つの見出し、役ごとの context）に合わなければ、その違反で失敗する。
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, mkdtempSync, chmodSync, linkSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { cli, expectOk } from './cli-runner.mjs';
@@ -320,8 +319,11 @@ function publishInbox(runDir, batchId, text, mode = 0o644) {
 const LATE_MARGIN_MS = 1000;
 export function makeHarness(scenario, hooks = {}) {
   const memory = { byRole: {}, rounds: {}, tasks: [], batches: [], violations: [], partition: null, models: [], rejected: [], authorReturns: [] };
-  const wfDir = mkdtempSync(join(tmpdir(), 'fm-wf-'));
+  // Workflow の返り値は、run の workspace の保存先の root（<ws>/.formal-method/。runs/<run_id> の 2 つ上）の下に置く。
+  // 呼び手は workspace を消すので tmpdir() の直下に残らず、.formal-method/ は対象の集まりから除かれるので、対象の指紋も変えない
+  let wfDir = null;
   async function onAgents(status, opts = {}) {
+    if (!wfDir) wfDir = mkdtempSync(join(dirname(dirname(status.run_dir)), '.fm-harness-wf-'));
     const list = readJson(status.batch.tasks_path);
     assert.equal(list.batch_id, status.batch.batch_id);
     memory.batches.push(list);

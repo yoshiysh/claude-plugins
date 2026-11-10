@@ -8,6 +8,7 @@ import { AGENT_BATCH_MAX, AuthorReturn, CauseReturn, InboxContent, OUTPUT_SCHEMA
 import { jsonSchemaOf } from './check-shape.mjs';
 import { ROLES, OBLIGATIONS } from './roles.mjs';
 import { hashFile } from './storage.mjs';
+import { cmpBytes } from './checks/common.mjs';
 
 const SKILL_DIR = fileURLToPath(new URL('../../', import.meta.url));
 export const WORKFLOW_SCRIPT = join(SKILL_DIR, 'scripts', 'formal-method-agents.js');
@@ -21,7 +22,6 @@ const returnKindOf = (task) => (task.context.perspective ? 'review' : task.role 
 
 // input_refs の指紋（artifact-formats.md「ディレクトリの ref の指紋」）: ファイルはそのまま 1 つ、ディレクトリはその下の全てのファイルに
 // 展開する。並びは input_refs の要素の順で、1 つのディレクトリの中だけを ref の UTF-8 のバイト列の辞書順に並べる。読めない要素は入れない。
-const byUtf8 = (a, b) => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 export function expandRefHashes(runDir, refs) {
   const out = [];
   for (const ref of refs) {
@@ -39,7 +39,7 @@ export function expandRefHashes(runDir, refs) {
       }
     };
     try { walk(ref.replace(/\/+$/, '')); } catch { continue; }
-    files.sort(byUtf8);
+    files.sort(cmpBytes);
     for (const r of files) out.push({ ref: r, hash: hashFile(join(runDir, r)) });
   }
   return out;

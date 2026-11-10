@@ -14,6 +14,7 @@
 | `Run.tla` | run の進行と停止。司令塔・`start`・`run-daemon`・client・担当・道具・時計。salvage の内部は Lock.tla に任せ、規則 1〜4 の判定と勝者の結果の作成に畳む |
 | `check.sh` | TLC の入口。基準・到達の証人・変異・発見を回し、結果を JSON で返す |
 | `z3_streams.py` | Z3 の出力の流れと終了コードの実測（cli-contract.md の adapter の表との照合） |
+| `verdict-oracle.test.mjs` | 判定の 3 関数（`scripts/lib/verdict.mjs` の `classifyCheck`・`aggregateProperty`・`decideStatus`）を、オラクル `tests/formal/formal-method-spec/` の commit 済みの表（`enum_table.txt`・`questions.py` の Q と `summary.txt`）と照らす。`make test` で走り、Z3 は要らない |
 
 ## 実行
 
@@ -38,9 +39,9 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 
 **前提**: link・rename・排他作成は不可分。死んだ process は生き返らない。`start` は起動した process の終了を親として正確に観測する。salvage を呼べるのは呼出し元が `run_dir` を受け取った後だけ。結果の内容は <<作った者, 保存済みの範囲, 状態>> とし、状態は `C`（完了）・`S`（停止）・`X`（保存の失敗で作り直した停止 R'）。`records.saved` は内容と別に持つ。「読めない」は一度起きたら続く（以後どの読み手も読めない）とした。
 
-**仮の結果と性質 (4)**（依頼者の決定: 公開された結果を正とする）: 結果の内容に `provisional` の印を持たせ、公開されずに返る R'（run-daemon が status.json で返すもの、salvage が標準出力で返すもの）にだけ付ける。性質 (4b) は「仮の結果でない受け取った結果は、公開された `result.json` と一致する」とし、仮の結果があとの正の結果と食い違うことは許す。前の稿の除外（生死の誤判定と I/O の誤りが重なる run、`Limit`）は要らなくなったので外した。外した形で、誤判定・I/O の失敗・読めない出来事を全て起こしうる基準が成り立つ。前の稿の限界の重なりに届くことは、証人 `NeverMisjudgeAndIO` で確かめる。
+**仮の結果と性質 (4)**（依頼者の決定: 公開された結果を正とする）: 結果の内容に `provisional` の印を持たせ、公開されずに返る R'（run-daemon が status.json で返すもの、salvage が標準出力で返すもの）にだけ付ける。性質 (4b) は「仮の結果でない受け取った結果は、公開された `result.json` と一致する」とし、仮の結果があとの正の結果と食い違うことは許す。基準は、生死の誤判定・I/O の失敗・読めない出来事を全て起こしうる形で成り立つ。誤判定と I/O の誤りが重なる run に届くことは、証人 `NeverMisjudgeAndIO` で確かめる。
 
-**E_RESULT_UNREADABLE の加え方**: `result.json` が公開されているのに読めないか形に合わないとき、salvage の規則 2・結果の公開に負けた salvage・start の 5-1 は、結果を作らずに誤り（`env2.errs`）で終わり、負けた `run-daemon` は status.json を書かずに終わる。性質 (1)（Run.tla）と (7) の「終わった」に、この誤りの終わり方を加えた（`Done`・`Ended`）。この終わり方が結果を 2 つにしないことは、`UnreadableOnlyWithPublished`（Lock）と `UnreadableNoNewResult`（Run）で確かめる。どちらも「公開済みの読めない result.json があるときだけ起こり、新しい結果を作らない」。変異 `unreadable_returns_new`（読めないときに新しい結果を作る。前の稿の「規則 3 に進む」に近い）が反例を出すことも確かめる。
+**E_RESULT_UNREADABLE の加え方**: `result.json` が公開されているのに読めないか形に合わないとき、salvage の規則 2・結果の公開に負けた salvage・start の 5-1 は、結果を作らずに誤り（`env2.errs`）で終わり、負けた `run-daemon` は status.json を書かずに終わる。性質 (1)（Run.tla）と (7) の「終わった」は、この誤りの終わり方を含む（`Done`・`Ended`）。この終わり方が結果を 2 つにしないことは、`UnreadableOnlyWithPublished`（Lock）と `UnreadableNoNewResult`（Run）で確かめる。どちらも「公開済みの読めない result.json があるときだけ起こり、新しい結果を作らない」。変異 `unreadable_returns_new`（読めないときに新しい結果を作る）が反例を出すことも確かめる。
 
 | 性質（計画の番号） | 名前 | 変異 |
 |---|---|---|
@@ -48,7 +49,7 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 | (2) run の領域は lock を持った状態でだけ現れる | `RunDirAppearsWithLock` | `dir_before_lock` |
 | lock を消すのは作った者だけ | `LockRemovedOnlyByOwner` | `foreign_unlock` |
 | (3) salvage は state.json・status.json・ledger.json を書かない | `SalvageWritesNoState` | `salvage_writes_state` |
-| (4) 公開される `result.json` は 1 つ（誤判定を含めて） | `OneResultPublished` | `two_names`（2 つの名前に公開する。前の稿） |
+| (4) 公開される `result.json` は 1 つ（誤判定を含めて） | `OneResultPublished` | `two_names`（2 つの名前に公開する） |
 | (4b) 仮の結果でない受け取った結果は、公開された `result.json` と一致する | `ReceivedNonProvisionalMatches` | `no_provisional`（R' に仮の印を付け忘れる）、`loser_returns_own`、`slow_no_kill`、`unreadable_returns_new` |
 | (4c) 仮の結果は `unsaved` に `result` を持ち、状態は停止。公開された結果は仮でない | `ProvisionalShape` | `saved_without_reload` |
 | (4) 勝者が生きている間、他の salvage は規則 5 に入らない（誤判定を除く） | `ExclusiveSalvageWork` | `no_winner_check` |
@@ -108,12 +109,12 @@ macOS arm64、TLC v1.7.4、8 workers での実行。137 ケースが全て期待
 | `run-termination-ps`・`run-commander-ends` | crash・ps・salvage の勝者の crash | 成り立つ | 130,020 |
 | `run-save-failure-reaches` | crash・保存の失敗・ps | 成り立つ | 425,188 |
 
-- 到達の証人 82 個（Lock 43、Run 39）は全て届いた。仮の結果があとの正の結果に置き換わる経路（`NeverProvisionalSuperseded`）と、前の稿の限界の重なり（`NeverMisjudgeAndIO`）にも届く。
+- 到達の証人 82 個（Lock 43、Run 39）は全て届いた。仮の結果があとの正の結果に置き換わる経路（`NeverProvisionalSuperseded`）と、誤判定と I/O の誤りが重なる経路（`NeverMisjudgeAndIO`）にも届く。
 - 変異 43 個（Lock 22、Run 21）は全て、名指しした性質の反例を出した。
 - 変異を置かない性質: `TypeOK`、Run の `StartReturnsOnce`（構造で成り立つ）、`CommanderEnds`（`Termination` の変異 `no_batch_deadline` が同じ経路を壊す）、Lock の `Termination`。
-- **検出しない変異（外した）**: `no_saved_check`（salvage の規則 2・3 を飛ばす）。公開された結果を正とする規則の下では、飛ばしても規則 5 で負けて既にある結果を返すか、仮の結果を正の結果で置き換えるだけで、どの性質も壊さない（重なる作業が増えるだけ）。計画の変異の一覧にも無いので外した。
-- 前の稿で発見とした 4 ケース（salvage の仮の R' の後に別の salvage が公開する、status.json が読めなくなった後に公開する）は、依頼者の決定で「仮の結果は正の結果に置き換わってよい」となり、(4b) の下では反例でなくなった。どちらの経路も到達の証人で届く。
-- `ExclusiveSalvageWork` は、「勝者が生きている間は、勝者でない salvage は規則 5 に居ない」と書き直した（前の稿は「2 体が同時に規則 5 に居ない」で、勝者が死んだ後に何体でも続けてよいという設計より強かった）。
+- **検出しない変異（回さない）**: `no_saved_check`（salvage の規則 2・3 を飛ばす）。公開された結果を正とする規則の下では、飛ばしても規則 5 で負けて既にある結果を返すか、仮の結果を正の結果で置き換えるだけで、どの性質も壊さない（重なる作業が増えるだけ）。計画の変異の一覧にも無いので回さない。
+- salvage の仮の R' の後に別の salvage が公開する経路と、status.json が読めなくなった後に公開する経路は、仮の結果が正の結果に置き換わってよい（依頼者の決定）ので (4b) の反例でない。どちらの経路も到達の証人で届く。
+- `ExclusiveSalvageWork` は「勝者が生きている間は、勝者でない salvage は規則 5 に居ない」である。勝者が死んだ後は、別の salvage が続けてよい（設計のとおり）。
 
 ## 未検証の範囲
 

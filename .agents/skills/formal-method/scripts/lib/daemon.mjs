@@ -80,7 +80,8 @@ async function aggregate(run) {
   run.enterStage('集約');
   run.addSummaryConfirmations();
   const parts = buildResult(run);
-  const reportRecords = { ledger_refs: ['ledger.json'], saved: [], unsaved: [] };
+  // report.md は公開する結果と同じ状態を示すよう、ここまでに保存できなかった記録（run.unsaved）を同じく数えて下書きを作る
+  const reportRecords = { ledger_refs: ['ledger.json'], saved: [], unsaved: run.unsaved.map((u) => ({ ...u })) };
   const draft = finalizeResult(run, parts, reportRecords);
   run.writeRecordFile('report.md', renderReport(draft), { kind: 'report' });
   run.log('集約').actions.push('判定を集約し、完了の条件を評価し、結果・報告・作業記録・記録台帳を保存した。');

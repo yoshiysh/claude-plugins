@@ -114,9 +114,7 @@ run_case lock-termination-determinable Lock baseline TerminationIfDeterminable p
 # (7) の限界: 生死を判定できない状態が続けば、司令塔は LIVENESS_UNKNOWN_MAX 回の後に結果を作らずに終える。
 run_case lock-termination Lock baseline Termination pass "$(lc none TRUE "$c0")" FairSpec
 
-lock_tags='s_cap_fail s_spawn_fail s_start_fail s_status s_status_terminal s_working0 s_salvage_path s_kill_after_rename
-busy_daemon busy_salvage busy_unknown rule2 rule3 r4_winner_dead r1_reuse_dead r1_misjudged s_both_ok s_ledger_fail s_result_fail s_result_lost
-d_ledger_fail d_result_fail d_result_lost d_status_fail d_save_fail_loop d_crash_after_result winner_crash_after_ledger duplicate accepted d_quit_on_mark result_unreadable s_mark_io'
+# 到達の証人は、LockW.tla を生成した lock_tags をそのまま回す（2 か所に書くと、生成側だけに足した印が回らない）
 for w in $lock_tags; do
   case $w in duplicate|accepted) cl=$c2 ;; *) cl=$c0 ;; esac
   run_case "lock-witness-$w" LockW witness "W_$w" violation "$(lc none TRUE "$cl" TRUE)"
@@ -171,11 +169,8 @@ run_case run-termination-ps Run baseline Termination pass "$(rc none "$b2" '{"cr
 run_case run-commander-ends Run baseline CommanderEnds pass "$(rc none "$b2" '{"crash", "ps", "svcrash"}' FALSE)" FairSpec
 run_case run-save-failure-reaches Run baseline SaveFailureReaches pass "$(rc none "$b2" '{"crash", "save", "ps"}' FALSE)" FairSpec
 
-run_tags_list='start_spawn_fail start_crash_before_rename start_crash_after_rename start_slow_working start_slow_killed start_kill_after_rename
-start_status start_fail_no_dir start_salvage_saved start_salvage_new terminal_by_status terminal_by_salvage busy_daemon busy_salvage
-stale salvage_garbled salvage_hang duplicate_submit stale_submit batch_timed_out deadline_hit confirmation_stopped independent_after_cex
-dependent_skipped still_waiting_unknown save_fail status_fail'
-for w in $run_tags_list; do
+# 到達の証人は、RunW.tla を生成した run_tags をそのまま回す
+for w in $run_tags; do
   run_case "run-witness-$w" RunW witness "W_$w" violation "$(rc none "$b2" "$eall" TRUE)"
 done
 run_case run-witness-NeverUnreadable Run witness NeverUnreadable violation "$(rc none "$b2" "$eread" TRUE)"

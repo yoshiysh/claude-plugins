@@ -2,7 +2,7 @@
 
 仕様（`docs/specifications/formal-method.md` の SP-FORMALMETHOD-001・003〜015、AC-01〜21）が扱わないことを、この文書で決める。扱わないこととは、役割の配置、処理の順序、内部の状態と保存の手順である。
 
-依頼元から見た振る舞いの正本は仕様、作業記録の正本は `docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028〜036・038〜040・042 であり、ここには写さない。値・列挙・形の正本はコード（`scripts/lib/schemas.mjs` ほか）に置き、この文書は形の決め方と理由だけを持つ。検証は [検証計画](verification-plan.md) が持つ。
+依頼元から見た振る舞いの正本は仕様、作業記録の正本は `docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028・029・032・034・035・036・040 であり、ここには写さない。値・列挙・形の正本は [成果物の形式](artifact-formats.md)（手順・配置・定数は [CLI 契約](cli-contract.md)）で、`scripts/lib/schemas.mjs` はそれを機械に写した検査器である。この文書は形の決め方と理由だけを持つ。検証は [検証計画](verification-plan.md) が持つ。
 
 以下、仕様項目は `SP-NNN`、作業記録の要求は `PR-NNN` と略す。
 
@@ -21,13 +21,11 @@
 - [依存グラフと合成](#依存グラフと合成)
 - [性能の記録・比較・改善](#性能の記録比較改善)
 - [作業記録と記録台帳](#作業記録と記録台帳)
-- [部品の最終の一覧](#部品の最終の一覧)
-- [作る物の分担](#作る物の分担)
+- [契約の所在](#契約の所在)
+- [部品の責務](#部品の責務)
 - [未検証と限界](#未検証と限界)
 
 ## 前提と依頼者の決定
-
-作り方は「部品を流用して作り直す」である。旧版の keep・adapt の部品を残し、構成全体はこの文書から作り直す。
 
 依頼者の決定は次のとおり。下の各節に実現する場所を示す。
 
@@ -37,7 +35,7 @@
 | D2: 回答に依存しない検証も続ける | [段と処理の順序](#段と処理の順序)、[判定の集約](#判定の集約) |
 | D4: 再開・再利用・道具の再実行は持たない | 構成の全体 |
 
-D4 の「道具の再実行」は、失敗した検査を同じ run の中でもう一度動かすことと読む。そのため、検査の再試行の回数（旧 `attempts`・`retries`）は持たない。
+D4 の「道具の再実行」は、失敗した検査を同じ run の中でもう一度動かすことと読む。そのため、検査の再試行の回数は持たない。
 
 SP-012 が決定的な検査として求める「反例の再実行」は、反例を確かめる別の確認として残す（[段と処理の順序](#段と処理の順序)の実行の段）。依頼者はこの読みを確認した。
 
@@ -45,7 +43,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 - 文書の一般規約は同梱する。正本は `docs/guidelines/documentation.md` とする（[作業記録と記録台帳](#作業記録と記録台帳)）。
 - 配布先は、今は Claude Code だけとする（依頼者の決定）。Codex での動作は未検証として記録し、公開のときに実測して扱いを決める（[未検証と限界](#未検証と限界)）。
-- 依頼者は、要求と仕様から CPU とメモリの上限に関わる規定を外した（上限を守れるかが実行環境に依存するため）。前の稿の D3（メモリが足りない検査を始めてから止める）と、それを守る仕組みは除いた。
+- CPU とメモリの上限は持たない（要求と仕様の対象外。上限を守れるかが実行環境に依存するため）。
 - 初回とキャッシュの区別は持たない。要求・仕様からは外した。
 
 ## 構成と役割
@@ -77,7 +75,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 段は `docs/design/skill-design-patterns.md` の「用語」の定義（全ての項目を待ってから次へ進む区切り）に従う。
 
-段の名前は作業記録の段の欄（PR-028）と停止の報告の段（SP-015）に同じ値で使い、正本は `scripts/lib/schemas.mjs` の `STAGES` に置く。
+段の名前は作業記録の段の欄（PR-028）と停止の報告の段（SP-015）に同じ値で使い、値の正本は `artifact-formats.md` の `Stage` で、`scripts/lib/schemas.mjs` の `STAGES` はその写しである。
 
 | 段 | CLI の決定的な処理 | 起動する担当（項目） | 次の段へ進む条件 |
 |---|---|---|---|
@@ -111,7 +109,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 退けた案 2: 独立検証者の不合格でも作り直す。検査をやり直すことになり、D4 に反する。
 - **原因の分類は、確認の段で、停止の前に行う。**
   - 対象は、反例・`対応できていない` 組合せ（SP-006）・作成役の問いの全てである。
-  - 理由: SP-011 は反例と `対応できていない` 組合せの原因を結果に示すことを求め、AC-08 はそれを同じ結果の中で観測する。旧版は再開した run で分類したが、再開は持たない（D4）。
+  - 理由: SP-011 は反例と `対応できていない` 組合せの原因を結果に示すことを求め、AC-08 はそれを同じ結果の中で観測する。分類を別の run に回すと、同じ結果に原因が載らない（退けた案: 再開した run で分類する。再開は持たない、D4）。
   - 作成役の問いを分類役に通すのは、作成役が自分の欠陥を `要求の不足` に付け替えるのを防ぐためである（SP-011、AC-08）。分類が `要求の不足` でない問いは問いとして返さず、分類した原因を、その性質の `未確認` の理由にする。
 - 独立検証者の unit は、分類役を含めて、確認の段でまとめて起動する。同時に起動する数の上限（`AGENT_BATCH_MAX`）を超える分は、順に次の batch で起動する。
   - 理由: どの観点も検査の結果か固定した成果物だけを読むので、互いの結果を待たない。
@@ -127,8 +125,8 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 書くのは、受け箱（`inbox/`）のファイルの排他作成だけである。
   - 読むのは `status.json` だけである。
 - 段の進行・決定的な照合・検査の実行・集約・保存は、全て `run-daemon` が行う。
-- 理由: lock を 1 つの process が最初から最後まで持てば、lock の引き渡しが無い。引き渡しの隙間に salvage が入って結果が 2 つできる経路（前の稿の `next` から `run-checks` への引き渡し）が、構造として無くなる。
-- 退けた案 1: 前景の `next` が段を進め、実行の段だけ background の `run-checks` に lock を引き渡す（前の稿）。引き渡しの手順（職務の記録の排他作成 → 受け手の lock → 完了の印）と、隙間の salvage の扱いが要る。守る手順と状態の組合せが増える。
+- 理由: lock を 1 つの process が最初から最後まで持てば、lock の引き渡しが無い。引き渡しの隙間に salvage が入って結果が 2 つできる経路が、構造として無くなる。
+- 退けた案 1: 前景の `next` が段を進め、実行の段だけ background の `run-checks` に lock を引き渡す。引き渡しの手順（職務の記録の排他作成 → 受け手の lock → 完了の印）と、隙間の salvage の扱いが要る。守る手順と状態の組合せが増える。
 - 退けた案 2: 前景の CLI だけで段を進める（前々の稿）。検査が長いと、ホストのコマンドの時間の上限で殺される（H5）。
 
 **コマンド**
@@ -137,7 +135,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 | コマンド | 入力 | すること | 出力 |
 |---|---|---|---|
-| `start` | 依頼（SP-001 の項目）。作業ツリーは `start` を呼んだ process の現在のディレクトリとし、入力に含めない | 保存先の能力を確かめ（一時のディレクトリを作って書込みと fsync を試し、消す）、`run-daemon` を detach して起動し、[起動の手順](#起動の手順)に従って待つ | `status`（下記）、又は `terminal` の結果（保存先に書けない、起動に失敗した、起動の途中で落ちた） |
+| `start` | 依頼（SP-001 の項目）。作業ツリーは `start` を呼んだ process の現在のディレクトリとし、入力に含めない | 保存先の能力を確かめ（一時のディレクトリを作って書込みと fsync を試し、消す）、`run-daemon` を detach して起動し、[起動の手順](cli-contract.md#起動の手順)に従って待つ | `status`（下記）、又は `terminal` の結果（保存先に書けない、起動に失敗した、起動の途中で落ちた） |
 | `submit` | `run_dir`、`batch_id`、`workflow_output_path`（又は `timed_out: true`） | 受け箱を「一時ファイル → link」で公開する（下記）。既にあれば何もせず `duplicate` を返す | `accepted` か `duplicate` |
 | `wait` | `run_dir`、前に受け取った `status_seq` | `status.json` の `seq` が増えるか、`run-daemon` の終了を観測するまで、`CALL_MAX_MS` を上限に待つ | 新しい `status`、又は `still_waiting` |
 | `salvage` | `run_dir` | [保存と排他](#保存と排他)の salvage の規則 | `terminal` |
@@ -154,7 +152,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 - `status.json` の `action` が `terminal` になった。
 - `run.lock` に書かれた保持者の process が終了したと観測した（[保存と排他](#保存と排他)の生死の判定）。
-- `start` は、client がこの 2 つを読める状態（最終の名前の run の領域に `run.lock` がある）になるまで返らない（[起動の手順](#起動の手順)）。そのため、`wait` が呼ばれる時点では `run.lock` が必ずある。
+- `start` は、client がこの 2 つを読める状態（最終の名前の run の領域に `run.lock` がある）になるまで返らない（[起動の手順](cli-contract.md#起動の手順)）。そのため、`wait` が呼ばれる時点では `run.lock` が必ずある。
 
 **起動の手順**（`start`。正本は `cli-contract.md`）
 
@@ -180,8 +178,8 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 **1 回の呼出しの時間の上限**
 
-- 前景の 1 回の呼出しは、定数 `CALL_MAX_MS`（240000ms。`schemas.mjs`）以内に返す。
-  - 前景のコマンドが待つのは、`CALL_MAX_MS` − `CLEANUP_BUDGET_MS`（30000ms）までとする。残りは、待ち終えた後の処理（`start` の process の停止と終了の観測、salvage と同じ規則での結果の組立て、出力）に使う。`wait` は、待つ上限で `still_waiting` を返す。
+- 前景の 1 回の呼出しは、定数 `CALL_MAX_MS` 以内に返す（定数の値と関係の正本は `cli-contract.md` の定数）。
+  - 前景のコマンドが待つのは、`CALL_MAX_MS` − `CLEANUP_BUDGET_MS` までとする。残りは、待ち終えた後の処理（`start` の process の停止と終了の観測、salvage と同じ規則での結果の組立て、出力）に使う。`wait` は、待つ上限で `still_waiting` を返す。
   - この関係（`CLEANUP_BUDGET_MS` < `CALL_MAX_MS`）は `schemas.mjs` の unit で検査する。
 - 不変条件: `CALL_MAX_MS` + `CALL_MARGIN_MS`（30000ms）≤ 司令塔がホストに指定するコマンドの timeout ≤ ホストの上限。`CALL_MARGIN_MS` が CLI の後始末と出力の時間を含むので、左の等号を許す。
   - Claude Code の Bash の上限は 600000ms である。
@@ -199,12 +197,12 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - 受け箱が batch の拒否に当たれば、その batch の返り値を全て使わず、各 task を担当の失敗として記録する（条件と記録の正本は `cli-contract.md` の受け箱）。
   - 受け箱は 1 batch に 1 つしか公開できないので、作り直しは受け付けない。理由: 2 つ目を受け付けると、どちらを使ったかが記録の外で決まる。
 - `run-daemon` は、開いている batch の `batch_id` の受け箱だけを読む。他の受け箱は読まずに、記録に残す。
-- 理由: 書く者が 1 つなので、旧版の `expected_seq`・所有札・lease が守っていた競合が起きない。
+- 理由: 書く者が 1 つなので、書き手どうしの競合が起きず、それを防ぐ番号・所有札・lease が要らない。
 
 ## 担当の起動
 
 - `run-daemon` は batch ごとに `batches/<batch_id>/tasks.json` を書く。各 task は `task_id`・`role`・`model`・`effort`・`prompt`・`output_schema`・`attempt_dir`・`return_path` を持つ。
-- prompt の全文は attempt の領域の `task.md` に置き、Workflow へは「その file を読む」短い指示だけを渡す（旧 `makeTask` を流用）。司令塔が長い本文を写す経路を作らないためである。
+- prompt の全文は attempt の領域の `task.md` に置き、Workflow へは「その file を読む」短い指示だけを渡す。司令塔が長い本文を写す経路を作らないためである。
 - 役ごとの model・effort の正本は `scripts/lib/roles.mjs` の 1 箇所とする。担当に与える権限（台帳の `permissions`）の正本も同じ module の `AGENT_PERMISSIONS`（`["fresh-thread", "workspace-write"]`）とする。
   - Workflow script（`scripts/formal-method-agents.js`）は CLI の module を import できないので、`meta.requirements` に同じ値を書く。一致は unit（`scripts/lib/roles.test.mjs`）が照らす。`AGENT_PERMISSIONS` は import する。Workflow script は import せず、ファイルの本文を次の規則で読む。
     1. `meta` の範囲は、行頭の `export const meta = {` の行から、次の `}` だけの行まで。
@@ -216,11 +214,11 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 理由: `agent-work.md`「検証の入力と証拠を絞る」が、fan-out の agent ごとの明示を求める。
   - 照合が主の役（抽出の検証者・合成の検証者）は、中位のモデルにする。
   - 意味の判断が重い役（モデル作成役・忠実さの検証者・保証の検証者・原因の分類役）は、上位のモデルにする。
-- Workflow script は判断しない（旧版を流用）。
+- Workflow script は判断しない。
   - task を並列に起動し、task_id ごとの `returned`・`missing`・`error` と、受け取った task の値を返す。
   - `run-daemon` は、受け取った値を `tasks.json` と照合する。食い違えば、batch の拒否として、その batch の返り値を全て使わない（同上）。
   - 担当の結論は、Workflow の返り値からではなく、`return_path` を `run-daemon` が直接読んで得る。
-- 実行環境: native の Workflow を優先し、無い Codex では `workflow:dynamic-workflow-runner` を active callsite から使う（`repository-operations.md`「実行と環境」）。
+- 実行環境: 担当は native の Workflow で起動する。native の `Workflow` が無い環境では、司令塔は担当を起動せずに `submit` に `timed_out: true` を入れる（`SKILL.md` の担当の起動）。その batch は拒否され、担当の成果物は未作成になる。`workflow:dynamic-workflow-runner` への切り替え（`repository-operations.md`「実行と環境」）は実装しておらず、検証もしていない（[未検証と限界](#未検証と限界)の配布先）。
 - 独立検証者への入力は、原典・固定した成果物・検査の記録の参照だけにする。作成役の作業記録・attempt の領域のディレクトリは渡さない（「独立した確認」の定義）。
 - 担当の返り値が欠けた、形が違う、期限の後に届いた場合（batch の拒否を含む）は、成功に数えず、停止の理由 `担当の失敗` をその task の `context.stage` を段として記録する（正本は `artifact-formats.md` の担当の返り値）。
   - その担当が作るはずの成果物は未作成になる。
@@ -232,9 +230,9 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - **保存先**: `<workspace>/.formal-method/runs/<run_id>/` とする。`run_id` は UTC の時刻と乱数から `start` が作る。
   - 依頼の項目に保存先は無い（SP-001）。依頼以外の入力の口を作らないため、保存先は内部で決める。
   - 退けた案: 環境変数で保存先を変える。入力の口が増え、検証方法の節の「依頼の項目以外に入力の口を設けない」に当たる。
-- **run の索引**: 過去の run を辿れるよう（PR-038）、`<root>/index/<run_id>.json` を run ごとの別ファイルで置く。
+- **run の索引**: 過去の run を辿れるよう（PR-034）、`<root>/index/<run_id>.json` を run ごとの別ファイルで置く。
   - 理由: 共有ファイルへの追記が無いので、run どうしの書込みが衝突しない。
-- **不変の記録**: 証拠は `writeEvidence`（旧版を流用）で、一時ファイル・fsync・rename・ディレクトリの fsync を通して書く。
+- **不変の記録**: 証拠は `writeEvidence` で、一時ファイル・fsync・rename・ディレクトリの fsync を通して書く。
   - 同じ path を別の内容で上書きしない。
   - 保存の直前に秘密値の形を走査し、見つかれば書かない。走査の型（秘密鍵など誤検知の少ない 4 つ）の閉じた集合と、対象の写しを走査しないこと（依頼者の決定）の正本は `cli-contract.md`。
 - **状態**: `state.json` は `run-daemon` が rename で置き換える。保存済みの範囲は、rename が終わった `state.json` だけで決まる。
@@ -245,8 +243,8 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - これで、run の領域は、lock を持った状態でだけ現れる。lock の無い run の領域が見える時点が無いので、salvage が入る隙間も無い。
   - lock の中身は、保持者の識別（pid、OS が報告する process の開始時刻、乱数の nonce）と役（`run-daemon`）である。
   - 消すのは `run-daemon` 自身が、自分の nonce が書かれていることを確かめてからだけである。消す関数は `lib/store.mjs` の `releaseOwnLock` の 1 つに限る。他の process は、どんな条件でも lock を消さない、奪わない、上書きしない。
-  - 理由: 旧版の欠陥は、保持者でない手順（`release-lock`）が lock の path を消し、その間に別の操作が取り直した lock まで消せたことである。旧版の `Lock.tla` は、その手順で二重の確定の反例を見つけていた。旧実装は、モデルが欠陥とした手順のままだった。再開を持たない今回は、止まった run を引き継ぐ者が要らないので、消す・奪う手順そのものを持たない。
-  - 退けた案: 番号付きの lock と解放の印（旧設計）。正しいが、守る相手（回収者）が今回は存在しない。
+  - 理由: 保持者でない手順が lock の path を消せると、その間に別の操作が取り直した lock まで消し、結果が 2 つ確定しうる。再開を持たないので、止まった run を引き継ぐ者が要らず、消す・奪う手順そのものを持たない。
+  - 退けた案: 番号付きの lock と解放の印。正しいが、守る相手（回収者）が存在しない。
 - **保持者の生死**: 生きているのは、その pid の process があり、その開始時刻が lock の記録と一致する場合だけとする。
   - pid だけで判定しないのは、pid の再利用で、終わった保持者を生きていると誤るためである。
   - `kill(pid, 0)` が「無い」なら死んでいると確定する。開始時刻を読めない場合は、判定できない（`liveness: "unknown"`）として生きている側に扱う。理由: 止まっている側に倒すと、結果が 2 つできることはない。判定できない状態が `LIVENESS_UNKNOWN_MAX` 回続いたら、司令塔は結果を作らずに終える（`ps` が使えない環境で待ち続けないため）。
@@ -258,23 +256,23 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   3. `status.json` が `terminal` なら、その結果を返す。
   4. `salvage.mark`（識別を書いた一時ファイルからの link）で勝者を決める。勝者が生きていれば `E_BUSY`（役 `salvage`）。
   5. 保存済みの範囲だけから決定的に結果を作り、追補台帳 → `result.json` の順に公開する。`result.json` は `run-daemon` と同じ名前で、既にあれば負けとし、既にある結果を返す。
-  - 理由: 前の稿は、結果を 2 つの名前（`result.json` と `salvage-result.json`）に公開し、`salvage.mark` の確認で重ならないようにしていた。形式検証（`lock-misjudge-*`）で、生死を誤判定すると、印の確認と書込みの間の隙間で両方が公開され、結果が 2 つになると分かった。1 つの名前への link なら、確認と書込みが 1 つの不可分な操作になり、誤判定があっても公開される結果は 1 つになる。
+  - 退けた案: 結果を 2 つの名前（`result.json` と `salvage-result.json`）に公開し、`salvage.mark` の確認で重ならないようにする。生死を誤判定すると、印の確認と書込みの間の隙間で両方が公開され、結果が 2 つになる（形式検証の `lock-mut-two_names`）。1 つの名前への link なら、確認と書込みが 1 つの不可分な操作になり、誤判定があっても公開される結果は 1 つになる。
   - 退けた案: 印の確認を lock で守る。salvage は lock を取らない（保持者が死んでいれば lock は解けない）ので、守れない。
   - salvage の作業記録と結果には時刻を入れない。そのため、salvage の所要時間と run 全体の所要時間は、`performance` に `取得できず` と理由で記録する。
-  - 台帳（PR-029）: salvage は `ledger.json` を書かない。結果の `records.ledger_refs` は、その結果を登録した台帳を指す。PR-031 は記録の分割を許す。
+  - 台帳（PR-029）: salvage は `ledger.json` を書かない。結果の `records.ledger_refs` は、その結果を登録した台帳を指す。PR-032 は、同じ内容の正本を 1 つにする限り、記録の分割を許す。
 - **結果と台帳の保存の失敗**（正本は `cli-contract.md` の同じ名前の節）
   - 公開の順は、台帳 → 結果。結果は、`run-daemon` も salvage も `result.json` にだけ link で公開する。
-  - 状態を決める順序: 集約の段は、公開が成功すると仮定して完了の条件を評価し、結果 R を作って公開する。台帳か結果の公開に失敗したら（負けと、結果の link の後の失敗を除く）、R を捨てる。そして状態 `停止`（`保存の失敗`・`記録の未保存`）の R' を作り直し、公開せずに返す。そのため、`完了` が返るのは R の `result.json` への link に成功したときだけである（SP-015 の「記録を全て保存した」）。link の後に fsync か再読込が失敗した場合は `cli-contract.md` の「link の後の失敗」（[未検証と限界](#未検証と限界)）。形式検証の `run-literal-publish-CompleteOnlyIf` が見つけた、公開の前に `完了` を返しうる経路を塞ぐ。
+  - 状態を決める順序: 集約の段は、公開が成功すると仮定して完了の条件を評価し、結果 R を作って公開する。台帳か結果の公開に失敗したら（負けと、結果の link の後の失敗を除く）、R を捨てる。そして状態 `停止`（`保存の失敗`・`記録の未保存`）の R' を作り直し、公開せずに返す。そのため、`完了` が返るのは R の `result.json` への link に成功したときだけである（SP-015 の「記録を全て保存した」）。link の後に fsync か再読込が失敗した場合は `cli-contract.md` の「link の後の失敗」（[未検証と限界](#未検証と限界)）。公開の前に `完了` を返す変異は、形式検証の `lock-mut-complete_before_publish`・`run-mut-complete_before_publish` が拒む。
   - 結果の中では、結果のファイル自身と台帳を参照だけで持ち、指紋を持たせない（指紋が循環するため）。
   - `status.json` は記録に数えない。client への受け渡しの口なので、書けなければ `run-daemon` は終わり、salvage が結果を返す。
 - **ホストに殺されたとき**:
-  - `run-daemon` は自分の process group で動き、道具の process group を起動し、標準入力（query）を渡す前に `children/` に記録する（旧 `writeChildRecord` を流用。記録できなければ入力を渡さずに止め、起動の失敗とする。正本は `cli-contract.md` の Z3 の adapter）。
+  - `run-daemon` は自分の process group で動き、道具の process group を起動し、標準入力（query）を渡す前に `children/` に記録する（記録できなければ入力を渡さずに止め、起動の失敗とする。正本は `cli-contract.md` の Z3 の adapter）。
   - 前景の CLI がホストに殺されても、状態を書く者ではないので何も壊れない。
   - `run-daemon` が殺されたら lock が残り、`wait` は保持者の終了を観測して `E_STALE` を返す。salvage の規則 5-1 が、残った道具の process を止める。
   - 道具は検査ごとの時間の上限（`-T`）を持つので、回収されなくても有限の時間で終わる。
 - **担当の書込み範囲**: 担当は Workflow の `workspace-write` で動き、ホストの権限で書込みの範囲を分けていない。
   - `run-daemon` は、attempt の領域の外のファイルを成果物として登録しない。
-  - 台帳・状態・他の担当の領域に担当が書かないこと（PR-030）は、担当の義務（`agent-obligations.md`）で守る。これは構造で守れない限界である（[未検証と限界](#未検証と限界)）。
+  - 台帳・状態・他の担当の領域に担当が書かないこと（PR-029）は、担当の義務（`agent-obligations.md`）で守る。これは構造で守れない限界である（[未検証と限界](#未検証と限界)）。
   - 登録した成果物は、読むたびに指紋を照合し、一致しなければ使わない。
 
 - **契約への記載**: 次の 4 つを、`references/cli-contract.md` に契約として書く。`tests/formal/formal-method-skill/Lock.tla` は、この 4 つをモデルにする（[検証計画](verification-plan.md#内部の設計に当てる形式手法)）。
@@ -323,15 +321,15 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 退けた案: `run-daemon` が結果を保存先の外（OS の一時領域）にも書く。保存先として依頼元が辿れない場所に、記録の写しが残る。
 - 結果は、保存できたかどうかによらず、標準出力の `terminal` で返る。結果のファイル（`result.json`）は、記録の 1 つとして `records.saved` か `records.unsaved` に載る。
   - 理由: 受け渡しの方法を表す専用の欄を持つと、`records` と同じ事実を 2 箇所に書く。
-  - 退けた案: 旧版の `delivery`。
-- 保存したと示すのは、再読込で指紋が一致した記録だけとする（旧 `reloadVerify` を流用）。例外は結果のファイル自身の link の後の失敗である（`cli-contract.md` の「link の後の失敗」）。
+  - 退けた案: 受け渡しの方法を表す欄（`delivery`）を結果に持つ。
+- 保存したと示すのは、再読込で指紋が一致した記録だけとする。例外は結果のファイル自身の link の後の失敗である（`cli-contract.md` の「link の後の失敗」）。
 
 ## 時計と資源
 
 **時間の上限**（依頼の秒）
 
 - run の期限は、受付の時刻にその秒を加えた時点とする。
-- process をまたぐ判定には、壁時計と OS の起動からの経過時間を併用する。どちらかが期限を過ぎた、又は時計が戻ったら、期限切れとする（旧 `clock.mjs` を流用）。
+- process をまたぐ判定には、壁時計と OS の起動からの経過時間を併用する。どちらかが期限を過ぎた、又は時計が戻ったら、期限切れとする。
 - 1 回の呼出しの中の待ちは、`process.hrtime` で測る。
 - 担当の batch の期限は、run の期限から集約の予備時間を引いた時点とする。
   - 予備時間の定数は `schemas.mjs` に置く。
@@ -419,13 +417,12 @@ ExecutionOutcome = { execution_id: Id, end: End, stdout: Uint8Array, stderr: Uin
 **互いに独立な検査（D1）**
 
 - 反例・失敗が出ても、互いに依存しない検査は止めずに最後まで動かす。依存先の検査が成功でなかった検査だけを始めず、`未実行` とする。
-- 旧 scheduler の「最初の失敗で全てを止める」は外す。
 
 **formal-method が止めた検査**
 
 - 中止は、全て scheduler の停止の関数を通して行う。`runExecution` が自分で group を止める場合（期限・停止の要求・出力の上限）は、`runExecution` がこの停止の関数の役を持つ。その検査の終わり方を「formal-method が止めた（時間・その他）」として記録する。
 - 判定は、[判定の集約](#判定の集約)の終わり方の分類で決める。道具の異常終了（`実行失敗`）と混同しない。
-- 理由: 旧版は、外から止めた process を signal の異常終了として `実行失敗` に数えていた。
+- 理由: 外から止めた process を signal の異常終了として数えると、formal-method が止めた検査が `実行失敗` になり、`未実行` と区別できない。
 
 **adapter の出力の規則**
 
@@ -466,8 +463,8 @@ ExecutionOutcome = { execution_id: Id, end: End, stdout: Uint8Array, stderr: Uin
 - 理由1: 別のスキルがキーで項目を読む（SP-003）。日本語のキーは、呼ぶ側のコードで引用が要り、誤記を見つけにくい。
 - 理由2: 値を英語へ訳すと、仕様の値との対応表が 1 つ増え、写しが食い違う（`agent-work.md` の同じ値を 2 箇所に書かない規約）。
 - 退けた案 1: キーも値も日本語にする。
-- 退けた案 2: キーも値も英語にする（旧版）。
-- schema の識別子は `formal-method.result/1` とし、旧版の形とは互換を持たない（`agent-work.md` の後方互換は不要）。
+- 退けた案 2: キーも値も英語にする。
+- schema の識別子は `formal-method.result/1` とする。
 
 | キー | SP-003 の項目 | 持つもの |
 |---|---|---|
@@ -526,7 +523,7 @@ AC-09 の外からの照合は、`properties[].check_ids` が指す `checks[].ve
 
 **人向けの表示**
 
-- `report.md` は結果の JSON から決定的に導く（旧 `renderReport` を作り直す）。
+- `report.md` は結果の JSON から決定的に導く。
 - 表示にある成功は、全て構造の該当する欄から引く。表示の関数は構造を引数に取り、成功の語を構造の外から作らない（SP-003）。
 
 `stop_report` 以外の項目は、`完了` の結果も `停止` の結果も全て持つ（AC-21）。該当が無い項目は空の配列か、理由を持つ値で表し、キーを省かない。
@@ -573,15 +570,15 @@ AC-09 の外からの照合は、`properties[].check_ids` が指す `checks[].ve
 - 性質の検査に数えるのは、`kind` が `property` と `composition` の検査だけである。`kind: contract` の検査は、部分の契約（内部の性質）の判定にだけ数える（入力の正本は `artifact-formats.md` の契約の判定）。
   - `sanity`（前提の整合・初期状態の存在）、`mutation`（変異）、`replay`（反例の再実行）は、SP-005・SP-012 の確認の記録として `confirmations` に入れる。
   - これらが成り立たなければ、`検証済み` の条件が成り立たない（`未確認` の受け皿になる）。
-  - 理由: 前提の矛盾を見つけた検査を `実行失敗` や `反例` に数えると、仕様の値の意味（道具の異常、性質に反する例）と食い違う。旧版の `unexpected_unsat → execution_error` はこの誤りだった。
+  - 理由: 前提の矛盾を見つけた検査を `実行失敗` や `反例` に数えると、仕様の値の意味（道具の異常、性質に反する例）と食い違う。
 - `検出能力未確認` は判定に混ぜず、`properties[].detection.status` に置く（SP-012、用語定義）。
 
 **3. `decideStatus(global) → 完了 | 停止`**（SP-015）
 
-- SP-015 の完了の条件の箇条は 6 つある。そのうち 6 つ目（「下の 2 つの保持規則のいずれにも当たらない」）は保持規則を指すので、述語は次の 8 つとする。
+- SP-015 の完了の条件の箇条は 6 つある。そのうち 6 つ目（「下の 2 つの保持規則のいずれにも当たらない」）は保持規則を指すので、述語は次の 9 つとする。
   - 5 つの条件: 全ての必要な性質が検証の成功、SP-012 の確認に未実行・失敗・未確認が残らない、`対応できていない` 組合せが残らない、回答を待つ問いが残らない、記録を全て保存した
   - 2 つの保持規則: 必要な性質が 0 件、`検出能力未確認` の性質が残る
-  - 1 つの停止の規則: 反例か実行できない検査（必要な性質）
+  - 2 つの停止の規則: 反例、実行できない検査（必要な性質）
 - それぞれを別の述語にする。
 - 全てが成り立つときだけ `完了` を返す。
 - 成り立たなかった述語の一覧を `stop_report.reasons` にする。
@@ -590,24 +587,24 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
 
 ## 依存グラフと合成
 
-旧版の 3 つの欠陥を、次のように解消する。
+依存グラフと分割は、次の 3 つを守る。
 
-1. 状態遷移の辺を、文字列への正規表現で推定していた。
-2. 分割前後の対応の照合が無かった。
-3. 環境の前提を確かめていなかった。
+1. 状態遷移の辺は構文から導き、推定しない。
+2. 分割前後の要素の対応を照合する。
+3. 環境の前提は、依頼の既知の要求・制約で確かめる。
 
 **グラフを構文から導く（SP-008、AC-06）**
 
-- モデル作成役は、状態遷移の guard と update を SMT-LIB の項として書く。update は `{変数, 項}` の代入の一覧とする。形の正本は `schemas.mjs` の `MODEL`。
+- モデル作成役は、状態遷移の guard と update を SMT-LIB の項として書く。update は `{変数, 項}` の代入の一覧とする。形の正本は `artifact-formats.md` の model（モデル作成役）の節で、`schemas.mjs` の `MODEL` はその検査器である。
 - CLI は `sexpr.mjs` で項を読み、読む変数（guard と代入の右辺の記号）と書く変数（代入の左辺）を構文から導く。全ての辺が構文から導かれるので、推定の辺は無くなる。
-- SMT の query の依存は、旧 `z3.dependencies` を流用する。
+- SMT の query の依存は、`lib/adapters/z3.mjs` の `dependencies` で読む。
 - 各ノードと辺は `location` を持つ。`model.json` の中の JSON Pointer か、`.smt2` の中の form の番号と文字の範囲である。
 - 導けない関係は辺にせず、`graph.unconfirmed[]` に理由とともに入れる。例は、宣言の無い記号、配列の添字や関数の値で決まる参照など、実行時にしか決まらないもの。
-- 理由: 旧版は全ての状態遷移の辺が推定（`confirmed:false`）で、推定の辺が成分を跨ぐ分割を拒んでいた。そのため、成分の間に辺が 1 本でもあれば分割を採れず、境界の契約の経路が実際には動かなかった。
+- 理由: 辺を文字列の正規表現で推定すると、推定の辺が成分を跨ぐ分割を拒むことになり、成分の間に辺が 1 本でもあれば分割を採れない。境界の契約の経路が実際に動かなくなる（退けた案: 辺を推定する）。
 
 **候補の導出と基準の出力（SP-008、AC-06）**
 
-- 候補の導出は旧 `deriveCandidates` を流用する。
+- 候補の導出は `lib/checks/graph.mjs` の `deriveCandidates` で行う。
   1. 書く変数とその遷移を同じ組にする。
   2. 読み込みの辺で強連結成分に縮約する。
   3. 名前の辞書順で決定的に並べる。
@@ -641,7 +638,7 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
   - 境界の契約の前提が全て満たされた（下記）
   - 分割前後の照合に対応の無いものが残らない
 - 理由: 親の性質に部分の検査の成功を直接数えると、部分の成功だけで全体を検証済みとすることになる（SP-009 が禁じる）。
-- 退けた案: 合成の義務の反例を `未確認` に読み替える（旧版）。性質に反する例を返した検査の判定が、値の意味と食い違う。
+- 退けた案: 合成の義務の反例を `未確認` に読み替える。性質に反する例を返した検査の判定が、値の意味と食い違う。
 
 **分割前後の対応の照合（SP-009、AC-07）**
 
@@ -652,7 +649,7 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
   - `unmatched[]`: 対応の無い要素
   - `excluded[]`: 除外した要素と理由。ここで使う除外は、`verified_scope.exclude` のうち出どころ（`origin`）が `依頼元` のものに限る。`origin: "formal-method"` の除外（`.git`・保存先）は対象の定義の外なので、分割前の要素に現れない
 - 対応の無い要素があれば、それに関係する親の性質を `検証済み` にしない（`未確認` の理由にする）。
-- 旧版は件数だけを報告し、不一致を作り直しの欠陥にしていた。一覧を結果に出すことで、AC-07 が結果を外から突き合わせられるようにする。
+- 理由: 一覧を結果に出すと、AC-07 が結果を外から突き合わせられる（退けた案: 件数だけを報告し、不一致を作り直しの欠陥にする。外から突き合わせられない）。
 
 **境界の契約と前提（SP-009）**
 
@@ -664,12 +661,11 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
 - 環境の前提にできるのは、依頼の既知の要求・制約にあるものだけである。前提ごとに、その要求・制約の識別子を持つ。
 - それ以外の環境の前提は「確認できない前提」とし、関係する親の性質を `検証済み` にしない。`verified_scope.external_assumptions` に挙げただけの外部のものも、これに含める。
   - 理由: `external_assumptions` は formal-method が対象から読み取ったものである。依頼元が与えた事実ではないので、それを根拠にした前提は、他の部分や環境が満たすと確認できたことにならない（SP-009）。
-  - 理由: 旧版は `basis: environment` を確かめずに基底としていた。
-  - 退けた案: `external_assumptions` も前提の根拠にする（前の稿）。
-- 前提どうしの依存は DAG として照合する（旧 `cycles` を流用）。循環は、共同不変条件の検査を持つときだけ許す（今の版では共同不変条件を受け付けないので、循環は常に欠陥）。相互の前提だけで結論を支える分割は、親の性質を `検証済み` にしない。
+  - 理由: 環境の前提を確かめずに基底にすると、確かめていない前提で親の性質が `検証済み` になる（SP-009）。
+  - 退けた案: `external_assumptions` も前提の根拠にする。
+- 前提どうしの依存は DAG として照合する。循環は、共同不変条件の検査を持つときだけ許す（今の版では共同不変条件を受け付けないので、循環は常に欠陥）。相互の前提だけで結論を支える分割は、親の性質を `検証済み` にしない。
 - 分割を採った計画の検査も、互いに依存しない限り並列に動かす。
   - 依存は、前提がその保証の検査を待つ関係として、計画の `depends_on` に書く。
-  - 旧版の「分割すると全てを直列にする」は外す。
 
 ## 性能の記録・比較・改善
 
@@ -695,7 +691,7 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
 - 候補の比較で性能（準備・実行の時間と資源の見積り、又は同じ run の中で測った値）の優劣を示すときは、`properties[].method.comparison_conditions` に、比べる実行の次の項目が一致するかを確かめた結果を書く。項目は、性質（ID と文の指紋）・前提・検査範囲・保証の種類と境界・判定の規則の版である。
 - CLI が決定的に照合する。一致を確かめられない組には `一致を確認できず` と理由を書き、優劣を示さない（`method` の選んだ理由にも、性能の優劣を使わない）。
 - 理由: SP-013 は、手法や道具の性能を比較するときに条件の一致を確かめることを求める。formal-method が比較する場面は SP-007 の候補の比較なので、そこに条件の照合を付ける。
-- 退けた案: 2 つの結果を受け取る `compare` コマンド（前の稿）。依頼の項目以外の入力の口になる（仕様の外部インタフェースの節、検証方法の節）。
+- 退けた案: 2 つの結果を受け取る `compare` コマンド。依頼の項目以外の入力の口になる（仕様の外部インタフェースの節、検証方法の節）。
 
 **改善の候補**
 
@@ -709,21 +705,21 @@ D2 の実現: 問いに依存する性質は、問いの ID を `depends_on_ques
 
 - 担当（作成役・独立検証者）は、自分の attempt の領域に作業記録を書く。欄は PR-028 の 9 項目（担当、段、対象、入力、実行内容、結果、根拠、失敗、未確認）である。
 - CLI の決定的な処理も担当（`cli`）として、段ごとに同じ欄の作業記録を書く（PR-028 の「担当ごと」）。
-- 記録台帳（`ledger.json`）は CLI だけが書く（PR-030）。各記録の参照・指紋・段・担当・model・effort・渡した資料の参照と指紋を持つ。
+- 記録台帳（`ledger.json`）は CLI だけが書く（PR-029）。各記録の参照・指紋・段・担当・model・effort・渡した資料の参照と指紋を持つ。
 - 同じ内容を複数の記録に正本として書かない（PR-032）。
   - 判定の正本は結果。
   - 検査の生の入出力の正本は `checks/<id>/` の証拠。
   - 他の記録は参照で指す。
-- 文書の一般規約（PR-033・040・042）は、配布物に同梱した写し `references/document-rules.md` を使う（依頼者の決定）。
+- 文書の一般規約（PR-040）は、配布物に同梱した写し `references/document-rules.md` を使う（依頼者の決定）。
   - 正本は `docs/guidelines/documentation.md` である。同梱の写しが正本と一致するかを、`make test` の検査が確かめる。
   - 作業ツリーにある正本を優先する経路は持たない（依頼者の決定）。理由: 実行する場所によって適用する規約が変わると、run ごとの記録の書き方が揃わない。
-  - 受付で写しのバイト列の指紋を版とし、不変の写しを run の領域に保存する。各作業記録は、その版と写しへの参照を持つ（PR-042）。
+  - 受付で写しのバイト列の指紋を版とし、不変の写しを run の領域に保存する。各作業記録は、その版と写しへの参照を持つ（PR-040）。
   - 依頼の項目に規約の場所は無いので、依頼から受け取る口は作らない。
 - 保存できた記録は、利用者が消すまで残す（PR-034）。CLI は run の領域を消す手順を持たない。
 
-## 契約の文書に書くもの（B に渡す範囲）
+## 契約の所在
 
-B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`artifact-formats.md`・`schemas.mjs` の形を書く。B に渡すのは、この設計書の全文と、仕様・要求・PR-028〜036・038〜040・042 である。契約に書く項目と、決めた節の対応は次のとおり。
+契約の項目ごとの正本の文書と、この文書で決めた節の対応は次のとおり。
 
 | 契約の項目 | 書く文書 | 決めた節 |
 |---|---|---|
@@ -738,77 +734,45 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | 担当の成果物と返り値の形（inventory、model（guard と update は SMT-LIB の項）、mapping、partitions（契約・前提の出どころ・対応）、plan（`depends_on`、道具の時間の上限）、mutations、作成役と独立検証者の返り値） | `artifact-formats.md`・`schemas.mjs` | [段と処理の順序](#段と処理の順序)、[依存グラフと合成](#依存グラフと合成)、[担当の起動](#担当の起動) |
 | task の形（`tasks.json` の欄）と、Workflow の返り値の照合 | `cli-contract.md`・`schemas.mjs` | [担当の起動](#担当の起動) |
 | 作業記録の欄（PR-028 の 9 項目）と記録台帳の欄 | `artifact-formats.md`・`schemas.mjs` | [作業記録と記録台帳](#作業記録と記録台帳) |
-| 段の名前（`STAGES`）と定数 | `schemas.mjs` | 下の表 |
+| 段の名前と定数 | `artifact-formats.md`（`Stage`）・`cli-contract.md`（定数）。機械の写しは `schemas.mjs` | 下の文 |
 
-定数は `schemas.mjs` に置き、値の関係を unit で検査する。
+定数の名前・値・関係の正本は [CLI 契約の定数](cli-contract.md#定数) で、ここには写さない。値は `schemas.mjs` に写し、関係を unit で検査する。
 
-| 定数 | 値 | 関係 |
-|---|---|---|
-| `CALL_MAX_MS` | 240000 | `CALL_MAX_MS` + `CALL_MARGIN_MS` ≤ 司令塔が指定するホストの timeout ≤ 600000（Claude Code） |
-| `CALL_MARGIN_MS` | 30000 | 同上 |
-| `CLEANUP_BUDGET_MS` | 30000 | < `CALL_MAX_MS` |
-| `WAIT_POLL_MS` | 2000 | < `CALL_MAX_MS` |
-| `SALVAGE_RETRY_MS`・`SALVAGE_RETRY_MAX` | 10000・30 | 司令塔の呼び直しの上限 |
-| `AGENT_BATCH_MAX` | 4 | 確認の段の同時起動の上限 |
-| `REVISE_ROUNDS_MAX` | 2 | 修正の巡の上限 |
-| `REPORT_RESERVE_MS`（集約の予備時間の上限） | 60000 | 残す時間 = min(`REPORT_RESERVE_MS`, 時間の上限の 1/4)。担当の batch の期限 = run の期限 − 残す時間。期限の過ぎた担当と道具は出さない（`cli-contract.md` の定数） |
-| `AGENT_BATCH_DEADLINE_MS`・`TOOL_TIME_LIMIT_MAX_S` | 1800000・600 | `TOOL_TIME_LIMIT_MAX_S` × 1000 < `AGENT_BATCH_DEADLINE_MS`。値と理由の正本は `cli-contract.md` の定数 |
+- 値の根拠は実測していない。値を変えるときは、関係の検査を通す。
 
-- 値の根拠は実測していない。B は、値を変えるときに関係の検査を通す。
+## 部品の責務
 
-## 部品の最終の一覧
+`scripts/lib/` の各 module の責務は次のとおり（手順と形の正本は、各 module の冒頭のコメントが指す契約の文書）。
 
-棚卸し（旧実装を新しい仕様に照らした表）の判定を引き継ぎ、作り直しでの行き先を決める。棚卸しから判定を変えたのは `roles.mjs`（drop → adapt）である。役ごとの model・effort の正本は今回も要るので、新しい役の集合で作り直す。
-
-| 判定 | 部品 | 行き先と直すこと |
-|---|---|---|
-| keep | `lib/canonical.mjs`、`lib/check-shape.mjs`、`lib/sexpr.mjs`、`lib/secrets.mjs`、`lib/checks/common.mjs`、`lib/checks/coverage.mjs`、`lib/adapters/index.mjs`、`lib/adapters/z3.mjs` の prepare・validate・execute・dependencies、`lib/storage.mjs` の atomicWrite・fsyncDir・writeEvidence・hashFile・reloadVerify、`test-fixtures/fake-z3.mjs`、`agents/fidelity-reviewer.md`（参照だけ直す） | そのまま移す |
-| keep | `lib/checks/model.mjs` の shapeCheck・mappingCheck・matrixGen | 組合せの区分の値を `許される`・`禁止された`・`対応できていない` にする |
-| adapt | `lib/request.mjs` | SP-001 の項目に作り直す。既知の要求・制約を 1 つにする。資源は時間の上限（秒）だけで、任意・1 以上の整数・上限なしとする。CPU とメモリの項目は持たない。範囲・除外の参照先の実在を照合する。storage・resume・Change を消す |
-| adapt | `lib/schemas.mjs` | 判定・保証・原因・組合せの値を日本語の字面にする。`STAGES`・batch の上限・修正の巡の上限・予備時間の定数を置く。MODEL の guard と update を SMT-LIB の項の形にする。PARTITIONS に契約・前提の出どころ・対応を足す。PLAN から attempts を消す |
-| adapt | `lib/verdict.mjs` | [判定の集約](#判定の集約)の 3 関数に作り直す |
-| adapt | `lib/report.mjs` | `lib/result.mjs`（結果の組立て）と `lib/render.mjs`（表示）に分けて作り直す |
-| adapt | `lib/adapters/z3.mjs` の decode | 終わり方の記録（`end`）を返す形にする。判定は付けない |
-| adapt | `lib/adapters/z3.mjs` の execute と adapter の宣言 | 使う option は `-in`・`-T`・`-model`・`-version`（正本は `cli-contract.md`）。CPU を宣言する（Z3 は 1） |
-| adapt | `lib/adapters/z3.mjs` の validate | 並列の設定（`parallel.enable`、`par-or` など）を含む query を拒む |
-| adapt | `lib/scheduler.mjs` | 最初の失敗で全てを止めることをやめる。中止は停止の関数を通す。確認用の実行も数える。再試行を消す |
-| adapt | `lib/process.mjs` | 止めた理由を必ず `stopped_by` に残す。メモリの標本で止める処理（旧 `stop('memory')`）を除き、記録のためだけに測る。CPU 時間の標本を足す |
-| adapt | `lib/clock.mjs` | 秒の上限に直し、上限なしの場合を足す |
-| adapt | `lib/checks/model.mjs` の pathsCheck・deriveDiagram・diagramDiff | 経路の対象外と理由、図が省いた条件の一覧を出す |
-| adapt | `lib/checks/graph.mjs` | 構文から導く `buildGraph` に作り直す。`deriveCandidates` は基準の出力を足す。`composeCheck` は `lib/checks/compose.mjs` に移し、対応の照合と前提の出どころを足す |
-| adapt | `lib/checks/plan.mjs` の planCheck | 再試行・再利用を消し、並列の設定を含む query を拒む |
-| adapt | `lib/checks/det.mjs` | 構文・参照の解決・出力の形式を、照合の欠陥の区分と実行の終わり方から決定的な確認として作る（正本は `artifact-formats.md` の確認）。確認の unit に原因の分類（反例・組合せ・問い）を足す |
-| adapt | controller の makeTask・openBatch・collectTask・registerWorklog | `lib/agents.mjs` に移す。段の名前を新しい `STAGES` にする |
-| adapt | `lib/roles.mjs` | 新しい役の集合で作り直す。`AGENT_PERMISSIONS` を持つ |
-| adapt | `stages.mjs` の fetchTarget と文書規約の固定 | `lib/intake.mjs` に移す |
-| adapt | `formal-method-cli.mjs` の main と probeEnvironment | コマンドを作り直す。能力の確認を、run の領域を作る前に行う |
-| adapt | Workflow script、agents の 8 文書、`agent-obligations.md`、`artifact-formats.md`、`formal-method-knowledge.md` | 参照する仕様の ID と値を直す。形の正本を `schemas.mjs` にする。旧状態機械の語を消す。counterexample-analyst は原因の分類役（反例・組合せ・問い）に作り直す |
-| 新規 | `lib/run.mjs`（段の進行の決定）、`lib/store.mjs`（排他・状態の保存・salvage）、`lib/daemon.mjs`（`run-daemon` の入口・段の呼出し・集約。受け箱の読込みは `lib/agents.mjs`、`status.json` の書込みは `lib/run.mjs`）、`lib/publish.mjs`（`publishResult`。結果と台帳の公開）、`lib/start.mjs`（`start` の手順、`decideStartOutcome`・`removeOwnTmp`・`removeProbeDir`）、`lib/client.mjs`（`submit`・`wait` の client の処理。`salvage` は `lib/store.mjs`）、`lib/stop-report.mjs`（停止の報告の正本: 停止の理由の形、`reasons` の並び、`stop_report` の組立て）、`lib/performance.mjs`（記録、候補の比較の条件の照合、改善の候補）、`lib/worklog.mjs`（CLI の作業記録と台帳）、`lib/checks/compose.mjs`、`references/document-rules.md`（規約の同梱の写し） | この文書の各節 |
-| drop | `lib/state-table.mjs`、`lib/spec-table.mjs`、`lib/halts.mjs`、`lib/restart.mjs`、controller の制御の本体、`stages.mjs` の段の進行・修正・再開・回収・後着、`storage.mjs` の所有札・lease・lock・イベントの鎖、`checks/plan.mjs` の reuseKey・reuseCheck、`references/cli-contract.md`（作り直す）、evals の id 1、`formal-method-cli.test.mjs`、`tests/formal/formal-method-skill/` の旧モデル一式 | 消す。検査の観点は [検証計画](verification-plan.md) が引き継ぐ |
-
-## 作る物の分担
-
-作る担当は 4 つで、ファイル単位で次のとおり分ける。同じファイルを 2 つの担当が書かない。
-
-| 担当 | 作るファイル |
+| module | 責務 |
 |---|---|
-| A: スキル・担当・Workflow の作成役 | `SKILL.md`、`agents/*.md`、`references/agent-obligations.md`、`references/formal-method-knowledge.md`、Workflow script、`references/document-rules.md`（正本の写し） |
-| B: 決定的な CLI（Node）の作成役 | `scripts/formal-method-cli.mjs`、`scripts/lib/**/*.mjs`（テストを除く）、`references/cli-contract.md`（作り直す。旧版に残る `cpu_slots`・`memory_bytes`・`FORMAL_METHOD_HOST_CONFIG`・`FORMAL_METHOD_Z3`・seq・lease・`release-lock` の記述は全て消す）、`references/artifact-formats.md` |
-| T: テストの作成役（仕様だけを見る） | `scripts/*.test.mjs`、`scripts/lib/**/*.test.mjs`、`scripts/test-fixtures/**`、`tests/formal/formal-method-skill/*.test.mjs`、`evals/evals.json`、同梱の規約と正本の一致の検査、`run.lock` を消す呼出しの所在の走査 |
-| F: 形式検証の作成役 | `tests/formal/formal-method-skill/` の TLA+ モデルと入口、`tests/formal/formal-method-requirements/`、旧 `tests/formal/formal-method/` と旧 `tests/formal/formal-method-skill/` のモデル一式の削除、`.github/workflows/verification.yml` と `Makefile` の formal の入口の更新（未 commit の旧 job は外す）、オラクルの Z3 のパスを環境から読む修正と対応表、`tests/formal/formal-method-spec/` を repo に残すための commit への同梱（今は未追跡）、Linux（CI の ubuntu）での Z3 の出力の流れと終了コード（`-model` を渡したときのモデルの形を含む）の実測と `cli-contract.md` の表への追記 |
+| `daemon.mjs` | `run-daemon` の入口・段の呼出し・集約 |
+| `run.mjs` | 段の進行の決定と `status.json` の書込み |
+| `store.mjs` | run の領域の排他・状態の保存・salvage |
+| `start.mjs` | `start` の手順（`decideStartOutcome`・`removeOwnTmp`・`removeProbeDir`） |
+| `client.mjs` | `submit`・`wait` の client の処理 |
+| `publish.mjs` | 結果と台帳の公開（`publishResult`） |
+| `storage.mjs` | 保存の基礎（一時ファイル・fsync・rename・再読込の照合、`writeEvidence`） |
+| `agents.mjs` | 担当の起動と、受け箱・返り値の回収 |
+| `roles.mjs` | 役ごとの model・effort・指示ファイルと `AGENT_PERMISSIONS` |
+| `intake.mjs` | 受付の段の対象の取得と文書規約の固定 |
+| `request.mjs` | 依頼の検査（SP-001） |
+| `scheduler.mjs` | 道具の実行の終わり方と、同時に動かす実行の管理 |
+| `process.mjs` | 子 process の起動・記録・停止と標本 |
+| `clock.mjs` | run の期限 |
+| `verdict.mjs` | [判定の集約](#判定の集約)の 3 関数 |
+| `result.mjs` | 結果の組立て |
+| `stop-report.mjs` | 停止の報告の正本（停止の理由の形、`reasons` の並び、`stop_report` の組立て） |
+| `render.mjs` | 結果から導く表示（`report.md`） |
+| `performance.mjs` | 性能の記録、候補の比較の条件の照合、改善の候補 |
+| `worklog.mjs` | CLI の作業記録と台帳の entry |
+| `schemas.mjs` | 定数・段・値の集合と、`artifact-formats.md` の形の検査器 |
+| `check-shape.mjs`・`canonical.mjs`・`sexpr.mjs`・`secrets.mjs` | 形の検査器の部品、指紋と正規の JSON、S 式の読み取り、秘密値の走査 |
+| `checks/coverage.mjs`・`model.mjs`・`graph.mjs`・`compose.mjs`・`plan.mjs`・`det.mjs`・`common.mjs` | 洗い出し・モデル化・依存グラフと候補・分割・計画の照合、決定的な確認と確認の unit の組立て、照合の共通の部品 |
+| `adapters/index.mjs`・`adapters/z3.mjs` | adapter の一覧と Z3 の adapter |
 
-- `evals/evals.json` は T が持つ。理由: eval は担当（agent）の振る舞いを確かめる検証であり、担当を作る A が書くと生成と検証が同じ役になる（`agent-work.md`「生成と検証を分離する」）。T は実装の前に、仕様から eval のケースと期待を作る。
-- `run.lock` の削除の所在の走査は T が書く。T に渡すのは、`cli-contract.md` に書く構造の契約（「`run.lock` を消す呼出しは `scripts/lib/store.mjs` の `releaseOwnLock` だけで、nonce の照合の後にだけ消す」）である。実装のコードは渡さない。走査は契約に照らして実装を検査する。
-
-**順序**
-
-1. B が契約の 2 文書（`cli-contract.md`・`artifact-formats.md`）と `schemas.mjs` を先に書く。
-2. この設計書と契約を独立のレビューに通す。
-3. T と F がテストとモデルを作る。
-4. A と B が実装する。
-
-- 理由: T は実装の前に、仕様と外から見える契約だけからテストを作る（[検証計画](verification-plan.md#テストの作成役に渡すもの)）。
-- 分担の境界: `artifact-formats.md` と `schemas.mjs` は CLI が検査する形なので B が持ち、A は読むだけにする。理由は、検査する側と書く側を 1 つの正本に揃えるためである。
+- `artifact-formats.md` と `schemas.mjs` は CLI が検査する形なので、担当の指示（`agents/*.md`・`agent-obligations.md`）は読むだけにする。理由: 検査する側と書く側を 1 つの正本に揃える。
+- `evals/evals.json` は、担当の指示と別に作る。理由: eval は担当の振る舞いを確かめる検証であり、担当を作る側が書くと生成と検証が同じになる（`agent-work.md`「生成と検証を分離する」）。
 
 ## 未検証と限界
 
@@ -817,14 +781,14 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 - **配布先と detach**（設計の前提）:
   - 配布先は、今は Claude Code だけとする（依頼者の決定）。
   - 確かめた範囲: Claude Code（デスクトップ、macOS arm64、2026-11-08）の Bash で、Node から `detached: true` と `unref()` で起動した process は、前景のコマンドが終わった後も生き続けた。親は pid 1、process group は自分の pid だった。
-  - 確かめていない範囲: session の終了やアプリの終了の後も生きるか、Linux での振る舞い。
+  - 確かめていない範囲: session の終了やアプリの終了の後も生きるか、Linux での振る舞い。終了で殺される場合は、`wait` が `E_STALE` を観測し、salvage が保存済みの範囲で結果を作る（設計の範囲内の振る舞い）。
   - **Codex**: 未検証である。コマンドの時間の上限と、detach した process の扱いを、公式の文書でもリポジトリ内の記述でも確かめられなかった。公式でない資料には、コマンドの timeout で process group に SIGKILL を送る修正が見えるが、既定の上限の値は食い違う。公開のときに実測して扱いを決める（依頼者の決定）。
 - **ホストに殺された `start` の `.tmp-*`**: `start` がホストに殺されると、自分が起動した process の一時の領域を消す者がいない。残った `.tmp-*` は誰も消さない。`.tmp-*` は run としても結果としても扱わないので、結果は増えない。
 - **Z3 の出力の実測**: macOS arm64・Z3 5.3.3 だけで測った。Linux では未測定である。
 - **salvage の所要時間**: salvage の結果を決定的に作るため、salvage の所要時間と run 全体の所要時間は `取得できず` と理由で記録する。
 - **結果を返す経路**: `run-daemon` と前景の間はファイルだけでつなぐ。保存先に全く書けなくなった後の結果は、salvage が保存済みの範囲から作る。`run-daemon` がメモリに持っていた、保存前の判定は失われる。
 - **macOS の時計**: `os.uptime()` は単調時計ではない。壁時計との併用で期限が延びる経路は塞ぐが、判定は最大 1 秒遅れうる。
-- **担当の書込み範囲**: 担当は `workspace-write` で動くので、attempt の領域の外（状態・台帳・他の担当の領域）を書けてしまう。台帳に書かないこと（PR-030）と作成側の作業記録を読まないこと（独立した確認）は、担当の義務だけで守る。
+- **担当の書込み範囲**: 担当は `workspace-write` で動くので、attempt の領域の外（状態・台帳・他の担当の領域）を書けてしまう。台帳に書かないこと（PR-029）と作成側の作業記録を読まないこと（独立した確認）は、担当の義務だけで守る。
   - CLI は、登録した成果物の改ざんを指紋で見つけるが、登録の前の書換えは見つけられない。
   - この限界は結果の `unverified[]` に載せる。
 - **記録した model・effort**: 記録は、Workflow が受け取ったと返した値である。ホストが実際にその値で動かしたかは確かめられない。
@@ -834,6 +798,6 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
   - `reread_io` の場合、後の salvage の読み出し（規則 2）が `E_RESULT_UNREADABLE` になりうる。
   - 再読込で中身が食い違う（corrupt）場合、形に合えば、誰も作っていない中身を結果として返しうる。
   - SP-014 の「保存できなかった記録を保存したと示さない」と、SP-015 の「記録を全て保存した」に対する限界である。結果を常に 1 つにすることを優先した。
-- **生死を判定できない環境**: `ps` が使えず、pid が再利用された場合は、生死が分からないまま待つことになる。司令塔は `LIVENESS_UNKNOWN_MAX` 回の後、結果を作らずに「生死を判定できない」誤りとして終える（依頼者の決定。形式検証の `lock-termination-unconditional`）。この場合、結果は返らない。
+- **生死を判定できない環境**: `ps` が使えず、pid が再利用された場合は、生死が分からないまま待つことになる。司令塔は `LIVENESS_UNKNOWN_MAX` 回の後、結果を作らずに「生死を判定できない」誤りとして終える（依頼者の決定。形式検証の `lock-termination`）。この場合、結果は返らない。
 - **仮の結果**: 保存できない状態で返した `停止` の R' は `provisional: true` の仮の結果である。あとで別の salvage が `result.json` を公開すると、受け取った仮の結果と公開された結果が食い違う（形式検証の 4 ケース。生死の誤判定が無くても、`status.json` が読めないだけでも起こる）。依頼者の決定で、公開された `result.json` を正とする。公開される `result.json` は常に 1 つである。
 - **`run-daemon` の異常終了**: 保存の途中で落ちた run は続けない。`salvage` が、rename を終えた `state.json` の範囲だけで停止の結果を作る。

@@ -6,9 +6,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath } from 'node:url';
 import { sha256Bytes } from './canonical.mjs';
 import { atomicWrite } from './storage.mjs';
-import { linesOf } from './checks/common.mjs';
+import { cmpBytes, linesOf } from './checks/common.mjs';
 
-const cmpBytes = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 const DECODER = new TextDecoder('utf-8', { fatal: true });
 
 export function isText(bytes) {

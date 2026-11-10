@@ -81,6 +81,8 @@ jobs:
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
           OUT_DIR: ${{ runner.temp }}/formal-method-skill-out
+        # shell を明示すると bash --noprofile --norc -eo pipefail {0} になり、check.sh の失敗が tee の成功に隠れない
+        shell: bash
         run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill.jsonl"
       - name: Preserve model checking results and traces
         if: always()

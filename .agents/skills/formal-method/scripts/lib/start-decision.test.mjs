@@ -1,6 +1,6 @@
 // unit: scripts/lib/start.mjs の decideStartOutcome(observation)（cli-contract「unit の入口（内部）」1）。
 // 期待値は、cli-contract「起動の手順」の 5 と「salvage の手順」の規則から、このファイルの expectedDecision が独立に導く。
-// 結合テストで時機を合わせられない start の E_BUSY（verification-plan「依頼者の決定と残る論点」）をここで覆う。
+// 結合テストで時機を合わせられない start の E_BUSY（verification-plan「結合テストで起こせない場面」）をここで覆う。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

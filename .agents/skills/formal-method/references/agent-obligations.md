@@ -22,13 +22,13 @@ prompt は `task.md` の絶対 path を指す。`task.md` は次の 4 つの見�
 | `RETURN_SCHEMA` | 返り値の JSON Schema | 返り値をこの形にする |
 | `WRITE` | 書いてよい領域、返り値の path、最後の応答の形 | 書く場所をここに限る |
 
-- 読む資料は `context.input_refs` が指すものだけである。`ref` は `context.run_dir` からの相対 path。ディレクトリを指す `ref`（対象の写しなど）は、その下のファイルを読んでよい。
+- 読む資料は `context.input_refs` が指すものだけである。`ref` は `context.run_dir` からの相対 path。ディレクトリを指す `ref`（対象の写しなど）は、その下のファイルを読んでよい。例外は文書の一般規約の写し（`<run_dir>/document-rules/` の中の 1 つのファイル）で、作業記録を書くためだけに、`input_refs` の外でも読んでよい（下の作業記録の節）。
 - `context.revise_defects_ref` が null でなければ、CLI が見つけた欠陥の一覧である。同じ役の作り直しとして、その欠陥を直す。
 - 語と値は仕様（`docs/specifications/formal-method.md`）と [形式手法の知識](formal-method-knowledge.md) に従う。一般の形式手法の語で置き換えると、CLI の照合と結果の値が食い違う。
 
 ## 書く場所と返し方
 
-- 書くのは `attempt_dir` の中だけである。run の状態（`state.json`・`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-030）。`attempt_dir` の外に書いたものは成果物として登録されない。
+- 書くのは `attempt_dir` の中だけである。run の状態（`state.json`・`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-029）。`attempt_dir` の外に書いたものは成果物として登録されない。
 - 自分が書く全ての `Ref`（`outputs[].ref`・`record_ref`・`worklog_ref`・`query_ref`・`input_refs` など）は、`context.run_dir` からの相対 path で、`attempts/<task_id>/` で始まるか、task が渡した資料を指す。
 - 返り値は `RETURN_SCHEMA` の形の JSON を `return_path` に書く。返り値の `task_id` は `TASK` の値、`unit_id` は `context.unit_id`、`perspective` は `context.perspective` をそのまま使う。値が違う返り値は成功に数えられない。
 - 最後の応答は `{"task_id": ..., "return_path": ...}` だけにする。CLI は応答ではなく `return_path` を読むので、応答に本文や結論を入れても使われない。
@@ -54,8 +54,8 @@ prompt は `task.md` の絶対 path を指す。`task.md` は次の 4 つの見�
   ```bash
   node -e 'console.log("sha256:"+require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' <ファイルの絶対 path>
   ```
-- `document_rules.ref` は、`context.input_refs` の中の `document-rules/` で始まる `ref` とする。無ければ `<run_dir>/document-rules/` の中のファイルを使う。
-- 文の欄は、その写しの規約（平易な文と具体的な条件、値は正本を参照）に従って書く（PR-BPDESIGNEDSKILL-033）。
+- `document_rules.ref` は、`<run_dir>/document-rules/` の中のファイル（run に 1 つ。CLI が受付の段で保存する）の、`context.run_dir` からの相対 path とする。この写しは `input_refs` に入らないが、読んでよい（上の読む資料の例外）。
+- 文の欄は、その写しの規約（平易な文と具体的な条件、値は正本を参照）に従って書く（PR-BPDESIGNEDSKILL-040）。
 - model・effort・権限・渡した資料の指紋は CLI が台帳に書く。担当はそれらを作業記録に正本として書き直さない（PR-BPDESIGNEDSKILL-032）。
 
 ## 作成役の禁止
@@ -70,12 +70,12 @@ prompt は `task.md` の絶対 path を指す。`task.md` は次の 4 つの見�
 
 対象: `extraction-reviewer`・`fidelity-reviewer`・`assurance-reviewer`・`composition-reviewer`・`cause-analyst`。
 
-読むのは `context.input_refs` が指す資料だけである。次の表は観点ごとに渡される資料の種類で、読む集合を広げる根拠にはならない。CLI が `input_refs` に入れる具体の ref の正本は [成果物の形式の task の一覧](artifact-formats.md#task-の一覧) の「独立検証者と原因の分類役の `input_refs`」である。
+読むのは `context.input_refs` が指す資料だけである（文書の一般規約の写しの例外を除く）。次の表は観点ごとに渡される資料の種類で、読む集合を広げる根拠にはならない。CLI が `input_refs` に入れる具体の ref の正本は [成果物の形式の task の一覧](artifact-formats.md#task-の一覧) の「独立検証者と原因の分類役の `input_refs`」である。
 
 | 観点（`perspective`） | 読むもの |
 |---|---|
 | `extraction` | 対象の固定した写し、固定した inventory、CLI の照合の記録 |
-| `fidelity` | 対象の写し、inventory、モデル、対応表、CLI の照合の記録 |
+| `fidelity` | 対象の写しと一覧（manifest）、inventory、モデル、対応表、CLI のモデル化の段の作業記録。図・組合せ・経路はモデルから導けるので、モデルで読む |
 | `assurance` | モデル、対応表、計画、変異、検査と確認の記録 |
 | `nonformal` | 対象の写しと、その性質の inventory の記述（`nonformal_method` を含む）。モデルは使わない |
 | `composition` | 分割、全てのモデル、契約と合成の条件、それらの検査の記録、CLI の照合の記録 |

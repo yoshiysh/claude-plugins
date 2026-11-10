@@ -109,7 +109,7 @@ test('SP-FORMALMETHOD-014 AC-13: 完了の run の記録は台帳に参照と指
   for (const e of ledger.entries) assert.equal(fileHash(join(dir, e.ref)), e.hash, `台帳の ${e.ref}`);
   const kinds = new Set(ledger.entries.map((e) => e.kind));
   for (const k of ['request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'plan', 'mutations', 'query', 'execution_evidence', 'worklog']) assert.ok(kinds.has(k), `台帳に ${k}`);
-  assert.ok(!ledger.entries.some((e) => e.producer !== 'cli' && e.kind === 'ledger'), '担当は台帳を書かない（PR-BPDESIGNEDSKILL-030）');
+  assert.ok(!ledger.entries.some((e) => e.producer !== 'cli' && e.kind === 'ledger'), '担当は台帳を書かない（PR-BPDESIGNEDSKILL-029: 担当は共有の記録台帳へ直接書き込まない）');
 });
 
 test('artifact-formats 記録台帳 SP-FORMALMETHOD-014: 完了の run の台帳の全ての entry が 9 欄を持ち、担当の entry は tasks.json の model・effort と AGENT_PERMISSIONS、cli の entry は null・null・[]', async () => {
@@ -143,7 +143,7 @@ test('記録台帳の検査の自己検査: 欄の欠け・cli の権限・担�
   assert.equal(ok([{ ...agentE, producer: 't9' }]).length, 1);
 });
 
-test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-028・042: 決定的な処理の作業記録が段ごとにあり、適用した文書の規約の版と不変の写しを指す', async () => {
+test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-028・040: 決定的な処理の作業記録が段ごとにあり、適用した文書の規約の版と不変の写しを指す', async () => {
   const { status } = await canonicalRun();
   const dir = status.run_dir;
   const { readdirSync } = await import('node:fs');

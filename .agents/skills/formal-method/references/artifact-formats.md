@@ -905,7 +905,6 @@ TaskContext = {
 ## WRITE
 <書いてよい領域（attempt_dir）、返り値を書く path（return_path）、最後の応答の形 {"task_id", "return_path"}>
 ```
-```
 
 ## Workflow の返り値
 
@@ -922,7 +921,7 @@ WorkflowOutput = { batch_id: Id,
 
 ## 作業記録
 
-担当は `attempts/<task_id>/worklog.json`、決定的な処理は `worklogs/cli-<段>.json` に書く（PR-028・033・042）。担当の作業記録の `stage` は、task の `context.stage`（task を出した段）である。`run-daemon` は、入った全ての段（止まった段を含む）について `worklogs/cli-<段>.json` を、その段を出る前か停止の手順の中で書く。書けなければ `records.unsaved` に載せる。
+担当は `attempts/<task_id>/worklog.json`、決定的な処理は `worklogs/cli-<段>.json` に書く（PR-028・040）。担当の作業記録の `stage` は、task の `context.stage`（task を出した段）である。`run-daemon` は、入った全ての段（止まった段を含む）について `worklogs/cli-<段>.json` を、その段を出る前か停止の手順の中で書く。書けなければ `records.unsaved` に載せる。
 
 ```text
 Worklog = {
@@ -944,7 +943,7 @@ Worklog = {
 
 ## 記録台帳
 
-`ledger.json`（`run-daemon` だけが書く）と `salvage-ledger.json`（salvage の追補）。担当は書かない（PR-030）。
+`ledger.json`（`run-daemon` だけが書く）と `salvage-ledger.json`（salvage の追補）。担当は書かない（PR-029）。
 
 ```text
 Ledger = {
