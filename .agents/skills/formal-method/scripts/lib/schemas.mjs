@@ -8,6 +8,7 @@ export const CALL_MAX_MS = 240000;
 export const CALL_MARGIN_MS = 30000;
 export const CLEANUP_BUDGET_MS = 30000;
 export const START_WAIT_MS = CALL_MAX_MS - CLEANUP_BUDGET_MS;
+export const START_STOP_WAIT_MS = 5000;
 export const WAIT_LIMIT_MS = CALL_MAX_MS - CLEANUP_BUDGET_MS;
 export const WAIT_POLL_MS = 2000;
 export const SALVAGE_RETRY_MS = 10000;
@@ -33,6 +34,8 @@ export const INTERRUPT_CODES = Object.freeze(['依頼の不備', '起動の失�
 export const UNMET_ORDER = Object.freeze(['必要な性質が検証の成功でない', '確認が終わっていない', '対応できていない組合せ', '回答を待つ問い',
   '記録の未保存', '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査']);
 export const STOP_CODES = Object.freeze([...INTERRUPT_CODES, ...UNMET_ORDER, '担当の失敗']);
+// 誤りの code（cli-contract.md「誤りと終了コード」）
+export const ERROR_CODES = Object.freeze(['E_CONTRACT', 'E_INPUT', 'E_BUSY', 'E_STALE', 'E_INTERNAL', 'E_RESULT_UNREADABLE']);
 export const REQUEST_CODES = Object.freeze(['target_missing', 'goal_missing', 'shape_invalid', 'duplicate_id', 'exclude_without_reason',
   'pointer_unresolved', 'time_limit_invalid', 'target_unavailable', 'revision_mismatch']);
 export const RECORD_KINDS = Object.freeze(['request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions',
@@ -49,6 +52,8 @@ const RELATIONS = ['形式化', '形式検証でない確認', '範囲外', '対
 const GOAL_KINDS = ['目標', '完了', '停止', '再開先'];
 const CONFIRMATION_RESULTS = ['成り立つ', '成り立たない', '確認できず'];
 const CHECK_KINDS = ['property', 'composition', 'contract'];
+// 証人（モデル）を求める検査の kind（cli-contract.md「Z3 の adapter」の -model、反例と replay の対象）
+export const MODEL_CHECK_KINDS = Object.freeze(['property', 'composition']);
 
 // ---- 共通の型 ----
 export const ID_RE = /^[A-Za-z0-9._-]+$/;

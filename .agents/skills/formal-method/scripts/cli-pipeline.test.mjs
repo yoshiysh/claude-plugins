@@ -2079,3 +2079,32 @@ test('artifact-formats ディレクトリの ref の指紋: 対象の写しに U
     assert.deepEqual(conf.materials, expandRefs(out.status.run_dir, task.context.input_refs));
   }
 });
+
+// ---- goals[].property_id は同じ ModelFile の properties[].id に実在する参照（artifact-formats「状態遷移」の goals） ----
+// モデル作成役が目標の性質の id を誤る（persist なら修正の巡の後も直さない）
+const wrongGoal = (persist) => (sm, { round }) => (persist || round === 1 ? { ...sm, goals: sm.goals.map((g) => ({ ...g, property_id: 'P-missing' })) } : sm);
+test('artifact-formats goals の property_id: モデル作成役が 1 巡目だけ目標の性質の id を誤ると、モデル化の照合の欠陥で修正の巡が出て、直れば目標が Paths.targets に載る', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { stateMachine: SM, editStateMachine: wrongGoal(false) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'model-author', 'モデル化');
+  const paths = result.models[0].paths;
+  assert.equal(paths.applicable, true);
+  assert.ok(paths.targets.some((x) => x.state === '完了' && x.property_id === 'P1'), JSON.stringify(paths.targets));
+  assert.ok(!paths.unverified.some((u) => u.reason === '目標の性質が無い'), JSON.stringify(paths.unverified));
+  assert.equal(detConf(result, 'reference')?.result, '成り立つ', '修正の巡で直った欠陥は数えない');
+});
+test('artifact-formats goals の property_id: 目標の性質の id の誤りが修正の巡の後も残ると、reference が 成り立たない（reason に目標と性質の id）で、その目標は Paths.targets に無く Paths.unverified に 目標の性質が無い で載る', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { stateMachine: SM, editStateMachine: wrongGoal(true) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'model-author', 'モデル化');
+  const ref = detConf(result, 'reference');
+  assert.equal(ref?.result, '成り立たない', String(JSON.stringify(ref)));
+  assert.ok(ref.reason.includes('モデル化: '), `reason は <段>: <欠陥の文>: ${ref.reason}`);
+  assert.ok(ref.reason.includes('完了') && ref.reason.includes('P-missing'), `reason に目標（完了）と性質の id（P-missing）: ${ref.reason}`);
+  const paths = result.models[0].paths;
+  assert.equal(paths.applicable, true);
+  assert.ok(!paths.targets.some((x) => x.state === '完了'), `目標 完了 は Paths.targets に無い: ${JSON.stringify(paths.targets)}`);
+  assert.ok(paths.unverified.some((u) => u.target === '完了' && u.reason === '目標の性質が無い'), JSON.stringify(paths.unverified));
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
+});

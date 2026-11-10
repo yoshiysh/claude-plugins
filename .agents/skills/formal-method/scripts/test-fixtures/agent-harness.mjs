@@ -93,6 +93,7 @@ export function defaultScenario(over = {}) {
     editModelQuery: null,   // (text, { round, mp, kind: 'property' | 'sanity' }) → .smt2 の文字列（変異の .smt2 は計画作成役が書く）
     editPlan: null,         // (plan, { round, pairs, mref, put, targetRef }) → PlanFile
     editMutations: null,    // (mutations, { round, pairs, mref, put }) → MutationsFile
+    editStateMachine: null, // (state_machine, { round, model_id }) → ModelFile.state_machine（モデル作成役の巡ごと）
     // 作成役が返す問い（役 → [Question]）。あればその役は needs_answer で返し、AuthorReturn.blocked_by_question に依存する性質の id を挙げる
     // （artifact-formats「AuthorReturn.blocked_by_question」: 抽出役は inventory の blocked_by_question が空でない性質、
     // モデル作成役・計画作成役は Question.affected のうち context.property_ids にあるもの）。
@@ -192,7 +193,7 @@ const ROLE = {
       write(task, file, {
         schema: 'formal-method.model/1', model_id: m.id, adapter_id: 'z3',
         covers: { targets: ['T1'], states: m.stateMachine?.states ?? [], events: m.stateMachine?.events ?? [], assumptions: [{ id: 'A1', text: 'x は -8 以上 8 以下の整数' }], constraints: [], excluded: [] },
-        state_machine: m.stateMachine ?? null, no_state_machine_reason: m.stateMachine ? null : '対象は状態遷移を持たない', io_contracts: [],
+        state_machine: m.stateMachine ? (s.editStateMachine ? s.editStateMachine(structuredClone(m.stateMachine), { round, model_id: m.id }) : m.stateMachine) : null, no_state_machine_reason: m.stateMachine ? null : '対象は状態遷移を持たない', io_contracts: [],
         properties: m.props.map((p) => ({ id: mpid(s, p), inventory_property_ids: [p.id], query_ref: runRef(task, `${mpid(s, p)}.smt2`), expected: 'unsat',
           assurance: { kind: '範囲を限った検査', scope: 'x は -8 以上 8 以下の整数', bounds: [{ item: 'x', bound: '-8..8' }], fairness_assumptions: [] },
           sanity: [{ kind: 'assumptions_consistent', query_ref: runRef(task, `${mpid(s, p)}-sanity.smt2`) }] })),

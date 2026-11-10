@@ -2,9 +2,8 @@
 // 止めるのは 4 つの理由（時間の上限・保存の失敗・依頼の不備・内部の誤り）だけで、担当の失敗・反例・不合格では段を進める。
 import { readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { sha256Bytes } from './canonical.mjs';
-import { AGENT_BATCH_MAX, REVISE_ROUNDS_MAX, STATE_SCHEMA } from './schemas.mjs';
+import { AGENT_BATCH_MAX, MODEL_CHECK_KINDS, REVISE_ROUNDS_MAX, STATE_SCHEMA } from './schemas.mjs';
 import { scanSecrets, describeHits } from './secrets.mjs';
 import { writeEvidence } from './storage.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
@@ -12,7 +11,7 @@ import { startRunClock, NODE_TIMER_CLOCK } from './clock.mjs';
 import { checkRequestShape, checkPointers, normalizeRequest } from './request.mjs';
 import { fetchTarget, writeSnapshot, lineCount } from './intake.mjs';
 import { runTasks } from './agents.mjs';
-import { ledgerEntry, newStageLog, cliWorklog } from './worklog.mjs';
+import { ledgerEntry, newStageLog, cliWorklog, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
 import { coverageCheck } from './checks/coverage.mjs';
 import { modelCheck, matrixGen } from './checks/model.mjs';
 import { buildGraph, deriveCandidates } from './checks/graph.mjs';
@@ -27,7 +26,6 @@ import { spawnTool } from './process.mjs';
 import { reason, PARTITION_REJECTED } from './result.mjs';
 import { locationFromEnv } from './performance.mjs';
 
-const DOC_RULES = fileURLToPath(new URL('../../references/document-rules.md', import.meta.url));
 const ROLE_OUTPUTS = { extractor: ['inventory'], 'model-author': ['model', 'mapping'], 'partition-author': ['partitions'], 'plan-author': ['plan', 'mutations'] };
 
 export class StatusWriteError extends Error {
@@ -157,9 +155,9 @@ export class Run {
   // ---- 受付 ----
   acceptance() {
     this.enterStage('受付');
-    const docBytes = readFileSync(DOC_RULES);
+    const docBytes = readFileSync(DOC_RULES_PATH);
     const version = sha256Bytes(docBytes);
-    const docRef = `document-rules/${version.slice(7)}.md`;
+    const docRef = docRulesRefOf(version);
     this.docRulesIntended = { rules: { ref: docRef, version }, missing: `適用した文書規約の写し ${docRef} を保存できなかった` };
     if (this.writeRecordFile(docRef, docBytes, { kind: 'document_rules' })) this.docRules = { ref: docRef, version };
     const log = this.log();
@@ -273,6 +271,9 @@ export class Run {
 
   // ---- 洗い出し ----
   async extraction() {
+    // 対象ごとに最後に照合した inventory の性質の id（対象をまたぐ性質の id の重複を照らす）
+    const checkedProps = new Map();
+    const othersOf = (tid) => new Map([...checkedProps].filter(([id]) => id !== tid).flatMap(([id, ps]) => [...ps].map((p) => [p, id])));
     const units = this.targets.map((t) => ({
       role: 'extractor',
       spec: (round, reviseRef) => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }], revise_defects_ref: reviseRef }),
@@ -281,7 +282,9 @@ export class Run {
         if (outs.length !== 1) return { defects: [defect('other', 'inventory-count', `inventory が ${outs.length} 個（ちょうど 1 つ）`)], value: null };
         let data;
         try { data = JSON.parse(readFileSync(join(this.runDir, outs[0].ref), 'utf8')); } catch { return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null }; }
-        return { defects: coverageCheck(this.runDir, data, t), value: { ref: outs[0].ref, data } };
+        const defects = coverageCheck(this.runDir, data, t, { otherPropertyIds: othersOf(t.id) });
+        if (Array.isArray(data.properties)) checkedProps.set(t.id, new Set(data.properties.map((p) => p && p.id)));
+        return { defects, value: { ref: outs[0].ref, data } };
       },
       accept: (last) => {
         if (!last.value) { this.notCreated.push({ kind: 'inventory', reason: '抽出役の成果物が形に合わない' }); return; }
@@ -316,7 +319,14 @@ export class Run {
       spec: (round, reviseRef) => ({ role: 'model-author', stage: 'モデル化', property_ids: eligible.map((p) => p.id), input_refs: inputs, revise_defects_ref: reviseRef }),
       check: (ret, task) => {
         const prefix = `${relative(this.runDir, task.attempt_dir)}/`;
-        const c = modelCheck(this.runDir, ret.outputs, { prefix, eligible: eligibleSet });
+        const refs = {
+          elementIds: new Set(this.inventories.flatMap((i) => i.data.elements.map((e) => e.id))),
+          propertyIds: new Set(this.inventoryProperties().map((p) => p.id)),
+          goalIds: new Set((this.request?.goals ?? []).map((g) => g.id)),
+          knownRequirementIds: new Set((this.request?.known_requirements ?? []).map((k) => k.id)),
+          targetIds: new Set(this.targets.map((t) => t.id)),
+        };
+        const c = modelCheck(this.runDir, ret.outputs, { prefix, eligible: eligibleSet, refs });
         return { defects: c.defects, value: c };
       },
       accept: (last) => {
@@ -372,17 +382,18 @@ export class Run {
           return { defects: c.defects, value: { ref: outs[0].ref, data, check: c } };
         },
         accept: (last) => {
-          if (!last.value || !last.value.check.valid) { this.notCreatedFor('partition-author', '分割作成役の成果物が形に合わない'); return; }
-          if (!this.registerAuthor(last, ['partitions'])) return;
-          const { data, check } = last.value;
+          // 欠陥の残った分割（形の違い・読めない・個数の違いを含む）は採らない（artifact-formats.md「欠陥の残った分割」）。
+          // 計画作成役には分割の無いモデルだけを渡す
           this.partitionDefects = last.defects;
-          if (last.defects.length) {
-            // 欠陥の残った分割は採らない（artifact-formats.md「欠陥の残った分割」）。計画作成役には分割の無いモデルだけを渡す
+          const reject = () => {
             this.partitionRejected = true;
             this.decisions = this.candidates.map((c) => ({ candidate_id: c.id, adopted: false, reason: PARTITION_REJECTED }));
             this.log('計画').unconfirmed.push(...last.defects.map((d) => `分割の欠陥が残った: ${d.text}`));
-            return;
-          }
+          };
+          if (!last.value || !last.value.check.valid) { this.notCreatedFor('partition-author', '分割作成役の成果物が形に合わない'); reject(); return; }
+          if (!this.registerAuthor(last, ['partitions'])) return;
+          const { data, check } = last.value;
+          if (last.defects.length) { reject(); return; }
           this.decisions = data.decisions;
           if (data.adopted) {
             const queries = [...data.contracts, ...data.composition_conditions].map((x) => x.query_ref);
@@ -413,16 +424,18 @@ export class Run {
         const plan = read2('plan');
         const mutations = read2('mutations');
         if (!plan || !mutations) return { defects: [defect('syntax', 'plan-missing', 'plan か mutations が無いか、JSON として読めない')], value: null };
-        this.noteQuestions(ret, 'plan-author');
-        const eligible = new Set(formal.filter((p) => !this.blockedBy.has(p.id)).map((p) => p.id));
-        const blocked = new Set(this.blockedBy.keys());
+        // この巡の返り値の blocked_by_question だけで照らす（問いと依存を控えるのは、受け入れた返り値の accept だけ）
+        const blocked = new Set([...this.blockedBy.keys(), ...ret.blocked_by_question]);
+        const eligible = new Set(formal.filter((p) => !blocked.has(p.id)).map((p) => p.id));
         const c = planCheck(plan.data, mutations.data, {
           runDir: this.runDir, prefix: `${relative(this.runDir, task.attempt_dir)}/`, models: this.models, partitions: this.partitions?.data ?? null,
           eligible, blocked, prepare: this.prepare, authorQueries: new Set(this.queryRefs.keys()), smtBad: this.smtBad,
+          propertyIds: new Set(this.inventoryProperties().map((p) => p.id)),
         });
         return { defects: c.defects, value: { plan, mutations, check: c } };
       },
       accept: (last) => {
+        this.noteQuestions(last.ret, 'plan-author');
         if (!last.value || !last.value.check.valid) { this.notCreatedFor('plan-author', '計画作成役の成果物が形に合わない'); return; }
         if (!this.registerAuthor(last, ['plan', 'mutations'])) return;
         const { plan, mutations, check } = last.value;
@@ -475,7 +488,7 @@ export class Run {
       if (!this.prepare?.ok) { entry.notStartedReason = `適した道具が無い（${this.prepare?.reason ?? '準備していない'}）`; return; }
       specs.push({ spec: { execution_id: id, kind, query: new Uint8Array(query), with_model: withModel, expected, tool_time_limit_seconds: seconds, deadline_ms: deadline }, depends_on: dependsOn });
     };
-    for (const c of this.planChecks()) add(c.id, c.kind, c.input_refs, c.kind === 'property' || c.kind === 'composition', 'unsat', c.tool_time_limit_seconds, c.depends_on.filter((d) => !this.planDefects.has(d)), { check: c });
+    for (const c of this.planChecks()) add(c.id, c.kind, c.input_refs, MODEL_CHECK_KINDS.includes(c.kind), 'unsat', c.tool_time_limit_seconds, [...c.depends_on], { check: c });
     for (const s of this.planSanity()) add(this.confIds.next('sanity'), 'sanity', s.input_refs, false, 'sat', s.tool_time_limit_seconds, [], { sanity: s });
     for (const m of this.planMutations()) {
       const det = this.plan.data.checks.find((c) => c.id === m.detector_check_id);
@@ -487,7 +500,7 @@ export class Run {
     // 反例の replay（同じ期限）
     const replaySpecs = [];
     for (const c of this.planChecks()) {
-      if (c.kind !== 'property' && c.kind !== 'composition') continue;
+      if (!MODEL_CHECK_KINDS.includes(c.kind)) continue;
       const e = this.exec.get(c.id);
       if (!e || !e.outcome || verdictOf(e.outcome.end) !== '反例') continue;
       const rid = this.confIds.next('replay');
@@ -545,7 +558,7 @@ export class Run {
         this.interrupt('内部の誤り', `実行 ${id} の終わり方が契約の起こらない組（${e.invalidEnd}）`);
       }
       if (!o.end.started) {
-        if (o.not_started_reason === 'dependency') e.notStartedReason = '依存先の検査が 成功 でない';
+        if (o.start_failure) { e.notStartedReason = o.start_failure; this.log().failures.push(`実行 ${id}: ${o.start_failure}`); } else if (o.not_started_reason === 'dependency') e.notStartedReason = '依存先の検査が 成功 でない';
         else this.abortExec(id, '検査に使える期限が過ぎていたか、停止の要求があった');
         continue;
       }
@@ -595,7 +608,7 @@ export class Run {
     // 反例
     let n = 0;
     for (const c of this.planChecks()) {
-      if (c.kind !== 'property' && c.kind !== 'composition') continue;
+      if (!MODEL_CHECK_KINDS.includes(c.kind)) continue;
       const e = this.exec.get(c.id);
       if (!e || !e.outcome || verdictOf(e.outcome.end) !== '反例') continue;
       const mp = c.kind === 'property' ? c.target_id : this.derivedOf(c.target_id);
@@ -726,7 +739,11 @@ export class Run {
       this.registerAgentFile('worklog', r.ret.worklog_ref, r.task, r.materials);
       this.registerAgentFile('review_record', r.ret.record_ref, r.task, r.materials);
       this.causes.push({ subject, cause: r.ret.cause, grounds: r.ret.grounds, classified_by: r.task.task_id });
-      if (r.ret.cause === '要求の不足') for (const q of r.ret.questions) if (!this.resultQuestions.some((x) => x.id === q.id)) this.resultQuestions.push(q);
+      if (r.ret.cause === '要求の不足') {
+        // 問いの subject を 要求の不足 と分類したら、その問い自身も questions[] に実在させる（artifact-formats.md「id と参照の一覧」）
+        const own = subject.kind === 'question' ? this.authorQuestions.find((x) => x.q.id === subject.id)?.q : null;
+        for (const q of [...(own ? [own] : []), ...r.ret.questions]) if (!this.resultQuestions.some((x) => x.id === q.id)) this.resultQuestions.push(q);
+      }
       return;
     }
     this.causes.push({ subject, cause: '原因未確認', grounds: r.cause ?? '時間の上限か保存の失敗で原因の分類役を出さなかった', classified_by: r.task ? r.task.task_id : 'cli' });

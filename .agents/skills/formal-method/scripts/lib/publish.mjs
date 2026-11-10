@@ -3,7 +3,8 @@
 import { linkSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { canonicalJson, sha256Bytes, randomHex } from './canonical.mjs';
-import { INTERRUPT_CODES, Result, conforms } from './schemas.mjs';
+import { Result, conforms } from './schemas.mjs';
+import { reason, stopReport } from './stop-report.mjs';
 import { writeTempFile, fsyncDir } from './storage.mjs';
 
 const enc = (s) => new TextEncoder().encode(s);
@@ -56,31 +57,28 @@ const ledgerKindOf = (name) => (name === 'ledger.json' ? 'ledger' : 'salvage_led
 const RESULT_REF = 'result.json';
 
 // 公開できなかった R を捨て、停止 の R' を作り直す（cli-contract.md「状態を決める順序」3）。
-export function buildUnpublished(result, { ledgerName, ledgerSaved, reason }) {
+export function buildUnpublished(result, { ledgerName, ledgerSaved, reason: why }) {
   const kept = result.records.saved.filter((s) => s.ref !== RESULT_REF && s.ref !== ledgerName);
   const saved = ledgerSaved ? [...kept, { kind: ledgerKindOf(ledgerName), ref: ledgerName, hash: null }] : kept;
   const unsaved = [...result.records.unsaved.filter((u) => u.ref !== RESULT_REF && u.ref !== ledgerName && u.kind !== 'result')];
-  if (!ledgerSaved) unsaved.push({ kind: ledgerKindOf(ledgerName), ref: ledgerName, reason });
-  unsaved.push({ kind: 'result', ref: RESULT_REF, reason: ledgerSaved ? reason : `台帳を公開できなかったので結果の公開を試さない（${reason}）` });
+  if (!ledgerSaved) unsaved.push({ kind: ledgerKindOf(ledgerName), ref: ledgerName, reason: why });
+  unsaved.push({ kind: 'result', ref: RESULT_REF, reason: ledgerSaved ? why : `台帳を公開できなかったので結果の公開を試さない（${why}）` });
   const records = { ...result.records, saved, unsaved };
   const sr = result.stop_report;
   const prev = sr ? sr.reasons : [];
-  const failure = { code: '保存の失敗', stage: '集約', request_code: null, item: null, field: null, detail: `結果と台帳の公開: ${reason}` };
-  const interrupts = prev.filter((x) => INTERRUPT_CODES.includes(x.code));
-  const others = prev.filter((x) => !INTERRUPT_CODES.includes(x.code));
-  const reasons = [...interrupts, failure, ...others];
-  if (!reasons.some((x) => x.code === '記録の未保存')) reasons.push({ code: '記録の未保存', stage: '集約', request_code: null, item: null, field: null, detail: '保存できなかった記録がある' });
-  const stopReport = {
-    stage: reasons.find((x) => INTERRUPT_CODES.includes(x.code)).stage,
+  const failure = reason('保存の失敗', '集約', `結果と台帳の公開: ${why}`);
+  const reasons = [...prev, failure];
+  if (!reasons.some((x) => x.code === '記録の未保存')) reasons.push(reason('記録の未保存', '集約', '保存できなかった記録がある'));
+  const report = stopReport({
     reasons,
-    confirmed_scope: sr ? sr.confirmed_scope : [], unconfirmed_scope: sr ? sr.unconfirmed_scope : [],
-    artifacts_created: (sr ? sr.artifacts_created : []).filter((a) => a.ref !== RESULT_REF && (ledgerSaved || a.ref !== ledgerName)),
-    artifacts_not_created: sr ? sr.artifacts_not_created : [],
-    checks_running: sr ? sr.checks_running : [], checks_aborted: sr ? sr.checks_aborted : [],
+    confirmed: sr ? sr.confirmed_scope : [], unconfirmed: sr ? sr.unconfirmed_scope : [],
+    created: (sr ? sr.artifacts_created : []).filter((a) => a.ref !== RESULT_REF && (ledgerSaved || a.ref !== ledgerName)),
+    notCreated: sr ? sr.artifacts_not_created : [],
+    running: sr ? sr.checks_running : [], aborted: sr ? sr.checks_aborted : [],
     questions: sr ? sr.questions : result.questions.map((q) => q.id),
-    unsaved: [...new Set(unsaved.map((u) => u.kind))],
-  };
-  return { ...result, status: '停止', provisional: true, records, stop_report: stopReport };
+    unsaved,
+  });
+  return { ...result, status: '停止', provisional: true, records, stop_report: report };
 }
 
 export function publishResult(input, fs = NODE_FS) {

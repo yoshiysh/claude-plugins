@@ -5,11 +5,11 @@ import { mkdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomHex } from './canonical.mjs';
-import { START_WAIT_MS, STATUS_ACTIONS } from './schemas.mjs';
+import { START_STOP_WAIT_MS, START_WAIT_MS, STATUS_ACTIONS } from './schemas.mjs';
 import { writeTempFile, fsyncDir } from './storage.mjs';
 import { scanSecrets } from './secrets.mjs';
-import { livenessOf, killGroup } from './process.mjs';
-import { lockHolder, readPublishedResult, readStatus, readMark, salvage } from './store.mjs';
+import { killGroup } from './process.mjs';
+import { busy, lockHolder, observeRun, readStatus as readStatusOf, salvage, salvageDecision, unreadable } from './store.mjs';
 import { acceptanceStopResult } from './result.mjs';
 import { locationFromEnv } from './performance.mjs';
 
@@ -20,13 +20,8 @@ const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 export function decideStartOutcome(o) {
   if (o.spawn_failed || o.daemon_exited) {
     if (!o.run_dir_exists) return { kind: 'return_launch_failure' };
-    if (o.lock_holder === 'alive' || o.lock_holder === 'unknown') return { kind: 'e_busy', detail: { holder_role: 'run-daemon', liveness: o.lock_holder } };
-    if (o.result_json === 'valid') return { kind: 'salvage', step: 'return_result_json' };
-    if (o.result_json === 'invalid') return { kind: 'result_unreadable' };
-    if (o.status_json === 'terminal') return { kind: 'salvage', step: 'return_status_result' };
-    if (o.salvage_mark === 'unwritable') return { kind: 'salvage', step: 'return_unpublished' };
-    if (o.salvage_mark === 'present' && (o.mark_winner === 'alive' || o.mark_winner === 'unknown')) return { kind: 'e_busy', detail: { holder_role: 'salvage', liveness: o.mark_winner } };
-    return { kind: 'salvage', step: 'build_and_publish' };
+    // salvage の手順と同じ規則（正本は store.mjs の salvageDecision。salvage() も同じ関数で判断する）
+    return salvageDecision(o);
   }
   if (o.run_dir_exists && STATUS_ACTIONS.includes(o.status_json)) return { kind: 'return_status' };
   if (o.waited_ms >= o.start_wait_ms) return o.run_dir_exists && o.lock_holder !== null ? { kind: 'return_working' } : { kind: 'stop_child_and_reevaluate' };
@@ -69,17 +64,7 @@ function observe(runDir, child) {
     spawn_failed: child.spawnFailed, daemon_exited: child.exited || child.stopUnobserved, waited_ms: child.waited(), start_wait_ms: START_WAIT_MS,
     run_dir_exists: exists, lock_holder: null, result_json: 'absent', status_json: 'absent', salvage_mark: 'absent', mark_winner: null,
   };
-  if (!exists) return o;
-  const holder = lockHolder(runDir);
-  o.lock_holder = holder ? livenessOf(holder) : 'dead';
-  const pub = readPublishedResult(runDir);
-  o.result_json = pub === 'absent' ? 'absent' : pub.valid ? 'valid' : 'invalid';
-  const st = readStatus(runDir);
-  o.status_json = st ? st.action : 'absent';
-  const mark = readMark(runDir);
-  o.salvage_mark = mark.state;
-  if (mark.state === 'present') o.mark_winner = mark.winner ? livenessOf(mark.winner) : 'dead';
-  return o;
+  return exists ? { ...o, ...observeRun(runDir) } : o;
 }
 
 // start の作用。戻り値: { ok: true, status } | { ok: false, code, reason, detail }
@@ -122,7 +107,7 @@ export async function start(input, { cwd = process.cwd() } = {}) {
   }
   const finishTmp = () => {
     if (!isDir(tmpDir)) return [];
-    if (!child.exited && !child.spawnFailed) return child.stopUnobserved ? [{ item: tmpDir, reason: 'run-daemon を止めたが終了を観測できなかったので、一時の領域を消さない' }] : [];
+    if (!child.exited && !child.spawnFailed) return child.stopUnobserved ? [{ item: tmpDir, reason: 'run-daemon を止めたが終了を観測できなかった' }] : [];
     const left = removeOwnTmp(root, runId, nonce);
     return left ? [{ item: tmpDir, reason: left }] : [];
   };
@@ -133,7 +118,7 @@ export async function start(input, { cwd = process.cwd() } = {}) {
         await Promise.race([sleep(50), exited]);
         continue;
       case 'return_status': {
-        const st = readStatus(runDir);
+        const st = readStatusOf(runDir);
         if (!st) { await sleep(50); continue; }
         return { ok: true, status: st };
       }
@@ -144,7 +129,7 @@ export async function start(input, { cwd = process.cwd() } = {}) {
       case 'stop_child_and_reevaluate':
         // start は子の親で、子をまだ回収していないので pid は再利用されない。生死の判定によらずに group を止め、終了を待つ
         if (child.pid && !child.exited) killGroup(child.pid, 'SIGKILL');
-        await Promise.race([exited, sleep(5000)]);
+        await Promise.race([exited, sleep(START_STOP_WAIT_MS)]);
         if (!child.exited && !child.spawnFailed) child.stopUnobserved = true;
         continue;
       case 'return_launch_failure': {
@@ -153,10 +138,10 @@ export async function start(input, { cwd = process.cwd() } = {}) {
       }
       case 'e_busy':
         finishTmp();
-        return { ok: false, code: 'E_BUSY', reason: 'run の領域の保持者が生きているか、生死を判定できない', detail: { ...d.detail, run_dir: runDir } };
+        return busy(runDir, d.detail);
       case 'result_unreadable':
         finishTmp();
-        return { ok: false, code: 'E_RESULT_UNREADABLE', reason: 'result.json が公開されているが、読めないか結果の形に合わない', detail: { run_dir: runDir, path: join(runDir, 'result.json') } };
+        return unreadable(runDir);
       case 'salvage': {
         finishTmp();
         return salvage(runDir, { location });

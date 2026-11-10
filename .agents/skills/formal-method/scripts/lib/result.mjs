@@ -2,21 +2,21 @@
 // salvage の結果・作業記録は、時刻・pid・nonce を含まず、保存済みの範囲だけから決定的に作る。
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { canonicalJson, sha256Bytes } from './canonical.mjs';
 import { scanSecrets } from './secrets.mjs';
-import { AGENT_BATCH_DEADLINE_MS, TOOL_TIME_LIMIT_MAX_S, RESULT_SCHEMA, WORKLOG_SCHEMA, STAGES, INTERRUPT_CODES } from './schemas.mjs';
+import { AGENT_BATCH_DEADLINE_MS, MODEL_CHECK_KINDS, TOOL_TIME_LIMIT_MAX_S, RESULT_SCHEMA, WORKLOG_SCHEMA, STAGES } from './schemas.mjs';
 import { emptyPerformance, salvagePerformance } from './performance.mjs';
 import { readState } from './store.mjs';
 import { hashFile } from './storage.mjs';
-import { ledgerEntry } from './worklog.mjs';
+import { ledgerEntry, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
+import { reason, orderReasons, stopReport } from './stop-report.mjs';
 
 // 欠陥の残った分割を採らなかったときの decomposition.reason と decisions[].reason（artifact-formats.md「欠陥の残った分割」）
 export const PARTITION_REJECTED = '分割の欠陥が残った';
 
 export const INTERNAL_TIME_LIMITS = Object.freeze({ agent_batch_deadline_ms: AGENT_BATCH_DEADLINE_MS, tool_time_limit_max_s: TOOL_TIME_LIMIT_MAX_S, note: '内部の上限' });
 
-export const reason = (code, stage, detail, extra = {}) => ({ code, stage, request_code: extra.request_code ?? null, item: extra.item ?? null, field: extra.field ?? null, detail });
+export { reason, orderReasons, stopReport };
 
 export function emptyDecomposition(why) {
   return {
@@ -31,28 +31,6 @@ export function emptyScope(why) {
   return {
     targets: [], include: [], exclude: [], external_assumptions: [], unread: [],
     internal_time_limits: { ...INTERNAL_TIME_LIMITS }, extraction_coverage: { complete: false, reason: why },
-  };
-}
-
-const stopStageOf = (reasons) => {
-  const firstInterrupt = reasons.find((x) => INTERRUPT_CODES.includes(x.code));
-  if (firstInterrupt) return firstInterrupt.stage;
-  return [...reasons].sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage))[0].stage;
-};
-
-// 中断の理由を記録の順に先に並べる。
-export function orderReasons(reasons) {
-  return [...reasons.filter((x) => INTERRUPT_CODES.includes(x.code)), ...reasons.filter((x) => !INTERRUPT_CODES.includes(x.code))];
-}
-
-export function stopReport({ reasons, confirmed = [], unconfirmed = [], created = [], notCreated = [], running = [], aborted = [], questions = [], unsaved = [] }) {
-  const ordered = orderReasons(reasons);
-  return {
-    stage: stopStageOf(ordered), reasons: ordered,
-    confirmed_scope: confirmed, unconfirmed_scope: unconfirmed,
-    artifacts_created: created, artifacts_not_created: notCreated,
-    checks_running: running, checks_aborted: aborted,
-    questions, unsaved: [...new Set(unsaved.map((u) => u.kind))],
   };
 }
 
@@ -76,35 +54,37 @@ export function acceptanceStopResult({ code, detail, location, requestUnsaved = 
 
 // 結果か台帳に秘密値の型があって公開しないときの R'（cli-contract.md「run の領域の配置」の秘密値の走査）。
 // R の中身（性質・検査・理由の文など）を持たず、CLI が決めた ref と指紋と固定の理由だけで作る。値は診断にも残さない。
-export function secretStopResult(result, { location, why }) {
-  const unsavedOwn = [{ kind: 'ledger', ref: 'ledger.json', reason: why }, { kind: 'result', ref: 'result.json', reason: why }];
+// salvage も使う: ledgerName・ledgerKind は追補台帳、ownUnsaved は salvage の作業記録、leading は 処理の中断 の理由（固定の文）。
+export function secretStopResult(result, { location, why, ledgerName = 'ledger.json', ledgerKind = 'ledger', ownUnsaved = [], leading = [] }) {
+  const ownKinds = new Set([ledgerKind, 'result', ...ownUnsaved]);
+  const unsavedOwn = [...ownUnsaved.map((kind) => ({ kind, ref: kind === 'salvage_worklog' ? 'salvage-worklog.json' : null, reason: why })),
+    { kind: ledgerKind, ref: ledgerName, reason: why }, { kind: 'result', ref: 'result.json', reason: why }];
   const build = (saved, unsaved) => {
-    const reasons = [reason('保存の失敗', '集約', why), reason('記録の未保存', '集約', '保存できなかった記録がある')];
+    const reasons = [...leading, reason('保存の失敗', '集約', why), reason('記録の未保存', '集約', '保存できなかった記録がある')];
     return {
       schema: RESULT_SCHEMA, status: '停止', provisional: true,
       verified_scope: emptyScope(why), properties: [], checks: [], models: [], decomposition: emptyDecomposition(why),
       counterexamples: [], causes: [], confirmations: { deterministic: [], meaning: [] },
       unverified: [{ item: '結果の内容', reason: why }], questions: [],
-      records: { ledger_refs: ['ledger.json'], saved, unsaved },
+      records: { ledger_refs: [ledgerName], saved, unsaved },
       stop_report: stopReport({ reasons, created: saved.map((s) => ({ kind: s.kind, ref: s.ref })), unsaved }),
       performance: emptyPerformance(location, why),
     };
   };
-  const saved = result.records.saved.filter((s) => s.hash !== null).map((s) => ({ kind: s.kind, ref: s.ref, hash: s.hash }));
-  const unsaved = [...result.records.unsaved.filter((u) => u.kind !== 'ledger' && u.kind !== 'result').map((u) => ({ kind: u.kind, ref: u.ref, reason: '保存できなかった' })), ...unsavedOwn];
+  const saved = result.records.saved.filter((s) => s.hash !== null && !ownKinds.has(s.kind)).map((s) => ({ kind: s.kind, ref: s.ref, hash: s.hash }));
+  const unsaved = [...result.records.unsaved.filter((u) => !ownKinds.has(u.kind)).map((u) => ({ kind: u.kind, ref: u.ref, reason: '保存できなかった' })), ...unsavedOwn];
   const r = build(saved, unsaved);
   // ref にも型が当たるなら、記録の一覧も返さない
   return scanSecrets(canonicalJson(r)).length ? build([], unsavedOwn) : r;
 }
 
 // ---- salvage（cli-contract.md「salvage の手順」5） ----
-const DOC_RULES = fileURLToPath(new URL('../../references/document-rules.md', import.meta.url));
 
 // 適用した文書規約。state.json に無ければ今の規約の版で参照を作り、その写しが run の領域に無いことを unconfirmed で示す。
 function docRulesOf(runDir, state) {
   if (state && state.document_rules) return { rules: state.document_rules, note: null };
-  const version = sha256Bytes(readFileSync(DOC_RULES));
-  const ref = `document-rules/${version.slice(7)}.md`;
+  const version = sha256Bytes(readFileSync(DOC_RULES_PATH));
+  const ref = docRulesRefOf(version);
   let present = false;
   try { present = hashFile(join(runDir, ref)) === version; } catch { present = false; }
   return { rules: { ref, version }, note: present ? null : `state.json に適用した文書規約が無く、今の規約の写し ${ref} も run の領域に無い` };
@@ -185,6 +165,7 @@ import { pathsCheck, deriveDiagram } from './checks/model.mjs';
 import { correspondence as correspondenceOf } from './checks/compose.mjs';
 import { TRUNCATED } from './checks/det.mjs';
 import { noSuitableTool } from './adapters/index.mjs';
+import { argsFor, ID as Z3_ID } from './adapters/z3.mjs';
 
 const allHold = (confs) => confs.length > 0 && confs.every((c) => c.result === '成り立つ');
 const uniq = (xs) => [...new Set(xs)];
@@ -230,7 +211,7 @@ export function buildResult(run) {
     const stopped = end.stopped_by !== null;
     return {
       id: c.id, kind: c.kind, model_id: c.model_id, assumptions: [...c.assumptions], scope: c.scope,
-      unit: `z3 -in -T:${c.tool_time_limit_seconds}${c.kind === 'property' || c.kind === 'composition' ? ' -model' : ''} ← ${c.input_refs.join(' + ')}`,
+      unit: `${Z3_ID} ${argsFor({ tool_time_limit_seconds: c.tool_time_limit_seconds, with_model: MODEL_CHECK_KINDS.includes(c.kind) }).join(' ')} ← ${c.input_refs.join(' + ')}`,
       tool_time_limit: { seconds: c.tool_time_limit_seconds, source: '計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）' },
       state: end.started ? '実行した' : '実行していない', verdict, end, reason: checkReason(verdict, e, c),
       evidence_refs: [...(e?.inputRef ? [e.inputRef] : []), ...(e?.evidence ?? [])],
@@ -277,12 +258,20 @@ export function buildResult(run) {
     return { status: '検出能力未確認', mutations: [], reason: parts.join('。') };
   };
   const detections = new Map(props.map((p) => [p.id, detectionOf(p)]));
+  // 検査の欠け（artifact-formats.md「plan と mutations」）: 性質の各モデルの性質が、実行する kind: property の検査と sanity を 1 つ以上持つ。
+  // 欠けたモデルの性質が 1 つでも残れば、残りの検査が全て成功しても 検証済み にしない（問いに依存する性質と道具が無い性質は除く）
+  const planSanity = run.planSanity();
+  const checkGapOf = (pid) => {
+    if (!run.plan || run.blockedBy.has(pid) || noTool(pid)) return [];
+    return mpsOf(pid).filter((mp) => !planChecks.some((c) => c.kind === 'property' && c.target_id === mp) || !planSanity.some((x) => x.model_property_id === mp));
+  };
   // PropertyFacts（合成の条件を除く）
   const baseFacts = new Map();
   for (const p of props) {
     const mps = mpsOf(p.id);
     const sanityAll = (run.plan?.data.sanity ?? []).filter((s) => mps.includes(s.model_property_id));
     const sanityRemoved = sanityAll.some((s) => run.planDefects.has(s.id));
+    const gap = checkGapOf(p.id);
     const sanityConfs = run.confirmations.deterministic.filter((c) => c.kind === 'sanity' && mps.includes(c.model_property_id));
     const det = detections.get(p.id);
     baseFacts.set(p.id, {
@@ -292,7 +281,7 @@ export function buildResult(run) {
       depends_on_question: qDeps(p.id).length > 0,
       correspondence: p.formalizable ? mappingRows.some((r) => r.property_id === p.id && r.relation === '形式化') : true,
       meaning_confirmed: allHold(confsOf('fidelity', p.id)) && allHold(confsOf('assurance', p.id)),
-      deterministic_confirmed: allHold(sanityConfs) && !sanityRemoved,
+      deterministic_confirmed: allHold(sanityConfs) && !sanityRemoved && gap.length === 0,
       composition_applies: false, composition_confirmed: false,
       detection_performed: det.mutations.length > 0, detection_confirmed: det.mutations.length > 0 && det.mutations.every((m) => m.detected),
       alternative_confirmed: allHold(confsOf('nonformal', p.id)),
@@ -356,7 +345,7 @@ export function buildResult(run) {
       if (f.depends_on_question) why.push(`回答を待つ問い（${qDeps(p.id).join(', ')}）に依存する`);
       if (!f.correspondence) why.push('形式化 の対応が無い');
       if (p.formalizable && !f.meaning_confirmed) why.push('意味の確認（忠実さ・保証）が成り立たない');
-      if (p.formalizable && !f.deterministic_confirmed) why.push('前提の整合の確認が成り立たない');
+      if (p.formalizable && !f.deterministic_confirmed) why.push(checkGapOf(p.id).length ? `検査か前提の整合の確認が欠けたモデルの性質がある（${checkGapOf(p.id).join(', ')}）` : '前提の整合の確認が成り立たない');
       if (f.composition_applies && !f.composition_confirmed) why.push('合成の条件が成り立たない');
       if (f.detection_performed && !f.detection_confirmed) why.push('変異の検出が成り立たない');
       if (!p.formalizable && !f.alternative_confirmed) why.push('別の方法による独立した確認が成り立たない');

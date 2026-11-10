@@ -239,9 +239,9 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 保存の直前に秘密値の形を走査し、見つかれば書かない。走査の型（秘密鍵など誤検知の少ない 4 つ）の閉じた集合と、対象の写しを走査しないこと（依頼者の決定）の正本は `cli-contract.md`。
 - **状態**: `state.json` は `run-daemon` が rename で置き換える。保存済みの範囲は、rename が終わった `state.json` だけで決まる。
 - **run の領域の作成と lock**（引き渡しを持たない）:
-  1. `run-daemon` は、一時の名前（`<root>/.tmp-<run_id>-<nonce>/`）にディレクトリを作る。
-  2. その中に `run.lock` を排他作成する。
-  3. ディレクトリを最終の名前へ rename する。
+  1. `start` が、一時の名前（`<root>/.tmp-<run_id>-<nonce>/`）にディレクトリを作り、`request.input.json` を書く（`.tmp-*` を作るのは `start` だけ。`cli-contract.md` の構造の契約）。
+  2. `run-daemon` が、その中に `run.lock` を排他作成する。
+  3. `run-daemon` が、ディレクトリを最終の名前へ rename する。
   - これで、run の領域は、lock を持った状態でだけ現れる。lock の無い run の領域が見える時点が無いので、salvage が入る隙間も無い。
   - lock の中身は、保持者の識別（pid、OS が報告する process の開始時刻、乱数の nonce）と役（`run-daemon`）である。
   - 消すのは `run-daemon` 自身が、自分の nonce が書かれていることを確かめてからだけである。消す関数は `lib/store.mjs` の `releaseOwnLock` の 1 つに限る。他の process は、どんな条件でも lock を消さない、奪わない、上書きしない。
@@ -268,9 +268,9 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 結果の中では、結果のファイル自身と台帳を参照だけで持ち、指紋を持たせない（指紋が循環するため）。
   - `status.json` は記録に数えない。client への受け渡しの口なので、書けなければ `run-daemon` は終わり、salvage が結果を返す。
 - **ホストに殺されたとき**:
-  - `run-daemon` は自分の process group で動き、道具の process group を `children/` に記録してから起動する（旧 `writeChildRecord` を流用）。
+  - `run-daemon` は自分の process group で動き、道具の process group を起動し、標準入力（query）を渡す前に `children/` に記録する（旧 `writeChildRecord` を流用。記録できなければ入力を渡さずに止め、起動の失敗とする。正本は `cli-contract.md` の Z3 の adapter）。
   - 前景の CLI がホストに殺されても、状態を書く者ではないので何も壊れない。
-  - `run-daemon` が殺されたら lock が残り、`wait` は保持者の終了を観測して `E_STALE` を返す。salvage の規則 6 が、残った道具の process を止める。
+  - `run-daemon` が殺されたら lock が残り、`wait` は保持者の終了を観測して `E_STALE` を返す。salvage の規則 5-1 が、残った道具の process を止める。
   - 道具は検査ごとの時間の上限（`-T`）を持つので、回収されなくても有限の時間で終わる。
 - **担当の書込み範囲**: 担当は Workflow の `workspace-write` で動き、ホストの権限で書込みの範囲を分けていない。
   - `run-daemon` は、attempt の領域の外のファイルを成果物として登録しない。
@@ -281,7 +281,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - run の領域の作成の手順（一時の名前 → lock → rename）
   - 保持者の生死の判定
   - salvage の印の確認
-  - salvage の規則 1〜6
+  - salvage の規則 1〜5
   - 起動の手順（起動の失敗、rename の前後の crash、遅い `run-daemon` の扱い、`.tmp-*` の扱い）
   - 受け箱の公開の手順
 
@@ -374,7 +374,7 @@ ExecutionSpec = {
 }
 ExecutionIo = {                            // 作用の境界。本番は node の timer・adapter の execute・停止の関数、テストは差し替える
   clock: { now(): int, setTimer(at_ms: int, cb: () => void): unknown, clearTimer(handle: unknown): void },
-  spawn(execution: ExecutionSpec): ProcessHandle,   // 本番は group を作り children/ に記録して起動する
+  spawn(execution: ExecutionSpec): ProcessHandle,   // 本番は group を作って起動し、標準入力を渡す前に children/ に記録する
   signal: AbortSignal                      // 停止の要求。scheduler の停止の関数が abort する
 }
 ProcessHandle = {
@@ -726,7 +726,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 |---|---|---|
 | 4 つのコマンドの入力・出力・終了コード（0 成功、1 拒否、2 契約の誤り）と誤りの code（`E_INPUT`・`E_BUSY`（役付き）・`E_STALE`・`E_CONTRACT`） | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担) |
 | `status.json` の形（`seq` は 1 から、`action` の 3 種、`daemon` の識別）と、`start` の `working` の `status_seq: 0` | `cli-contract.md`・`schemas.mjs` | 同上 |
-| 起動の手順、受け箱の公開、salvage の規則 1〜6、salvage の印、結果と台帳の保存の失敗の表、生死の判定 | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担)、[保存と排他](#保存と排他) |
+| 起動の手順、受け箱の公開、salvage の規則 1〜5、salvage の印、結果と台帳の保存の失敗の表、生死の判定 | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担)、[保存と排他](#保存と排他) |
 | run の領域の配置: `run.lock`・`state.json`・`status.json`・`inbox/`・`batches/<batch_id>/tasks.json`・`attempts/<task_id>/`（`task.md`・`return.json`・作業記録・成果物）・`checks/<id>/`・`children/`・`result.json`・`report.md`・`ledger.json`・`salvage.mark`・`salvage-ledger.json`・`document-rules/`、root の `index/<run_id>.json` と `.tmp-<run_id>-<nonce>/` | `cli-contract.md` | [保存と排他](#保存と排他) |
 | 構造の契約: `run.lock` を消すのは `scripts/lib/store.mjs` の `releaseOwnLock` だけで、nonce の照合の後にだけ消す | `cli-contract.md` | [保存と排他](#保存と排他) |
 | 結果の形（キーの言語、全ての欄、`properties[]`・`models[].behavior`・`decomposition`・`confirmations`・`records`・`stop_report`・`performance`） | `schemas.mjs`（`RESULT`）・`cli-contract.md` | [結果の構造](#結果の構造)、[依存グラフと合成](#依存グラフと合成)、[性能の記録・比較・改善](#性能の記録比較改善) |
@@ -780,7 +780,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | adapt | `stages.mjs` の fetchTarget と文書規約の固定 | `lib/intake.mjs` に移す |
 | adapt | `formal-method-cli.mjs` の main と probeEnvironment | コマンドを作り直す。能力の確認を、run の領域を作る前に行う |
 | adapt | Workflow script、agents の 8 文書、`agent-obligations.md`、`artifact-formats.md`、`formal-method-knowledge.md` | 参照する仕様の ID と値を直す。形の正本を `schemas.mjs` にする。旧状態機械の語を消す。counterexample-analyst は原因の分類役（反例・組合せ・問い）に作り直す |
-| 新規 | `lib/run.mjs`（段の進行の決定）、`lib/store.mjs`（排他・状態の保存・salvage）、`lib/daemon.mjs`（`run-daemon` の入口と受け箱・status の処理）、`lib/performance.mjs`（記録、候補の比較の条件の照合、改善の候補）、`lib/worklog.mjs`（CLI の作業記録と台帳）、`lib/checks/compose.mjs`、`references/document-rules.md`（規約の同梱の写し） | この文書の各節 |
+| 新規 | `lib/run.mjs`（段の進行の決定）、`lib/store.mjs`（排他・状態の保存・salvage）、`lib/daemon.mjs`（`run-daemon` の入口・段の呼出し・集約。受け箱の読込みは `lib/agents.mjs`、`status.json` の書込みは `lib/run.mjs`）、`lib/publish.mjs`（`publishResult`。結果と台帳の公開）、`lib/start.mjs`（`start` の手順、`decideStartOutcome`・`removeOwnTmp`・`removeProbeDir`）、`lib/client.mjs`（`submit`・`wait`・`salvage` の client の処理）、`lib/performance.mjs`（記録、候補の比較の条件の照合、改善の候補）、`lib/worklog.mjs`（CLI の作業記録と台帳）、`lib/checks/compose.mjs`、`references/document-rules.md`（規約の同梱の写し） | この文書の各節 |
 | drop | `lib/state-table.mjs`、`lib/spec-table.mjs`、`lib/halts.mjs`、`lib/restart.mjs`、controller の制御の本体、`stages.mjs` の段の進行・修正・再開・回収・後着、`storage.mjs` の所有札・lease・lock・イベントの鎖、`checks/plan.mjs` の reuseKey・reuseCheck、`references/cli-contract.md`（作り直す）、evals の id 1、`formal-method-cli.test.mjs`、`tests/formal/formal-method-skill/` の旧モデル一式 | 消す。検査の観点は [検証計画](verification-plan.md) が引き継ぐ |
 
 ## 作る物の分担

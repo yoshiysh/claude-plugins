@@ -4,7 +4,8 @@ import { sha256Bytes } from '../canonical.mjs';
 import { Inventory, parseSpan, validate } from '../schemas.mjs';
 import { defect, linesOf, readRunText } from './common.mjs';
 
-export function coverageCheck(runDir, inv, target) {
+// otherPropertyIds: 他の対象の inventory の性質の id → その対象の id（性質の id は run の全ての inventory を通して一意）
+export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map() } = {}) {
   const shapeErrs = validate(Inventory, inv);
   if (shapeErrs.length) return [defect('syntax', 'inventory-shape', `inventory の形に合わない: ${shapeErrs.slice(0, 3).join('; ')}`)];
   const out = [];
@@ -32,6 +33,7 @@ export function coverageCheck(runDir, inv, target) {
   for (const e of inv.elements) {
     if (ids.has(e.id)) out.push(defect('other', `element-dup:${e.id}`, `要素の id ${e.id} が重なる`));
     ids.add(e.id);
+    if (e.source.target_id !== target.id) { out.push(defect('reference', `element-target:${e.id}`, `要素 ${e.id} の出所の target_id ${e.source.target_id} がこの inventory の対象 ${target.id} でない`)); continue; }
     const f = target.files.find((x) => x.path === e.source.file);
     const t = f && f.text ? text(f.path) : null;
     const s = parseSpan(e.source.span);
@@ -41,7 +43,19 @@ export function coverageCheck(runDir, inv, target) {
     const quote = lines.slice(s.from - 1, s.to).join('\n');
     if (sha256Bytes(Buffer.from(quote, 'utf8')) !== e.source.quote_hash) out.push(defect('other', `element-quote:${e.id}`, `要素 ${e.id} の quote_hash が出所の行と一致しない`));
   }
+  // 外の依存の出所も、この対象の中の実在する行を指す
+  for (const d of inv.external_dependencies) {
+    if (d.source === null) continue;
+    const f = d.source.target_id === target.id ? target.files.find((x) => x.path === d.source.file) : null;
+    const t = f && f.text ? text(f.path) : null;
+    const s = parseSpan(d.source.span);
+    if (t === null || !s || s.to > linesOf(t).length) out.push(defect('reference', `external-source:${d.id}`, `外の依存 ${d.id} の出所が対象 ${target.id} の行に無い`));
+  }
+  const propIds = new Set();
   for (const p of inv.properties) {
+    if (propIds.has(p.id)) out.push(defect('other', `property-dup:${p.id}`, `性質の id ${p.id} が重なる`));
+    else if (otherPropertyIds.has(p.id)) out.push(defect('other', `property-dup:${p.id}`, `性質の id ${p.id} が対象 ${otherPropertyIds.get(p.id)} の inventory の性質と重なる`));
+    propIds.add(p.id);
     for (const s of p.source_ids) if (!ids.has(s)) out.push(defect('reference', `property-source:${p.id}:${s}`, `性質 ${p.id} の出所 ${s} が要素に無い`));
     if (!p.formalizable && p.nonformal_reason === null) out.push(defect('other', `property-nonformal:${p.id}`, `形式化できない性質 ${p.id} に理由が無い`));
   }

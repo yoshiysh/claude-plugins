@@ -97,6 +97,9 @@ export function runExecution(execution, io) {
       clearTimer();
       const stdout = concatBytes(outChunks, outLen);
       const stderr = concatBytes(errChunks, errLen);
+      // 起動できなかった実行（startFailure）は、道具の異常終了でなく始めていない実行とし、原因を持たせる
+      const failure = proc.startFailure ?? null;
+      if (failure) { resolve({ ...base, end: { ...NOT_STARTED_END }, stdout, stderr, exit_code: exitCode, model_cut: 'none', start_failure: failure }); return; }
       const end = decided ?? decodeEnd({ stdout, exit_code: exitCode, with_model: execution.with_model, expected: execution.expected });
       resolve({ ...base, end, stdout, stderr, exit_code: exitCode, model_cut: modelCut });
     });
@@ -107,7 +110,8 @@ export function runExecution(execution, io) {
 
 // 実行の一覧を、依存（depends_on）と同時に動かす数の上限の下で動かす。依存先が 成功 でない実行は始めずに始めていない終わり方とする（D1）。
 // executions: [{ spec: ExecutionSpec, depends_on: [execution_id] }]、makeIo(spec) → ExecutionIo、onDone(outcome) は終わるたびに呼ぶ。
-// 依存が循環して始められない実行は、依存先が 成功 でないものと同じく始めない（not_started_reason: 'dependency'）。
+// 依存が循環して始められない実行と、一覧に無い依存先（欠陥で除いた検査・query を読めず始めなかった実行）を持つ実行は、
+// 依存先が 成功 でないものと同じく始めない（not_started_reason: 'dependency'）。
 // 実行の起動が投げたら（reject）、以後は始めずに、その誤りで返り値の Promise をすぐ reject する（動いている実行を止めるのは呼び手）。
 export async function runExecutions(executions, { makeIo, onDone = null, signal }) {
   const byId = new Map(executions.map((x) => [x.spec.execution_id, x]));
@@ -130,9 +134,10 @@ export async function runExecutions(executions, { makeIo, onDone = null, signal 
       while (progressed) {
         progressed = false;
         for (const [id, x] of waiting) {
+          const absent = x.depends_on.some((d) => !byId.has(d));
           const deps = x.depends_on.filter((d) => byId.has(d));
-          if (deps.some((d) => !outcomes.has(d))) continue;
-          if (deps.some((d) => verdictOf(d) !== '成功') || signal?.aborted) {
+          if (!absent && deps.some((d) => !outcomes.has(d))) continue;
+          if (absent || deps.some((d) => verdictOf(d) !== '成功') || signal?.aborted) {
             waiting.delete(id);
             finish(id, notStarted(id, signal?.aborted ? 'aborted' : 'dependency'));
             progressed = true;

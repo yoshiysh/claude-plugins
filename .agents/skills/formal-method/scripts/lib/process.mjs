@@ -52,20 +52,26 @@ function sample(pid) {
 }
 
 // 道具を起動して ProcessHandle を返す（architecture.md「scheduler の unit の入口」）。stats は終わった後に読む資源の記録。
+// 道具（z3 -in）は標準入力の query を読むまで何もしないので、children/<pgid>.json を記録してから標準入力を渡す。記録できなければ
+// 入力を渡さずに group を止め、起動の失敗とする。起動そのものの失敗（spawn の error）も起動の失敗で、startFailure に原因を持つ。
 export function spawnTool({ executable, args, stdin, runDir }) {
   const child = spawn(executable, args, { env: {}, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
   const pgid = child.pid;
   const stats = { peak_rss_bytes: null, cpu_time_ms: null, sampled: false, started_hr: process.hrtime.bigint(), elapsed_ms: null };
   const closeCbs = [];
   let closed = false;
+  let startFailure = null;
   if (pgid) {
     const startedAt = startTimeOf(pgid) ?? UNKNOWN_START_TIME;
     try {
       mkdirSync(join(runDir, 'children'), { recursive: true });
       atomicWrite(join(runDir, 'children', `${pgid}.json`), JSON.stringify({ pgid, started_at: startedAt }));
-    } catch { /* 記録できなくても道具は -T で有限の時間で終わる */ }
+    } catch (e) {
+      startFailure = `道具の process group を children/ に記録できない（${e.code ?? e.message}）`;
+      killGroup(pgid, 'SIGKILL');
+    }
   }
-  let sampling = Boolean(pgid);
+  let sampling = Boolean(pgid) && startFailure === null;
   (async () => {
     while (sampling) {
       const s = await sample(pgid);
@@ -78,9 +84,11 @@ export function spawnTool({ executable, args, stdin, runDir }) {
     }
   })();
   child.stdin.on('error', () => { /* 道具が入力を読まずに終わった */ });
-  child.stdin.end(stdin);
-  let spawnError = null;
-  child.on('error', (e) => { spawnError = e; if (!pgid) finish(null); });
+  if (startFailure === null) child.stdin.end(stdin); else child.stdin.destroy();
+  child.on('error', (e) => {
+    if (startFailure === null) startFailure = `道具を起動できない（${e.code ?? e.message}）`;
+    if (!pgid) finish(null);
+  });
   const finish = (code) => {
     if (closed) return;
     closed = true;
@@ -92,7 +100,7 @@ export function spawnTool({ executable, args, stdin, runDir }) {
   child.on('close', (code) => finish(code));
   return {
     stats,
-    get spawnError() { return spawnError; },
+    get startFailure() { return startFailure; },
     onStdout: (cb) => child.stdout.on('data', (c) => cb(new Uint8Array(c))),
     onStderr: (cb) => child.stderr.on('data', (c) => cb(new Uint8Array(c))),
     onClose: (cb) => { closeCbs.push(cb); },

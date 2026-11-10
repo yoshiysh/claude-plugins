@@ -402,7 +402,7 @@ Contract = {
   5. 候補の中のノードは id のバイト列の辞書順に並べる。候補は、最小のノードの id の辞書順に並べ、順に `C1`・`C2`… と名付ける。
   6. `strength_to` は、候補の組ごとに、両端がそれぞれの候補にある `graph.edges` の数（向きと `kind` を問わない）。0 の組は載せない。`strength_to` の並びは `candidate_id` の辞書順。
   - 候補の id とノードは、この手順だけで決まる。別の実装が同じ `graph` に当て直すと、同じ `candidates` になる。
-- **欠陥の残った分割**: 修正の巡の後も分割の照合の欠陥が残った `PartitionsFile` は採らない。結果の `decomposition` は分割しなかったときの形（`adopted: false`、`parts`・`boundaries`・`contracts`・`composition_conditions` は `[]`）で、`reason` は「分割の欠陥が残った」、`decisions` は CLI が導いた候補ごとに `adopted: false` と理由「分割の欠陥が残った」を持つ。計画作成役には分割の無いモデルだけを渡す。残った欠陥は、計画の段の作業記録と `syntax`・`reference` の確認に写る。理由: 欠陥の残った境界・契約（実在しない `responsible` など）を結果に載せると、集約の照合で参照が欠け、`内部の誤り` になる。分割を採らないので、親の性質は全体のモデルの検査だけで判定し、その条件（[aggregateProperty](#aggregatepropertyfacts--verdict) の段 2）が全て成り立てば `検証済み` になりうる。理由: SP-009 の条件は分割したときの規則で、採らなかった分割の欠陥は全体のモデルの検査の正しさに関わらない。欠陥が残ったことは `syntax`・`reference` の確認（区分が `other` なら計画の段の作業記録）に残り、`syntax`・`reference` が `成り立たない` なら run は `確認が終わっていない` で `停止` する。
+- **欠陥の残った分割**: 修正の巡の後も分割の照合の欠陥が残った `PartitionsFile` は採らない。結果の `decomposition` は分割しなかったときの形（`adopted: false`、`parts`・`boundaries`・`contracts`・`composition_conditions` は `[]`）で、`reason` は「分割の欠陥が残った」、`decisions` は CLI が導いた候補ごとに `adopted: false` と理由「分割の欠陥が残った」を持つ。計画作成役には分割の無いモデルだけを渡す。残った欠陥は、計画の段の作業記録と `syntax`・`reference` の確認に写る。理由: 欠陥の残った境界・契約（実在しない `responsible` など）を結果に載せると、結果の中の参照が [id と参照の一覧](#id-と参照の一覧)の実在の規則に反する。分割を採らないので、親の性質は全体のモデルの検査だけで判定し、その条件（[aggregateProperty](#aggregatepropertyfacts--verdict) の段 2）が全て成り立てば `検証済み` になりうる。理由: SP-009 の条件は分割したときの規則で、採らなかった分割の欠陥は全体のモデルの検査の正しさに関わらない。欠陥が残ったことは `syntax`・`reference` の確認（区分が `other` なら計画の段の作業記録）に残り、`syntax`・`reference` が `成り立たない` なら run は `確認が終わっていない` で `停止` する。
 - **分割の照合の境界**: `Boundary.responsible` の各 id が同じ分割の `contracts[].id` に無いか、その契約の `part_id` が `Boundary.producer` と等しくなければ欠陥とする（保証を確かめる責任は、保証する側の部分の契約が負う。SP-009）。`assumption_basis.kind` が `共同不変条件` なら欠陥とする（今の版では受け付けない）。理由: 共同不変条件の検査は分割作成役の後に計画作成役が作るので、分割の段では id を決められず、その検査を誰がどの id で作るかの契約も無い。受け付けると、確かめていない前提で親の性質が `検証済み` になりうる（SP-009）。そのため前提の循環は常に欠陥になる。
 - 親の性質（inventory の性質）が `検証済み` になるのは、それを `inventory_property_ids` に含むモデルの性質を `derived_from` に持つ合成の条件の全てが検査（`Check.kind: "composition"`）を 1 件以上持ってそれが全て成功し、`contracts` が全て `検証済み`、`assumption_basis` に `確認できない前提` が無く、`correspondence.unmatched` が空のときだけである（SP-009）。
 
@@ -720,6 +720,7 @@ StateMachine = {
 }
 ```
 
+- `goals[].property_id` は、同じ `ModelFile` の `properties[].id` に実在する参照である。モデル化の照合で確かめ、無ければ `reference` の区分の欠陥（修正の巡の対象）とする。対象外として飛ばさない。理由: 目標への経路は、その性質の検査で確かめる（`Paths.targets[].property_id`）。指す性質が無い目標を飛ばすと、確かめていない目標が結果から消える。修正の巡の後も残れば、その目標は `Paths.targets` に載せず、`Paths.unverified` に理由「目標の性質が無い」で載せる。
 - query のファイル（`.smt2`）は、[担当の成果物](#担当の成果物)の `.smt2` の規則に従う。性質の query は「前提と性質の否定」で `expected: "unsat"`、sanity の query は `sat` を期待する。SMT の記号の名前は `variables[].id` と同じにする。
 
 ### mapping（モデル作成役）

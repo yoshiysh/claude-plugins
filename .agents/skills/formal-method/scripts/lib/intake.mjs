@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { fileURLToPath } from 'node:url';
 import { sha256Bytes } from './canonical.mjs';
 import { atomicWrite } from './storage.mjs';
+import { linesOf } from './checks/common.mjs';
 
 const cmpBytes = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 const DECODER = new TextDecoder('utf-8', { fatal: true });
@@ -15,14 +16,8 @@ export function isText(bytes) {
   try { DECODER.decode(bytes); return true; } catch { return false; }
 }
 
-// 行の数（\n で分け、最後の空の要素は数えない。空のファイルは 0）。
-export function lineCount(bytes) {
-  if (bytes.length === 0) return 0;
-  const text = Buffer.from(bytes).toString('utf8');
-  const parts = text.split('\n');
-  if (parts[parts.length - 1] === '') parts.pop();
-  return parts.length;
-}
+// 行の数。行の数え方の正本は checks/common.mjs の linesOf（Span の行の規則）。
+export const lineCount = (bytes) => linesOf(Buffer.from(bytes).toString('utf8')).length;
 
 export function collectionHash(files) {
   return sha256Bytes(Buffer.from(files.map((f) => `${f.path}\0${f.content_hash}\n`).join(''), 'utf8'));
@@ -137,6 +132,8 @@ function fetchRevision(t, path, resolvedLocation) {
     let r = isDirectory ? (rel ? full.slice(rel.length + 1) : full) : basename(full);
     if (!r) r = basename(full);
     if (r.split('/').includes('.git')) continue;
+    // submodule（gitlink）の中身はこの版の tree に無いので、読めない箇所として挙げる
+    if (type === 'commit') { unread.push({ file: `${r}/`, reason: 'submodule（gitlink）の中身は版の tree に無いのでたどらない' }); continue; }
     if (type !== 'blob') continue;
     if (mode === '120000') { unread.push({ file: r, reason: 'symbolic link はたどらない' }); continue; }
     let bytes = null;

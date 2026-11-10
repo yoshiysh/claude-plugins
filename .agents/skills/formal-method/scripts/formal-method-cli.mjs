@@ -8,7 +8,7 @@ import { submit, wait } from './lib/client.mjs';
 import { salvage } from './lib/store.mjs';
 import { runDaemon } from './lib/daemon.mjs';
 import { locationFromEnv } from './lib/performance.mjs';
-import { ID_RE } from './lib/schemas.mjs';
+import { ERROR_CODES, ID_RE } from './lib/schemas.mjs';
 
 const COMMANDS = ['start', 'submit', 'wait', 'salvage'];
 
@@ -17,7 +17,10 @@ function emit(value, code) {
 }
 
 const contractError = (reason) => emit({ ok: false, code: 'E_CONTRACT', reason }, 2);
-const reject = (command, code, reasonText, detail = null) => emit({ ok: false, command, code, reason: reasonText, detail }, 1);
+// 拒否の code は閉じた集合（ERROR_CODES）。集合に無い code は CLI の内部の誤りとして返す
+const reject = (command, code, reasonText, detail = null) => (ERROR_CODES.includes(code)
+  ? emit({ ok: false, command, code, reason: reasonText, detail }, 1)
+  : emit({ ok: false, command, code: 'E_INTERNAL', reason: `未知の誤りの code ${code}: ${reasonText}`, detail: null }, 1));
 
 function readStdin() {
   return new Promise((resolve, reject2) => {
@@ -80,7 +83,10 @@ async function main() {
   emit({ ok: true, command, ...rest }, 0);
 }
 
+// 捕まえていない例外も、終了コード 1 と 1 つの JSON で返す（cli-contract.md「誤りと終了コード」の E_INTERNAL）。
 main().catch((e) => {
   process.stderr.write(`formal-method-cli: ${e && e.stack ? e.stack : e}\n`);
-  process.exit(3);
+  const command = COMMANDS.includes(process.argv[2]) && process.argv.length === 3 ? process.argv[2] : null;
+  const text = String(e && e.message ? e.message : e).slice(0, 300) || '予期しない誤り';
+  emit({ ok: false, command, code: 'E_INTERNAL', reason: `CLI の処理が予期しない誤りで続けられない: ${text}`, detail: null }, 1);
 });

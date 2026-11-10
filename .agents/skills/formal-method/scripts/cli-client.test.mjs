@@ -2,9 +2,9 @@
 // 正本: cli-contract.md「コマンド」「受け箱」「生死の判定」「salvage の手順」「誤りと終了コード」。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { cli, cliEnv, expectOk, expectRejected, makeWorkspace, removeTree } from './test-fixtures/cli-runner.mjs';
+import { cli, cliEnv, expectOk, expectRejected, makeWorkspace, removeTree, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import {
   deadIdentity, liveIdentity, reusedIdentity, makeRunDir, writeLock, writeStatus, statusOf, snapshotTree,
   sampleResult, ledgerFor,
@@ -224,6 +224,22 @@ for (const [name, input, content] of INBOX_FORMS) {
     assert.deepEqual(readdirSync(dir).sort(), ['inbox'], '受け箱の外を書かない（status.json が無くても公開する）');
   });
 }
+
+test('cli-contract 誤りと終了コード E_INTERNAL: inbox が書込み不可で submit が予期しない I/O の誤りになると、終了コード 1 で、標準出力は code E_INTERNAL・detail null の拒否の JSON 1 つ', async (t) => {
+  if (skipIfRoot(t)) return;
+  const ws = makeWorkspace();
+  const { dir } = makeRunDir(ws);
+  mkdirSync(join(dir, 'inbox'));
+  chmodSync(join(dir, 'inbox'), 0o555);
+  t.after(() => { try { chmodSync(join(dir, 'inbox'), 0o755); } catch { /* 消し済み */ } removeTree(ws); });
+  const r = await cli('submit', { run_dir: dir, batch_id: 'b1', timed_out: true }, { cwd: ws });
+  assert.equal(r.code, 1, `終了コードは 0・1・2 の閉じた集合の 1（stderr: ${r.stderr.slice(0, 500)}）`);
+  assert.equal(r.lines, 1, '標準出力は JSON 1 つ');
+  const j = expectRejected(r, 'E_INTERNAL');
+  assert.equal(j.command, 'submit');
+  assert.equal(j.detail, null);
+  assert.deepEqual(readdirSync(join(dir, 'inbox')), [], '受け箱は公開されない');
+});
 
 test('cli-contract 受け箱 準正常: 同じ batch の 2 回目の submit は、内容が違っても何も変えずに duplicate を返す', async (t) => {
   const ws = makeWorkspace();

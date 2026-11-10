@@ -1,7 +1,7 @@
 // run-daemon の入口（cli-contract.md「呼び方と入力の口」「起動の手順」4、「結果と台帳の保存の失敗」）。
 // 一時の領域に run.lock を排他作成して最終の名前へ rename し、status.json を seq 1 で書いてから依頼を検査する。
 // state.json・status.json・result.json・ledger.json を書く直前に毎回 salvage.mark を確かめ、あれば何も書かずに終わる。
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { atomicWrite } from './storage.mjs';
 import { createLock, publishRunDir, releaseOwnLock, salvageMarked, SalvagedError } from './store.mjs';
@@ -17,7 +17,8 @@ import { canonicalJson } from './canonical.mjs';
 export async function runDaemon({ runId, nonce, tmpDir }) {
   if (basename(tmpDir) !== `.tmp-${runId}-${nonce}` || !/^[A-Za-z0-9._-]+$/.test(runId) || !/^[0-9a-f]+$/.test(nonce)) process.exit(2);
   const root = dirname(tmpDir);
-  const workspace = resolve(root, '..', '..');
+  // workspace は start を呼んだ process の現在のディレクトリ（cli-contract.md「呼び方と入力の口」）。start はそれを cwd にして起動する
+  const workspace = process.cwd();
   const identity = { pid: process.pid, started_at: startTimeOf(process.pid) ?? UNKNOWN_START_TIME, nonce };
   try { createLock(tmpDir, identity); } catch { process.exit(1); }
   let runDir;

@@ -72,9 +72,10 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | `E_INPUT` | コマンドの入力の JSON が上の表の形に合わない（`run_dir` のキーが無いか文字列でない場合を含む）、又は `run_dir` のディレクトリが無い。`detail` は `{"reason": "shape" \| "run_dir_not_found"}` | 何も書かない |
 | `E_BUSY` | `salvage` か、`start` が起動の手順の 5-1 で salvage と同じ規則を当てたときに、`run.lock` の保持者（役 `run-daemon`）か `salvage.mark` の勝者（役 `salvage`）が生きているか、生死を判定できない。`detail` は `{"holder_role": "run-daemon" \| "salvage", "liveness": "alive" \| "unknown", "run_dir": string}` | 何も書かない |
 | `E_STALE` | `wait` で、`run.lock` の保持者が終わったが、`status.json` が `terminal` でない | 何も書かない |
-| `E_RESULT_UNREADABLE` | `result.json` が公開されているが、読めないか [結果](artifact-formats.md#結果result)の形に合わない。場面は次の全て: `salvage` の規則 2、`start` の 5-1、`run-daemon` と salvage の結果の公開の負け（`lost_unreadable`）、追補台帳の公開の失敗の後の確かめ、自分の link の後の再読込で中身が違い形に合わない場合（`reread_mismatch`）。`detail` は `{"run_dir": string, "path": string}` | この誤りを返すと決めた後は何も書かない。ただし公開の負けと `reread_mismatch` の場面では、それまでに済ませた作用（`salvage.mark`・`salvage-worklog.json`・追補台帳の公開、子の process group の停止、自分の `result.json` の link）は取り消さずに残る。run の結果はそのファイルだけで、別の結果を作らない |
+| `E_INTERNAL` | CLI の処理が予期しない誤り（捕まえていない例外。I/O の誤りを含む）で続けられない。`detail` は `null`。終了コードは 1 で、標準出力は上の拒否の形の JSON 1 つ | それまでに済ませた作用は取り消さずに残りうる。run の結果は作らない |
+| `E_RESULT_UNREADABLE` | `result.json` が公開されているが、読めないか [結果](artifact-formats.md#結果result)の形に合わない。場面は次の全て: `salvage` の規則 2、`start` の 5-1、`run-daemon` と salvage の結果の公開の負け（`lost_unreadable`）、追補台帳の公開の失敗の後の確かめ、自分の link の後の再読込で中身が違い形に合わない場合（`reread_mismatch`）。`detail` は `{"run_dir": string, "path": string}` | この誤りを返すと決めた後は何も書かない。ただし公開の負け・追補台帳の公開の失敗の後の確かめ・`reread_mismatch` の場面では、それまでに済ませた作用（`salvage.mark`・`salvage-worklog.json`・追補台帳の公開、子の process group の停止、自分の `result.json` の link）は取り消さずに残る。run の結果はそのファイルだけで、別の結果を作らない |
 
-拒否は作用の前に起こる。拒否で run の状態は変わらない。例外は `E_RESULT_UNREADABLE` の、公開の負けと `reread_mismatch` の場面で、上の表のとおり先に済ませた作用が残る。理由: 結果の公開を試すまで、既にある結果が読めないことは分からない。
+拒否は作用の前に起こる。拒否で run の状態は変わらない。例外は `E_RESULT_UNREADABLE` と `E_INTERNAL` である。`E_RESULT_UNREADABLE` の、公開の負け・追補台帳の公開の失敗の後の確かめ・`reread_mismatch` の場面では、上の表のとおり先に済ませた作用が残る。理由: 結果の公開を試すまで、既にある結果が読めないことは分からない。`E_INTERNAL` は、予期しない誤りがどの作用の後に起きるかを前もって決められないので、それまでの作用が残りうる。終了コードを 0・1・2 の閉じた集合に保つため、捕まえていない例外も 1 つの JSON で返す。
 
 司令塔の対応の正本は SKILL.md である（各 code と出力が JSON でないときは [誤りと止まり方](../SKILL.md#誤りと止まり方)、仮の結果の提示は [結果の提示](../SKILL.md#結果の提示)、timeout の明示は [CLI の呼び方と timeout](../SKILL.md#cli-の呼び方と-timeout)）。
 
@@ -107,7 +108,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 1. **入力の形**: 標準入力が `{"request": <JSON の値>}` の形か（`request` があるか）だけを見る。無ければ `E_INPUT`。`request` の中身は見ない。
 2. **保存先の能力の確認**: 保存先の root（`<workspace>/.formal-method/runs/`）に一時のディレクトリ（名前は `.probe-<nonce>/`。`.tmp-*` とは別の形）を作り、ファイルの書込み・fsync・ディレクトリの fsync を試し、作ったものを消す。
    - できなければ、`run-daemon` を起動せずに、受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、`daemon: null`）。停止の理由は `保存の失敗`。`records.saved` は空、`records.unsaved` に結果のファイル自身を含む全ての記録と理由を載せる（AC-13）。
-3. **起動**: `run_id`（UTC の時刻と乱数）と nonce を作る。`.tmp-<run_id>-<nonce>/` を作り、`request` を `request.input.json` に書いて fsync する。書く直前に[秘密値の走査](#run-の領域の配置)の型で走査し、見つかれば書かずに一時の領域を消し、`run-daemon` を起動せずに受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、停止の理由は `保存の失敗`、`records.unsaved` に依頼と全ての記録）。`run-daemon` を detach（新しい session と process group）で、標準入出力を繋がずに起動し、引数に `run_id`・nonce・一時の領域の path を渡す（[呼び方と入力の口](#呼び方と入力の口)）。起動した process の pid と開始時刻を控え、その終了を親として観測する。
+3. **起動**: `run_id`（UTC の時刻と乱数）と nonce を作る。`.tmp-<run_id>-<nonce>/` を作り、`request` を `request.input.json` に書いて fsync する。書く直前に[秘密値の走査](#run-の領域の配置)の型で走査し、見つかれば書かずに一時の領域を消し、`run-daemon` を起動せずに受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、停止の理由は `保存の失敗`、`records.unsaved` に依頼と全ての記録）。`request.input.json` の書込みか fsync が I/O の誤りで失敗したときも同じく、一時の領域を消し、`run-daemon` を起動せずに同じ形の受付の段の `停止` の結果を返す（停止の理由は `保存の失敗`）。`run-daemon` を detach（新しい session と process group）で、標準入出力を繋がずに起動し、引数に `run_id`・nonce・一時の領域の path を渡す（[呼び方と入力の口](#呼び方と入力の口)）。起動した process の pid と開始時刻を控え、その終了を親として観測する。
 4. **`run-daemon` の作成**: `run-daemon` は一時の領域に `run.lock` を排他作成し、`<run_id>/` へ rename する。その後に最初の `status.json`（`seq: 1`）を書く。依頼の検査（[依頼](artifact-formats.md#依頼request)）はその後に行い、受け付けない依頼なら受付の段の `停止` の結果を、通常の保存（[結果と台帳の保存の失敗](#結果と台帳の保存の失敗)）で保存して返す。
 5. **待つ**: `start` は `START_WAIT_MS` を上限に、次を順に評価する。
    1. 起動そのものに失敗したか、起動した process が終わったと観測した。
@@ -116,7 +117,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
    2. `<run_id>/` と `status.json` が現れたら、その `Status` を返す。
    3. `START_WAIT_MS` に達したとき:
       - `<run_id>/run.lock` があれば、`{"seq": 0, "action": "working", "run_dir": ..., "batch": null, "result": null, "daemon": <run.lock の識別>}` を返す。司令塔は `wait`（`status_seq: 0`）に進む。
-      - 無ければ、控えた識別と一致する process の group を止め、終了を観測してから 1 を評価し直す。
+      - 無ければ、控えた識別と一致する process の group を止め（SIGKILL）、終了を `START_STOP_WAIT_MS` まで待ってから 1 を評価し直す。その間に終了を観測できなければ、終わったものとして 1 を評価し直す。ただし一時の領域は消さず（終了を観測していないので、6 の規則による）、返す結果の `unverified[]` に一時の領域の path と理由「run-daemon を止めたが終了を観測できなかった」を載せる。理由: SIGKILL は拒めないので process は終わるが、終了の観測を待ち続けると、前景の呼出しが `CALL_MAX_MS` を越える。
 6. **残った一時の領域**: `start` は、自分が起動して終了を観測した process の `.tmp-<run_id>-<nonce>/` だけを消す。他の `.tmp-*` は消さない。消せなければ、返す結果の `unverified[]` に path と理由を載せる。
 
 `run-daemon` を起動しないで `start` が返す結果（2 と 5-1 の後半）は、保存しない。理由: 保存先に書けないか、run の領域（lock を持つ者の領域）が無いので、書く者がいない。構造の契約「`result.json` を書くのは `run-daemon` だけ」はそのまま成り立つ。
@@ -272,7 +273,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 - 最終の名前の run の領域の `<run_id>/run.lock` を消す呼出しは、`scripts/lib/store.mjs` の関数 `releaseOwnLock` の中にだけある。`releaseOwnLock` は、`run.lock` の `nonce` が自分のものと一致することを確かめた後にだけ消す。他のどこにも、`<run_id>/run.lock` を消す・上書きする呼出しは無い。
 - 一時の領域 `.tmp-<run_id>-<nonce>/` を最終の名前へ rename する呼出しは、`scripts/lib/store.mjs` の関数 `publishRunDir`（`run-daemon` だけが呼ぶ）の中にだけある。rename されるのは領域のディレクトリで、`run.lock` は領域ごと移る。
-- `.tmp-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeOwnTmp` の中にだけある。`removeOwnTmp` は、自分が作った `run_id` と nonce の領域を、次のどちらかの場面でだけ消す: (1) 自分が起動した process の終了を観測した後、(2) `request.input.json` に秘密値の型を見つけ、`run-daemon` を起動していないとき。
+- `.tmp-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeOwnTmp` の中にだけある。`removeOwnTmp` は、自分が作った `run_id` と nonce の領域を、次のどれかの場面でだけ消す: (1) 自分が起動した process の終了を観測した後、(2) `request.input.json` に秘密値の型を見つけ、`run-daemon` を起動していないとき、(3) `request.input.json` の書込みか fsync が失敗し、`run-daemon` を起動していないとき。
 - `.probe-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeProbeDir` の中にだけある（能力の確認の後）。この領域は rename されていない（最終の名前の run の領域ではない）ので、その中の `run.lock` は上の `<run_id>/run.lock` に当たらない。
 - 走査の検査は、この 4 つの関数名と file の組で、lock・一時の領域を消す・rename する呼出しの所在を照合する。
 - `state.json`・`status.json`・`ledger.json` を書くのは、`run-daemon` の process だけである。`result.json` は `run-daemon` か salvage が link でだけ作る。
@@ -356,7 +357,7 @@ PublishOutcome = {
 - `-model` は、実行の種類が `property` と `composition` の実行にだけ渡す（反例になりうる実行で、反例の再実行に証人が要る）。他の種類（`contract`・`sanity`・`mutation`・`replay`）には渡さない。
   - 理由: 担当の query には `get-model` を書かせない（[成果物の形式](artifact-formats.md#modelモデル作成役)）。証人を取るのは CLI の役目なので、CLI が渡す option で取る。
   - 退けた案: CLI が query の `(check-sat)` の後に `(get-model)` を足す。実測（macOS arm64、Z3 5.3.3）では、答えが `unsat` のとき標準出力に `(error "line … column …: model is not available")` が出て終了コードが 1 になる。読む順の 1 に当たって `判定以外のエラー` になり、成り立つ性質の検査が全て `実行失敗` になる。CLI は答えを前もって知らないので、`sat` のときだけ足すこともできない。
-- 子 process には環境変数を渡さない。process group を作って起動し、`children/` に記録してから待つ。
+- 子 process には環境変数を渡さない。process group を作って起動し、標準入力（query）を渡す前に `children/<pgid>.json` を記録する（pgid は起動しないと分からないので、記録は起動の後になる。z3 `-in` は入力を受けるまで何もしない）。記録できなければ、入力を渡さずに group を止め、その実行を起動の失敗とする。起動そのもの（spawn）の失敗も同じで、どちらも終わり方は `started: false`（判定は `未実行`）とし、理由を `Check.reason` か `Confirmation.reason` に書く。`children/` は記録（`RecordKind`）に数えないので、記録できないことだけでは `保存の失敗` にしない。
 - 依頼の時間の上限に達したら、formal-method が group を止める（終わり方の `stopped_by: "時間"`）。
 - query が並列の設定（`parallel.enable`、`check-sat-using` と `par-or`・`par-then`）を含めば、計画の照合で拒む。
 
@@ -434,6 +435,7 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 | `CALL_MARGIN_MS` | 30000 | `CALL_MAX_MS` + `CALL_MARGIN_MS` ≤ 司令塔が指定する timeout ≤ 600000 |
 | `CLEANUP_BUDGET_MS` | 30000 | `CLEANUP_BUDGET_MS` < `CALL_MAX_MS` |
 | `START_WAIT_MS` | 210000 | = `CALL_MAX_MS` − `CLEANUP_BUDGET_MS` |
+| `START_STOP_WAIT_MS` | 5000 | 起動の手順 5-3 で、止めた子の終了を待つ上限。< `CLEANUP_BUDGET_MS` |
 | `WAIT_LIMIT_MS` | 210000 | = `CALL_MAX_MS` − `CLEANUP_BUDGET_MS` |
 | `WAIT_POLL_MS` | 2000 | < `WAIT_LIMIT_MS` |
 | `SALVAGE_RETRY_MS` | 10000 | 司令塔の呼び直しの間隔 |

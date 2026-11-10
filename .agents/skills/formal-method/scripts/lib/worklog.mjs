@@ -1,7 +1,12 @@
 // CLI の作業記録と記録台帳の entry（artifact-formats.md「作業記録」「記録台帳」）。
 // 台帳の entry の model・effort・permissions は producer で決める（担当の task_id なら tasks.json の値と AGENT_PERMISSIONS、cli・salvage なら null・null・[]）。
 import { AGENT_PERMISSIONS } from './roles.mjs';
+import { fileURLToPath } from 'node:url';
 import { WORKLOG_SCHEMA } from './schemas.mjs';
+
+// 適用する文書の一般規約と、run の領域の中のその写しの ref（cli-contract.md「run の領域の配置」の document-rules/<指紋>.md）
+export const DOC_RULES_PATH = fileURLToPath(new URL('../../references/document-rules.md', import.meta.url));
+export const docRulesRefOf = (version) => `document-rules/${version.slice('sha256:'.length)}.md`;
 
 export function ledgerEntry({ kind, ref, hash, stage, task = null, producer = 'cli', inputRefs = [] }) {
   if (task) {

@@ -7,7 +7,8 @@ import { noSuitableTool, RUNNABLE_TOOLS } from '../adapters/index.mjs';
 import { defect, readRunText } from './common.mjs';
 
 // ctx: { runDir, prefix（計画作成役の attempt の Ref の接頭辞）, models: [{ id, data }], partitions（採った PartitionsFile か null）,
-//        eligible: Set（形式化できる必要な性質で問いに依存しないもの）, blocked: Set（問いに依存する性質）, prepare（道具の準備の結果か null）, authorQueries: Set, smtBad: Map }
+//        eligible: Set（形式化できる必要な性質で問いに依存しないもの）, blocked: Set（問いに依存する性質）, prepare（道具の準備の結果か null）, authorQueries: Set, smtBad: Map,
+//        propertyIds: Set（inventory の性質の id。selection・unavailable の実在を照らす） }
 export function planCheck(plan, mutations, ctx) {
   const pe = validate(PlanFile, plan);
   const me = validate(MutationsFile, mutations);
@@ -25,6 +26,7 @@ export function planCheck(plan, mutations, ctx) {
     if (n !== 1) out.push(defect('other', `selection-count:${pid}`, `性質 ${pid} の selection の要素が ${n} 個（ちょうど 1 つ）`, { property: pid }));
   }
   for (const s of plan.selection) {
+    if (ctx.propertyIds && !ctx.propertyIds.has(s.property_id)) out.push(defect('reference', `selection-property:${s.property_id}`, `selection の property_id ${s.property_id} が inventory の性質に無い`));
     if (!s.candidates.some((c) => c.role === '検証器' && c.name === Z3_ID)) out.push(defect('other', `selection-z3:${s.property_id}`, `性質 ${s.property_id} の候補に 検証器 の ${Z3_ID} が無い`, { property: s.property_id }));
     if (!s.candidates.some((c) => c.name === s.chosen.tool)) out.push(defect('reference', `selection-chosen:${s.property_id}`, `性質 ${s.property_id} の chosen.tool ${s.chosen.tool} が候補の name に無い`, { property: s.property_id }));
   }
@@ -95,6 +97,9 @@ export function planCheck(plan, mutations, ctx) {
     const refs = [...det.input_refs.slice(0, -1)];
     const prev = refs.map((r) => readRunText(ctx.runDir, r));
     if (prev.some((t) => t === null || hasCheckSat(t))) out.push(defect('syntax', `mutation-checksat:${m.id}`, `変異 ${m.id} で (check-sat) を持つ input が最後の 1 つだけでない`, { element: m.id }));
+  }
+  for (const [i, u] of mutations.unavailable.entries()) {
+    if (ctx.propertyIds && !ctx.propertyIds.has(u.property_id)) out.push(defect('reference', `unavailable-property:${i}`, `unavailable の property_id ${u.property_id} が inventory の性質に無い`));
   }
   // 必要な性質ごとに、変異か unavailable の要素が 1 つ以上ある
   for (const pid of ctx.eligible) {

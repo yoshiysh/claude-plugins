@@ -5,7 +5,9 @@ import { smtViolations } from '../adapters/z3.mjs';
 import { defect, readRunJson, readRunText } from './common.mjs';
 
 // モデル作成役の返り値の outputs を照らす。prefix は attempt の領域の Ref の接頭辞、eligible は対象にした inventory の性質の id。
-export function modelCheck(runDir, outputs, { prefix, eligible }) {
+// refs は id と参照の一覧がモデル化の照合とする参照の実在の集合: { elementIds（inventory の要素）, propertyIds（inventory の性質）,
+// goalIds・knownRequirementIds・targetIds（依頼） }。
+export function modelCheck(runDir, outputs, { prefix, eligible, refs = null }) {
   const defects = [];
   const models = [];
   const mappings = [];
@@ -30,6 +32,9 @@ export function modelCheck(runDir, outputs, { prefix, eligible }) {
     if (maps.length !== 1) { defects.push(defect('other', `mapping-count:${id}`, `モデル ${id} の MappingFile が ${maps.length} 個（ちょうど 1 つ）`)); continue; }
     const sm = m.data.state_machine;
     if ((sm === null) !== (m.data.no_state_machine_reason !== null)) defects.push(defect('other', `no-sm-reason:${id}`, `モデル ${id} の no_state_machine_reason は state_machine が null のときだけ非 null`));
+    if (sm) defects.push(...stateMachineDefects(id, sm, refs, new Set(m.data.properties.map((p) => p.id))));
+    if (refs) for (const c of m.data.io_contracts) for (const sid of c.source_ids) if (!refs.elementIds.has(sid)) defects.push(defect('reference', `io-source:${id}:${c.id}:${sid}`, `モデル ${id} の入出力の契約 ${c.id} の出所 ${sid} が inventory の要素に無い`));
+    if (refs) defects.push(...mappingDefects(id, maps[0].data.rows, refs));
     for (const p of m.data.properties) {
       if (mpIds.has(p.id)) defects.push(defect('other', `mp-dup:${p.id}`, `モデルの性質の id ${p.id} が重なる`));
       mpIds.add(p.id);
@@ -55,12 +60,61 @@ export function modelCheck(runDir, outputs, { prefix, eligible }) {
   return { models: pairs, defects, queryRefs, smtBad, texts };
 }
 
+// 状態遷移の中の名前の一意と、状態・出来事・inventory の要素への参照の実在（artifact-formats.md「id と参照の一覧」のモデル化の照合）。
+function stateMachineDefects(id, sm, refs, modelPropertyIds) {
+  const out = [];
+  const dup = (xs, what, key) => {
+    const seen = new Set();
+    for (const x of xs) { if (seen.has(x)) out.push(defect('other', `${key}-dup:${id}:${x}`, `モデル ${id} の${what} ${x} が重なる`)); seen.add(x); }
+  };
+  dup(sm.states, '状態', 'state');
+  dup(sm.events, '出来事', 'event');
+  dup(sm.transitions.map((t) => t.id), '遷移の id', 'transition');
+  const states = new Set(sm.states);
+  const events = new Set(sm.events);
+  const need = (ok, key, text) => { if (!ok) out.push(defect('reference', `${key}`, `モデル ${id} の${text}`)); };
+  need(states.has(sm.initial), `initial:${id}`, `初期状態 ${sm.initial} が states に無い`);
+  for (const t of sm.transitions) {
+    need(states.has(t.from), `tr-from:${id}:${t.id}`, `遷移 ${t.id} の from ${t.from} が states に無い`);
+    need(states.has(t.to), `tr-to:${id}:${t.id}`, `遷移 ${t.id} の to ${t.to} が states に無い`);
+    need(events.has(t.event), `tr-event:${id}:${t.id}`, `遷移 ${t.id} の event ${t.event} が events に無い`);
+    if (refs) for (const sid of t.source_ids) need(refs.elementIds.has(sid), `tr-source:${id}:${t.id}:${sid}`, `遷移 ${t.id} の出所 ${sid} が inventory の要素に無い`);
+  }
+  for (const [i, f] of sm.forbidden.entries()) {
+    need(states.has(f.from), `fb-from:${id}:${i}`, `禁止の ${f.from} × ${f.event} の from が states に無い`);
+    need(events.has(f.event), `fb-event:${id}:${i}`, `禁止の ${f.from} × ${f.event} の event が events に無い`);
+    if (refs) for (const sid of f.source_ids) need(refs.elementIds.has(sid), `fb-source:${id}:${i}:${sid}`, `禁止の ${f.from} × ${f.event} の出所 ${sid} が inventory の要素に無い`);
+  }
+  for (const [i, u] of sm.uncovered.entries()) {
+    need(states.has(u.from) && events.has(u.event), `uncovered:${id}:${i}`, `対応できていない組 ${u.from} × ${u.event} が states・events に無い`);
+  }
+  // 目標の property_id は、同じ ModelFile の properties[].id に実在する参照（artifact-formats.md「形式モデル」の goals）
+  for (const [i, g] of sm.goals.entries()) {
+    need(states.has(g.state), `goal-state:${id}:${i}`, `目標 ${g.state} が states に無い`);
+    if (!modelPropertyIds.has(g.property_id)) out.push(defect('reference', `goal-property:${id}:${i}`, `モデル ${id} の目標 ${g.state} の性質 ${g.property_id} が properties に無い`));
+  }
+  return out;
+}
+
+// 対応表の行の性質の id と出所の実在。
+function mappingDefects(id, rows, refs) {
+  const out = [];
+  for (const [i, r] of rows.entries()) {
+    if (!refs.propertyIds.has(r.property_id)) out.push(defect('reference', `map-property:${id}:${i}`, `対応表 ${id} の行 ${i} の property_id ${r.property_id} が inventory の性質に無い`));
+    const s = r.source;
+    const ok = s.kind === 'goal' ? refs.goalIds.has(s.id) : s.kind === 'known_requirement' ? refs.knownRequirementIds.has(s.id) : refs.targetIds.has(s.kind === 'target' ? s.id : s.target_id);
+    if (!ok) out.push(defect('reference', `map-source:${id}:${i}`, `対応表 ${id} の行 ${i} の出所（${s.kind}）が依頼に無い`));
+  }
+  return out;
+}
+
 // 状態×出来事の全ての組を、許される・禁止された・対応できていない に分ける。遷移が書かれていないことだけを禁止の根拠にしない。
 export function matrixGen(model) {
   const sm = model.state_machine;
   if (!sm) return { applicable: false, reason: model.no_state_machine_reason ?? '状態遷移を持たない' };
   const cells = [];
-  for (const state of sm.states) for (const event of sm.events) {
+  // 重なった名前（モデル化の照合の欠陥）は 1 つの組として数える
+  for (const state of new Set(sm.states)) for (const event of new Set(sm.events)) {
     const trs = sm.transitions.filter((t) => t.from === state && t.event === event);
     if (trs.length) { cells.push({ state, event, class: '許される', grounds: `遷移 ${trs.map((t) => `${t.id}（条件 ${t.guard}）`).join('・')}`, transition_ids: trs.map((t) => t.id) }); continue; }
     const fb = sm.forbidden.filter((f) => f.from === state && f.event === event);
@@ -75,11 +129,12 @@ export function pathsCheck(model) {
   const sm = model.state_machine;
   if (!sm) return { applicable: false, reason: model.no_state_machine_reason ?? '状態遷移を持たない' };
   const mpIds = new Set(model.properties.map((p) => p.id));
+  // 性質の無い目標（修正の巡の後も残ったモデル化の照合の欠陥）は、対象外にせず targets から外して unverified に載せる
   const targets = sm.goals.filter((g) => mpIds.has(g.property_id)).map((g) => ({ state: g.state, kind: g.kind, property_id: g.property_id }));
-  const excluded = sm.goals.filter((g) => !mpIds.has(g.property_id)).map((g) => ({ path: `${sm.initial} → ${g.state}`, reason: `到達の性質 ${g.property_id} がモデルの性質に無いので対象外にした` }));
+  const missing = sm.goals.filter((g) => !mpIds.has(g.property_id)).map((g) => ({ target: g.state, reason: '目標の性質が無い' }));
   return {
-    applicable: true, targets, verified: [], excluded,
-    unverified: targets.map((t) => ({ target: t.state, reason: `${t.state} への到達可能性は、性質 ${t.property_id} の検査の判定で示す（経路ごとの到達の検査は計画していない）` })),
+    applicable: true, targets, verified: [], excluded: [],
+    unverified: [...targets.map((t) => ({ target: t.state, reason: `${t.state} への到達可能性は、性質 ${t.property_id} の検査の判定で示す（経路ごとの到達の検査は計画していない）` })), ...missing],
   };
 }
 
