@@ -164,6 +164,7 @@ import { compareCandidates, findings, ms, bytes, unavailable, BUILD, COST, HUMAN
 import { pathsCheck, deriveDiagram } from './checks/model.mjs';
 import { correspondence as correspondenceOf } from './checks/compose.mjs';
 import { TRUNCATED } from './checks/det.mjs';
+import { checkGaps } from './checks/plan.mjs';
 import { noSuitableTool } from './adapters/index.mjs';
 import { argsFor, ID as Z3_ID } from './adapters/z3.mjs';
 
@@ -258,13 +259,11 @@ export function buildResult(run) {
     return { status: '検出能力未確認', mutations: [], reason: parts.join('。') };
   };
   const detections = new Map(props.map((p) => [p.id, detectionOf(p)]));
-  // 検査の欠け（artifact-formats.md「plan と mutations」）: 性質の各モデルの性質が、実行する kind: property の検査と sanity を 1 つ以上持つ。
-  // 欠けたモデルの性質が 1 つでも残れば、残りの検査が全て成功しても 検証済み にしない（問いに依存する性質と道具が無い性質は除く）
-  const planSanity = run.planSanity();
-  const checkGapOf = (pid) => {
-    if (!run.plan || run.blockedBy.has(pid) || noTool(pid)) return [];
-    return mpsOf(pid).filter((mp) => !planChecks.some((c) => c.kind === 'property' && c.target_id === mp) || !planSanity.some((x) => x.model_property_id === mp));
-  };
+  // 検査の欠け（判定の正本は checks/plan.mjs の checkGaps）。欠陥の残った要素を除いた計画で数え、欠けたモデルの性質が 1 つでも
+  // 残れば、その inventory の性質は残りの検査が全て成功しても 検証済み にしない
+  const gaps = run.plan ? checkGaps({ models: run.models, blocked: new Set(run.blockedBy.keys()), noTool, checks: planChecks, sanity: run.planSanity() }) : { missingCheck: [], missingSanity: [] };
+  const gapMps = new Set([...gaps.missingCheck, ...gaps.missingSanity]);
+  const checkGapOf = (pid) => mpsOf(pid).filter((mp) => gapMps.has(mp));
   // PropertyFacts（合成の条件を除く）
   const baseFacts = new Map();
   for (const p of props) {

@@ -100,20 +100,26 @@ export function readMark(runDir) {
 const terminalStatus = (runDir, result, extra = {}) => ({ seq: extra.seq ?? 0, run_dir: runDir, action: 'terminal', batch: null, result, daemon: extra.daemon ?? null });
 
 // ---- salvage の手順（cli-contract.md「salvage の手順」） ----
-// run の領域の観測（salvage の規則と start の 5-1 が読む値）。
-export function observeRun(runDir) {
+// run の領域の 1 回の観測（salvage の規則と start の 5-1 が読む値）。保持者の生死を先に決め、その後に結果と status.json を読む。
+// 判断（observation）と、返す値に使う読み（holder・status・published）は同じ観測から取る。
+export function readRunObservation(runDir) {
   const holder = lockHolder(runDir);
-  const pub = readPublishedResult(runDir);
-  const st = readStatus(runDir);
+  const lockState = holder ? livenessOf(holder) : 'dead';
+  const published = readPublishedResult(runDir);
+  const status = readStatus(runDir);
   const mark = readMark(runDir);
   return {
-    lock_holder: holder ? livenessOf(holder) : 'dead',
-    result_json: pub === 'absent' ? 'absent' : pub.valid ? 'valid' : 'invalid',
-    status_json: st ? st.action : 'absent',
-    salvage_mark: mark.state,
-    mark_winner: mark.state === 'present' ? (mark.winner ? livenessOf(mark.winner) : 'dead') : null,
+    holder, status, published,
+    observation: {
+      lock_holder: lockState,
+      result_json: published === 'absent' ? 'absent' : published.valid ? 'valid' : 'invalid',
+      status_json: status ? status.action : 'absent',
+      salvage_mark: mark.state,
+      mark_winner: mark.state === 'present' ? (mark.winner ? livenessOf(mark.winner) : 'dead') : null,
+    },
   };
 }
+export const observeRun = (runDir) => readRunObservation(runDir).observation;
 
 // salvage の規則 1〜5 の判断の正本（純粋関数）。start の起動の手順 5-1 も、この関数で同じ規則を当てる。
 // salvage_mark は 'absent' | 'present' | 'unwritable'（印の一時ファイルか link が I/O の誤りで失敗した）。
@@ -147,12 +153,10 @@ function writeMark(runDir) {
   } finally { cleanupTmp(tmp, wrote); }
 }
 
-// 戻り値: { ok: true, status } | { ok: false, code, reason, detail }
-export function salvage(runDir, { location } = {}) {
-  const holder = lockHolder(runDir);
-  const prevStatus = readStatus(runDir);
+// 戻り値: { ok: true, status } | { ok: false, code, reason, detail }。readRun は run の領域の観測（本番は readRunObservation）。
+export function salvage(runDir, { location, readRun = readRunObservation } = {}) {
+  const { holder, status: prevStatus, published, observation: o } = readRun(runDir);
   const extra = { seq: prevStatus ? prevStatus.seq : 0, daemon: holder };
-  const o = observeRun(runDir);
   let d = salvageDecision(o);
   // 規則 4: 印が無ければ書き、その結果で同じ規則を当て直す
   if (d.kind === 'salvage' && d.step === 'build_and_publish' && o.salvage_mark === 'absent') {
@@ -164,10 +168,8 @@ export function salvage(runDir, { location } = {}) {
   }
   if (d.kind === 'e_busy') return busy(runDir, d.detail);
   if (d.kind === 'result_unreadable') return unreadable(runDir);
-  if (d.step === 'return_result_json') {
-    const published = readPublishedResult(runDir);
-    return published !== 'absent' && published.valid ? { ok: true, status: terminalStatus(runDir, published.result, extra) } : unreadable(runDir);
-  }
+  if (d.step === 'return_result_json') return { ok: true, status: terminalStatus(runDir, published.result, extra) };
+  // 規則 3: 判断に使った同じ観測の terminal の Status を返す
   if (d.step === 'return_status_result') return { ok: true, status: { ...prevStatus, batch: null } };
   // 規則 5-1: children/ の記録のうち、pid と開始時刻が一致して生きている group を止める（規則 4 の I/O の誤りでも同じ）
   stopLiveChildren(runDir);

@@ -107,12 +107,9 @@ export function planCheck(plan, mutations, ctx) {
     if (!has) out.push(defect('other', `mutation-missing:${pid}`, `性質 ${pid} に変異も unavailable も無い`, { property: null }));
   }
   // 検査の欠け
-  const excludedMp = (mpId) => { const inv = parentsOf(mpId); return inv.length > 0 && inv.every((pid) => ctx.blocked.has(pid) || noTool(pid)); };
-  for (const [mpId] of mps) {
-    if (excludedMp(mpId)) continue;
-    if (!plan.checks.some((c) => c.kind === 'property' && c.target_id === mpId)) out.push(defect('other', `missing-check:${mpId}`, `モデルの性質 ${mpId} の検査が計画に無い`));
-    if (!plan.sanity.some((s) => s.model_property_id === mpId)) out.push(defect('other', `missing-sanity:${mpId}`, `モデルの性質 ${mpId} の sanity が計画に無い`));
-  }
+  const gaps = checkGaps({ models: ctx.models, blocked: ctx.blocked, noTool, checks: plan.checks, sanity: plan.sanity });
+  for (const mpId of gaps.missingCheck) out.push(defect('other', `missing-check:${mpId}`, `モデルの性質 ${mpId} の検査が計画に無い`));
+  for (const mpId of gaps.missingSanity) out.push(defect('other', `missing-sanity:${mpId}`, `モデルの性質 ${mpId} の sanity が計画に無い`));
   for (const [id, x] of [...contracts, ...conds]) {
     const inv = parentsOf(x.derived_from);
     if (inv.length > 0 && inv.every(noTool)) continue;
@@ -120,6 +117,24 @@ export function planCheck(plan, mutations, ctx) {
     if (!plan.checks.some((c) => c.kind === kind && c.target_id === id)) out.push(defect('other', `missing-check:${id}`, `${kind === 'contract' ? '契約' : '合成の条件'} ${id} の検査が計画に無い`));
   }
   return { defects: out, valid: true, noTool, single };
+}
+
+// 「検査の欠け」の判定の正本（artifact-formats.md「plan と mutations」）。計画の照合と集約の両方が使う。
+// モデルの性質ごとに、kind: property の検査と sanity が 1 つ以上要る。ただし、その inventory_property_ids の全てが、問いに依存する
+// （blocked）か道具が無い（noTool）なら除く。checks・sanity は数える計画の要素（集約では欠陥の残った要素を除いたもの）。
+// 戻り値: { missingCheck: [モデルの性質の id], missingSanity: [モデルの性質の id] }（モデルと性質の宣言の順）
+export function checkGaps({ models, blocked, noTool, checks, sanity }) {
+  const missingCheck = [];
+  const missingSanity = [];
+  for (const m of models) {
+    for (const p of m.data.properties) {
+      const inv = p.inventory_property_ids;
+      if (inv.length > 0 && inv.every((pid) => blocked.has(pid) || noTool(pid))) continue;
+      if (!checks.some((c) => c.kind === 'property' && c.target_id === p.id)) missingCheck.push(p.id);
+      if (!sanity.some((s) => s.model_property_id === p.id)) missingSanity.push(p.id);
+    }
+  }
+  return { missingCheck, missingSanity };
 }
 
 // depends_on の循環に乗る検査の id（計画にある依存先だけを辿る。自己依存を含む）。強連結成分で求め、計画の順に返す。

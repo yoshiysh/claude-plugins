@@ -381,14 +381,17 @@ ProcessHandle = {
   onStdout(cb: (chunk: Uint8Array) => void): void,
   onStderr(cb: (chunk: Uint8Array) => void): void,
   onClose(cb: (exit_code: int | null) => void): void,   // 道具の終了と、標準出力・標準エラーの読み終わりの両方。killGroup の後も 1 回だけ来る
-  killGroup(): void                        // process group を止める
+  killGroup(): void,                       // process group を止める
+  readonly startFailure: string | null     // 起動の失敗の原因（spawn の失敗か、children/ に記録できず入力を渡さなかった）。無ければ null。close の時点で確定している
 }
 ExecutionOutcome = { execution_id: Id, end: End, stdout: Uint8Array, stderr: Uint8Array, exit_code: int | null,
-  model_cut: "none" | "truncated" | "stopped_after_answer" }   // 答えの後のモデルを読み切らなかった理由。下の規則
+  model_cut: "none" | "truncated" | "stopped_after_answer",   // 答えの後のモデルを読み切らなかった理由。下の規則
+  start_failure?: string }                 // 起動の失敗のときだけ持つ。値は ProcessHandle.startFailure
 ```
 
 - 戻り値は `Promise<ExecutionOutcome>`。`stdout` は受けたバイト列（`TOOL_OUTPUT_MAX_BYTES` までに切り詰めたもの）、`stderr` は受けたバイト列で、どちらも証拠として保存するためのもの。判定には使わない部分を含みうる。
 - `model_cut`: 答えの行を読み終えた後に標準出力が `TOOL_OUTPUT_MAX_BYTES` を超えたら `truncated`（その後に答えの後の停止が起きても `truncated`）、超えずに答えの後の停止が起きたら `stopped_after_answer`、他は `none`。`none` 以外なら、呼び手は証人を読めないものとする。`truncated` のときだけ、呼び手は `Check.reason`・replay の `Confirmation.reason` に固定の語「標準出力を TOOL_OUTPUT_MAX_BYTES で切り詰めた」を書く（`cli-contract.md` の出力の上限）。理由: 出力がちょうど上限で終わった場合と切り詰めた場合は `stdout` の長さで区別できず、答えの後の停止は `end` が通常の close と同じになる。
+- **起動の失敗**: close を受けた時点で `startFailure` が非 null なら、観測の順（期限・停止の要求が先に来たかを含む）によらず、`End` は `started: false`（他の欄は既定）、`model_cut: "none"`、`start_failure` はその原因とする。呼び手は原因を `Check.reason` か `Confirmation.reason` に書く（`cli-contract.md` の Z3 の adapter）。理由: 道具は入力を受けておらず、始めていない実行である。道具の異常終了（`abnormal_exit`）と混同しない。
 - **始める前**: 呼ばれた時点で `deadline_ms` が非 null かつ `clock.now() ≥ deadline_ms`、又は `signal.aborted` なら、`spawn` を呼ばずに `started: false` の `End`（他の欄は既定）を返す。それ以外は `spawn` を呼び、`deadline_ms` が非 null なら `clock.setTimer(deadline_ms, …)` を置く。
 - **観測の順**: 終わり方を決める出来事は、close（`onClose` の callback）、期限（timer の callback）、停止の要求（`signal` の `abort` の事象）の 3 つ（加えて、下の出力の上限で止める場合）で、callback が呼ばれた順を観測の順とする。close を受けたときに `clock.now()` と期限を比べない。最初の出来事で終わり方が決まり、後の出来事は終わり方を変えない。
   - close が最初: timer を外し、`killGroup` を呼ばない。`stdout`・`stderr`・`exit_code` を `cli-contract.md` の「読む順」に当てて `End` を作る（`stopped_by: null`、`time_limit_hit` は null か `道具`）。
@@ -724,7 +727,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 
 | 契約の項目 | 書く文書 | 決めた節 |
 |---|---|---|
-| 4 つのコマンドの入力・出力・終了コード（0 成功、1 拒否、2 契約の誤り）と誤りの code（`E_INPUT`・`E_BUSY`（役付き）・`E_STALE`・`E_CONTRACT`） | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担) |
+| 4 つのコマンドの入力・出力・終了コードと誤りの code（値の正本は `cli-contract.md` の誤りと終了コードの表。ここには写さない） | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担) |
 | `status.json` の形（`seq` は 1 から、`action` の 3 種、`daemon` の識別）と、`start` の `working` の `status_seq: 0` | `cli-contract.md`・`schemas.mjs` | 同上 |
 | 起動の手順、受け箱の公開、salvage の規則 1〜5、salvage の印、結果と台帳の保存の失敗の表、生死の判定 | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担)、[保存と排他](#保存と排他) |
 | run の領域の配置: `run.lock`・`state.json`・`status.json`・`inbox/`・`batches/<batch_id>/tasks.json`・`attempts/<task_id>/`（`task.md`・`return.json`・作業記録・成果物）・`checks/<id>/`・`children/`・`result.json`・`report.md`・`ledger.json`・`salvage.mark`・`salvage-ledger.json`・`document-rules/`、root の `index/<run_id>.json` と `.tmp-<run_id>-<nonce>/` | `cli-contract.md` | [保存と排他](#保存と排他) |
@@ -780,7 +783,7 @@ B（決定的な CLI の作成役）は、実装の前に `cli-contract.md`・`a
 | adapt | `stages.mjs` の fetchTarget と文書規約の固定 | `lib/intake.mjs` に移す |
 | adapt | `formal-method-cli.mjs` の main と probeEnvironment | コマンドを作り直す。能力の確認を、run の領域を作る前に行う |
 | adapt | Workflow script、agents の 8 文書、`agent-obligations.md`、`artifact-formats.md`、`formal-method-knowledge.md` | 参照する仕様の ID と値を直す。形の正本を `schemas.mjs` にする。旧状態機械の語を消す。counterexample-analyst は原因の分類役（反例・組合せ・問い）に作り直す |
-| 新規 | `lib/run.mjs`（段の進行の決定）、`lib/store.mjs`（排他・状態の保存・salvage）、`lib/daemon.mjs`（`run-daemon` の入口・段の呼出し・集約。受け箱の読込みは `lib/agents.mjs`、`status.json` の書込みは `lib/run.mjs`）、`lib/publish.mjs`（`publishResult`。結果と台帳の公開）、`lib/start.mjs`（`start` の手順、`decideStartOutcome`・`removeOwnTmp`・`removeProbeDir`）、`lib/client.mjs`（`submit`・`wait`・`salvage` の client の処理）、`lib/performance.mjs`（記録、候補の比較の条件の照合、改善の候補）、`lib/worklog.mjs`（CLI の作業記録と台帳）、`lib/checks/compose.mjs`、`references/document-rules.md`（規約の同梱の写し） | この文書の各節 |
+| 新規 | `lib/run.mjs`（段の進行の決定）、`lib/store.mjs`（排他・状態の保存・salvage）、`lib/daemon.mjs`（`run-daemon` の入口・段の呼出し・集約。受け箱の読込みは `lib/agents.mjs`、`status.json` の書込みは `lib/run.mjs`）、`lib/publish.mjs`（`publishResult`。結果と台帳の公開）、`lib/start.mjs`（`start` の手順、`decideStartOutcome`・`removeOwnTmp`・`removeProbeDir`）、`lib/client.mjs`（`submit`・`wait` の client の処理。`salvage` は `lib/store.mjs`）、`lib/stop-report.mjs`（停止の報告の正本: 停止の理由の形、`reasons` の並び、`stop_report` の組立て）、`lib/performance.mjs`（記録、候補の比較の条件の照合、改善の候補）、`lib/worklog.mjs`（CLI の作業記録と台帳）、`lib/checks/compose.mjs`、`references/document-rules.md`（規約の同梱の写し） | この文書の各節 |
 | drop | `lib/state-table.mjs`、`lib/spec-table.mjs`、`lib/halts.mjs`、`lib/restart.mjs`、controller の制御の本体、`stages.mjs` の段の進行・修正・再開・回収・後着、`storage.mjs` の所有札・lease・lock・イベントの鎖、`checks/plan.mjs` の reuseKey・reuseCheck、`references/cli-contract.md`（作り直す）、evals の id 1、`formal-method-cli.test.mjs`、`tests/formal/formal-method-skill/` の旧モデル一式 | 消す。検査の観点は [検証計画](verification-plan.md) が引き継ぐ |
 
 ## 作る物の分担

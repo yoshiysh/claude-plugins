@@ -622,7 +622,7 @@ PropertyFacts = {
 }
 ```
 
-- `deterministic_confirmed` は、その性質を `inventory_property_ids` に含むモデルの性質の `sanity` の確認が 1 つ以上あって全て `成り立つ` ときだけ true になりうる。`sanity` の確認が 1 つも無い（計画に無い、又は欠陥が残って全て除いた）性質と、欠陥が残って除いた `sanity` を持つ性質では false とする。理由: 前提の矛盾で成り立つ成功を除けない（SP-005）。空の集合を成り立つと読むと、確かめていない性質が `検証済み` になる。
+- `deterministic_confirmed` は、次の 3 つが全て成り立つときだけ true になりうる。(1) その性質を `inventory_property_ids` に含むモデルの性質の `sanity` の確認が 1 つ以上あって全て `成り立つ`。(2) そのモデルの性質の `sanity` に、欠陥が残って除いたものが無い。(3) そのモデルの性質に、下の「検査の欠け」（`kind: property` の検査か sanity の欠け）が残ったものが 1 つも無い（計画があり、性質が問いに依存せず `no_suitable_tool` でないとき）。`sanity` の確認が 1 つも無い（計画に無い、又は欠陥が残って全て除いた）性質では false とする。理由: 前提の矛盾で成り立つ成功を除けない（SP-005）。空の集合を成り立つと読むと、確かめていない性質が `検証済み` になる。
 
 評価の順（最初に当たった段で返す）:
 
@@ -778,6 +778,7 @@ MutationsFile = { schema: "formal-method.mutations/1",
   - モデルの性質（`ModelFile.properties[].id`。`kind: property`）。ただし、その `inventory_property_ids` の全てが、問いに依存する（作成役の `blocked_by_question` に挙がる）か `no_suitable_tool` が true なら除く。
   - モデルの性質の `sanity`（`PlanFile.sanity[].model_property_id`）。除く場合は上の `kind: property` の検査と同じ。
   - 部分の契約（`contracts[].id`。`kind: contract`）と合成の条件（`composition_conditions[].id`。`kind: composition`）。`derived_from` のモデルの性質の `inventory_property_ids` が指す性質（契約の判定の「親の性質」と同じ範囲）の全てで `no_suitable_tool` が true なら除く。
+  - 欠けは、性質に関わるモデルの性質の一部だけで起きてもよい。その場合も、その性質の `deterministic_confirmed` は false で、残りのモデルの性質の検査が全て成功しても `検証済み` にならない（段 5 の `未確認`。`成功` でない検査があれば段 1 の値）。
   - 修正の巡の後も欠けが残れば、止めずに次の段へ進む。計画作成役が返らないか `cannot_proceed` を返して計画が無いときも、全ての検査が欠けたものとして同じに扱う。その性質の mapping の 形式化 の行は `check_ids` が空で `reason` を持ち、性質の判定は `未確認`（SP-007 なら `未実行`）になる。検査の無い契約は `check_verdicts` が空なので `検証済み` にならず、検査の無い合成の条件があれば、それを `derived_from` で指す親の性質は `検証済み` にならない。
 - **`no_suitable_tool` の決め方**（性質ごと）: 準備で z3 を見つけられないか版を読めなかったとき、又はその性質の `PlanFile.selection[].chosen.tool` が CLI の持つ adapter の id（`z3`。上の「道具の名前」）と一致しないときだけ true。計画が無い性質と、修正の巡の後も `selection` の要素が無いか 2 つ以上残った性質では、準備の結果だけで決め、`method` は null とする。理由: CLI が実行できるのは adapter のある道具だけなので、それ以外を選んだ性質には、実行できる適した道具が無い（SP-007）。
 - `MutationsFile.mutations[].detector_check_id` は `kind: property` の検査で、その `target_id` は同じ要素の `property_id` である。
