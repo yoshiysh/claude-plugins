@@ -8,6 +8,7 @@ import { cli, cliEnv, drive, expectOk, expectRejected, makeWorkspace, removeTree
 import { listTree, fileHash } from './test-fixtures/fabricate.mjs';
 import { resultInvariants, validate, Status } from './test-fixtures/result-schema.mjs';
 import { execFileSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { basename } from 'node:path';
 import { pathWithout } from './test-fixtures/make-fake-bin.mjs';
 
@@ -227,7 +228,7 @@ for (const [name, make, code, where] of REJECT_CASES) {
     assert.ok(hit.length >= 1, JSON.stringify(result.stop_report.reasons));
     for (const h of hit) assert.ok(h.detail.length > 0, '理由');
     if (where?.field) assert.ok(hit.some((h) => h.field === where.field), `field ${where.field}: ${JSON.stringify(hit)}`);
-    if (where?.item) assert.ok(hit.some((h) => JSON.stringify(h.item) === JSON.stringify(where.item)), `item: ${JSON.stringify(hit)}`);
+    if (where?.item) assert.ok(hit.some((h) => isDeepStrictEqual(h.item, where.item)), `item: ${JSON.stringify(hit)}`);
     // 検証を始めていない: 対象の写しも検査の記録も無い
     assert.deepEqual(result.properties, []);
     assert.deepEqual(result.checks, []);
