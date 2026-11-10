@@ -67,6 +67,18 @@ const ACCEPTED = [
   ['合成の条件の check_ids が空（検査の欠け）', (r) => { r.decomposition.composition_conditions[0].check_ids = []; r.checks = r.checks.filter((c) => c.id !== 'C-CC1'); r.properties[0].check_ids = ['C-MP1']; r.models[0].mapping[0].check_ids = ['C-MP1']; return r; }],
   ['契約の check_ids が空（検査の欠け）', (r) => { r.decomposition.contracts[0].check_ids = []; r.decomposition.contracts[0].verdict = ['未確認']; r.checks = r.checks.filter((c) => c.id !== 'C-K1'); r.stop_report.checks_aborted = []; r.performance.executions = []; return r; }],
 ];
+// 原因の問い（artifact-formats「担当の返り値」: 問いは原因の分類が 要求の不足 のときだけ questions[] に入る）
+const Q1 = { id: 'Q1', missing_decision: 'm', affected: ['P1'], options: ['a', 'b'] };
+const withQuestionCause = (cause, inQuestions) => (r) => {
+  r.causes = [{ subject: { kind: 'question', id: 'Q1' }, cause, grounds: 'g', classified_by: 't1' }];
+  r.questions = inQuestions ? [structuredClone(Q1)] : [];
+  r.stop_report.questions = inQuestions ? ['Q1'] : [];
+  return r;
+};
+ACCEPTED.push(
+  ['要求の不足 の原因の問いが questions[] にある', withQuestionCause('要求の不足', true)],
+  ['原因未確認 の原因の問いが questions[] に無い', withQuestionCause('原因未確認', false)],
+);
 for (const [name, make] of ACCEPTED) {
   test(`result-schema の自己検査: ${name} を通す`, () => {
     assert.deepEqual(resultInvariants(make(richResult())), []);
@@ -130,6 +142,11 @@ const BROKEN = [
     r.decomposition.boundaries = [{ edge_id: 'read:tr:M1/t->var:M1/a', producer: 'pa', consumer: 'pb', shared_symbols: ['a'], assumption: 'a', guarantee: 'a', assumption_basis: { kind: '共同不変条件', check_ids: ['confirm-sanity-1'] }, responsible: ['K1'] }];
   }, 'assumption_basis.check_ids の confirm-sanity-1'],
 ];
+BROKEN.push(
+  ['要求の不足 の原因の問いが questions[] に無い', (r) => { withQuestionCause('要求の不足', false)(r); }, '原因の問い の Q1 が実在しない'],
+  ['原因未確認 の原因の問いが questions[] にある', (r) => { withQuestionCause('原因未確認', true)(r); }, '原因の問い Q1 は 原因未確認 なので questions[] に入らない'],
+  ['対象が性質を満たさない の原因の問いが questions[] にある', (r) => { withQuestionCause('対象が性質を満たさない', true)(r); }, '原因の問い Q1 は 対象が性質を満たさない なので questions[] に入らない'],
+);
 for (const [name, breakIt, expected] of BROKEN) {
   test(`result-schema の自己検査: ${name} を拒む`, () => {
     const r = richResult();

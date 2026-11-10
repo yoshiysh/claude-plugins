@@ -70,15 +70,15 @@ prompt は `task.md` の絶対 path を指す。`task.md` は次の 4 つの見�
 
 対象: `extraction-reviewer`・`fidelity-reviewer`・`assurance-reviewer`・`composition-reviewer`・`cause-analyst`。
 
-読むのは `context.input_refs` が指す資料だけである。次の表は観点ごとに渡される資料の種類で、読む集合を広げる根拠にはならない。
+読むのは `context.input_refs` が指す資料だけである。次の表は観点ごとに渡される資料の種類で、読む集合を広げる根拠にはならない。CLI が `input_refs` に入れる具体の ref の正本は [成果物の形式の task の一覧](artifact-formats.md#task-の一覧) の「独立検証者と原因の分類役の `input_refs`」である。
 
 | 観点（`perspective`） | 読むもの |
 |---|---|
 | `extraction` | 対象の固定した写し、固定した inventory、CLI の照合の記録 |
-| `fidelity` | 対象の写し、inventory、モデル、対応表、図、CLI の照合の記録 |
+| `fidelity` | 対象の写し、inventory、モデル、対応表、CLI の照合の記録 |
 | `assurance` | モデル、対応表、計画、変異、検査と確認の記録 |
 | `nonformal` | 対象の写しと、その性質の inventory の記述（`nonformal_method` を含む）。モデルは使わない |
-| `composition` | 分割、依存グラフと候補、契約と合成の条件、それらの検査の記録 |
+| `composition` | 分割、契約と合成の条件、それらの検査の記録、CLI の照合の記録 |
 | 原因の分類（`cause-analyst`、`perspective` は null） | `context.subject` が指す反例・組合せ・問いと、その出所・モデル・検査の記録 |
 
 どの観点でも読まないもの:

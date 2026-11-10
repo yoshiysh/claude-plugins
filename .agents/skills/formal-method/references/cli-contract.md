@@ -45,7 +45,7 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | コマンド | 標準入力 | 標準出力（成功） |
 |---|---|---|
 | `start` | `{"request": <Request>}` | `{"ok": true, "command": "start", "status": <Status>}` |
-| `submit` | `{"run_dir": string, "batch_id": string, "workflow_output_path": string}` 又は `{"run_dir": string, "batch_id": string, "timed_out": true}` | `{"ok": true, "command": "submit", "outcome": "accepted" \| "duplicate"}` |
+| `submit` | `{"run_dir": string, "batch_id": Id, "workflow_output_path": string}` 又は `{"run_dir": string, "batch_id": Id, "timed_out": true}`（`Id` は [成果物の形式の共通の型](artifact-formats.md#共通の型)の文字。合わなければ `E_INPUT` の `shape`。理由: `batch_id` は受け箱の file 名になるので、path の区切りを含めない） | `{"ok": true, "command": "submit", "outcome": "accepted" \| "duplicate"}` |
 | `wait` | `{"run_dir": string, "status_seq": integer ≥ 0}` | `{"ok": true, "command": "wait", "status": <Status>}`（新しい `seq`）又は `{"ok": true, "command": "wait", "outcome": "still_waiting", "status_seq": integer}` |
 | `salvage` | `{"run_dir": string}` | `{"ok": true, "command": "salvage", "status": <Status>}`（`action` は常に `terminal`） |
 
@@ -72,9 +72,9 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | `E_INPUT` | コマンドの入力の JSON が上の表の形に合わない（`run_dir` のキーが無いか文字列でない場合を含む）、又は `run_dir` のディレクトリが無い。`detail` は `{"reason": "shape" \| "run_dir_not_found"}` | 何も書かない |
 | `E_BUSY` | `salvage` か、`start` が起動の手順の 5-1 で salvage と同じ規則を当てたときに、`run.lock` の保持者（役 `run-daemon`）か `salvage.mark` の勝者（役 `salvage`）が生きているか、生死を判定できない。`detail` は `{"holder_role": "run-daemon" \| "salvage", "liveness": "alive" \| "unknown", "run_dir": string}` | 何も書かない |
 | `E_STALE` | `wait` で、`run.lock` の保持者が終わったが、`status.json` が `terminal` でない | 何も書かない |
-| `E_RESULT_UNREADABLE` | `result.json` が公開されているが、読めないか [結果](artifact-formats.md#結果result)の形に合わない（`salvage` の規則 2、`start` の 5-1、`run-daemon` の公開の負け）。`detail` は `{"run_dir": string, "path": string}` | 何も書かない。run の結果はそのファイルだけで、別の結果を作らない |
+| `E_RESULT_UNREADABLE` | `result.json` が公開されているが、読めないか [結果](artifact-formats.md#結果result)の形に合わない。場面は次の全て: `salvage` の規則 2、`start` の 5-1、`run-daemon` と salvage の結果の公開の負け（`lost_unreadable`）、追補台帳の公開の失敗の後の確かめ、自分の link の後の再読込で中身が違い形に合わない場合（`reread_mismatch`）。`detail` は `{"run_dir": string, "path": string}` | この誤りを返すと決めた後は何も書かない。ただし公開の負けと `reread_mismatch` の場面では、それまでに済ませた作用（`salvage.mark`・`salvage-worklog.json`・追補台帳の公開、子の process group の停止、自分の `result.json` の link）は取り消さずに残る。run の結果はそのファイルだけで、別の結果を作らない |
 
-拒否は作用の前に起こる。拒否で run の状態は変わらない。
+拒否は作用の前に起こる。拒否で run の状態は変わらない。例外は `E_RESULT_UNREADABLE` の、公開の負けと `reread_mismatch` の場面で、上の表のとおり先に済ませた作用が残る。理由: 結果の公開を試すまで、既にある結果が読めないことは分からない。
 
 司令塔の対応の正本は SKILL.md である（各 code と出力が JSON でないときは [誤りと止まり方](../SKILL.md#誤りと止まり方)、仮の結果の提示は [結果の提示](../SKILL.md#結果の提示)、timeout の明示は [CLI の呼び方と timeout](../SKILL.md#cli-の呼び方と-timeout)）。
 
@@ -183,10 +183,16 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 - 退けた案: 印の確認を lock で守る。salvage は lock を取らない（保持者が死んでいれば lock は解けず、取れない）ので、守れない。
 
 **公開の手順**（この文書で「公開する」は全てこの手順。`salvage.mark`・受け箱を除く）: 一時ファイルに書いて fsync し、最終の名前へ link で公開し、ディレクトリを fsync し、再読込して指紋を照合する。照合に通って初めて保存できたとする。
+- 結果（`result.json`）だけは、link に成功した後は取り消せない（`FsBoundary` に最終の名前を消す操作は無く、構造の契約も消すことを許さない）。そのため link の後の失敗は、下の **link の後の失敗** で扱う。
 - link が「既にある」で失敗したら、既にあるファイルを再読込する。
   - 台帳・作業記録: 指紋が公開しようとした内容と同じなら成功とみなす（決定的に作った salvage の記録を 2 つの salvage が公開した場合）。違えば、その公開は失敗とする。
   - 結果（`result.json`）: 中身によらず**負け**とする。負けた側は自分の結果を捨て、既にある結果を読んで返す（`run-daemon` は `status.json` の `terminal` にそれを入れる）。既にある結果を読めないか形に合わなければ、新しい結果を作らずに `E_RESULT_UNREADABLE` を返す（`run-daemon` は `status.json` を書かずに終わる）。
 - `salvage.mark` と受け箱は、既にあれば常に失敗とする（勝者と受け箱は 1 つだけ）。
+
+**link の後の失敗**（結果。依頼者の決定: 残った `result.json` を正の結果とし、結果を常に 1 つにする。salvage の規則 2 と揃える）
+- ディレクトリの fsync か再読込が I/O の誤りで失敗した: 残った R を正の結果とする。R は作り直さず、中身も変えない。`run-daemon` は R を `status.json` の `terminal` に入れ、salvage は R を標準出力で返す。
+- 再読込に成功したが、指紋が R と違う（corrupt）: 負けと同じに扱う。読んだ中身が [結果](artifact-formats.md#結果result) の形に合えばそれを返し、合わなければ `E_RESULT_UNREADABLE`（`run-daemon` は `status.json` を書かずに終わる）。理由: その名前にあるバイト列は R でなく、R を保存できたとは示せない（SP-014）。名前にあるファイルだけを結果とすれば、salvage の規則 2 と同じ結果になる。
+- 失敗した fsync・再読込は、記録（結果・台帳・作業記録）に残さない。理由: 台帳と作業記録は結果より前に公開済みで、R も link 済みなので、書き足すと台帳の指紋か R の中身が変わり、結果が 2 つになる。失敗は `publishResult` の返り値の `fault` だけに現れる。この限界（R の `records.saved` が、fsync か再読込を終えていない `result.json` を含むこと）は、依頼者の決定として受け入れる。
 
 **台帳**: 台帳は結果より先に公開する。`run-daemon` は `ledger.json`、salvage は `salvage-ledger.json`。どちらも「登録した結果の指紋」を持つが、それは結果のファイルが保存されたことを示さない。`result.json` に負けた側の台帳は、公開されない結果の指紋を持ったまま残る。今の結果を登録した台帳は、`result.json` の `records.ledger_refs` が示す。
 - salvage の追補台帳の公開が「既にあって指紋が違う」で失敗したら、`result.json` を確かめ、あって形に合えばそれを返す。あるのに読めないか形に合わなければ `lost_unreadable`（`E_RESULT_UNREADABLE`）とする。無ければ下の表の「台帳が失敗」の行のとおりに扱う。
@@ -196,14 +202,16 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 **状態を決める順序**（SP-015 の「記録を全て保存した」）:
 1. 集約の段は、台帳と結果の公開が成功すると仮定して、完了の条件を評価し、結果 R を作る。
 2. 台帳を公開し、次に R を `result.json` に公開する。
-3. どちらかに失敗したら（負けを除く）、R を捨てる。下の表の `records` で、状態を `停止`、`provisional: true`、停止の理由に `保存の失敗`（段は `集約`）と `記録の未保存` を入れた結果 R' を作り直す。R' は公開しない（公開できなかったので）。`run-daemon` は R' を `status.json` の `terminal` で返し、salvage は標準出力で返す。
-- そのため、`status.json` の `terminal` に `完了` が出るのは、`result.json` の公開と再読込の照合に通ったときだけである。
+3. どちらかに失敗したら（負けと、結果の link の後の失敗を除く）、R を捨てる。下の表の `records` で、状態を `停止`、`provisional: true`、停止の理由に `保存の失敗`（段は `集約`）と `記録の未保存` を入れた結果 R' を作り直す。R' は公開しない（公開できなかったので）。`run-daemon` は R' を `status.json` の `terminal` で返し、salvage は標準出力で返す。
+- そのため、`status.json` の `terminal` に `完了` が出るのは、R の `result.json` への link に成功したときだけである。
 
 | 台帳の公開 | 結果の公開 | `result.json` | 返す結果 |
 |---|---|---|---|
 | 成功 | 成功 | R を公開 | R（`saved` に台帳と結果の参照） |
 | 成功・失敗 | 負け | 既にある結果 | 既にある結果 |
-| 成功 | 失敗 | 無い | R'（`停止`。`saved` に台帳の参照、`unsaved` に結果と理由） |
+| 成功 | link の前で失敗（一時ファイルの書込み・link の `EEXIST` 以外の誤り） | 無い | R'（`停止`。`saved` に台帳の参照、`unsaved` に結果と理由） |
+| 成功 | link の後で fsync か再読込が I/O の誤り | R が残る | R |
+| 成功 | link の後の再読込で指紋が違う | 違う中身が残る | 負けと同じ（形に合えばその中身、合わなければ `E_RESULT_UNREADABLE`） |
 | 失敗 | 試さない | 無い | R'（`停止`。`unsaved` に台帳と結果と理由） |
 
 - 「台帳の公開が失敗」の行では、結果の公開を試さない。ただし salvage の追補台帳が「既にあって指紋が違う」で失敗した場合は、上のとおり先に `result.json` を確かめる。
@@ -318,17 +326,18 @@ FsBoundary = {                                         // ファイル操作の�
   unlink(tmpPath: string): void                        // 一時ファイルの後始末
 }
 PublishOutcome = {
-  outcome: "published" | "lost" | "lost_unreadable" | "result_failed" | "ledger_failed",
-  result: Result | null                                // published なら R、lost なら既にある結果、lost_unreadable なら null、他は R'
+  outcome: "published" | "published_unverified" | "lost" | "lost_unreadable" | "result_failed" | "ledger_failed",
+  result: Result | null,                               // published・published_unverified なら R、lost なら既にある結果、lost_unreadable なら null、他は R'
+  fault: "fsync_dir" | "reread_io" | "reread_mismatch" | null   // 結果の link の後の失敗。無ければ null。テストと診断のためで、呼び手は outcome だけで振る舞いを決め、fault で変えない
 }
 ```
 
-- `outcome` と `result` は、[結果と台帳の保存の失敗](#結果と台帳の保存の失敗)の表の 4 つの行に対応する。`result_failed` と `ledger_failed` の R' は、`status: "停止"`、`stop_report.reasons` に `保存の失敗`（段 `集約`）と `記録の未保存` を持ち、`records` は表のとおりである。
+- `outcome` と `result` は、[結果と台帳の保存の失敗](#結果と台帳の保存の失敗)の表の行に対応する。link の後で fsync か再読込が I/O の誤りなら `published_unverified`（`fault` は `fsync_dir` か `reread_io`。fsync が失敗しても再読込は試す。再読込で指紋が違えば下の `reread_mismatch` の扱いが優先し、そうでなければ先に起きた失敗を `fault` にする）。link の後の再読込で指紋が違えば、読んだ中身で `lost` か `lost_unreadable`（`fault: "reread_mismatch"`）。他の行の `fault` は null。`result_failed` と `ledger_failed` の R' は、`status: "停止"`、`stop_report.reasons` に `保存の失敗`（段 `集約`）と `記録の未保存` を持ち、`records` は表のとおりである。
 - `fs` の操作が投げた誤りは、`publishResult` の外へ出さない（`outcome` で返す）。
-- **呼ぶ順に縛らない**: テストは失敗を、呼出しの何回目かではなく、引数の `finalPath`（`<run_dir>/ledger.json`・`<run_dir>/salvage-ledger.json`・`<run_dir>/result.json`）で指す。`publishResult` が保証する順は、台帳の `link` の成功が結果の `writeTemp` より前、ということだけである。
+- **呼ぶ順に縛らない**: テストは失敗を、呼出しの何回目かではなく、引数の `finalPath`（`<run_dir>/ledger.json`・`<run_dir>/salvage-ledger.json`・`<run_dir>/result.json`）で指す。`publishResult` が保証する順は、台帳の `link` の成功（既にあって指紋が同じ場合を含む）が結果の `writeTemp` より前、ということだけである。
 - **一時ファイルの名前**: `<finalPath>.tmp-<nonce>`。nonce は小文字の 16 進 24 桁の乱数。一時ファイルは `finalPath` と同じディレクトリに置く（link が同じファイルシステムの中で行われるため）。成功でも失敗でも、`publishResult` は戻る前に自分の一時ファイルを `unlink` する（`unlink` の失敗は `outcome` を変えない）。
-- **`lost_unreadable`**: 次のどちらかで、既にある `result.json` を読めないか、[結果](artifact-formats.md#結果result)の形に合わないとき。(1) 結果の `link` が `EEXIST` で負けた。(2) 追補台帳の公開が「既にあって指紋が違う」で失敗し、その後に `result.json` を確かめた。`result` は `null` で、呼び手は新しい結果を作らずに誤り `E_RESULT_UNREADABLE` を返す（[誤りと終了コード](#誤りと終了コード)）。
-  - 理由: そのファイルは、link の排他を勝った者が run の結果として既に公開したものである。別の結果（R' など）を返すと、公開済みのファイルと合わせて結果が 2 つになる。読めないことを誤りとして伝え、run の結果はそのファイルだけとする。
+- **`lost_unreadable`**: 次のどれかで、既にある `result.json` を読めないか、[結果](artifact-formats.md#結果result)の形に合わないとき。(1) 結果の `link` が `EEXIST` で負けた。(2) 追補台帳の公開が「既にあって指紋が違う」で失敗し、その後に `result.json` を確かめた。(3) 自分の結果の `link` の後の再読込で、中身が R と違い形にも合わない（`fault: "reread_mismatch"`。[link の後の失敗](#結果と台帳の保存の失敗)）。`result` は `null` で、呼び手は新しい結果を作らずに誤り `E_RESULT_UNREADABLE` を返す（[誤りと終了コード](#誤りと終了コード)）。
+  - 理由: そのファイルは、run の結果の名前に既にあるもので、取り消せない（(1)(2) は link の排他を勝った者が公開したもの、(3) は自分が link した後に中身が違っていたもの）。別の結果（R' など）を返すと、そのファイルと合わせて結果が 2 つになる。読めないことを誤りとして伝え、run の結果はそのファイルだけとする。
 
 ## Z3 の adapter
 
@@ -442,7 +451,7 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 
 **検査に使える期限**: 担当の batch の期限も道具の実行の期限も、run の期限 − 残す時間とする（残す時間は `REPORT_RESERVE_MS` の行）。この時点で実行中の道具は止め、終わり方は `stopped_by: "時間"`・`time_limit_hit: "依頼元"`（判定は `時間切れ`）とする。理由: 依頼元の時間の上限までに結果を返すには（SP-010・015）、集約と保存の時間をその上限の中に含めるしかない。そのため、検査に使える依頼元の時間の上限は、run の期限 − 残す時間である。
 
-**時間の上限が小さい依頼**: 担当の batch や道具の実行を出す時点で、上の期限が既に過ぎていれば、出さない。出さなかった担当の成果物は未作成、検査と確認は `未実行` になる。停止の理由は `時間の上限`（`stage` はその段）で、状態は `停止`。
+**時間の上限が小さい依頼**: 担当の batch や道具の実行を出す時点で、上の期限が既に過ぎていれば、出さない。出さなかった担当の成果物は未作成、検査と道具を実行する確認は `未実行` になる。出さなかった独立検証者の unit と原因の分類は、[確認](artifact-formats.md#確認sp-004005012)と[担当の返り値](artifact-formats.md#担当の返り値)の「担当を出さなかった場合」のとおり（`確認できず`・`原因未確認`、確認した者は `cli`）。停止の理由は `時間の上限`（`stage` はその段）で、状態は `停止`。
 - 理由: 期限の過ぎた担当や道具を出しても、返る前に止めることになり、結果は同じで時間だけを使う。1 秒の上限も受け付けたうえで（SP-001）、上限までに何もできなかったことを、上限に達した停止として返す（SP-010）。
 - 残す時間を時間の上限の 1/4 までに抑えるのは、短い上限でも担当と道具に時間を回すためである。
 

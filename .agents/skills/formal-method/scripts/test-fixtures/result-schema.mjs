@@ -409,7 +409,11 @@ export function idInvariants(r) {
   }
   for (const c of r.causes) {
     if (c.subject.kind === 'counterexample') exists('原因の反例', [c.subject.id], cex);
-    if (c.subject.kind === 'question') exists('原因の問い', [c.subject.id], qs);
+    // 問いは、原因の分類が 要求の不足 のときだけ questions[] に入る（architecture「段と処理の順序」、artifact-formats「担当の返り値」）
+    if (c.subject.kind === 'question') {
+      if (c.cause === '要求の不足') exists('原因の問い', [c.subject.id], qs);
+      else if (qs.has(c.subject.id)) errs.push(`原因の問い ${c.subject.id} は ${c.cause} なので questions[] に入らない`);
+    }
     if (c.subject.kind === 'combination') {
       exists('原因の model_id', [c.subject.model_id], models);
       const m = r.models.find((x) => x.id === c.subject.model_id);

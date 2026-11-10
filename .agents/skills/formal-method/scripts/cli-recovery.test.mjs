@@ -74,8 +74,9 @@ test('cli-contract salvage 4・5 SP-FORMALMETHOD-015 AC-19: 保持者が死ん�
   // 台帳の entry の欄（artifact-formats「記録台帳」）: salvage の追補台帳と、あれば run-daemon の台帳
   const tasks = tasksById(dir);
   assert.ok(tasks.size >= 1, '担当を待っていた run には tasks.json がある');
-  assert.deepEqual(ledgerEntryViolations(ledger, tasks), [], 'salvage-ledger.json の entry');
-  if (existsSync(join(dir, 'ledger.json'))) assert.deepEqual(ledgerEntryViolations(JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8')), tasks), [], 'ledger.json の entry');
+  // runDir を渡し、担当の entry の input_refs（task の input_refs を展開したもの）も照らす
+  assert.deepEqual(ledgerEntryViolations(ledger, tasks, dir), [], 'salvage-ledger.json の entry');
+  if (existsSync(join(dir, 'ledger.json'))) assert.deepEqual(ledgerEntryViolations(JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8')), tasks, dir), [], 'ledger.json の entry');
   const wl = JSON.parse(readFileSync(join(dir, 'salvage-worklog.json'), 'utf8'));
   assert.equal(wl.role, 'salvage');
   assert.equal(wl.stage, '集約');

@@ -61,6 +61,10 @@ const INPUT_CASES = [
   ['submit の timed_out が false', 'submit', { run_dir: '<ws>', batch_id: 'b1', timed_out: false }, 'shape'],
   ['submit に workflow_output_path と timed_out の両方', 'submit', { run_dir: '<ws>', batch_id: 'b1', workflow_output_path: '/x', timed_out: true }, 'shape'],
   ['submit の run_dir が無いディレクトリ', 'submit', { run_dir: '<ws>/missing', batch_id: 'b1', timed_out: true }, 'run_dir_not_found'],
+  // batch_id は受け箱の file 名になるので Id の文字だけ（cli-contract「コマンド」の submit）
+  ['submit の batch_id が ../x（path の区切りを含む）', 'submit', { run_dir: '<ws>', batch_id: '../x', timed_out: true }, 'shape'],
+  ['submit の batch_id が a/b', 'submit', { run_dir: '<ws>', batch_id: 'a/b', workflow_output_path: '/x' }, 'shape'],
+  ['submit の batch_id が空', 'submit', { run_dir: '<ws>', batch_id: '', timed_out: true }, 'shape'],
 ];
 for (const [name, command, input, detailReason] of INPUT_CASES) {
   test(`cli-contract 誤りと終了コード E_INPUT: ${name} は終了コード 1 で、何も書かない`, async (t) => {

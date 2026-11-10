@@ -336,9 +336,9 @@ Boundary = {
   assumption: string, guarantee: string,
   assumption_basis: { kind: "他の部分の保証", contract_id: Id }
                   | { kind: "依頼の要求・制約", known_requirement_id: Id }
-                  | { kind: "共同不変条件", check_ids: [Id]+ }
+                  | { kind: "共同不変条件", check_ids: [Id]+ }    // 今の版では分割の照合の欠陥（分割の照合の境界）
                   | { kind: "確認できない前提", reason: string },
-  responsible: [Id]+                       // 契約を満たすことを確かめる契約か検査
+  responsible: [Id]+                       // 保証を確かめる契約の id。同じ分割の contracts[].id に実在する
 }
 Contract = {
   id: Id, model_id: Id,                    // 部分の model_id と同じ
@@ -402,6 +402,8 @@ Contract = {
   5. 候補の中のノードは id のバイト列の辞書順に並べる。候補は、最小のノードの id の辞書順に並べ、順に `C1`・`C2`… と名付ける。
   6. `strength_to` は、候補の組ごとに、両端がそれぞれの候補にある `graph.edges` の数（向きと `kind` を問わない）。0 の組は載せない。`strength_to` の並びは `candidate_id` の辞書順。
   - 候補の id とノードは、この手順だけで決まる。別の実装が同じ `graph` に当て直すと、同じ `candidates` になる。
+- **欠陥の残った分割**: 修正の巡の後も分割の照合の欠陥が残った `PartitionsFile` は採らない。結果の `decomposition` は分割しなかったときの形（`adopted: false`、`parts`・`boundaries`・`contracts`・`composition_conditions` は `[]`）で、`reason` は「分割の欠陥が残った」、`decisions` は CLI が導いた候補ごとに `adopted: false` と理由「分割の欠陥が残った」を持つ。計画作成役には分割の無いモデルだけを渡す。残った欠陥は、計画の段の作業記録と `syntax`・`reference` の確認に写る。理由: 欠陥の残った境界・契約（実在しない `responsible` など）を結果に載せると、集約の照合で参照が欠け、`内部の誤り` になる。分割を採らないので、親の性質は全体のモデルの検査だけで判定し、その条件（[aggregateProperty](#aggregatepropertyfacts--verdict) の段 2）が全て成り立てば `検証済み` になりうる。理由: SP-009 の条件は分割したときの規則で、採らなかった分割の欠陥は全体のモデルの検査の正しさに関わらない。欠陥が残ったことは `syntax`・`reference` の確認（区分が `other` なら計画の段の作業記録）に残り、`syntax`・`reference` が `成り立たない` なら run は `確認が終わっていない` で `停止` する。
+- **分割の照合の境界**: `Boundary.responsible` の各 id が同じ分割の `contracts[].id` に無いか、その契約の `part_id` が `Boundary.producer` と等しくなければ欠陥とする（保証を確かめる責任は、保証する側の部分の契約が負う。SP-009）。`assumption_basis.kind` が `共同不変条件` なら欠陥とする（今の版では受け付けない）。理由: 共同不変条件の検査は分割作成役の後に計画作成役が作るので、分割の段では id を決められず、その検査を誰がどの id で作るかの契約も無い。受け付けると、確かめていない前提で親の性質が `検証済み` になりうる（SP-009）。そのため前提の循環は常に欠陥になる。
 - 親の性質（inventory の性質）が `検証済み` になるのは、それを `inventory_property_ids` に含むモデルの性質を `derived_from` に持つ合成の条件の全てが検査（`Check.kind: "composition"`）を 1 件以上持ってそれが全て成功し、`contracts` が全て `検証済み`、`assumption_basis` に `確認できない前提` が無く、`correspondence.unmatched` が空のときだけである（SP-009）。
 
 ### 反例と原因（SP-011）
@@ -416,7 +418,7 @@ Cause = {
   subject: { kind: "counterexample", id: Id } | { kind: "combination", model_id: Id, state: string, event: string } | { kind: "question", id: Id },
   cause: "要求の不足" | "形式モデルの欠陥" | "分類処理の欠陥" | "対象が性質を満たさない" | "原因未確認",
   grounds: string,
-  classified_by: string                    // 分類した担当の task_id
+  classified_by: string                    // 分類した担当の task_id。担当を出さなかったときだけ "cli"
 }
 Question = { id: Id, missing_decision: string, affected: [string]+, options: [string]+ }
 ```
@@ -437,7 +439,7 @@ Confirmation = {
   plan_id: Id | null,                      // 計画の sanity・変異から作った確認なら、その計画の id（PlanFile.sanity[].id・MutationsFile.mutations[].id）。他は null
   item: string,
   result: "成り立つ" | "成り立たない" | "確認できず",
-  checker: string,                         // 決定的な検査は "cli"、意味の確認は担当の task_id
+  checker: string,                         // 決定的な検査は "cli"、意味の確認は担当の task_id（担当を出さなかった unit は "cli"）
   materials: [RefHash],                    // 確認した者に渡した資料
   end: End | null,                         // 道具を実行した確認（replay・sanity・mutation）だけ非 null
   reason: string
@@ -445,10 +447,23 @@ Confirmation = {
 ```
 
 - `deterministic` と `meaning` は別の配列で、一方の `成り立つ` を他方の代わりにしない（SP-012）。
+- **`result_presence` の作り方**（SP-012 の「全ての計画した検査の結果の有無」）: 計画作成役の `PlanFile` があれば、実行の段の終わりに CLI が `confirmations.deterministic` に 1 つ作る。無ければ作らない。欄は `kind: "result_presence"`、`property_ids: []`、`model_property_id: null`、`plan_id: null`、`item: "計画した全ての検査の結果"`、`checker: "cli"`、`materials: []`、`end: null`。`PlanFile.checks` の全ての要素（欠陥が残って除いたものを含む）が、同じ `id` の `checks[]` の要素を持てば `成り立つ`、持たない要素があれば `成り立たない` で、`reason` にその id を並べる。対象は `PlanFile.checks` だけで、sanity と変異は確認（`kind: sanity`・`mutation`）として別に数える。理由: 欠陥で除いた検査は定めた検査に数えず結果が無いので、計画した検査の結果が欠けたことを決定的な確認として示す。
+- **`syntax`・`reference`・`output_format` の作り方**（SP-012 の構文・参照の解決・道具の出力の形式）: 新しい照合は足さず、既にある照合の結果を写す。集約の段で、CLI が `confirmations.deterministic` に kind ごとに 1 つ（run に最大 3 つ）作る。欄は `property_ids: []`、`model_property_id: null`、`plan_id: null`、`checker: "cli"`、`materials: []`、`end: null`。
+  - **欠陥の区分**: 洗い出し・モデル化・計画の段の照合（`coverageCheck`・`modelCheck`・`partitionCheck`・`planCheck` と `.smt2` の規則）が出す欠陥に、CLI は次の区分を 1 つ付ける。
+    - `syntax`: 担当の成果物のファイルを読めない、JSON でない、その形式の形（この文書の型）に合わない、`.smt2` が S 式として読めないか `.smt2` の規則（[担当の成果物](#担当の成果物)）に反する。
+    - `reference`: id か `Ref` の欄が、[id と参照の一覧](#id-と参照の一覧)の「実在を確かめる所」がその段の照合とする先に実在しない（未定義の参照・実在しない id・領域の外の Ref）。
+    - `other`: 上の 2 つに当たらない欠陥（網羅の欠け、件数、選択の欠け・重なり、循環、共同不変条件など）。この区分は決定的な確認に写さない。
+    - 1 つの欠陥が両方に当たれば `syntax` とする（読めないものは参照を確かめられないため）。
+    - [id と参照の一覧](#id-と参照の一覧)の「一意」の違反（重複）は `other`、「実在を確かめる所」の違反（`target_id` の種類の不一致を含む）は `reference` とする。
+  - `syntax`（`item: "担当の成果物の構文"`）と `reference`（`item: "担当の成果物の参照の解決"`）: 照合した成果物が 1 つ以上あれば作る。修正の巡の後に残った欠陥（各段で最後の巡に照合した成果物の欠陥。受け入れたかによらない。返り値の形の違いで成功に数えなかった返り値は、成果物を照合しないので含まない。それは `担当の失敗` が扱う）のうち、その区分のものが無ければ `成り立つ`、あれば `成り立たない` で、`reason` に `<段>: <欠陥の文>` を並べる。照合した成果物が無ければ（担当が全て失敗したなど）作らない。修正の巡で直った欠陥は数えない。
+  - `output_format`（`item: "道具の出力の形式"`）: `started: true` の道具の実行（`checks[]` と、道具を実行した確認）が 1 つ以上あれば作る。そのうち `stopped_by: null` の実行の全てで `unreadable_output: false` なら `成り立つ`、`unreadable_output: true` の実行があれば `成り立たない` で、`reason` にその実行の id を並べる。formal-method が止めた実行は道具が出力を終えていないので数えない。`tool_result: "判定以外のエラー"`（道具が query の誤りを報告した）は数えない。理由: 出力の形は崩れておらず、その検査は既に `実行失敗` で、停止の理由 `実行できない検査` が示す。`syntax` が扱うのは照合で見つけた欠陥だけである。
+  - 3 つとも、`成り立つ` でなければ `confirmations_unresolved` が true になり（`確認が終わっていない`）、`stop_report` があれば `unconfirmed_scope` に `item` が入る。欠陥と実行の判定そのものは、今の規則（修正の巡、計画の欠陥の `unverified[]`、検査の判定 `実行失敗`）のまま変えず、この確認には写すだけである。`unverified[]` には写さない（欠陥は既に各規則で載る）。
+  - 理由: SP-012 は、決定的な検査を意味の確認と別の記録と判定として示すことを求める。照合を新しく足すと同じ欠陥を 2 か所で判定するので、既にある照合の結果を区分ごとにまとめる。
 - **意味の確認の作り方**: 意味の確認は、`context.perspective` が非 null の task（抽出・形式化でない確認・忠実さ・保証・合成の検証者。原因の分類役は含まない）ごとに、CLI が `confirmations.meaning` に 1 つ作る。
-  - 共通の欄: `kind` = `context.perspective`、`item` = `unit_id`、`checker` = その `task_id`、`plan_id: null`、`end: null`、`materials` = `context.input_refs` の各 `ref` と、各 ref が指すファイルの、`tasks.json` を書く前に取った指紋（`run-daemon` が控え、後で取り直さない）。`property_ids`・`model_property_id` は下の表の「関わる性質」。
+  - 共通の欄: `kind` = `context.perspective`、`item` = `unit_id`、`checker` = その `task_id`（担当を出さなかった unit は `"cli"`）、`plan_id: null`、`end: null`、`materials` = （担当を出さなかった unit は `[]`。他は）`context.input_refs` の各 `ref` と、各 ref が指すファイルの、`tasks.json` を書く前に取った指紋（ディレクトリの ref は [task の一覧](#task-の一覧)の「ディレクトリの ref の指紋」で展開する。`run-daemon` が控え、後で取り直さない）。`property_ids`・`model_property_id` は下の表の「関わる性質」。
   - 正常に返ったとき: `result` は `ReviewReturn.result`、`reason` は空でない文。
   - task が `担当の失敗` になったとき（[担当の返り値](#担当の返り値)。batch の拒否を含む）: `result: "確認できず"`、`reason` は停止の理由 `担当の失敗` の `detail` と同じ文。返り値は使わない。理由: 確認を作らないと、確かめるはずだった unit が結果から消え、「確認が要らなかった」と区別できない。`Confirmation.result` に `未確認` の値は無く、確かめられなかったことは `確認できず` で表す。
+  - 担当を出さなかったとき（確認の段で組み立てた unit のうち、確認の段の中で時間の上限に達して後の batch を出さなかったか、`task.md`・`tasks.json` を保存できなかったもの。確認の段に入らずに止まった run では、意味の確認を作らない。原因は、確認の段に入らずに止まった run でも、全ての反例と `対応できていない` 組合せについて、[担当の返り値](#担当の返り値)の「原因の分類役を出さなかったとき」と同じ形（`cause: "原因未確認"`・`classified_by: "cli"`・`grounds` は止まった理由の文）で作る（全ての反例と組合せが `causes` を持つ規則を保つ）。[CLI 契約の時間の上限が小さい依頼](cli-contract.md#定数)）: `result: "確認できず"`、`checker: "cli"`、`materials: []`、`reason` は出さなかった理由の文。`担当の失敗` は記録しない（停止の理由は `時間の上限` か `保存の失敗` が持つ）。理由: 確かめる者がいなかったことを、task_id の無い値で区別する。
   - `result` が `確認できず` の意味の確認は、`unverified[]` にも `item` = `unit_id`、`reason` = 同じ文で写す。正本は `Confirmation` である（`unverified[]` は SP-003 の未検証・未確認の欄として機械的に読むための写し）。`stop_report` があれば、`unconfirmed_scope` に `unit_id` が入る。
 - **意味の確認から判定の入力への写し**（正常と失敗で共通。「全て成り立つ」は、その欄に関わる確認が 1 つ以上あって全て `成り立つ` のとき）
 
@@ -474,7 +489,7 @@ Records = {
 ```
 
 - 結果のファイル自身と台帳は、`saved` では `hash: null` で持つ（指紋が循環するため）。他の記録は `hash` を持つ。
-- 保存できたとするのは、再読込で指紋が一致した記録だけである。台帳と結果の保存の失敗の組合せは [CLI 契約](cli-contract.md#結果と台帳の保存の失敗)。
+- 保存できたとするのは、再読込で指紋が一致した記録だけである。例外は結果のファイル自身で、link に成功した後に fsync か再読込が I/O の誤りになっても、R の `saved` の参照は変えない（[CLI 契約の link の後の失敗](cli-contract.md#結果と台帳の保存の失敗)。依頼者の決定）。台帳と結果の保存の失敗の組合せは [CLI 契約](cli-contract.md#結果と台帳の保存の失敗)。
 
 ### 停止の報告（SP-015）
 
@@ -742,12 +757,15 @@ PlanFile = { schema: "formal-method.plan/1",
              assumptions: [string], scope: string, tool_time_limit_seconds: int≥1, depends_on: [Id] }],
   sanity: [{ id: Id, model_property_id: Id, input_refs: [Ref]+, tool_time_limit_seconds: int≥1 }] }
 MutationsFile = { schema: "formal-method.mutations/1",
-  mutations: [{ id: Id, property_id: Id, mutation_ref: Ref, expected_violation: "sat" | "unsat", detector_check_id: Id }],
+  mutations: [{ id: Id, property_id: Id, mutation_ref: Ref, expected_violation: "sat" | "unsat", detector_check_id: Id }],   // mutation_ref は計画作成役自身の attempts/<task_id>/ の中
   unavailable: [{ property_id: Id, reason: string, alternative: string | null }] }
 ```
 
 - `tool_time_limit_seconds` ≤ `TOOL_TIME_LIMIT_MAX_S`（[CLI 契約](cli-contract.md#定数)）。
 - `checks[].expected` は `unsat` である（`property`・`contract`・`composition` の query は「前提 ∧ ¬性質（契約・全体の性質）」なので）。`sat` の検査は計画の欠陥とする。
+- **変異のファイル**: 変異の `.smt2` を書くのは計画作成役だけである。`mutation_ref` は、その計画作成役自身の `attempts/<task_id>/` で始まる（task が渡した資料を指す例外は、`mutation_ref` には当てない）。外れれば計画の欠陥（修正の巡の対象）。台帳の entry の `producer` はその計画作成役の `task_id` である。理由: 変異は計画作成役の成果物で、計画の照合で `.smt2` の規則を照らし、直せる役に修正の巡を戻すため。他の役のファイルを変異にすると、書いた者と台帳の `producer` が食い違う。
+- **変異の無い性質の `detection`**（依頼者の決定）: 欠陥の残らない変異を 1 つも持たない性質は、`unavailable` の有無と `alternative` の有無によらず、`status: "検出能力未確認"`・`mutations: []`（`detection_performed: false`）とする。`reason` には、`alternative` の文（あれば全て、`unavailable` の順に）と「別の方法の確認の結果が無い」ことを書く。欠陥で変異を除いた性質では、この 2 つに加えて、除いた変異の計画の id も書く（3 つとも書き、片方で代えない）。
+  - 理由: SP-012 は、別の方法による検出能力の確認の「結果」を示すことを求める。`alternative` の文は方法の宣言で、どの担当の返り値にも、その方法で確認した結果の欄が無い（保証の独立検証者は `alternative` が妥当かを判断するだけである）。将来、担当の返り値に確認の結果の欄を足せば、その結果で `別の方法で確認` を使える。
 - 必要な性質ごとに、`mutations` の要素か `unavailable` の要素が 1 つ以上ある。この照合は計画作成役が返した計画に当て、欠陥の残った変異を除いた後には当て直さない。変異を全て除かれて `unavailable` も無い性質は、変異も別の方法も無いので、`detection` は `status: "検出能力未確認"`・`mutations: []` で、`reason` に除いた変異の計画の id を書く（SP-012）。性質の判定は `detection_performed: false` で決まる（検出能力未確認は判定に混ぜず、`decideStatus` の述語 7 で `完了` を妨げる）。
 - 形式化できる必要な性質（問いに依存するものを除く）ごとに、`selection` の要素がちょうど 1 つある。欠けか重なりは計画の欠陥（修正の巡の対象）とする。修正の巡の後も残れば、その性質の検査（下の「道具の名前」の照合と同じく `inventory_property_ids` と `derived_from` で辿る `property`・`contract`・`composition` の検査）も欠陥の残った計画の要素として実行しない（[検査](#検査sp-010)の節）。そのため性質の判定は検査の欠けと同じく `未確認`（`no_suitable_tool` なら `未実行`）で、run は `decideStatus` の述語 1（必要な性質が検証の成功でない）で `停止` になる。
 - **道具の名前**: CLI が実行できる道具（adapter のある道具。今は Z3 だけ）は、`Candidate.name` と `chosen.tool` に adapter の id（`z3`。`ModelFile.adapter_id` と同じ値）を書く。他の道具は、その候補の `name` をそのまま `chosen.tool` に書く。
@@ -773,7 +791,7 @@ AuthorReturn = {
   status: "done" | "needs_answer" | "cannot_proceed",
   outputs: [{ kind: "inventory" | "model" | "mapping" | "partitions" | "plan" | "mutations", ref: Ref }],
   questions: [Question],                  // needs_answer のとき 1 つ以上
-  blocked_by_question: [Id],
+  blocked_by_question: [Id],              // 回答を待つ問いに依存する inventory の性質の id（問いの id ではない）
   reason: string | null,                  // cannot_proceed のとき非 null
   worklog_ref: Ref
 }
@@ -794,9 +812,13 @@ CauseReturn = {
 ```
 
 - 返り値が無い、形が違う、`outputs`・`record_ref`・`worklog_ref` が attempt の領域の外か存在しない、`task_id`・`unit_id` が task と違う場合は、成功に数えない（作業記録の失敗の欄に理由が残る）。
-- これらの場合、`status: "cannot_proceed"`、及び受け箱の batch の拒否（[CLI 契約](cli-contract.md#受け箱)。その batch の全ての task）は、停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録する。`担当の失敗` は中断の理由ではない。run は止めずに次の段へ進み、その担当が作るはずの成果物は未作成になる。`context.perspective` が非 null の task なら、その unit の確認は `result: "確認できず"` の `Confirmation` になる（[確認](#確認sp-004005012)）。原因の分類役の task なら、CLI がその `subject` の `Cause` を `cause: "原因未確認"`・`grounds` = `担当の失敗` の `detail` と同じ文・`classified_by` = その `task_id` で作る（全ての反例と組合せが `causes` に 1 つずつある規則を保つ。問いの `subject` なら、分類が `要求の不足` でないので問いとして返さない）。理由: 他の性質の検証を続ける（依頼者の決定）。そのうえで、`stop_report.stage` が失敗した処理の段になる（中断の理由が無いとき、段の並びで最も上流の段を取る規則による。AC-19）。
+- これらの場合、`status: "cannot_proceed"`、及び受け箱の batch の拒否（[CLI 契約](cli-contract.md#受け箱)。その batch の全ての task）は、停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録する。`担当の失敗` は中断の理由ではない。run は止めずに次の段へ進み、その担当が作るはずの成果物は未作成になる。`context.perspective` が非 null の task なら、その unit の確認は `result: "確認できず"` の `Confirmation` になる（[確認](#確認sp-004005012)）。原因の分類役の task なら、CLI がその `subject` の `Cause` を `cause: "原因未確認"`・`grounds` = `担当の失敗` の `detail` と同じ文・`classified_by` = その `task_id` で作る。原因の分類役を出さなかったとき（時間の上限か保存の失敗）は、同じ形で `grounds` = 出さなかった理由の文・`classified_by: "cli"` とする（全ての反例と組合せが `causes` に 1 つずつある規則を保つ。問いの `subject` なら、分類が `要求の不足` でないので問いとして返さない）。理由: 他の性質の検証を続ける（依頼者の決定）。そのうえで、`stop_report.stage` が失敗した処理の段になる（中断の理由が無いとき、段の並びで最も上流の段を取る規則による。AC-19）。
+- **`AuthorReturn.blocked_by_question`**（担当の指示と `agent-obligations.md` のとおり、性質の id）:
+  - 各 id は、モデル作成役・計画作成役では `context.property_ids` に、抽出役では返した inventory の `properties[].id` にある。無ければ返り値の形の違い（成功に数えない）。
+  - 抽出役では、性質ごとの `Inventory.properties[].blocked_by_question`（問いの id）が依存の正本で、`AuthorReturn.blocked_by_question` はそれが空でない性質の id の集合と一致する。違えば形の違い。
+  - モデル作成役・計画作成役が挙げた性質 P の `depends_on_questions` は、その返り値の `questions` のうち `affected` に P の id を含むものの id。1 つも無ければ、その返り値の全ての問いの id とする。
 - **性質の id の名前空間**:
-  - inventory の性質の id: `PropertyResult.id`、`Inventory.properties[].id`、`context.property_ids`、`nonformal-<id>`、`Confirmation.property_ids`、`PlanFile.selection[].property_id`（道具の選択は、結果の性質ごとの `method` になるため）、`MutationsFile.unavailable[].property_id`（検出能力の結果は性質ごとの `detection` になるため）。
+  - inventory の性質の id: `PropertyResult.id`、`Inventory.properties[].id`、`AuthorReturn.blocked_by_question`、`context.property_ids`、`nonformal-<id>`、`Confirmation.property_ids`、`PlanFile.selection[].property_id`（道具の選択は、結果の性質ごとの `method` になるため）、`MutationsFile.unavailable[].property_id`（検出能力の結果は性質ごとの `detection` になるため）。
   - モデルの性質の id（`ModelFile.properties[].id`。run の全てのモデルを通して一意）: graph の `prop:<model_id>/<id>`、`assurance-<id>`、`Confirmation.model_property_id`、`PlanFile.checks[].target_id`（`kind: property` のとき）、`PlanFile.sanity[].model_property_id`、`MutationsFile.mutations[].property_id`（検出役の検査がモデルの性質の検査であるため）。
   - `PlanFile.checks[].target_id` は、`kind: composition` なら `composition_conditions[].id`、`kind: contract` なら `contracts[].id` である。
   - 2 つの名前空間は `ModelFile.properties[].inventory_property_ids` で結び付く。
@@ -838,17 +860,36 @@ TaskContext = {
 | role | perspective | 非 null の欄 | `unit_id` |
 |---|---|---|---|
 | `extractor` | null | `target_id` | null |
-| `model-author`・`plan-author` | null | — | null |
+| `model-author` | null | `property_ids`（必要な性質のうち、抽出役が `blocked_by_question` に挙げていないもの） | null |
+| `plan-author` | null | `property_ids`（`model-author` の `property_ids` のうち、`formalizable` が true で、モデル作成役が `blocked_by_question` に挙げておらず、いずれかのモデルの性質の `inventory_property_ids` に含まれるもの） | null |
 | `partition-author` | null | `candidates` が空でない | null |
 | `extraction-reviewer` | `extraction` | `unit_id`・`target_id` | `extraction-<target_id>` |
 | `assurance-reviewer` | `nonformal` | `unit_id`・`property_ids`（inventory の性質の id が 1 つ） | `nonformal-<inventory の性質の id>` |
 | `assurance-reviewer` | `assurance` | `unit_id`・`model_id`・`property_ids`（そのモデルの性質の `inventory_property_ids`） | `assurance-<モデルの性質の id>`（`ModelFile.properties[].id`） |
 | `fidelity-reviewer` | `fidelity` | `unit_id`・`model_id` | `fidelity-<model_id>` |
 | `composition-reviewer` | `composition` | `unit_id` | `composition` |
-| `cause-analyst` | null | `unit_id`・`subject` | `cause-counterexample-<id>`・`cause-combination-<model_id>-<state>-<event>`・`cause-question-<id>` |
+| `cause-analyst` | null | `unit_id`・`subject` | `cause-counterexample-<id>`・`cause-combination-<model_id>-<n>`（`n` はその組の `Combinations.cells` の中の 0 から数えた位置を 10 進で書いたもの）・`cause-question-<id>` |
 
 - `ReviewReturn.perspective` は `context.perspective` と同じ値を返す。
+- 組合せの `unit_id` に状態と出来事の名前を入れないのは、名前が `Id` の文字（英数字・「-」「_」「.」）に合うとは限らないためである。`cells` の順は宣言順で決まる（[形式モデル](#形式モデルと対応sp-005006)の `Combinations`）ので、位置は同じモデルから決定的に決まる。組合せの名前は `context.subject`（`state`・`event`）が持つ。
 - `PartitionsFile.decisions` は、`context.candidates` の全ての id を 1 つずつ持つ。
+
+**独立検証者と原因の分類役の `input_refs`**（CLI が作る正本。担当の読む範囲は `agent-obligations.md` の独立検証者の節）
+
+- `ref` は `run_dir` からの相対 path。どの行も、先頭に `{ name: "request", ref: "request.json" }` を置く（原因の分類を含む）。
+- 「対象の写し」は `targets/<target_id>/files/`（ディレクトリ）、「照合の記録」は `worklogs/cli-<段>.json`、「検査の記録」は `checks/<execution_id>/`（ディレクトリ）を指す。
+
+| 観点（`perspective`） | `input_refs` に入れるもの（`request` の後） |
+|---|---|
+| `extraction` | その `target_id` の写しと `manifest.json`、その対象の inventory、`worklogs/cli-洗い出し.json` |
+| `fidelity` | 全ての対象の写しとその `manifest.json`、全ての inventory、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json`。図はモデルから CLI が導く値でファイルが無いので、モデルで代える |
+| `assurance` | その `model_id` のモデルと対応表、その性質の `query_ref`、`PlanFile`、`MutationsFile`（あれば）、その性質（`unit_id` の `assurance-` の後の id）を `target_id` か `model_property_id` に持つ検査・sanity・変異・replay の各実行の検査の記録 |
+| `nonformal` | その性質の `source_ids` の要素の `target_id` の写し、その性質を持つ inventory |
+| `composition` | `PartitionsFile`、全てのモデル、`contracts[]`・`composition_conditions[]` の `query_ref`、`kind` が `contract`・`composition` の検査の記録、`worklogs/cli-計画.json`。依存グラフと候補は CLI が導く値でファイルが無いので、モデルと分割で代える |
+| 原因の分類（`cause-analyst`、`perspective` は null） | 全ての対象の写し。`subject` が反例なら、その検査と replay の検査の記録、そのモデルと対応表。組合せなら、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json`。問いなら、問いを返した作成役の `outputs` のファイル |
+
+- 実行していない検査（記録のディレクトリが無いもの）は入れない。`attempts/` のディレクトリは入れない（その中のファイルは入れてよい）。
+- **ディレクトリの ref の指紋**: `materials` と台帳の `input_refs`（どちらも `[RefHash]`）では、ディレクトリを指す `input_refs` の要素を、その下の全てのファイル（再帰的に、ディレクトリ自身は除く）の `RefHash` に展開する。並びは `input_refs` の要素の順で、1 つのディレクトリから展開したものの中だけを `ref` の UTF-8 のバイト列の辞書順に並べる。ファイルを指す要素はそのまま 1 つの `RefHash` にする。指紋を取る時点は意味の確認の作り方と同じ（`tasks.json` を書く前）。理由: `RefHash` はファイル 1 つの指紋なので、ディレクトリの中身を渡した資料として再現できる形にする。
 
 **task.md の形**: 次の 4 つの見出しをこの順に持つ Markdown。各見出しの下の本文は、空でない。
 
@@ -911,7 +952,7 @@ Ledger = {
   entries: [{ kind: RecordKind, ref: Ref, hash: Sha256, stage: Stage,
               producer: string,           // "cli"、担当の task_id、又は "salvage"
               model: string | null, effort: string | null, permissions: [string],
-              input_refs: [RefHash] }],
+              input_refs: [RefHash] }],    // producer が担当の task_id の entry は、その task の context.input_refs を「ディレクトリの ref の指紋」で展開したもの（作業記録を含む全ての記録で同じ）。"cli"・"salvage" の entry は []
   registered_result_hash: Sha256          // 登録した結果の指紋。結果のファイルが保存されたことは示さない
 }
 ```
@@ -953,7 +994,7 @@ id と参照の全ての欄の、名前空間・一意の範囲・実在の確�
 | `Pointer.id`（kind `target`・`goal`・`known_requirement`） | 依頼の id | 一意 | 受付の照合 | — |
 | `fixed.snapshot_ref`・`Model.ref`・`Location.file`・`evidence_refs`・`Records.*.ref`・`ledger_refs`・`steps_ref`・`materials[].ref`・`Worklog.inputs[].ref`・`unreadable_inputs[].ref`・`document_rules.ref`・`Ledger.entries[].ref`・`input_refs[].ref` | Ref | 一意 | 書いた者が書いた直後の再読込、集約の照合（結果の参照の再読込） | run |
 | `Location.pointer` | JSON Pointer か `form:` | 一意（`file` と組で） | 依存グラフの導出 | モデル・`.smt2` |
-| `PropertyResult.id`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中）、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
+| `PropertyResult.id`・`AuthorReturn.blocked_by_question`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中）、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
 | `Inventory.properties[].source_ids`・`io_contracts[].source_ids`・`transitions[].source_ids`・`forbidden[].source_ids` | inventory の要素の id | 一意 | 洗い出しの照合（性質の出所）、モデル化の照合（モデルの出所） | — |
 | `sources[].id`（kind `goal`・`known_requirement`） | 依頼の id | 一意 | 洗い出しの照合 | — |
 | `Model.id`・`Check.model_id`・`context.model_id`・`MappingFile.model_id`・`parts[].model_id`・`Contract.model_id`・`composition_conditions[].model_id`・`Cause.subject.model_id`・`PlanFile.checks[].model_id` | model_id | 一意 | モデル化の照合（mapping とモデルの組）、計画の照合 | — |
@@ -961,13 +1002,13 @@ id と参照の全ての欄の、名前空間・一意の範囲・実在の確�
 | `transition_ids`・`resumptions[].transition_id`・`Combinations.cells` の `state`・`event`・`Cause.subject.state`・`event` | モデルの中の名前 | モデルの中だけで一意。`Model.id` か `Cause.subject.model_id` と組で使う | モデル化の照合（直積と分類） | モデル |
 | `graph.nodes[].id`・`graph.edges[].id`・`from`・`to`・`candidates[].nodes`・`parts[].owns_variables`・`parts[].transitions`・`Boundary.edge_id`・`correspondence` の要素 | graph の要素の id・辺の id | 一意 | 計画の照合（分割の照合） | — |
 | `candidates[].id`・`strength_to[].candidate_id`・`decisions[].candidate_id`・`context.candidates[].id` | 候補の id | 一意 | 計画の照合（全ての候補に 1 つの判断） | — |
-| `parts[].id`・`Boundary.producer`・`consumer`・`Contract.part_id`・`Boundary.responsible`・`assumption_basis.contract_id`・`PlanFile.checks[].target_id`（kind `contract` は `contracts[].id`、kind `composition` は `composition_conditions[].id`） | 部分・契約・合成の条件の id | 一意 | 計画の照合（`target_id` は `kind` に合う種類の id に実在すること） | — |
+| `parts[].id`・`Boundary.producer`・`consumer`・`Contract.part_id`・`Boundary.responsible`・`assumption_basis.contract_id`・`PlanFile.checks[].target_id`（kind `contract` は `contracts[].id`、kind `composition` は `composition_conditions[].id`） | 部分・契約・合成の条件の id | 一意 | 計画の照合（`target_id` は `kind` に合う種類の id に実在すること）。`Boundary.responsible` は分割の照合（同じ分割の `contracts[].id` に実在すること） | — |
 | `assumption_basis.known_requirement_id` | 依頼の id（known_requirement） | 一意 | 計画の照合（依頼に実在すること） | — |
 | `PropertyResult.check_ids`・`Model.mapping[].check_ids`・`Contract.check_ids`・`composition_conditions[].check_ids`・`assumption_basis.check_ids`・`Counterexample.check_id`・`detector_check_id`・`depends_on`（checks）・`StopReport.checks_*[].id`・`Performance.executions[].id` | 実行と確認の id（1 つの名前空間） | 一意 | 計画の照合（計画の中）、集約の照合（結果の `checks[]` と `confirmations` を合わせた中に、ちょうど 1 つ実在。`PropertyResult.check_ids`・`Model.mapping[].check_ids`・`Contract.check_ids`・`composition_conditions[].check_ids`・`Counterexample.check_id` は、加えて `checks[]` に、[検査](#検査sp-010)の節と[反例と原因](#反例と原因sp-011)の節の `kind` で実在。`detector_check_id` は `kind: property`。`assumption_basis.check_ids` は `kind` を問わず `checks[]` に実在。空でよいかは各欄の型による。`Model.mapping[].check_ids` が 形式化 の行で空なら、その行の `reason` が非 null であることを照合する） | — |
 | `PropertyResult.confirmation_ids`・`Detection.mutations[].confirmation_id`・`replay.confirmation_id` | 実行と確認の id のうち `Confirmation.id`（`confirm-` で始まる） | 一意 | 集約の照合（`confirmations` に実在） | — |
 | `Confirmation.plan_id`・`Detection.mutations[].id` | 実行と確認の id のうち計画の id（`PlanFile.sanity[].id`・`MutationsFile.mutations[].id`） | 一意 | 計画の照合（計画の中に実在） | — |
 | `Cause.subject.id`（kind `counterexample`）・`Counterexample.id` | 反例の id | 一意 | 集約の照合 | — |
-| `Question.id`・`Cause.subject.id`（kind `question`）・`depends_on_questions`・`StopReport.questions`・`blocked_by_question` | 問いの id | 一意 | 確認の段（原因の分類）と集約の照合 | — |
+| `Question.id`・`Cause.subject.id`（kind `question`）・`depends_on_questions`・`StopReport.questions`・`Inventory.properties[].blocked_by_question` | 問いの id | 一意 | 確認の段（原因の分類）と集約の照合。`Cause.subject.id`（kind `question`）が `questions[]` に実在するのは、その `Cause.cause` が `要求の不足` のときだけで、他の原因なら `questions[]` に無い | — |
 | `Task.task_id`・`AuthorReturn.task_id`・`ReviewReturn.task_id`・`CauseReturn.task_id`・`Worklog.task_id`・`Cause.classified_by`・`Confirmation.checker`（意味の確認）・`Ledger.entries[].producer`・`WorkflowOutput.results[].task_id` | task_id | 一意 | 受け箱の読込み（task の照合）、返り値の回収 | — |
 | `context.unit_id`・`ReviewReturn.unit_id`・`CauseReturn.unit_id` | unit_id | 一意 | 返り値の回収（task の `context.unit_id` と一致） | — |
 | `TaskList.batch_id`・`WorkflowOutput.batch_id`・受け箱の `batch_id`・`Status.batch.batch_id` | batch_id | 一意 | 受け箱の読込み | — |

@@ -3,9 +3,9 @@
 // 正本: SP-FORMALMETHOD-003〜015、artifact-formats.md「結果」「検査の終わり方」、cli-contract.md「Z3 の adapter」。
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join, relative } from 'node:path';
+import { join, relative, posix } from 'node:path';
 import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { resultInvariants, refInvariants, RESULT_KEYS } from './test-fixtures/result-schema.mjs';
 import { fileHash } from './test-fixtures/fabricate.mjs';
@@ -14,7 +14,7 @@ import { specAggregate, DEFAULT_FACTS } from './test-fixtures/spec-verdict.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { writerMergeScc, stopStageViolations, deriveGraph, crossingEdges, INTERRUPTS } from './test-fixtures/decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './test-fixtures/constants.mjs';
-import { ledgerEntryViolations, tasksById, AGENT_PERMISSIONS_CONTRACT, LEDGER_ENTRY_KEYS } from './test-fixtures/ledger-check.mjs';
+import { ledgerEntryViolations, tasksById, expandRefs, AGENT_PERMISSIONS_CONTRACT, LEDGER_ENTRY_KEYS } from './test-fixtures/ledger-check.mjs';
 
 const P = (id, line, over = {}) => ({ id, file: 'spec.md', line, statement: `性質 ${id}`, query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, ...over });
 const prop = (result, id) => result.properties.find((p) => p.id === id);
@@ -118,7 +118,7 @@ test('artifact-formats 記録台帳 SP-FORMALMETHOD-014: 完了の run の台帳
   const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
   const tasks = tasksById(dir);
   assert.ok(tasks.size >= 1 && harness.memory.tasks.every((x) => tasks.has(x.task_id)), 'harness が受けた task は tasks.json にある');
-  assert.deepEqual(ledgerEntryViolations(ledger, tasks), []);
+  assert.deepEqual(ledgerEntryViolations(ledger, tasks, dir), [], '欄・producer ごとの値・担当の entry の input_refs（作業記録を含む）・cli の entry の input_refs []');
   assert.ok(ledger.entries.some((e) => e.producer === 'cli'), 'cli の entry がある');
   assert.ok(ledger.entries.some((e) => tasks.has(e.producer)), '担当の entry がある（担当の成果物・作業記録）');
 });
@@ -134,6 +134,7 @@ test('記録台帳の検査の自己検査: 欄の欠け・cli の権限・担�
   assert.equal(ok([{ ...cliE, permissions: ['fresh-thread'] }]).length, 1);
   assert.equal(ok([{ ...cliE, model: 'm' }]).length, 1);
   assert.equal(ok([{ ...cliE, producer: 'salvage', effort: 'high' }]).length, 1, 'salvage の effort は null');
+  assert.equal(ok([{ ...cliE, input_refs: [{ ref: 'request.json', hash: base.hash }] }]).length, 1, 'cli の input_refs は []');
   assert.equal(ledgerEntryViolations({}, tasks).length, 1, 'entries の無い台帳');
   assert.deepEqual(ledgerEntryViolations({ entries: [] }, tasks), [], '空の entries は許す');
   assert.equal(ok([{ ...agentE, model: 'm-low' }]).length, 1);
@@ -554,12 +555,10 @@ function assertConfirmationCommon(conf, task, harness) {
   assert.equal(conf.end, null);
   assert.equal(conf.model_property_id, c.perspective === 'assurance' ? c.unit_id.slice('assurance-'.length) : null);
   assert.deepEqual(conf.property_ids, expectedPropertyIds(task, harness));
-  assert.deepEqual(conf.materials.map((m) => m.ref), c.input_refs.map((r) => r.ref), 'materials は context.input_refs の ref');
-  for (const m of conf.materials) {
-    const p = join(c.run_dir, m.ref);
-    if (existsSync(p) && statSync(p).isFile()) assert.equal(m.hash, fileHash(p), `${m.ref} の指紋`);
-  }
+  // ディレクトリの ref は下の全てのファイルの RefHash に辞書順で展開する（artifact-formats「ディレクトリの ref の指紋」）
+  assert.deepEqual(conf.materials, expandRefs(c.run_dir, c.input_refs), 'materials は context.input_refs をファイルの RefHash に展開したもの');
 }
+// expandRefs は test-fixtures/ledger-check.mjs（台帳の検査と同じ展開）
 function assertReviewFailed(result, task, harness, opts = {}) {
   const c = task.context;
   const sr = result.stop_report;
@@ -797,7 +796,8 @@ test('SP-FORMALMETHOD-008 AC-06 analysis: 依存グラフの各要素と辺の�
     const m = x.location.pointer.match(/^form:(\d+):(\d+)-(\d+)$/);
     if (m) {
       const forms = topLevelForms(text);
-      assert.ok(Number(m[1]) >= 1 && Number(m[1]) <= forms.length, `${x.location.pointer} は ${forms.length} 個の S 式の中`);
+      // form の番号は 0 始まり（artifact-formats「依存グラフの導出の規則」）
+      assert.ok(Number(m[1]) >= 0 && Number(m[1]) < forms.length, `${x.location.pointer} は ${forms.length} 個の S 式の中（0 始まり）`);
     } else {
       assert.match(x.location.pointer, /^(\/[^/]*)*$/, 'JSON Pointer');
       assert.notEqual(resolvePointer(JSON.parse(text), x.location.pointer), undefined, `${x.location.file}#${x.location.pointer} が解決する`);
@@ -1268,6 +1268,13 @@ const missingCheck = (id, where) => (r, harness) => {
   const owner = where === 'contract' ? r.decomposition.contracts.find((k) => k.id === 'K-a') : r.decomposition.composition_conditions.find((c) => c.id === 'CC1');
   assert.deepEqual(owner.check_ids, []);
 };
+// 依存先の検査が成功でない合成の条件の検査は始めない（D1）
+const ccNotRun = (r, id) => {
+  const c = r.checks.find((x) => x.id === id);
+  assert.ok(c, `${id} は checks[] にある`);
+  assert.equal(c.state, '実行していない', `${id} の state`);
+  assert.equal(c.verdict, '未実行', `${id} の verdict`);
+};
 // 親の性質の全てで no_suitable_tool（chosen.tool が z3 でない）。検査も変異も無ければ検査の欠けから除くので修正の巡は出ない
 const notZ3NoChecks = {
   editPlan: (plan) => ({ ...plan, selection: plan.selection.map((x) => ({ ...x, chosen: { ...x.chosen, tool: 'Rust' } })), checks: [] }),
@@ -1275,8 +1282,10 @@ const notZ3NoChecks = {
 };
 const PART_CASES = [
   // [名前, scenario の上書き, 分割の上書き, 契約 K-a の期待の判定, 親 P1 の期待の判定, 追加の検査]
-  ['契約の検査が 反例', {}, { contract: { result: 'sat' } }, ['反例'], ['未確認'], null],
-  ['契約の検査が 時間切れ（道具自身の時間の上限）', {}, { contract: { result: 'timeout' } }, ['時間切れ'], ['未確認'], null],
+  // harness は合成の条件の検査の depends_on に契約の検査を置くので、契約の検査が成功でなければ C-CC1 は始めず 未実行（D1、architecture「互いに独立な検査」）。
+  // 親の性質は aggregateProperty の段 1 で 未実行
+  ['契約の検査が 反例', {}, { contract: { result: 'sat' } }, ['反例'], ['未実行'], (r) => ccNotRun(r, 'C-CC1')],
+  ['契約の検査が 時間切れ（道具自身の時間の上限）', {}, { contract: { result: 'timeout' } }, ['時間切れ'], ['未実行'], (r) => ccNotRun(r, 'C-CC1')],
   ['契約の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks('C-K-a') }, {}, ['未確認'], ['未確認'], missingCheck('C-K-a', 'contract')],
   ['契約に依る合成の条件の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks('C-CC1') }, {}, ['検証済み'], ['未確認'], missingCheck('C-CC1', 'condition')],
   ['契約に依らない合成の条件の検査が 反例', {}, { cond: { CC2: { result: 'sat' } } }, ['検証済み'], ['反例'], null],
@@ -1410,7 +1419,17 @@ const PLAN_DEFECTS = [
       assert.equal(det.status, '検出能力未確認');
       assert.deepEqual(det.mutations, []);
       assert.ok(det.reason.includes('MU-P1'), `reason に除いた変異の id: ${det.reason}`);
+      assert.ok(det.reason.includes('別の方法の確認の結果が無い'), `reason に「別の方法の確認の結果が無い」: ${det.reason}`);
       assert.ok(r.stop_report.reasons.some((x) => x.code === '検出能力未確認'), JSON.stringify(r.stop_report.reasons));
+    }],
+  // mutation_ref は計画作成役自身の attempts/<task_id>/ で始まる（artifact-formats「変異のファイル」）。モデル作成役の query を指すと計画の欠陥
+  ['mutation_ref が他の役の attempt（モデル作成役の query）を指す変異', { editMutations: (m, { mref }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: mref(`${x.property_id}.smt2`) })) }) },
+    (r) => {
+      assertExcluded(r, ['MU-P1']);
+      const det = prop(r, 'P1').detection;
+      assert.equal(det.status, '検出能力未確認');
+      assert.ok(det.reason.includes('MU-P1'), `reason に除いた変異の id: ${det.reason}`);
+      assert.ok(det.reason.includes('別の方法の確認の結果が無い'), `reason に「別の方法の確認の結果が無い」: ${det.reason}`);
     }],
 ];
 const onlyRound1 = (fn) => (x, ctx) => (ctx.round === 1 ? fn(x, ctx) : x);
@@ -1422,7 +1441,7 @@ for (const [name, edits, persisted] of PLAN_DEFECTS) {
     assertRevised(harness, 'plan-author', '計画');
     assertRecordsConsistent(status, result, harness);
     assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
-    assert.equal(z3Candidate(prop(result, 'P1').method.candidates)?.role, '検証器');
+    assert.equal(z3Candidate(prop(result, 'P1').method)?.role, '検証器');
     assert.equal(prop(result, 'P1').method.chosen.tool, 'z3', 'method は selection を写す');
     assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
   });
@@ -1483,13 +1502,23 @@ function assertNoSanityConfirmed(r) {
   assert.ok(codes.includes('必要な性質が検証の成功でない'), codes.join());
   assert.ok(!codes.includes('確認が終わっていない'), `述語 2 に当たらない: ${codes.join()}`);
 }
-test('artifact-formats 担当の成果物・検査: 修正の巡の後も sanity の query の違反が残れば、その sanity は計画の欠陥として除かれ、確認を作らず、性質は 未確認 で run は述語 1 で 停止', async (t) => {
+test('artifact-formats 担当の成果物・検査・確認 SP-FORMALMETHOD-012: 修正の巡の後も sanity の query の違反が残れば、その sanity は計画の欠陥として除かれ、性質は 未確認、syntax の確認が 成り立たない ので 確認が終わっていない も持って 停止。result_presence は sanity を数えず 成り立つ', async (t) => {
   const { result, harness } = await runScenario(t, { scenario: { editModelQuery: (text, { kind }) => (kind === 'sanity' ? `${text}(assert true)\n` : text) } });
   assert.deepEqual(resultInvariants(result), []);
   assertRevised(harness, 'model-author', 'モデル化');
   assertExcluded(result, ['S-P1']);
   assert.ok(!result.confirmations.deterministic.some((c) => c.kind === 'sanity' && c.property_ids.includes('P1')), 'P1 の sanity の確認は無い');
-  assertNoSanityConfirmed(result);
+  // assertNoSanityConfirmed と違い、.smt2 の規則の違反は syntax の区分なので述語 2 も立つ（artifact-formats「syntax・reference・output_format の作り方」）
+  assert.deepEqual(prop(result, 'P1').verdict, ['未確認']);
+  assert.equal(result.status, '停止');
+  const codes = result.stop_report.reasons.map((x) => x.code);
+  assert.ok(codes.includes('必要な性質が検証の成功でない'), codes.join());
+  assert.ok(codes.includes('確認が終わっていない'), `syntax が 成り立たない ので述語 2 も立つ: ${codes.join()}`);
+  const syntax = detConf(result, 'syntax');
+  assert.equal(syntax?.result, '成り立たない', String(JSON.stringify(syntax)));
+  assert.ok(syntax.reason.includes('モデル化: '), `reason に <段>: <欠陥の文>: ${syntax.reason}`);
+  assert.ok(result.stop_report.unconfirmed_scope.includes(syntax.item), `unconfirmed_scope に ${syntax.item}`);
+  assert.equal(detConf(result, 'result_presence')?.result, '成り立つ', 'result_presence は PlanFile.checks だけを数え、除いた sanity は数えない');
 });
 
 // 分割作成役の契約・合成の条件の query は、計画の段の分割の照合で照らし、修正の巡は分割作成役に出る
@@ -1510,12 +1539,21 @@ for (const [label, which, checkId] of PARTITION_QUERY_VIOLATIONS) {
     assertRevised(harness, 'partition-author', '計画');
     assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
   });
-  test(`artifact-formats 担当の成果物・検査: 分割作成役の${label}の query の違反が修正の巡の後も残れば、その検査（${checkId}）は除かれ、親の性質は 検証済み にならない`, async (t) => {
+  // 欠陥の残った分割は採らず、親の性質は全体のモデルの検査だけで判定する（artifact-formats「欠陥の残った分割」）。
+  // .smt2 の規則の違反は syntax の区分なので、syntax が 成り立たない で 確認が終わっていない で停止する
+  test(`artifact-formats 欠陥の残った分割 SP-FORMALMETHOD-009・012: 分割作成役の${label}の query の違反が修正の巡の後も残れば、分割を採らず（${checkId} を作らない）、親の性質は全体の検査で 検証済み、syntax が 成り立たない で 確認が終わっていない で停止`, async (t) => {
     const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), partition: partitionViolating(which, true) } });
     assert.deepEqual(resultInvariants(result), []);
     assertRevised(harness, 'partition-author', '計画');
-    assertExcluded(result, [checkId]);
-    assert.deepEqual(prop(result, 'P1').verdict, ['未確認']);
+    assert.equal(result.decomposition.adopted, false);
+    assert.deepEqual([result.decomposition.contracts, result.decomposition.composition_conditions], [[], []]);
+    assert.ok(!result.checks.some((c) => c.id === checkId || c.kind === 'contract' || c.kind === 'composition'), '分割の検査を作らない');
+    assert.deepEqual(prop(result, 'P1').verdict, ['検証済み'], '全体のモデルの検査だけで判定する');
+    const syntax = detConf(result, 'syntax');
+    assert.equal(syntax?.result, '成り立たない', String(JSON.stringify(syntax)));
+    assert.ok(/計画: .+/.test(syntax.reason), `reason: ${syntax.reason}`);
+    assert.equal(result.status, '停止');
+    assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'), JSON.stringify(result.stop_report.reasons));
   });
 }
 
@@ -1584,3 +1622,460 @@ for (const [role, row] of QUESTION_CASES) {
     assert.equal(result.status, '停止');
   });
 }
+
+// ======== 契約の改訂（レビューの n=5・31・32・33・34、SP-012 の syntax・reference・output_format）で増えたケース ========
+
+// 決定的な確認のうち kind ごとに 1 つ（run に最大 1 つ）を返す。無ければ undefined
+function detConf(result, kind) {
+  const cs = result.confirmations.deterministic.filter((c) => c.kind === kind);
+  assert.ok(cs.length <= 1, `${kind} の確認は run に 1 つまで: ${cs.length}`);
+  return cs[0];
+}
+const DET_ITEMS = { syntax: '担当の成果物の構文', reference: '担当の成果物の参照の解決', output_format: '道具の出力の形式', result_presence: '計画した全ての検査の結果' };
+// 共通の欄（artifact-formats「result_presence の作り方」「syntax・reference・output_format の作り方」）
+function assertDetCommon(c) {
+  assert.deepEqual([c.property_ids, c.model_property_id, c.plan_id, c.checker, c.materials, c.end], [[], null, null, 'cli', [], null], `${c.kind} の共通の欄`);
+  assert.equal(c.item, DET_ITEMS[c.kind]);
+  assert.equal(typeof c.reason, 'string');
+}
+
+// ---- n=5: 分割の照合の境界（artifact-formats「分割の照合の境界」） ----
+// 1 巡目だけ欠陥のある分割を返し、修正の巡で直す（persist なら直さない）
+const partitionDefect = (kind, persist = false) => (cands, put, ctx) => {
+  const base = partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'] })(cands, put, ctx);
+  if (!persist && ctx.round > 1) return base;
+  if (kind === 'responsible') return { ...base, boundaries: base.boundaries.map((b) => ({ ...b, responsible: ['K-missing'] })) };
+  if (kind === 'part_id') return { ...base, contracts: base.contracts.map((k) => ({ ...k, part_id: 'part-b' })) };
+  return { ...base, boundaries: base.boundaries.map((b) => ({ ...b, assumption_basis: { kind: '共同不変条件', check_ids: ['C-JI1'] } })) };
+};
+const PARTITION_DEFECTS = [
+  ['Boundary.responsible が同じ分割の contracts[].id に無い', 'responsible'],
+  ['責任を負う契約の part_id が Boundary.producer と違う', 'part_id'],
+  ['assumption_basis.kind が 共同不変条件', 'joint'],
+];
+for (const [name, kind] of PARTITION_DEFECTS) {
+  test(`artifact-formats 分割の照合の境界 SP-FORMALMETHOD-009 AC-07: ${name}分割は分割の欠陥で、分割作成役に修正の巡が出て、直れば通常の結果になり、syntax・reference は 成り立つ`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), partition: partitionDefect(kind) } });
+    assert.deepEqual(resultInvariants(result), []);
+    assertRevised(harness, 'partition-author', '計画');
+    assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+    for (const b of result.decomposition.boundaries) {
+      assert.ok(b.responsible.every((id) => result.decomposition.contracts.some((k) => k.id === id && k.part_id === b.producer)), '直った分割の境界');
+      assert.notEqual(b.assumption_basis.kind, '共同不変条件');
+    }
+    // 修正の巡で直った欠陥は数えない（SP-012 の syntax・reference）
+    for (const k of ['syntax', 'reference']) { const c = detConf(result, k); assert.equal(c?.result, '成り立つ', `${k}: ${JSON.stringify(c)}`); assertDetCommon(c); }
+  });
+}
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 実在しない id（Boundary.responsible）が修正の巡の後も残れば reference の確認が 成り立たない で、reason に <段>: <欠陥の文> を持ち、unconfirmed_scope に入る', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), partition: partitionDefect('responsible', true) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'partition-author', '計画');
+  const ref = detConf(result, 'reference');
+  assert.equal(ref?.result, '成り立たない', String(JSON.stringify(ref)));
+  assertDetCommon(ref);
+  assert.ok(/計画: .+/.test(ref.reason), `reason: ${ref.reason}`);
+  assert.ok(ref.reason.includes('K-missing'), `reason は分割の照合の欠陥（実在しない responsible の K-missing）を指す: ${ref.reason}`);
+  assert.equal(detConf(result, 'syntax')?.result, '成り立つ', '参照の欠陥は syntax に数えない');
+  // 欠陥の残った分割は採らない（artifact-formats「欠陥の残った分割」）
+  const d = result.decomposition;
+  assert.equal(d.adopted, false);
+  assert.deepEqual([d.parts, d.boundaries, d.contracts, d.composition_conditions], [[], [], [], []]);
+  assert.equal(d.reason, '分割の欠陥が残った');
+  assert.deepEqual(prop(result, 'P1').verdict, ['検証済み'], '分割を採らないので、親の性質は全体のモデルの検査だけで判定する');
+  assert.ok(!result.checks.some((c) => c.kind === 'contract' || c.kind === 'composition'), '分割の検査を作らない');
+  assert.ok(d.decisions.length >= 1 && d.decisions.every((x) => x.adopted === false && x.reason === '分割の欠陥が残った'), JSON.stringify(d.decisions));
+  assert.deepEqual(d.decisions.map((x) => x.candidate_id).sort(), d.candidates.map((x) => x.id).sort(), 'decisions は導いた候補ごと');
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
+  assert.ok(result.stop_report.unconfirmed_scope.includes(ref.item));
+});
+
+// ---- n=31: AuthorReturn.blocked_by_question は性質の id（artifact-formats「AuthorReturn.blocked_by_question」） ----
+test('artifact-formats AuthorReturn.blocked_by_question: モデル作成役が性質の id を挙げて needs_answer を返すと、その性質は計画から外れ、depends_on_questions を持ち 未確認', async (t) => {
+  const q = { id: 'Q7', missing_decision: 'R2 の扱い', affected: ['P2'], options: ['許す', '許さない'] };
+  const scenario = { properties: [P('P1', 2), P('P2', 3)], questionsBy: { 'model-author': [q] }, cause: { cause: '要求の不足', grounds: 'R2 は定めない', questions: [q] } };
+  const { result, harness } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  const ma = harness.memory.authorReturns.find((x) => x.task.role === 'model-author');
+  assert.deepEqual(ma.ret.blocked_by_question, ['P2'], 'harness は性質の id を返した');
+  const plan = harness.memory.tasks.filter((x) => x.role === 'plan-author').at(-1);
+  assert.ok(!plan.context.property_ids.includes('P2'), '計画作成役の property_ids から外れる');
+  assert.deepEqual(prop(result, 'P2').check_ids, []);
+  assert.ok(prop(result, 'P2').depends_on_questions.includes('Q7'), JSON.stringify(prop(result, 'P2').depends_on_questions));
+  assert.deepEqual(prop(result, 'P2').verdict, ['未確認']);
+  assert.ok(!result.stop_report.reasons.some((x) => x.code === '担当の失敗'), '性質の id は形の違いでない');
+});
+test('artifact-formats AuthorReturn.blocked_by_question: モデル作成役が問いの id を blocked_by_question に入れると、返り値の形の違いで 担当の失敗（モデル化）になる', async (t) => {
+  const q = { id: 'Q7', missing_decision: 'R2 の扱い', affected: ['P2'], options: ['許す', '許さない'] };
+  const scenario = { properties: [P('P1', 2), P('P2', 3)], questionsBy: { 'model-author': [q] }, blockedAs: { 'model-author': 'question_ids' } };
+  const { result } = await runScenario(t, { scenario });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '担当の失敗' && x.stage === 'モデル化'), JSON.stringify(result.stop_report.reasons));
+  const notCreated = result.stop_report.artifacts_not_created.map((x) => x.kind);
+  for (const k of ['model', 'mapping']) assert.ok(notCreated.includes(k), `${k} は未作成`);
+});
+
+// ---- context.property_ids（artifact-formats「役と context」の model-author・plan-author の行） ----
+function assertAuthorPropertyIds(harness) {
+  const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').flatMap((x) => readJson(join(x.attempt_dir, 'inventory.json')).properties);
+  const extractorBlocked = new Set(inv.filter((p) => p.blocked_by_question.length > 0).map((p) => p.id));
+  const sorted = (xs) => [...xs].sort();
+  for (const ma of harness.memory.tasks.filter((x) => x.role === 'model-author')) {
+    assert.deepEqual(sorted(ma.context.property_ids), sorted(inv.map((p) => p.id).filter((id) => !extractorBlocked.has(id))), 'model-author の property_ids');
+  }
+  const maTask = harness.memory.tasks.filter((x) => x.role === 'model-author').at(-1);
+  const maRet = harness.memory.authorReturns.filter((x) => x.task.role === 'model-author').at(-1);
+  const inModels = new Set(harness.memory.models.flatMap((m) => readJson(join(m.task.attempt_dir, m.file)).properties.flatMap((p) => p.inventory_property_ids)));
+  const formal = new Set(inv.filter((p) => p.formalizable).map((p) => p.id));
+  for (const pa of harness.memory.tasks.filter((x) => x.role === 'plan-author')) {
+    const expected = maTask.context.property_ids.filter((id) => formal.has(id) && !maRet.ret.blocked_by_question.includes(id) && inModels.has(id));
+    assert.deepEqual(sorted(pa.context.property_ids), sorted(expected), 'plan-author の property_ids');
+  }
+}
+const PROPERTY_IDS_CASES = [
+  // [名前, scenario]
+  ['形式化できない性質を含む', { properties: [P('P1', 2), P('P2', 3, { formalizable: false })] }],
+  ['抽出役が問いに依存すると挙げた性質を含む', { properties: [P('P1', 2), P('P2', 3)], questionsBy: { extractor: [{ id: 'Q8', missing_decision: 'R2', affected: ['P2'], options: ['a', 'b'] }] } }],
+  ['モデル作成役が問いに依存すると挙げた性質を含む', { properties: [P('P1', 2), P('P2', 3)], questionsBy: { 'model-author': [{ id: 'Q8', missing_decision: 'R2', affected: ['P2'], options: ['a', 'b'] }] } }],
+];
+for (const [name, scenario] of PROPERTY_IDS_CASES) {
+  test(`artifact-formats 役と context: ${name}とき、model-author と plan-author の context.property_ids が表どおり`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario });
+    assert.deepEqual(resultInvariants(result), []);
+    assertAuthorPropertyIds(harness);
+  });
+}
+
+// ---- n=32: result_presence（artifact-formats「result_presence の作り方」） ----
+test('artifact-formats result_presence SP-FORMALMETHOD-012: 欠陥が無い計画では 成り立つ', async () => {
+  const { result } = await canonicalRun();
+  const c = detConf(result, 'result_presence');
+  assert.equal(c?.result, '成り立つ', String(JSON.stringify(c)));
+  assertDetCommon(c);
+});
+test('artifact-formats result_presence SP-FORMALMETHOD-012: 欠陥で除いた検査がある計画では 成り立たない で、reason にその id があり、確認が終わっていない で停止', async (t) => {
+  const { result } = await runScenario(t, { scenario: { editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => (c.id === 'C-P1' ? { ...c, expected: 'sat' } : c)) }) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertExcluded(result, ['C-P1']);
+  const c = detConf(result, 'result_presence');
+  assert.equal(c?.result, '成り立たない', String(JSON.stringify(c)));
+  assertDetCommon(c);
+  assert.ok(hasId(c.reason, 'C-P1'), `reason に C-P1: ${c.reason}`);
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
+});
+test('artifact-formats result_presence SP-FORMALMETHOD-012: 計画が無い（計画作成役が返らない）run では result_presence を作らない', async (t) => {
+  const { result } = await runScenario(t, { scenario: { returns: { 'plan-author': 'missing' } } });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(detConf(result, 'result_presence'), undefined);
+});
+
+// ---- n=33: 独立検証者と原因の分類役の input_refs（artifact-formats「独立検証者と原因の分類役の input_refs」） ----
+const norm = (r) => r.replace(/\/+$/, '');
+function lastTask(harness, role, pred = () => true) { return harness.memory.tasks.filter((x) => x.role === role && pred(x)).at(-1); }
+function expectedInputRefs(task, { result, harness, runDir }) {
+  const c = task.context;
+  const rel = (abs) => relative(runDir, abs);
+  const req = readJson(join(runDir, 'request.json'));
+  const allCopies = req.targets.map((x) => `targets/${x.id}/files`);
+  const invOf = (targetId) => rel(join(lastTask(harness, 'extractor', (x) => x.context.target_id === targetId).attempt_dir, 'inventory.json'));
+  const allInv = req.targets.map((x) => invOf(x.id));
+  const modelOf = (id) => { const m = harness.memory.models.filter((x) => x.id === id).at(-1); return { model: rel(join(m.task.attempt_dir, m.file)), mapping: rel(join(m.task.attempt_dir, `mapping-${id}.json`)), json: readJson(join(m.task.attempt_dir, m.file)) }; };
+  const ran = (id) => existsSync(join(runDir, 'checks', id));
+  const rec = (id) => `checks/${id}`;
+  const plan = lastTask(harness, 'plan-author');
+  switch (c.perspective) {
+    case 'extraction': return [`targets/${c.target_id}/files`, `targets/${c.target_id}/manifest.json`, invOf(c.target_id), 'worklogs/cli-洗い出し.json'];
+    case 'fidelity': { const m = modelOf(c.model_id); return [...allCopies, ...req.targets.map((x) => `targets/${x.id}/manifest.json`), ...allInv, m.model, m.mapping, 'worklogs/cli-モデル化.json']; }
+    case 'assurance': {
+      const mp = c.unit_id.slice('assurance-'.length);
+      const m = modelOf(c.model_id);
+      const planFile = readJson(join(plan.attempt_dir, 'plan.json'));
+      const execs = [
+        ...planFile.checks.filter((x) => x.target_id === mp).map((x) => x.id),
+        ...result.confirmations.deterministic.filter((x) => ['sanity', 'mutation', 'replay'].includes(x.kind) && x.model_property_id === mp).map((x) => x.id),
+      ].filter(ran).map(rec);
+      const mut = join(plan.attempt_dir, 'mutations.json');
+      return [m.model, m.mapping, m.json.properties.find((p) => p.id === mp).query_ref, rel(join(plan.attempt_dir, 'plan.json')), ...(existsSync(mut) ? [rel(mut)] : []), ...execs];
+    }
+    case 'nonformal': {
+      const pid = c.property_ids[0];
+      const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => ({ x, j: readJson(join(x.attempt_dir, 'inventory.json')) })).filter(({ j }) => j.properties.some((p) => p.id === pid)).at(-1);
+      const p = inv.j.properties.find((y) => y.id === pid);
+      const targets = [...new Set(p.source_ids.map((sid) => inv.j.elements.find((e) => e.id === sid).source.target_id))];
+      return [...targets.map((id) => `targets/${id}/files`), rel(join(inv.x.attempt_dir, 'inventory.json'))];
+    }
+    case 'composition': {
+      const pt = lastTask(harness, 'partition-author');
+      const pj = readJson(join(pt.attempt_dir, 'partitions.json'));
+      const models = [...new Set(harness.memory.models.map((m) => m.id))].map((id) => modelOf(id).model);
+      const execs = result.checks.filter((x) => ['contract', 'composition'].includes(x.kind)).map((x) => x.id).filter(ran).map(rec);
+      return [rel(join(pt.attempt_dir, 'partitions.json')), ...models, ...pj.contracts.map((k) => k.query_ref), ...pj.composition_conditions.map((k) => k.query_ref), ...execs, 'worklogs/cli-計画.json'];
+    }
+    default: {
+      assert.equal(task.role, 'cause-analyst');
+      const s = c.subject;
+      assert.equal(s.kind, 'counterexample', 'このテストは反例の原因だけを扱う');
+      const cex = result.counterexamples.find((x) => x.id === s.id);
+      const chk = result.checks.find((x) => x.id === cex.check_id);
+      const m = modelOf(chk.model_id);
+      return [...allCopies, ...[cex.check_id, cex.replay.confirmation_id].filter((id) => id && ran(id)).map(rec), m.model, m.mapping];
+    }
+  }
+}
+function assertInputRefs(out, tasks) {
+  const runDir = out.status.run_dir;
+  assert.ok(tasks.length >= 1);
+  const ledger = readJson(join(runDir, 'ledger.json'));
+  for (const task of tasks) {
+    const refs = task.context.input_refs;
+    assert.deepEqual(refs[0], { name: 'request', ref: 'request.json' }, `${task.task_id} の先頭は request.json`);
+    assert.deepEqual(refs.slice(1).map((r) => norm(r.ref)).sort(), expectedInputRefs(task, { ...out, runDir }).map(norm).sort(), `${task.task_id}（${task.context.perspective ?? task.role}）の input_refs`);
+    for (const r of refs) {
+      assert.ok(existsSync(join(runDir, r.ref)), `${r.ref} は実在する（実行していない検査の記録は入れない）`);
+      assert.ok(!(r.ref.startsWith('attempts/') && statSync(join(runDir, r.ref)).isDirectory()), `${r.ref}: attempts/ のディレクトリは入れない`);
+    }
+    // 台帳の input_refs もディレクトリを展開した RefHash（その task が作った記録の entry）
+    // 作業記録を含む、その task の全ての entry（artifact-formats「記録台帳」）
+    for (const e of ledger.entries.filter((x) => x.producer === task.task_id)) assert.deepEqual(e.input_refs, expandRefs(runDir, refs), `台帳の ${e.ref} の input_refs`);
+  }
+  for (const c of out.result.confirmations.meaning) {
+    const task = tasks.find((x) => x.task_id === c.checker);
+    if (task) assert.deepEqual(c.materials, expandRefs(runDir, task.context.input_refs), `${c.item} の materials`);
+  }
+}
+test('artifact-formats 独立検証者の input_refs: extraction・fidelity・assurance・nonformal の task の input_refs が表どおりで、materials と台帳の input_refs はディレクトリを展開した RefHash', async (t) => {
+  const out = await runScenario(t, { scenario: { properties: [P('P1', 2), P('P2', 3, { formalizable: false })] } });
+  assert.deepEqual(resultInvariants(out.result), []);
+  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective);
+  for (const p of ['extraction', 'fidelity', 'assurance', 'nonformal']) assert.ok(tasks.some((x) => x.context.perspective === p), `${p} の task が出る`);
+  assertInputRefs(out, tasks);
+});
+test('artifact-formats 独立検証者の input_refs: composition の task の input_refs が表どおり', async (t) => {
+  const out = await runScenario(t, { scenario: PART_SCENARIO() });
+  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective === 'composition');
+  assertInputRefs(out, tasks);
+});
+test('artifact-formats 原因の分類役の input_refs: 反例の原因の分類役の input_refs が表どおり（先頭は request.json）', async (t) => {
+  const out = await runScenario(t, { scenario: { properties: [P('P1', 3, { query: { result: 'sat' } })] } });
+  const tasks = out.harness.memory.tasks.filter((x) => x.role === 'cause-analyst');
+  assertInputRefs(out, tasks);
+});
+
+// ---- n=34: 担当を出さなかった unit と原因（artifact-formats「意味の確認の作り方」の担当を出さなかったとき、「担当の返り値」） ----
+// 確認の段の task.md を保存できなくする（実行の段までの batch を返した後、attempts/ を書込み不可にする）。
+// 時間の上限で確認の段にだけ担当を出さない run は、外から時刻を合わせられないので、同じ規則の 保存の失敗 の経路で起こす
+test('artifact-formats 意味の確認 担当の返り値 SP-FORMALMETHOD-012: 確認の段で担当を出さなかった（task.md を保存できない）run は、意味の確認が checker cli・materials []・確認できず で unverified[] に写り、原因は classified_by cli・原因未確認 で、担当の失敗 は無い', async (t) => {
+  if (skipIfRoot(t)) return;
+  let locked = null;
+  // 計画作成役の返り値と成果物を書いた後、submit の前に attempts/ を書込み不可にする（後の段の attempts/<task_id>/ を作れない）
+  // 外した権限は、失敗しても必ず戻す（runScenario の後始末より先に登録する）
+  t.after(() => { if (locked) { try { chmodSync(locked, 0o755); } catch { /* 消し済み */ } } });
+  const hooks = { beforeSubmit: async (s, list) => { if (!locked && list.tasks.some((x) => x.role === 'plan-author')) { locked = join(s.run_dir, 'attempts'); chmodSync(locked, 0o555); } } };
+  const scenario = { properties: [P('P1', 3, { query: { result: 'sat' } })] };
+  let out;
+  try { out = await runScenario(t, { scenario, hooks }); } finally { if (locked) chmodSync(locked, 0o755); }
+  const { result, harness } = out;
+  assert.ok(locked, '計画の段の batch で attempts/ を書込み不可にした');
+  assert.ok(!harness.memory.tasks.some((x) => x.context.stage === '確認'), '確認の段の担当は出ない');
+  assert.deepEqual(resultInvariants(result), []);
+  assert.ok(result.confirmations.meaning.length >= 1, '確認の段で組み立てた unit の意味の確認がある');
+  for (const c of result.confirmations.meaning) {
+    assert.deepEqual([c.checker, c.materials, c.result], ['cli', [], '確認できず'], `${c.item}`);
+    assert.ok(c.reason.length > 0);
+    assert.ok(result.unverified.some((u) => u.item === c.item && u.reason === c.reason), `unverified[] に ${c.item}`);
+  }
+  assert.ok(result.counterexamples.length >= 1);
+  for (const x of result.counterexamples) {
+    const cs = result.causes.filter((c) => c.subject.kind === 'counterexample' && c.subject.id === x.id);
+    assert.equal(cs.length, 1, `${x.id} の原因`);
+    assert.deepEqual([cs[0].cause, cs[0].classified_by], ['原因未確認', 'cli']);
+    assert.ok(cs[0].grounds.length > 0);
+  }
+  assert.ok(!result.stop_report.reasons.some((x) => x.code === '担当の失敗'), '担当の失敗 は記録しない');
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '保存の失敗'), JSON.stringify(result.stop_report.reasons));
+});
+test('artifact-formats 担当の返り値 SP-FORMALMETHOD-010・011: 時間の上限で確認の段より前に止まった run でも、全ての反例に原因（原因未確認・classified_by cli・grounds が空でない）があり、checker cli の意味の確認は無い', async (t) => {
+  // P1 はすぐ反例、P2 は検査に使える期限（上限 60 秒・残す時間 15 秒で、開始から約 45 秒）より長く眠り、実行の段で時間の上限に達する
+  const scenario = { toolTimeLimit: 300, properties: [P('P1', 2, { query: { result: 'sat' } }), P('P2', 3, { query: { result: 'unsat', sleepMs: 200000 } })] };
+  const { result, harness } = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 60 }), scenario });
+  const why = timeLimitDiag(result, harness);
+  assert.deepEqual(resultInvariants(result), []);
+  assert.ok(result.stop_report.reasons.some((x) => x.code === '時間の上限'), why);
+  assert.ok(!harness.memory.tasks.some((x) => x.context.stage === '確認'), `確認の段の担当は出ない: ${why}`);
+  assert.ok(result.counterexamples.length >= 1, `P1 の反例が出る（時間の上限の前に計画まで進む）: ${why}`);
+  for (const x of result.counterexamples) {
+    const cs = result.causes.filter((c) => c.subject.kind === 'counterexample' && c.subject.id === x.id);
+    assert.equal(cs.length, 1, `${x.id} の原因`);
+    assert.deepEqual([cs[0].cause, cs[0].classified_by], ['原因未確認', 'cli']);
+    assert.ok(cs[0].grounds.length > 0);
+  }
+  assert.ok(!result.confirmations.meaning.some((c) => c.checker === 'cli'), '確認の段に入らずに止まった run は意味の確認を作らない');
+  assert.ok(!result.stop_report.reasons.some((x) => x.code === '担当の失敗'));
+});
+
+// 時間の上限の run が想定の筋に乗らなかったときの手掛かり: 出た batch（段と役）と停止の理由
+function timeLimitDiag(result, harness) {
+  const batches = harness.memory.batches.map((b) => `${b.batch_id}[${b.tasks.map((x) => `${x.context.stage}/${x.role}`).join(',')}]`);
+  return `出た batch: ${batches.join(' ')}; 停止の理由: ${JSON.stringify(result.stop_report?.reasons ?? [])}`;
+}
+
+// ---- SP-012: syntax・reference・output_format（artifact-formats「syntax・reference・output_format の作り方」） ----
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 全てが成り立つ run では syntax・reference・output_format・result_presence が 成り立つ で、unverified[] にそれらの item が無い', async () => {
+  const { result } = await canonicalRun();
+  for (const k of ['syntax', 'reference', 'output_format', 'result_presence']) {
+    const c = detConf(result, k);
+    assert.equal(c?.result, '成り立つ', `${k}: ${JSON.stringify(c)}`);
+    assertDetCommon(c);
+    assert.ok(!result.unverified.some((u) => u.item === c.item), `unverified[] に ${c.item} を写さない`);
+  }
+  assert.equal(result.status, '完了');
+});
+test('artifact-formats 確認 SP-FORMALMETHOD-012: id の重複（一意の違反）だけが欠陥として残る run では、reference は 成り立つ のまま', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { allowDuplicatePlanIds: true, editPlan: (plan) => ({ ...plan, sanity: [...plan.sanity, structuredClone(plan.sanity[0])] }) } });
+  assert.deepEqual(resultInvariants(result), []);
+  // 重複を計画の欠陥として扱った（修正の巡が出て、残った欠陥は unverified[] に 計画の欠陥: で載る）
+  assertRevised(harness, 'plan-author', '計画');
+  assert.ok(result.unverified.some((u) => u.item.includes('計画の欠陥: ')), `unverified[] に 計画の欠陥: ${JSON.stringify(result.unverified)}`);
+  for (const k of ['syntax', 'reference']) assert.equal(detConf(result, k)?.result, '成り立つ', `${k}: 一意の違反は other の区分`);
+});
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 最後の巡で計画が形に合わなくなれば、その構文の欠陥が syntax に数えられ 成り立たない', async (t) => {
+  // 2 巡目は tool_time_limit_seconds を整数でなく文字列にする（PlanFile の形に合わない）
+  const editPlan = (plan, { round }) => (round === 1 ? { ...plan, selection: [] } : { ...plan, checks: plan.checks.map((c) => ({ ...c, tool_time_limit_seconds: 'thirty' })) });
+  const { result, harness } = await runScenario(t, { scenario: { editPlan } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'plan-author', '計画');
+  const c = detConf(result, 'syntax');
+  assert.equal(c?.result, '成り立たない', String(JSON.stringify(c)));
+  assert.ok(/計画: .+/.test(c.reason), `reason: ${c.reason}`);
+  assert.ok(result.stop_report.unconfirmed_scope.includes(c.item));
+});
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 偽の z3 が読めない出力を返す run では output_format が 成り立たない で、reason にその実行の id がある', async (t) => {
+  const { result } = await runScenario(t, { scenario: { toolTimeLimit: 2, properties: [P('P1', 2, { query: { result: 'maybe' } })] } });
+  assert.deepEqual(resultInvariants(result), []);
+  const c = detConf(result, 'output_format');
+  assert.equal(c?.result, '成り立たない', String(JSON.stringify(c)));
+  assertDetCommon(c);
+  assert.ok(hasId(c.reason, 'C-P1'), `reason に C-P1: ${c.reason}`);
+  assert.ok(result.stop_report.unconfirmed_scope.includes(c.item));
+});
+test('artifact-formats 確認 SP-FORMALMETHOD-012: z3 が (error …) を返す run では、検査は 実行失敗 で、output_format は 成り立つ', async (t) => {
+  const { result } = await runScenario(t, { scenario: { toolTimeLimit: 2, properties: [P('P1', 2, { query: { mode: 'syntax-error' } })] } });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(result.checks.find((x) => x.id === 'C-P1').verdict, '実行失敗');
+  assert.equal(detConf(result, 'output_format')?.result, '成り立つ');
+});
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 時間の上限で止めた実行だけの run では、output_format は 成り立つ', async (t) => {
+  // 上限 60 秒（検査に使える期限は開始から約 45 秒）。全ての実行が期限より長く眠る
+  const sleep = { sleepMs: 200000 };
+  const scenario = { toolTimeLimit: 300, properties: [P('P1', 2, { query: { result: 'unsat', ...sleep }, sanity: { result: 'sat', ...sleep }, mutation: { result: 'sat', ...sleep } })] };
+  const { result, harness } = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 60 }), scenario });
+  const why = timeLimitDiag(result, harness);
+  assert.deepEqual(resultInvariants(result), []);
+  const ends = [...result.checks.map((x) => x.end), ...result.confirmations.deterministic.filter((x) => x.end).map((x) => x.end)].filter((e) => e.started);
+  assert.ok(ends.length >= 1, `道具の実行が始まった（時間の上限の前に実行の段まで進む）: ${why}`);
+  assert.ok(ends.every((e) => e.stopped_by === '時間'), `始めた実行は全て時間の上限で止まった: ${JSON.stringify(ends)}; ${why}`);
+  assert.equal(detConf(result, 'output_format')?.result, '成り立つ');
+});
+test('artifact-formats 確認 SP-FORMALMETHOD-012: 照合した成果物も道具の実行も無い run（受付で止まる）では、syntax・reference・output_format を作らない', async (t) => {
+  const { result } = await runScenario(t, { request: { targets: [{ id: 'T1', location: 'target' }], goals: [] } });
+  assert.equal(result.status, '停止');
+  for (const k of ['syntax', 'reference', 'output_format', 'result_presence']) assert.equal(detConf(result, k), undefined, k);
+});
+
+// ---- #26: 変異の無い性質の detection（artifact-formats「変異の無い性質の detection」。依頼者の決定） ----
+const NO_MUTATION_CASES = [
+  // [名前, alternative]
+  ['alternative があり、保証の確認が 成り立つ', '仕様書の読み合わせで検出できることを確かめる'],
+  ['alternative が null', null],
+];
+for (const [name, alternative] of NO_MUTATION_CASES) {
+  test(`artifact-formats 変異の無い性質の detection SP-FORMALMETHOD-012: 変異を用意できず ${name}性質は、検出能力未確認（mutations []）で、reason に「別の方法の確認の結果が無い」を持ち、run は 検出能力未確認 で 停止`, async (t) => {
+    const editMutations = (m) => ({ ...m, mutations: [], unavailable: [{ property_id: 'P1', reason: '変異を作れない', alternative }] });
+    const { result } = await runScenario(t, { scenario: { properties: [P('P1', 2, { mutation: null })], editMutations } });
+    assert.deepEqual(resultInvariants(result), []);
+    const p = prop(result, 'P1');
+    assert.ok(result.confirmations.meaning.some((c) => c.kind === 'assurance' && c.property_ids.includes('P1') && c.result === '成り立つ'), '保証の確認は 成り立つ');
+    assert.equal(p.detection.status, '検出能力未確認', '別の方法で確認 にしない');
+    assert.deepEqual(p.detection.mutations, []);
+    assert.ok(p.detection.reason.includes('別の方法の確認の結果が無い'), p.detection.reason);
+    if (alternative) assert.ok(p.detection.reason.includes(alternative), `reason に alternative の文: ${p.detection.reason}`);
+    // detection_performed は false なので判定は検出に依らない（検出能力未確認は判定に混ぜず述語 7 で完了を妨げる）
+    assert.deepEqual(p.verdict, ['検証済み']);
+    assert.equal(result.status, '停止');
+    assert.ok(result.stop_report.reasons.some((x) => x.code === '検出能力未確認'), JSON.stringify(result.stop_report.reasons));
+  });
+}
+
+// ---- #8: 組合せの原因の分類役の unit_id は cause-combination-<model_id>-<n>（artifact-formats「役と context」） ----
+const renameState = (sm, from, to) => JSON.parse(JSON.stringify(sm).split(`"${from}"`).join(`"${to}"`));
+const COMBINATION_CASES = [
+  // [名前, 状態遷移, 対応できていない組の位置 n]
+  ['日本語の状態名', SM, 1],
+  ['空白を含む状態名', renameState(SM, '待ち', 'wait state'), 1],
+];
+for (const [name, sm, n] of COMBINATION_CASES) {
+  test(`artifact-formats 役と context: ${name}の 対応できていない 組合せの原因の分類役は unit_id が cause-combination-M1-${n} で、返り値が受け入れられる`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario: { stateMachine: sm } });
+    assert.deepEqual(resultInvariants(result), []);
+    const task = harness.memory.tasks.find((x) => x.role === 'cause-analyst' && x.context.subject?.kind === 'combination');
+    assert.ok(task, '組合せの原因の分類役が出る');
+    assert.equal(task.context.unit_id, `cause-combination-M1-${n}`);
+    const cell = result.models[0].combinations.cells[n];
+    assert.deepEqual([task.context.subject.state, task.context.subject.event], [cell.state, cell.event], '組合せの名前は subject が持つ');
+    assert.equal(cell.class, '対応できていない');
+    const c = result.causes.find((x) => x.subject.kind === 'combination');
+    assert.equal(c.classified_by, task.task_id, '返り値を受け入れた（原因未確認 でない）');
+    assert.equal(c.cause, '対象が性質を満たさない');
+    assert.ok(!result.stop_report.reasons.some((x) => x.code === '担当の失敗'), JSON.stringify(result.stop_report.reasons));
+  });
+}
+
+// 欠陥の区分が other だけ（共同不変条件は「前提の循環」と同じく other。artifact-formats「欠陥の区分」）の分割が残る run:
+// 分割を採らず、親の性質は全体のモデルの検査どおりで、syntax・reference は 成り立つ
+test('artifact-formats 欠陥の残った分割 SP-FORMALMETHOD-009・012: other の区分の欠陥（共同不変条件）だけが残る分割は採らず、親の性質は全体の検査どおり 検証済み で、syntax・reference は 成り立つ', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), partition: partitionDefect('joint', true) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'partition-author', '計画');
+  const d = result.decomposition;
+  assert.equal(d.adopted, false);
+  assert.equal(d.reason, '分割の欠陥が残った');
+  assert.deepEqual([d.parts, d.boundaries, d.contracts, d.composition_conditions], [[], [], [], []]);
+  assert.equal(result.checks.find((c) => c.id === 'C-P1')?.verdict, '成功', '全体のモデルの検査');
+  assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+  for (const k of ['syntax', 'reference']) assert.equal(detConf(result, k)?.result, '成り立つ', `${k}: other の区分は写さない`);
+});
+
+// ---- ディレクトリの ref の展開の並び: UTF-8 のバイト列の辞書順（artifact-formats「ディレクトリの ref の指紋」） ----
+// U+FF61（UTF-8 は EF BD A1、UTF-16 は FF61）と U+1F600（UTF-8 は F0 9F 98 80、UTF-16 は D83D DE00）は、2 つの順で前後が入れ替わる
+const HALFWIDTH = '｡';
+const EMOJI = '\u{1F600}';
+test('expandRefs の自己検査: ディレクトリの中は UTF-8 のバイト列の辞書順で、UTF-16 の順とずれる名前でもバイト列の順に並べ、要素の順は input_refs のまま', async (t) => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'fm-expand-'));
+  t.after(() => removeTree(dir));
+  mkdirSync(join(dir, 'd', 'sub'), { recursive: true });
+  for (const n of [`${EMOJI}.txt`, `${HALFWIDTH}.txt`, 'a.txt', 'sub/b.txt']) writeFileSync(join(dir, 'd', n), n);
+  writeFileSync(join(dir, 'z.json'), '{}');
+  assert.ok(`${EMOJI}.txt` < `${HALFWIDTH}.txt`, '前提: UTF-16 の順では絵文字が先');
+  const refs = expandRefs(dir, [{ name: 'z', ref: 'z.json' }, { name: 'd', ref: 'd/' }]).map((x) => x.ref);
+  // 's'（0x73）は EF・F0 より前なので sub/b.txt は a.txt の次。U+FF61（EF）は U+1F600（F0）より前
+  assert.deepEqual(refs, ['z.json', 'd/a.txt', 'd/sub/b.txt', `d/${HALFWIDTH}.txt`, `d/${EMOJI}.txt`], 'ファイルの要素はそのまま先、ディレクトリの中はバイト列の順');
+});
+test('artifact-formats ディレクトリの ref の指紋: 対象の写しに UTF-16 の順とずれる名前のファイルがあっても、materials と台帳の input_refs は UTF-8 のバイト列の順に展開される', async (t) => {
+  const files = { 'target/spec.md': SPEC_TEXT, [`target/${HALFWIDTH}.md`]: '半角の句点\n', [`target/${EMOJI}.md`]: '絵文字\n' };
+  const out = await runScenario(t, { files, scenario: {} });
+  assert.deepEqual(resultInvariants(out.result), []);
+  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective === 'extraction' || x.context.perspective === 'fidelity');
+  assert.ok(tasks.length >= 1);
+  for (const task of tasks) {
+    const conf = out.result.confirmations.meaning.find((c) => c.checker === task.task_id);
+    const refs = conf.materials.map((m) => m.ref);
+    const iH = refs.indexOf(`targets/T1/files/${HALFWIDTH}.md`);
+    const iE = refs.indexOf(`targets/T1/files/${EMOJI}.md`);
+    assert.ok(iH >= 0 && iE >= 0 && iH < iE, `${task.task_id}: ${refs.join(', ')}`);
+    assert.deepEqual(conf.materials, expandRefs(out.status.run_dir, task.context.input_refs));
+  }
+});

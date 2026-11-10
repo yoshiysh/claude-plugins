@@ -17,9 +17,9 @@ const err = (code) => Object.assign(new Error(code), { code });
 
 // 記憶の上のファイル系（FsBoundary）。fail は { op, final（最終の名前の basename）, code }。
 // writeTemp・link・readFile は引数の path で、fsyncDir は直前に link に成功した finalPath で指す（呼ぶ順に縛らない）。
-// corrupt は再読込で違うバイトを返す最終の名前。契約の境界の形（path は絶対、一時ファイルは <finalPath>.tmp-<24 桁の 16 進>）も確かめる。
+// corrupt は再読込で違うバイト（JSON でない）を返す最終の名前。replace は { 最終の名前の basename: 値 } で、再読込でその値を返す。契約の境界の形（path は絶対、一時ファイルは <finalPath>.tmp-<24 桁の 16 進>）も確かめる。
 const TMP = /^(.+)\.tmp-[0-9a-f]{24}$/;
-function memFs({ files = {}, fail = [], corrupt = [] } = {}) {
+function memFs({ files = {}, fail = [], corrupt = [], replace = {} } = {}) {
   const store = new Map(Object.entries(files).map(([k, v]) => [k, enc(v)]));
   const log = [];
   const violations = [];
@@ -41,7 +41,7 @@ function memFs({ files = {}, fail = [], corrupt = [] } = {}) {
       log.push(['link', tmpPath, finalPath]);
       abs(tmpPath, 'link'); abs(finalPath, 'link');
       const f = hit('link', finalPath); if (f) throw err(f.code);
-      if (store.has(finalPath)) throw err('EEXIST');
+      if (store.has(finalPath)) { log.push(['link_exists', finalPath]); throw err('EEXIST'); }
       if (!store.has(tmpPath)) throw err('ENOENT');
       store.set(finalPath, store.get(tmpPath));
       lastLinked = finalPath;
@@ -59,6 +59,7 @@ function memFs({ files = {}, fail = [], corrupt = [] } = {}) {
       if (!store.has(path)) throw err('ENOENT');
       const st = store.get(path);
       if (st === 'DIR') throw err('EISDIR');
+      if (basename(path) in replace) return enc(replace[basename(path)]);
       return corrupt.includes(basename(path)) ? enc('corrupted') : st;
     },
     unlink(tmpPath) {
@@ -71,14 +72,24 @@ function memFs({ files = {}, fail = [], corrupt = [] } = {}) {
   };
 }
 
-// 契約の保証: 台帳の link の成功が、結果の writeTemp より前。一時ファイルは戻る前に消す。境界の形に合う。
+// 契約の保証: 台帳の公開の成功が、結果の writeTemp より前。一時ファイルは戻る前に消す。境界の形に合う。
+// 台帳の公開の成功は、link の成功（linked）か、link が「既にある」で失敗した後の台帳の再読込（指紋が同じなら成功とみなす。
+// cli-contract「公開の手順」）のどちらかの位置とする。
+function ledgerPublishedAt(fs, ledgerName) {
+  const linked = fs.log.findIndex((x) => x[0] === 'linked' && basename(x[1]) === ledgerName);
+  if (linked >= 0) return linked;
+  const exists = fs.log.findIndex((x) => x[0] === 'link_exists' && basename(x[1]) === ledgerName);
+  if (exists < 0) return -1;
+  const reread = fs.log.findIndex((x, i) => i > exists && x[0] === 'readFile' && basename(x[1]) === ledgerName);
+  return reread;
+}
 function assertBoundary(fs, ledgerName) {
   assert.deepEqual(fs.violations, []);
   assert.deepEqual(fs.tmpLeft(), [], '一時ファイルは成功でも失敗でも消す');
   const resultTemp = fs.log.findIndex((x) => x[0] === 'writeTemp' && basename(x[1]) === 'result.json');
   if (resultTemp >= 0) {
-    const ledgerLinked = fs.log.findIndex((x) => x[0] === 'linked' && basename(x[1]) === ledgerName);
-    assert.ok(ledgerLinked >= 0 && ledgerLinked < resultTemp, '台帳の link の成功が、結果の writeTemp より前');
+    const ledgerAt = ledgerPublishedAt(fs, ledgerName);
+    assert.ok(ledgerAt >= 0 && ledgerAt < resultTemp, '台帳の公開の成功（link か、既にある台帳の再読込）が、結果の writeTemp より前');
   }
 }
 
@@ -121,6 +132,7 @@ for (const name of ['ledger.json', 'salvage-ledger.json']) {
     const out = publishResult(input(name), fs);
     assert.equal(out.outcome, 'published');
     assert.deepEqual(out.result, completedR());
+    assert.equal(out.fault, null);
     assertBoundary(fs, name);
     assert.deepEqual(linkedTo(fs).filter((n) => n === name || n === 'result.json'), [name, 'result.json'], '台帳が先');
     const resultBytes = fs.store.get(join(RUN, 'result.json'));
@@ -144,6 +156,7 @@ test('cli-contract publishResult published: 台帳が既にあって指紋が同
   const fs = memFs({ files: { [join(RUN, 'salvage-ledger.json')]: ledgerBytes } });
   const out = publishResult(input('salvage-ledger.json'), fs);
   assert.equal(out.outcome, 'published');
+  assert.equal(out.fault, null);
   assertBoundary(fs, 'salvage-ledger.json');
   assert.ok(fs.store.has(join(RUN, 'result.json')));
 });
@@ -155,6 +168,7 @@ test('cli-contract publishResult lost: result.json が既にあれば、中身�
   const out = publishResult(input(), fs);
   assert.equal(out.outcome, 'lost');
   assert.deepEqual(out.result, existing);
+  assert.equal(out.fault, null, '負けは link の後の失敗でない');
   assert.deepEqual(JSON.parse(dec(fs.store.get(join(RUN, 'result.json')))), existing, '既にある結果を変えない');
   assertBoundary(fs, 'ledger.json');
 });
@@ -166,6 +180,7 @@ test('cli-contract publishResult lost: salvage の追補台帳が既にあって
   const out = publishResult(input('salvage-ledger.json'), fs);
   assert.equal(out.outcome, 'lost');
   assert.deepEqual(out.result, existing);
+  assert.equal(out.fault, null);
   assert.deepEqual(fs.tmpLeft(), []);
 });
 
@@ -183,20 +198,17 @@ for (const [name, opts, ledgerName] of UNREADABLE) {
     const before = fs.store.get(join(RUN, 'result.json'));
     let out;
     assert.doesNotThrow(() => { out = publishResult(input(ledgerName), fs); });
-    assert.deepEqual(out, { outcome: 'lost_unreadable', result: null });
+    assert.deepEqual(out, { outcome: 'lost_unreadable', result: null, fault: null });
     assert.equal(fs.store.get(join(RUN, 'result.json')), before);
     assert.deepEqual(fs.tmpLeft(), []);
     assert.deepEqual(fs.violations, []);
   });
 }
 
-// 台帳は成功し、結果の公開だけが I/O で失敗する組（結合テストで起こせない組）
+// 台帳は成功し、結果の公開が link の前で失敗する組（結合テストで起こせない組。cli-contract の表の「link の前で失敗」の行）
 const RESULT_FAIL = [
   ['結果の link が EEXIST 以外の誤り（EIO）', { fail: [{ op: 'link', final: 'result.json', code: 'EIO' }] }],
   ['結果の一時ファイルを書けない（ENOSPC）', { fail: [{ op: 'writeTemp', final: 'result.json', code: 'ENOSPC' }] }],
-  ['結果の link の後のディレクトリの fsync が I/O の誤り', { fail: [{ op: 'fsyncDir', final: 'result.json', code: 'EIO' }] }],
-  ['結果の再読込の指紋が合わない', { corrupt: ['result.json'] }],
-  ['結果の再読込が I/O の誤り', { fail: [{ op: 'readFile', final: 'result.json', code: 'EIO' }] }],
 ];
 for (const [name, opts] of RESULT_FAIL) {
   test(`cli-contract publishResult result_failed: ${name}なら、R を捨てて 停止 の R' を返し、台帳の参照は saved、結果は unsaved`, async () => {
@@ -205,10 +217,65 @@ for (const [name, opts] of RESULT_FAIL) {
     let out;
     assert.doesNotThrow(() => { out = publishResult(input(), fs); }, 'fs の誤りを外へ出さない');
     assert.equal(out.outcome, 'result_failed');
+    assert.equal(out.fault, null);
     assertBoundary(fs, 'ledger.json');
     assertRPrime(out.result, 'ledger.json', true);
     assert.ok(fs.store.has(join(RUN, 'ledger.json')), '台帳は公開した');
-    if (!opts.corrupt) assert.equal(fs.store.has(join(RUN, 'result.json')), false);
+    assert.equal(fs.store.has(join(RUN, 'result.json')), false, 'link の前の失敗なので result.json は無い');
+  });
+}
+
+// 結果の link の後の失敗（cli-contract「link の後の失敗」、PublishOutcome の fault）
+// 失敗した fsync・再読込は記録に残さない: 台帳は 1 回だけ書き、R の中身も変えない。
+// 作業記録は publishResult の外（呼び手）が書くので、この unit では確かめない
+function assertRecordsUntouched(fs, ledgerName) {
+  assert.equal(fs.log.filter((x) => x[0] === 'writeTemp' && basename(x[1]) === ledgerName).length, 1, '台帳を書き直さない');
+  assert.equal(fs.log.filter((x) => x[0] === 'writeTemp' && basename(x[1]) === 'result.json').length, 1, '結果を書き直さない');
+}
+const UNVERIFIED = [
+  // [名前, memFs の option, fault]
+  ['結果の link の後のディレクトリの fsync が I/O の誤り', { fail: [{ op: 'fsyncDir', final: 'result.json', code: 'EIO' }] }, 'fsync_dir'],
+  ['結果の再読込が I/O の誤り', { fail: [{ op: 'readFile', final: 'result.json', code: 'EIO' }] }, 'reread_io'],
+  ['結果の fsync と再読込がどちらも I/O の誤り（先に起きた失敗）', { fail: [{ op: 'fsyncDir', final: 'result.json', code: 'EIO' }, { op: 'readFile', final: 'result.json', code: 'EIO' }] }, 'fsync_dir'],
+];
+for (const [name, opts, fault] of UNVERIFIED) {
+  test(`cli-contract publishResult published_unverified: ${name}なら、残った R を正の結果として返し、fault は ${fault}`, async () => {
+    const { publishResult } = await loadPublish();
+    const fs = memFs(opts);
+    let out;
+    assert.doesNotThrow(() => { out = publishResult(input(), fs); }, 'fs の誤りを外へ出さない');
+    assert.equal(out.outcome, 'published_unverified');
+    assert.deepEqual(out.result, completedR(), 'R を作り直さず、中身も変えない');
+    assert.equal(out.fault, fault);
+    assertBoundary(fs, 'ledger.json');
+    assert.ok(fs.store.has(join(RUN, 'result.json')), 'result.json は残る');
+    assert.deepEqual(JSON.parse(dec(fs.store.get(join(RUN, 'result.json')))), completedR(), '残った result.json は R');
+    assert.ok(fs.log.some((x) => x[0] === 'readFile' && basename(x[1]) === 'result.json'), 'fsync が失敗しても再読込は試す');
+    const ledger = JSON.parse(dec(fs.store.get(join(RUN, 'ledger.json'))));
+    assert.equal(ledger.registered_result_hash, sha(fs.store.get(join(RUN, 'result.json'))), '台帳は R の指紋のまま');
+    assertRecordsUntouched(fs, 'ledger.json');
+  });
+}
+
+const OTHER_RESULT = sampleResult('名前にある別の結果');
+const MISMATCH = [
+  // [名前, memFs の option, outcome, result]
+  ['結果の再読込の中身が R と違い、結果の形に合う', { replace: { 'result.json': OTHER_RESULT } }, 'lost', OTHER_RESULT],
+  ['結果の再読込の中身が R と違い、結果の形に合わない', { corrupt: ['result.json'] }, 'lost_unreadable', null],
+  ['結果の fsync が I/O の誤りで、再読込の中身も R と違う（形に合う）', { fail: [{ op: 'fsyncDir', final: 'result.json', code: 'EIO' }], replace: { 'result.json': OTHER_RESULT } }, 'lost', OTHER_RESULT],
+  ['結果の fsync が I/O の誤りで、再読込の中身も R と違う（形に合わない）', { fail: [{ op: 'fsyncDir', final: 'result.json', code: 'EIO' }], corrupt: ['result.json'] }, 'lost_unreadable', null],
+];
+for (const [name, opts, outcome, result] of MISMATCH) {
+  test(`cli-contract publishResult ${outcome}: ${name}なら、負けと同じに扱い fault は reread_mismatch`, async () => {
+    const { publishResult } = await loadPublish();
+    const fs = memFs(opts);
+    let out;
+    assert.doesNotThrow(() => { out = publishResult(input(), fs); }, 'fs の誤りを外へ出さない');
+    assert.equal(out.outcome, outcome);
+    assert.deepEqual(out.result, result);
+    assert.equal(out.fault, 'reread_mismatch', '指紋の違いが fsync の失敗より優先する');
+    assertBoundary(fs, 'ledger.json');
+    assertRecordsUntouched(fs, 'ledger.json');
   });
 }
 
@@ -227,6 +294,7 @@ for (const [name, ledgerName, opts] of LEDGER_FAIL) {
     let out;
     assert.doesNotThrow(() => { out = publishResult(input(ledgerName), fs); });
     assert.equal(out.outcome, 'ledger_failed');
+    assert.equal(out.fault, null);
     assertBoundary(fs, ledgerName);
     assertRPrime(out.result, ledgerName, false);
     assert.ok(!linkedTo(fs).includes('result.json'), '結果の link を試さない');
@@ -234,15 +302,19 @@ for (const [name, ledgerName, opts] of LEDGER_FAIL) {
   });
 }
 
-test('cli-contract publishResult: どの操作がどの誤りを投げても、例外を外へ出さず 4 つの outcome のどれかを返し、完了 は published のときだけ', async () => {
+test('cli-contract publishResult: どの操作がどの誤りを投げても、例外を外へ出さず 6 つの outcome のどれかを返し、完了 は published か published_unverified のときだけ', async () => {
   const { publishResult } = await loadPublish();
   for (const op of ['writeTemp', 'link', 'fsyncDir', 'readFile']) for (const nm of ['ledger.json', 'result.json']) for (const code of ['EIO', 'EEXIST', 'EACCES']) {
     const fs = memFs({ fail: [{ op, final: nm, code }] });
     let out;
     assert.doesNotThrow(() => { out = publishResult(input(), fs); }, `${op} ${nm} ${code}`);
-    assert.ok(['published', 'lost', 'lost_unreadable', 'result_failed', 'ledger_failed'].includes(out.outcome));
+    assert.ok(['published', 'published_unverified', 'lost', 'lost_unreadable', 'result_failed', 'ledger_failed'].includes(out.outcome), `${op} ${nm} ${code}: ${out.outcome}`);
     if (out.outcome === 'lost_unreadable') assert.equal(out.result, null);
-    else if (out.result.status === '完了') assert.equal(out.outcome, 'published', `${op} ${nm} ${code}`);
+    else if (out.result.status === '完了') assert.ok(['published', 'published_unverified'].includes(out.outcome), `${op} ${nm} ${code}`);
+    // fault は結果の link の後の失敗だけ（published_unverified は fsync_dir か reread_io、lost・lost_unreadable は reread_mismatch か null、他は null）
+    if (out.outcome === 'published_unverified') assert.ok(['fsync_dir', 'reread_io'].includes(out.fault), `${op} ${nm} ${code}: ${out.fault}`);
+    else if (out.outcome === 'lost' || out.outcome === 'lost_unreadable') assert.ok([null, 'reread_mismatch'].includes(out.fault), `${op} ${nm} ${code}: ${out.fault}`);
+    else assert.equal(out.fault, null, `${op} ${nm} ${code}`);
     if (out.outcome === 'result_failed' || out.outcome === 'ledger_failed') assert.equal(out.result.status, '停止');
     assert.deepEqual(fs.tmpLeft(), [], `${op} ${nm} ${code}: 一時ファイルを消す`);
   }
@@ -254,6 +326,7 @@ test('cli-contract publishResult: 一時ファイルの unlink の失敗は outc
   let out;
   assert.doesNotThrow(() => { out = publishResult(input(), fs); });
   assert.equal(out.outcome, 'published');
+  assert.equal(out.fault, null);
   assert.ok(fs.log.some((x) => x[0] === 'unlink'), '一時ファイルを消そうとする');
   assert.deepEqual(fs.violations, []);
 });
