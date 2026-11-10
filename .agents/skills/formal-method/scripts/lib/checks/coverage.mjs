@@ -4,8 +4,8 @@ import { sha256Bytes } from '../canonical.mjs';
 import { Inventory, parseSpan, validate } from '../schemas.mjs';
 import { defect, linesOf, readRunText } from './common.mjs';
 
-// otherPropertyIds: 他の対象の inventory の性質の id → その対象の id（性質の id は run の全ての inventory を通して一意）
-export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map() } = {}) {
+// otherPropertyIds・otherElementIds: 他の対象の inventory の性質・要素の id → その対象の id（どちらも run の全ての inventory を通して一意）
+export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(), otherElementIds = new Map() } = {}) {
   const shapeErrs = validate(Inventory, inv);
   if (shapeErrs.length) return [defect('syntax', 'inventory-shape', `inventory の形に合わない: ${shapeErrs.slice(0, 3).join('; ')}`)];
   const out = [];
@@ -32,6 +32,7 @@ export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(
   const ids = new Set();
   for (const e of inv.elements) {
     if (ids.has(e.id)) out.push(defect('other', `element-dup:${e.id}`, `要素の id ${e.id} が重なる`));
+    else if (otherElementIds.has(e.id)) out.push(defect('other', `element-dup:${e.id}`, `要素の id ${e.id} が対象 ${otherElementIds.get(e.id)} の inventory の要素と重なる`));
     ids.add(e.id);
     if (e.source.target_id !== target.id) { out.push(defect('reference', `element-target:${e.id}`, `要素 ${e.id} の出所の target_id ${e.source.target_id} がこの inventory の対象 ${target.id} でない`)); continue; }
     const f = target.files.find((x) => x.path === e.source.file);

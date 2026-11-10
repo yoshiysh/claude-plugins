@@ -32,7 +32,7 @@ prompt は `task.md` の絶対 path を指す。`task.md` は次の 4 つの見�
 - 自分が書く全ての `Ref`（`outputs[].ref`・`record_ref`・`worklog_ref`・`query_ref`・`input_refs` など）は、`context.run_dir` からの相対 path で、`attempts/<task_id>/` で始まるか、task が渡した資料を指す。
 - 返り値は `RETURN_SCHEMA` の形の JSON を `return_path` に書く。返り値の `task_id` は `TASK` の値、`unit_id` は `context.unit_id`、`perspective` は `context.perspective` をそのまま使う。値が違う返り値は成功に数えられない。
 - 最後の応答は `{"task_id": ..., "return_path": ...}` だけにする。CLI は応答ではなく `return_path` を読むので、応答に本文や結論を入れても使われない。
-- 長い作業は、書き終えた部分からファイルに書く。期限（CLI 契約の `AGENT_BATCH_DEADLINE_MS`）までに返り値が無い担当は欠測になる。
+- 長い作業は、書き終えた部分からファイルに書く。期限（CLI 契約の `AGENT_BATCH_DEADLINE_MS`）までに返り値が無い担当は欠測になる。期限内に `return_path` を書いても、その batch が拒否されれば（期限の後に受け箱が読まれた、`timed_out` など）成功に数えられない。そのため、期限より前に返り値を書き終える（条件の正本は [CLI 契約の受け箱](cli-contract.md#受け箱) と [成果物の形式の担当の返り値](artifact-formats.md#担当の返り値)）。
 
 ## 作業記録
 

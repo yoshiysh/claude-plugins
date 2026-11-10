@@ -217,7 +217,8 @@ export class Run {
   }
 
   // ---- 作成役の巡（修正の巡を含む） ----
-  // unit: { role, spec(round, reviseRef) → spec, check(ret, task) → { defects, value }, accept(last), onFail(why) }
+  // unit: { role, spec(round, reviseRef) → spec, check(ret, task) → { defects, value }, accept(last), onFail(why), observe?(ret) }
+  // observe は、その巡の全ての返り値を照らす前に呼ぶ（unit をまたぐ照合が、同じ巡の最新の成果物と比べるため）
   async authorRounds(units) {
     let pending = units.map((u) => ({ u, round: 1, prev: Infinity, reviseRef: null, last: null }));
     // 各 unit の最後の巡に照合した成果物の欠陥（受け入れたかによらない）を、syntax・reference の確認のために控える
@@ -225,6 +226,7 @@ export class Run {
     while (pending.length) {
       const results = await runTasks(this, pending.map((p) => p.u.spec(p.round, p.reviseRef)));
       const next = [];
+      pending.forEach((p, i) => { if (results[i].ok && p.u.observe) p.u.observe(results[i].ret); });
       pending.forEach((p, i) => {
         const r = results[i];
         if (!r.ok) {
@@ -271,20 +273,34 @@ export class Run {
 
   // ---- 洗い出し ----
   async extraction() {
-    // 対象ごとに最後に照合した inventory の性質の id（対象をまたぐ性質の id の重複を照らす）
-    const checkedProps = new Map();
-    const othersOf = (tid) => new Map([...checkedProps].filter(([id]) => id !== tid).flatMap(([id, ps]) => [...ps].map((p) => [p, id])));
+    // 対象をまたぐ性質と要素の id の重複（id は run の全ての inventory を通して一意）。比べる相手は、他の対象のその巡の最新の inventory
+    // （その巡に返したものは照合の前に observe で控え、その巡に出していない対象は最後に返した inventory）。1 つの重なりで両方を
+    // 修正の巡に戻さないよう、依頼の対象の順で前の対象とだけ比べ、重なりは後の対象の欠陥にする
+    const latestIds = new Map();
+    const readInventory = (ret) => {
+      const outs = ret.outputs.filter((o) => o.kind === 'inventory');
+      if (outs.length !== 1) return null;
+      try { return { ref: outs[0].ref, data: JSON.parse(readFileSync(join(this.runDir, outs[0].ref), 'utf8')) }; } catch { return null; }
+    };
+    const idsOf = (data, key) => new Set((Array.isArray(data?.[key]) ? data[key] : []).map((x) => x && x.id).filter((id) => typeof id === 'string'));
+    const earlierIds = (tid, key) => {
+      const order = this.targets.map((t) => t.id);
+      return new Map(order.slice(0, order.indexOf(tid)).flatMap((id) => [...(latestIds.get(id)?.[key] ?? [])].map((x) => [x, id])));
+    };
     const units = this.targets.map((t) => ({
       role: 'extractor',
       spec: (round, reviseRef) => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }], revise_defects_ref: reviseRef }),
+      observe: (ret) => {
+        const inv = readInventory(ret);
+        latestIds.set(t.id, { properties: idsOf(inv?.data, 'properties'), elements: idsOf(inv?.data, 'elements') });
+      },
       check: (ret) => {
         const outs = ret.outputs.filter((o) => o.kind === 'inventory');
         if (outs.length !== 1) return { defects: [defect('other', 'inventory-count', `inventory が ${outs.length} 個（ちょうど 1 つ）`)], value: null };
-        let data;
-        try { data = JSON.parse(readFileSync(join(this.runDir, outs[0].ref), 'utf8')); } catch { return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null }; }
-        const defects = coverageCheck(this.runDir, data, t, { otherPropertyIds: othersOf(t.id) });
-        if (Array.isArray(data.properties)) checkedProps.set(t.id, new Set(data.properties.map((p) => p && p.id)));
-        return { defects, value: { ref: outs[0].ref, data } };
+        const inv = readInventory(ret);
+        if (!inv) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
+        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: earlierIds(t.id, 'properties'), otherElementIds: earlierIds(t.id, 'elements') });
+        return { defects, value: inv };
       },
       accept: (last) => {
         if (!last.value) { this.notCreated.push({ kind: 'inventory', reason: '抽出役の成果物が形に合わない' }); return; }
