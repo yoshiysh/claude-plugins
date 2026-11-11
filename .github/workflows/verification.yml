@@ -63,6 +63,59 @@ jobs:
           command -v shasum
           tests/formal/bp-prd/check.sh
 
+  formal-method-skill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: '11'
+      - name: Download pinned TLC
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+        run: |
+          curl --fail --location --retry 3 --output "$TLA2TOOLS" \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+      - name: Check formal-method design models (Run.tla, Lock.tla)
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+          OUT_DIR: ${{ runner.temp }}/formal-method-skill-out
+        # shell を明示すると bash --noprofile --norc -eo pipefail {0} になり、check.sh の失敗が tee の成功に隠れない
+        shell: bash
+        run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill.jsonl"
+      - name: Preserve model checking results and traces
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: formal-method-skill
+          path: |
+            ${{ runner.temp }}/formal-method-skill.jsonl
+            ${{ runner.temp }}/formal-method-skill-out/
+          if-no-files-found: warn
+
+  formal-method-z3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download pinned Z3
+        env:
+          Z3_ZIP: ${{ runner.temp }}/z3.zip
+        run: |
+          curl --fail --location --retry 3 --output "$Z3_ZIP" \
+            https://github.com/Z3Prover/z3/releases/download/z3-5.3.3/z3-5.3.3-x64-glibc-2.39.zip
+          echo "d56f60b06f432f33de5810f7f1a384a339131f361e2d54d08ea83eea14326880  $Z3_ZIP" | sha256sum -c -
+          unzip -q "$Z3_ZIP" -d "$RUNNER_TEMP/z3"
+          z3=$(find "$RUNNER_TEMP/z3" -path '*/bin/z3' -type f | head -1)
+          [ -n "$z3" ] || { echo 'z3 executable not found in the archive' >&2; exit 1; }
+          echo "Z3=$z3" >> "$GITHUB_ENV"
+      - name: Check formal-method requirements
+        run: python3 -I tests/formal/formal-method-requirements/check.py
+      # Linux の Z3 の出力の流れと終了コードを、cli-contract.md の adapter の表（macOS の実測）と比べる。
+      - name: Measure Z3 output streams and exit codes on Linux
+        if: always()
+        run: python3 -I tests/formal/formal-method-skill/z3_streams.py
+
   verification:
     runs-on: ubuntu-latest
     steps:
