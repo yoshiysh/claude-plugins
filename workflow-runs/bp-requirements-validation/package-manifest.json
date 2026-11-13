@@ -1,0 +1,140 @@
+{
+  "schema": "bp-requirements-partial-package/v1",
+  "status": "incomplete_partial_snapshot",
+  "base_head": "c67bd7cdac257f3193341ed7f37260c011205204",
+  "origin_main_observed": "75d5565f1421b36c81aab66ed19bf2ccf167a777",
+  "included_payload_count": 22,
+  "included_payload_bytes": 656577,
+  "tracked_file_count": 23,
+  "manifest_self_accounting": "This manifest is tracked in addition to payload. Its own bytes/hash are excluded to avoid self-reference. include-files.json is local delivery metadata, not tracked.",
+  "files": [
+    {
+      "path": "workflow-runs/bp-requirements-validation/README.md",
+      "bytes": 9600,
+      "sha256": "39bc1a8e0ba6237f08b0b3ab7aa5666f4ea420492c8662f73deabec4fd7f4d40"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/validation.md",
+      "bytes": 54661,
+      "sha256": "4f7de0dea7ede2ad0446d0683ea185a3a1291048cddd400376d559e4eb0c5a71"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/coverage.json",
+      "bytes": 131680,
+      "sha256": "5188874ed264d7a09542dde4f463a2fb593f913c75794857ad126634e522a042"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/source-table.md",
+      "bytes": 11781,
+      "sha256": "6a59558310263120394585231d4de45959d5c0d9c4037bc993f78028d055f075"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/execution-receipt.json",
+      "bytes": 7932,
+      "sha256": "083c5c52b2eef4dee9753e9b61251733fc036dd111f05438ed994b9af3c89548"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-plan.md",
+      "bytes": 23396,
+      "sha256": "e06875c3e682bdd4d1e5a6406f6622b15e20d813a36f56ebd6d39c5a25dac5a1"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-coverage.md",
+      "bytes": 21036,
+      "sha256": "cc387480ade41d68ce742049b33b201ca5ca05dbeb99ea0ccedc528cdbc54d87"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-domain.tsv",
+      "bytes": 8204,
+      "sha256": "50fe9deb23dbc1f9e2c38964a67447feca3b9ad4fdac502f38ca563fbad443f2"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-source-inventory.tsv",
+      "bytes": 51269,
+      "sha256": "458961245bc707a103913b3d6da484c561255037c78fd8353b13b906db3c2a85"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-span-candidates.json",
+      "bytes": 51269,
+      "sha256": "263cd762b2b9e7d6e65272f70a9cba95aeaf548a6595175ed9009197827f241a"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-model.smt2",
+      "bytes": 128069,
+      "sha256": "632a1d637c3f828586fbc397afde876ec3efae80fee9fa1d88dcc26a80da1a7d"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/reviews/contract-run-20261113-32-c-review.md",
+      "bytes": 4333,
+      "sha256": "362e7f14962c2141b7f5a168abf3aa0d420aed366efc2d6bd5e485f21e263683"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/reviews/remaining-requirement-groups.md",
+      "bytes": 5650,
+      "sha256": "84e56292043792f3f9d39404bf2b184b2cc170520c2705719c0e68c63eaa1fdb"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/domain-join.txt",
+      "bytes": 35,
+      "sha256": "7e5cd9da5ead87b49dbfa5049e585865eda1d94f6feba30db8ec180718036d96"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/exit-code.txt",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/expected-actual.tsv",
+      "bytes": 12806,
+      "sha256": "ccfef6cebfaff4dcac29f7b565054d4049d8d218107d3f40f0f52e40d330172b"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/input.smt2",
+      "bytes": 116327,
+      "sha256": "a61cbfa45c426ba12aa6ddaf1e5e307bc3e967963e93624a7b2ad6668feea436"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/inputs.sha256",
+      "bytes": 374,
+      "sha256": "8dc458d8aa8ed2d2664bd4636695333bd34390cf711fd78a861b90a5690d6727"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/outputs.sha256",
+      "bytes": 411,
+      "sha256": "96d6f8ac4510da4a4886a6f2edd7994b2999f4b0ba0fb10741fb32db55afc133"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/z3-version.txt",
+      "bytes": 84,
+      "sha256": "60a506553916b49c341d79684f3c8d37b6624e956de1ba0955ef77d48a9766ca"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/z3.stderr-time",
+      "bytes": 753,
+      "sha256": "6091ae542c2ca8d6f983a717378afc58a1146b4a6623d564c15b111d46dac333"
+    },
+    {
+      "path": "workflow-runs/bp-requirements-validation/contract-run-20261113-32/z3.stdout",
+      "bytes": 16905,
+      "sha256": "cfeb983f6910f772bbe261157fc9677dffed87ee8603eb67e2f7c0a392585949"
+    }
+  ],
+  "exclusions": {
+    "root": "workflow-runs/bp-requirements-validation",
+    "file_count": 3095,
+    "bytes": 1338001457,
+    "directories": [
+      "runs/",
+      "contract-run-* except contract-run-20261113-32/"
+    ],
+    "other_files": "All top-level files except the explicit files array; reviews except the two explicit review/remaining-plan files.",
+    "reason": "User requested minimal package without heavy files. Old model/smoke/duplicate expansion/history and unreviewed run33/34 remain local only. No move or deletion.",
+    "excluded_files_over_100MB": []
+  },
+  "reproducibility": {
+    "exact_solver_replay": "contract-run-20261113-32/input.smt2 with external Z3; no binary included",
+    "current_source": "contract-model.smt2 is draft hash 632a1d637c3f828586fbc397afde876ec3efae80fee9fa1d88dcc26a80da1a7d, not run32; no corresponding saved result",
+    "local_only_limit": "Other historical inputs, Rust source/harness, expanded models and raw are not included and cannot all be reconstructed from this clone. Historical references in saved documents do not imply distribution.",
+    "source_originals": "Existing repository docs at base_head, hashes in coverage.json; no original document copies added."
+  }
+}

@@ -1,0 +1,1336 @@
+{
+  "schema": "contract-span-candidates/v1",
+  "status": "candidate_only_unreviewed",
+  "run32_input_sha256": "a61cbfa45c426ba12aa6ddaf1e5e307bc3e967963e93624a7b2ad6668feea436",
+  "run32_queries": 166,
+  "candidate_count": 40,
+  "span_offsets": "zero-based half-open Unicode code-point offsets in the exact one-line requirement body identified by source/body_line/body_sha256",
+  "candidates": [
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D016",
+      "body_line": 123,
+      "body_sha256": "cdaa3cba86ba442b1801122bff64d5e9bc8d03ab02ceea47232e2980ec2441ea",
+      "sentence_body_span": [
+        61,
+        91
+      ],
+      "sentence_sha256": "4ad1b39064509067500da7fcd4395d6256f9db0fb608443743b1f3a77d82212a",
+      "sentence_anchor": "起動数には結果を返さなかった呼び出しも含めなければならな",
+      "body_span": [
+        61,
+        91
+      ],
+      "source_quote": "起動数には結果を返さなかった呼び出しも含めなければならない。",
+      "guard": "guard: one fan-out run; no-response attempts count as attempts",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceAttemptDuty"
+      ],
+      "signature_ids": [
+        "S08"
+      ],
+      "fixed_query_ids": [
+        "S08 forbidden response-only counter EXPECT unsat",
+        "S08 mutant omit count duty EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "No arbitrary input N or host-enforced counting.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D019",
+      "body_line": 126,
+      "body_sha256": "4f8aead9c509350dd7044568481431411ddec27991b54002af3f5c8098bc6874",
+      "sentence_body_span": [
+        0,
+        76
+      ],
+      "sentence_sha256": "d3a713a5e59fb16f9139a2d5fa858c8904f3350bddc608fcbddd2c0378efa562",
+      "sentence_anchor": "起動数の上限で処理できない項目がある場合、対象スキルは、",
+      "body_span": [
+        0,
+        20
+      ],
+      "source_quote": "起動数の上限で処理できない項目がある場合",
+      "guard": "guard: cap leaves an item unprocessed",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "CapStop",
+        "CapNewRun",
+        "CapToResume"
+      ],
+      "signature_ids": [
+        "S08/S09"
+      ],
+      "fixed_query_ids": [
+        "S08/S09 Reach initial→no-response→stop→new-run EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite items and ranks only; remaining-item and restart path is the observed subset.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D019",
+      "body_line": 126,
+      "body_sha256": "4f8aead9c509350dd7044568481431411ddec27991b54002af3f5c8098bc6874",
+      "sentence_body_span": [
+        0,
+        76
+      ],
+      "sentence_sha256": "d3a713a5e59fb16f9139a2d5fa858c8904f3350bddc608fcbddd2c0378efa562",
+      "sentence_anchor": "起動数の上限で処理できない項目がある場合、対象スキルは、",
+      "body_span": [
+        28,
+        48
+      ],
+      "source_quote": "項目を順位付きの未着手として残して止まり",
+      "guard": "guard: cap leaves an item unprocessed; retain ranked unstarted item",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "CapStop"
+      ],
+      "signature_ids": [
+        "S08",
+        "S08/S09"
+      ],
+      "fixed_query_ids": [
+        "S08/S09 Reach initial→no-response→stop→new-run EXPECT sat",
+        "S08 forbidden response-only counter EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Does not cover arbitrary ranking/order or the full non-truncation/report semantics.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D019",
+      "body_line": 126,
+      "body_sha256": "4f8aead9c509350dd7044568481431411ddec27991b54002af3f5c8098bc6874",
+      "sentence_body_span": [
+        0,
+        76
+      ],
+      "sentence_sha256": "d3a713a5e59fb16f9139a2d5fa858c8904f3350bddc608fcbddd2c0378efa562",
+      "sentence_anchor": "起動数の上限で処理できない項目がある場合、対象スキルは、",
+      "body_span": [
+        49,
+        75
+      ],
+      "source_quote": "再開した run はその残りから続けなければならない",
+      "guard": "guard: new run after cap stop",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "CapNewRun",
+        "CapToResume"
+      ],
+      "signature_ids": [
+        "S08/S09",
+        "S29"
+      ],
+      "fixed_query_ids": [
+        "S08/S09 Reach initial→no-response→stop→new-run EXPECT sat",
+        "S29 Reach cap stop+same episode→hint→new-run count0/remaining i1/plan EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite old/current run and item set only.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D027",
+      "body_line": 84,
+      "body_sha256": "667127208f4fd66eac8478aa39dd48ed073705b6df47b97ee25fdbfa146ec14c",
+      "sentence_body_span": [
+        0,
+        73
+      ],
+      "sentence_sha256": "ee2d01900918401426888fe959bfed59dfaea32a821ae3b15e42f50fdbb5afc8",
+      "sentence_anchor": "必要な形式検証を実行できないか性質が成り立たなかった場合",
+      "body_span": [
+        0,
+        28
+      ],
+      "source_quote": "必要な形式検証を実行できないか性質が成り立たなかった場合",
+      "guard": "guard: required formal check unavailable or false",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "FormalObservation",
+        "FormalStop"
+      ],
+      "signature_ids": [
+        "S03",
+        "S04"
+      ],
+      "fixed_query_ids": [
+        "S03 formal unavailable stops/reports target and reason EXPECT sat",
+        "S04 Reach formal false→stop/report EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Only selected current-run formal-unavailable/false paths.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D027",
+      "body_line": 84,
+      "body_sha256": "667127208f4fd66eac8478aa39dd48ed073705b6df47b97ee25fdbfa146ec14c",
+      "sentence_body_span": [
+        0,
+        73
+      ],
+      "sentence_sha256": "ee2d01900918401426888fe959bfed59dfaea32a821ae3b15e42f50fdbb5afc8",
+      "sentence_anchor": "必要な形式検証を実行できないか性質が成り立たなかった場合",
+      "body_span": [
+        29,
+        54
+      ],
+      "source_quote": "create・update はその run を止め",
+      "guard": "guard: create/update and formal failure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "FormalStop"
+      ],
+      "signature_ids": [
+        "S03",
+        "S04"
+      ],
+      "fixed_query_ids": [
+        "S03 formal unavailable stops/reports target and reason EXPECT sat",
+        "S04 formal false stops; same-run rewrite cannot continue EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "BP operation run subject; later-run repair is not an obligation.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D027",
+      "body_line": 84,
+      "body_sha256": "667127208f4fd66eac8478aa39dd48ed073705b6df47b97ee25fdbfa146ec14c",
+      "sentence_body_span": [
+        0,
+        73
+      ],
+      "sentence_sha256": "ee2d01900918401426888fe959bfed59dfaea32a821ae3b15e42f50fdbb5afc8",
+      "sentence_anchor": "必要な形式検証を実行できないか性質が成り立たなかった場合",
+      "body_span": [
+        55,
+        72
+      ],
+      "source_quote": "対象と理由を報告しなければならない",
+      "guard": "guard: formal failure stop",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "FormalObservation",
+        "FormalStop"
+      ],
+      "signature_ids": [
+        "S03",
+        "S04"
+      ],
+      "fixed_query_ids": [
+        "S03 formal unavailable stops/reports target and reason EXPECT sat",
+        "S04 Reach formal false→stop/report EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Target/reason are model fields; wording quality is outside the model.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D035",
+      "body_line": 101,
+      "body_sha256": "5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b",
+      "sentence_body_span": [
+        0,
+        69
+      ],
+      "sentence_sha256": "96308853a9b17b6b131044d8eab55f5ae1837da933cb5437c2d034731b19ae29",
+      "sentence_anchor": "記録・証拠・記録台帳を保存できない場合、対象スキルは止ま",
+      "body_span": [
+        0,
+        19
+      ],
+      "source_quote": "記録・証拠・記録台帳を保存できない場合",
+      "guard": "guard: save failure for the modeled saved/unsaved set",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty",
+        "PersistFailureDuty",
+        "ReportStopDuty"
+      ],
+      "signature_ids": [
+        "C01",
+        "C02",
+        "S05/S11/S28"
+      ],
+      "fixed_query_ids": [
+        "C01 Realizable input+save EXPECT sat",
+        "C02 Compliant same input+save EXPECT sat",
+        "S05/S11/S28 Reach need-input→stop→save-fail→report EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite saved-set/report fields; not physical persistence or exhaustive asset types.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D035",
+      "body_line": 101,
+      "body_sha256": "5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b",
+      "sentence_body_span": [
+        0,
+        69
+      ],
+      "sentence_sha256": "96308853a9b17b6b131044d8eab55f5ae1837da933cb5437c2d034731b19ae29",
+      "sentence_anchor": "記録・証拠・記録台帳を保存できない場合、対象スキルは止ま",
+      "body_span": [
+        20,
+        29
+      ],
+      "source_quote": "対象スキルは止まり",
+      "guard": "guard: save failure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty",
+        "PersistFailureDuty"
+      ],
+      "signature_ids": [
+        "S05/S11/S28"
+      ],
+      "fixed_query_ids": [
+        "S05/S11/S28 Reach need-input→stop→save-fail→report EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "The bridge between BP operation and target-skill subject remains for independent meaning review.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D035",
+      "body_line": 101,
+      "body_sha256": "5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b",
+      "sentence_body_span": [
+        0,
+        69
+      ],
+      "sentence_sha256": "96308853a9b17b6b131044d8eab55f5ae1837da933cb5437c2d034731b19ae29",
+      "sentence_anchor": "記録・証拠・記録台帳を保存できない場合、対象スキルは止ま",
+      "body_span": [
+        30,
+        42
+      ],
+      "source_quote": "保存できたものを保持して",
+      "guard": "guard: partial or total save failure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "PersistFailureDuty"
+      ],
+      "signature_ids": [
+        "S05/S11/S28"
+      ],
+      "fixed_query_ids": [
+        "S05/S11/S28 Reach need-input→stop→save-fail→report EXPECT sat",
+        "S05/S11/S28 forbidden lost stop reason or saved scope EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite saved mask only; no proof of actual durable storage.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D035",
+      "body_line": 101,
+      "body_sha256": "5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b",
+      "sentence_body_span": [
+        0,
+        69
+      ],
+      "sentence_sha256": "96308853a9b17b6b131044d8eab55f5ae1837da933cb5437c2d034731b19ae29",
+      "sentence_anchor": "記録・証拠・記録台帳を保存できない場合、対象スキルは止ま",
+      "body_span": [
+        43,
+        68
+      ],
+      "source_quote": "保存できなかった範囲と理由を報告しなければならない",
+      "guard": "guard: save failure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "ReportStopDuty"
+      ],
+      "signature_ids": [
+        "C03",
+        "C04",
+        "S05/S11/S28"
+      ],
+      "fixed_query_ids": [
+        "C03 forbidden lost save reason EXPECT unsat",
+        "C04 mutant drop save-reason duty only EXPECT sat",
+        "S05/S11/S28 forbidden lost stop reason or saved scope EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite scope/reason slots only.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D035",
+      "body_line": 101,
+      "body_sha256": "5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b",
+      "sentence_body_span": [
+        69,
+        87
+      ],
+      "sentence_sha256": "8a11efc92c30f1d0a2224ae5e5150c22c41c62f3cd906db74088e3f680dad41e",
+      "sentence_anchor": "この場合に完了と報告してはならない。",
+      "body_span": [
+        74,
+        86
+      ],
+      "source_quote": "完了と報告してはならない",
+      "guard": "guard: save failure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "C01",
+        "C02"
+      ],
+      "fixed_query_ids": [
+        "C01 Realizable input+save EXPECT sat",
+        "C02 Compliant same input+save EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "The exact no-completion predicate is local to selected model state.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O005",
+      "body_line": 81,
+      "body_sha256": "467f45bd7f172b9882c9a7b1f8ec883d9be16966071e2be64113818fb581a578",
+      "sentence_body_span": [
+        0,
+        71
+      ],
+      "sentence_sha256": "aab4a2f5b869903738672c691d35732181fa868074482654b5aea28297f8f0ce",
+      "sentence_anchor": "create・update は、目標を定める人間の承認・",
+      "body_span": [
+        0,
+        37
+      ],
+      "source_quote": "create・update は、目標を定める人間の承認・回答が足りない場合",
+      "guard": "guard: create/update with missing approval or answer; this O005 guard does not define O052 needs_input applicability",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty",
+        "StopInputDuty"
+      ],
+      "signature_ids": [
+        "O005",
+        "S05"
+      ],
+      "fixed_query_ids": [
+        "S05 Reach stop→report→external answer→new run EXPECT sat",
+        "O005 local A witness with source guard EXPECT sat",
+        "O005 local F witness: missing answer but process continues EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite missing-answer cases; decision-material substance is residual.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O005",
+      "body_line": 81,
+      "body_sha256": "467f45bd7f172b9882c9a7b1f8ec883d9be16966071e2be64113818fb581a578",
+      "sentence_body_span": [
+        0,
+        71
+      ],
+      "sentence_sha256": "aab4a2f5b869903738672c691d35732181fa868074482654b5aea28297f8f0ce",
+      "sentence_anchor": "create・update は、目標を定める人間の承認・",
+      "body_span": [
+        38,
+        70
+      ],
+      "source_quote": "needs_input と判断材料を返して止まらなければならない",
+      "guard": "guard: O005 create/update missing approval or answer",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty",
+        "StopInputDuty"
+      ],
+      "signature_ids": [
+        "C-REVIEW",
+        "S05"
+      ],
+      "fixed_query_ids": [
+        "S05 Reach stop→report→external answer→new run EXPECT sat",
+        "S05 forbidden new run without external answer EXPECT unsat",
+        "C-REVIEW Compliant same episode combines five slots, phase/reason and save scope EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "O005 decision material is not the same source obligation as O052 five report slots.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O005",
+      "body_line": 81,
+      "body_sha256": "467f45bd7f172b9882c9a7b1f8ec883d9be16966071e2be64113818fb581a578",
+      "sentence_body_span": [
+        71,
+        103
+      ],
+      "sentence_sha256": "7c0241b27a4c0612a480c13923e2ebbacc98d31336f08a1237682cec0768a4be",
+      "sentence_anchor": "Workflow の run の中で入力を待ち続けてはな",
+      "body_span": [
+        71,
+        102
+      ],
+      "source_quote": "Workflow の run の中で入力を待ち続けてはならない",
+      "guard": "guard: missing external answer within Workflow run",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "StopInputDuty"
+      ],
+      "signature_ids": [
+        "S05"
+      ],
+      "fixed_query_ids": [
+        "S05 forbidden new run without external answer EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Only the modeled stop/restart cutpoint; no live host wait behavior.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O011",
+      "body_line": 96,
+      "body_sha256": "f5dc8d2bd69631ae27c10240d479b949e301880adb2948d1f316f4a39a164a74",
+      "sentence_body_span": [
+        0,
+        50
+      ],
+      "sentence_sha256": "5b46618d817b1cfebe6aedc1fdb6ed232d8361694e394a5df3907f0025eb8e38",
+      "sentence_anchor": "create・update は、形式検証以外の検証を通ら",
+      "body_span": [
+        16,
+        49
+      ],
+      "source_quote": "形式検証以外の検証を通らない場合、書き直して独立に再検証してもよい",
+      "guard": "guard: ordinary nonformal verification failure; rewrite is permitted, not required",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "RewriteAndReverify",
+        "RewriteChoice"
+      ],
+      "signature_ids": [
+        "C-BP",
+        "S02"
+      ],
+      "fixed_query_ids": [
+        "S02 Reach ordinary failure→rewrite→independent reverify→complete EXPECT sat",
+        "C-BP only rewrite field is Choice for ordinary nonformal failure EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Choice applies to rewrite field only; it does not discharge active stop/report duties.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O011",
+      "body_line": 96,
+      "body_sha256": "f5dc8d2bd69631ae27c10240d479b949e301880adb2948d1f316f4a39a164a74",
+      "sentence_body_span": [
+        50,
+        129
+      ],
+      "sentence_sha256": "8f2aafcd3623203f8e90ed9a5e6e7c182e48f564ee5456a0dd2da3473686e214",
+      "sentence_anchor": "形式検証を実行できないか性質が成り立たない場合は bp-",
+      "body_span": [
+        50,
+        73
+      ],
+      "source_quote": "形式検証を実行できないか性質が成り立たない場合",
+      "guard": "guard: formal check unavailable or false",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "FormalStop"
+      ],
+      "signature_ids": [
+        "S03",
+        "S04",
+        "S27"
+      ],
+      "fixed_query_ids": [
+        "S03 formal unavailable stops/reports target and reason EXPECT sat",
+        "S04 formal false stops; same-run rewrite cannot continue EXPECT unsat",
+        "S27 forbidden ordinary rewrite overrides formal stop EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "The D027 stop/report requirement remains a separate source clause.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O011",
+      "body_line": 96,
+      "body_sha256": "f5dc8d2bd69631ae27c10240d479b949e301880adb2948d1f316f4a39a164a74",
+      "sentence_body_span": [
+        50,
+        129
+      ],
+      "sentence_sha256": "8f2aafcd3623203f8e90ed9a5e6e7c182e48f564ee5456a0dd2da3473686e214",
+      "sentence_anchor": "形式検証を実行できないか性質が成り立たない場合は bp-",
+      "body_span": [
+        107,
+        128
+      ],
+      "source_quote": "同じ run の書き直しで続けてはならない",
+      "guard": "guard: formal check unavailable or false",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "FormalStop"
+      ],
+      "signature_ids": [
+        "S03",
+        "S04",
+        "S27"
+      ],
+      "fixed_query_ids": [
+        "S03 forbidden same-run rewrite after formal unavailable EXPECT unsat",
+        "S04 formal false stops; same-run rewrite cannot continue EXPECT unsat",
+        "S27 simultaneous ordinary/formal failure still stops EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "No later-run repair obligation.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O022",
+      "body_line": 117,
+      "body_sha256": "9916230e5dac8ad44bf3e15aefa7f5be5c1e58dbe2f38a701335cc3ea5e93184",
+      "sentence_body_span": [
+        0,
+        81
+      ],
+      "sentence_sha256": "f7ff1479a3dabb43f74421e62dcc41c15f3522ef8289203f54046f300b7457b5",
+      "sentence_anchor": "run をまたぐ指摘の追跡の裁定が下るまで、update",
+      "body_span": [
+        39,
+        80
+      ],
+      "source_quote": "前の run の指摘を resolved・regressed と報告してはならない",
+      "guard": "guard: update before run-to-run tracking adjudication; prior-run finding",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "ReportCurrent"
+      ],
+      "signature_ids": [
+        "C-S33",
+        "S33"
+      ],
+      "fixed_query_ids": [
+        "S33 forbidden old status reported EXPECT unsat",
+        "C-S33 A final report cannot carry old status EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Only finite finding/status case; other O022 sentence clauses remain residual.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O052",
+      "body_line": 73,
+      "body_sha256": "f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281",
+      "sentence_body_span": [
+        0,
+        94
+      ],
+      "sentence_sha256": "d7d4675675745e479c788ccdef6390fb212ec7d8c168d0adc98dadb5ef804815",
+      "sentence_anchor": "needs_input で止まる場合、best-prac",
+      "body_span": [
+        0,
+        18
+      ],
+      "source_quote": "needs_input で止まる場合",
+      "guard": "guard: needs_input for any modeled operation; not conditional on O005 approval/answer deficiency",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "C-REVIEW",
+        "S06",
+        "S06/S11"
+      ],
+      "fixed_query_ids": [
+        "S06 forbidden omitted nonexistent verification slot EXPECT unsat",
+        "S06/S11 known-absent material remains reportable with unsaved report EXPECT sat",
+        "C-REVIEW Compliant same episode combines five slots, phase/reason and save scope EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Logical slots and availability only; no prose-quality claim.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O052",
+      "body_line": 73,
+      "body_sha256": "f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281",
+      "sentence_body_span": [
+        0,
+        94
+      ],
+      "sentence_sha256": "d7d4675675745e479c788ccdef6390fb212ec7d8c168d0adc98dadb5ef804815",
+      "sentence_anchor": "needs_input で止まる場合、best-prac",
+      "body_span": [
+        36,
+        67
+      ],
+      "source_quote": "理由・決めること・ここまでの検証結果・影響範囲・残る作業を返し",
+      "guard": "guard: needs_input",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "C-REVIEW",
+        "S06"
+      ],
+      "fixed_query_ids": [
+        "S06 forbidden omitted nonexistent verification slot EXPECT unsat",
+        "C-REVIEW forbidden missing decision slot with other active duties EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Five logical slots only; save state is a separate axis.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O052",
+      "body_line": 73,
+      "body_sha256": "f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281",
+      "sentence_body_span": [
+        94,
+        167
+      ],
+      "sentence_sha256": "bcdee3cde962ca241eb3e5b81d75126f256d5743da4df3bf56d5ca45fab65bd6",
+      "sentence_anchor": "入力確認で目標固定前に止まる場合は検証結果と残る作業が無",
+      "body_span": [
+        94,
+        126
+      ],
+      "source_quote": "入力確認で目標固定前に止まる場合は検証結果と残る作業が無いと示し",
+      "guard": "guard: input clarification before goal fixed",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "S06"
+      ],
+      "fixed_query_ids": [
+        "S06 forbidden omitted nonexistent verification slot EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Known-absent result/work slots; only selected pre-goal context.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O052",
+      "body_line": 73,
+      "body_sha256": "f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281",
+      "sentence_body_span": [
+        94,
+        167
+      ],
+      "sentence_sha256": "bcdee3cde962ca241eb3e5b81d75126f256d5743da4df3bf56d5ca45fab65bd6",
+      "sentence_anchor": "入力確認で目標固定前に止まる場合は検証結果と残る作業が無",
+      "body_span": [
+        127,
+        166
+      ],
+      "source_quote": "目標固定で止まる場合は残る作業と、それまでに得た検証結果を示さなければならない",
+      "guard": "guard: goal-fixing stop; do not equate goal-fixing with goal-fixed",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "S07"
+      ],
+      "fixed_query_ids": [
+        "S07 GoalFixing remains goal-fixed=false with existing result/work slots EXPECT sat",
+        "S07 forbidden goal-fixing prior result reported absent EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Selected goal-fixing state and finite availability values.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D007",
+      "body_line": 49,
+      "body_sha256": "a917a99c18a79eb61b352be286a99380e2d11c38c45de7e184cb48b94fdf47c1",
+      "sentence_body_span": [
+        0,
+        88
+      ],
+      "sentence_sha256": "38f5966fec5c06de69c07474bc8d9bff122715c010def4e27214ea6741ae6af8",
+      "sentence_anchor": "Workflow を持つ対象スキルは、設計方針文書「停止",
+      "body_span": [
+        42,
+        57
+      ],
+      "source_quote": "人間の入力が必要な境界で止まり",
+      "guard": "guard: Workflow-bearing target skill at human-input boundary",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "StopInputDuty"
+      ],
+      "signature_ids": [
+        "S05"
+      ],
+      "fixed_query_ids": [
+        "S05 Reach stop→report→external answer→new run EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Subject/operation correspondence with O005 is a required independent check; do not promote based on shared stop path alone.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D007",
+      "body_line": 49,
+      "body_sha256": "a917a99c18a79eb61b352be286a99380e2d11c38c45de7e184cb48b94fdf47c1",
+      "sentence_body_span": [
+        0,
+        88
+      ],
+      "sentence_sha256": "38f5966fec5c06de69c07474bc8d9bff122715c010def4e27214ea6741ae6af8",
+      "sentence_anchor": "Workflow を持つ対象スキルは、設計方針文書「停止",
+      "body_span": [
+        58,
+        87
+      ],
+      "source_quote": "判断材料と再開に必要な情報を返して続行できなければならない",
+      "guard": "guard: Workflow-bearing target skill stopped at human-input boundary; restart conditions are source-specific",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "StopInputDuty",
+        "ResumeEntry"
+      ],
+      "signature_ids": [
+        "S19",
+        "S20",
+        "S21",
+        "S22",
+        "S25"
+      ],
+      "fixed_query_ids": [
+        "S19 Reach stop→hint→new-run planner entry, remaining/rank preserved EXPECT sat",
+        "S20 no hint and unfinished item returns same item EXPECT sat",
+        "S21 no hint and no unfinished item enters decide EXPECT sat",
+        "S22 no planner and unread hint reaches stage role EXPECT sat",
+        "S25 repaired unchanged input→same-state new-run position EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Selected entry paths only; not all stop reasons, host effects, or hint semantics.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D012",
+      "body_line": 64,
+      "body_sha256": "7f5a06b7efbcf121b97ddb08d283a87a311d69dcf435955250d925561c90b6b4",
+      "sentence_body_span": [
+        0,
+        94
+      ],
+      "sentence_sha256": "ba6021c1149b23c4403566f04a878c99b9b1d2c7b624b57df8be4236d31ae42a",
+      "sentence_anchor": "探索グラフまたは資産台帳を備える対象スキルは、設計方針文",
+      "body_span": [
+        53,
+        81
+      ],
+      "source_quote": "同じ更新の再送・競合・中断によって記録の意味が変わらない",
+      "guard": "guard: an old-run delayed command against current-run state in the selected model",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "CommandDuty"
+      ],
+      "signature_ids": [
+        "S23/S30",
+        "S30"
+      ],
+      "fixed_query_ids": [
+        "S23/S30 forbidden old command changes semantic record EXPECT unsat",
+        "S30 forbidden old command changes semantic record EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Candidate is only the old-run stale-write subcase; general idempotence, conflict, interruption, CLI-only writer and append/deterministic reconciliation remain residual group 3.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D021",
+      "body_line": 129,
+      "body_sha256": "1c07b7f5dbe30d6ed30b2115ff08a59ff4924f81a5563c6339e63d17062d3023",
+      "sentence_body_span": [
+        0,
+        69
+      ],
+      "sentence_sha256": "eae677a86466085a20dcea65fd2e0300313357476c31a74f80760773f22f862b",
+      "sentence_anchor": "起動数の上限を渡さない場合、対象スキルは、fan-out",
+      "body_span": [
+        47,
+        68
+      ],
+      "source_quote": "入力に依存しない固定上限を置いてはならない",
+      "guard": "guard: no cap input on selected native host case",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "HostCapDuty"
+      ],
+      "signature_ids": [
+        "S26"
+      ],
+      "fixed_query_ids": [
+        "S26 native no-cap two items/one concurrent starts two EXPECT sat",
+        "S26 native no-cap three items/one concurrent starts three EXPECT sat",
+        "S26 forbidden native receives total-start cap EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite 2/3-item examples do not prove unbounded absence of a fixed cap.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D022",
+      "body_line": 132,
+      "body_sha256": "0c00edc026322927bad77940505fb1ceb04a08889f7ff28c59dd5cb260d3b2df",
+      "sentence_body_span": [
+        0,
+        84
+      ],
+      "sentence_sha256": "a669a37ac47453ea176af710255456d154caa5629d567ee0ed6caf60ae626270",
+      "sentence_anchor": "fan-out を持つ対象スキルは、Codex runn",
+      "body_span": [
+        18,
+        42
+      ],
+      "source_quote": "Codex runner では起動数の上限を渡し",
+      "guard": "guard: selected Codex runner host case",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "HostCapDuty"
+      ],
+      "signature_ids": [
+        "S26"
+      ],
+      "fixed_query_ids": [
+        "S26 Codex finite input cap is permitted EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite host split only; no actual host enforcement.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-designed-skill.md",
+      "requirement_id": "D022",
+      "body_line": 132,
+      "body_sha256": "0c00edc026322927bad77940505fb1ceb04a08889f7ff28c59dd5cb260d3b2df",
+      "sentence_body_span": [
+        0,
+        84
+      ],
+      "sentence_sha256": "a669a37ac47453ea176af710255456d154caa5629d567ee0ed6caf60ae626270",
+      "sentence_anchor": "fan-out を持つ対象スキルは、Codex runn",
+      "body_span": [
+        43,
+        83
+      ],
+      "source_quote": "Claude Code の native Workflow では渡してはならない",
+      "guard": "guard: selected native Workflow host case",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "HostCapDuty"
+      ],
+      "signature_ids": [
+        "S26"
+      ],
+      "fixed_query_ids": [
+        "S26 native no-cap two items/one concurrent starts two EXPECT sat",
+        "S26 forbidden native receives total-start cap EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite host split only; no actual host enforcement.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O009",
+      "body_line": 90,
+      "body_sha256": "9ededde528aa0604d73aae94387bde67c165c434953de037b0003a607de3670b",
+      "sentence_body_span": [
+        0,
+        54
+      ],
+      "sentence_sha256": "ae2f0b1911c68ed5189226fca9bcb21cd389c6d191f7ab0a18579b407ca85fb4",
+      "sentence_anchor": "create・update は、書いた agent と別",
+      "body_span": [
+        16,
+        53
+      ],
+      "source_quote": "書いた agent と別の context で成果を検証しなければならない",
+      "guard": "guard: create/update after generation",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "VerificationPass"
+      ],
+      "signature_ids": [
+        "S01"
+      ],
+      "fixed_query_ids": [
+        "S01 Reach independent passing check→complete EXPECT sat",
+        "S01 forbidden same-context self-check completion EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Model distinguishes checker context; actual independence and verification quality remain outside.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O010",
+      "body_line": 93,
+      "body_sha256": "74bab39a8fc8b7795285025de860d43be9c5c20ccea68cf4a5b61d6298312262",
+      "sentence_body_span": [
+        0,
+        42
+      ],
+      "sentence_sha256": "5bead754a3c9831468e1781cbb665c4d5da5dcc6907597abacd00fd89c959855",
+      "sentence_anchor": "create・update は、必要な検証を通るまで成果",
+      "body_span": [
+        16,
+        41
+      ],
+      "source_quote": "必要な検証を通るまで成果を完了と報告してはならない",
+      "guard": "guard: create/update before required verification pass",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "CompleteAfterPass"
+      ],
+      "signature_ids": [
+        "S01",
+        "S02"
+      ],
+      "fixed_query_ids": [
+        "S01 forbidden same-context self-check completion EXPECT unsat",
+        "S02 forbidden completion without reverify pass EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Does not establish that all necessary verifications were identified.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O010",
+      "body_line": 93,
+      "body_sha256": "74bab39a8fc8b7795285025de860d43be9c5c20ccea68cf4a5b61d6298312262",
+      "sentence_body_span": [
+        42,
+        76
+      ],
+      "sentence_sha256": "04aa9c1270745b2f4eb55771b4bf67376d158a33660052edf77ea8044e1cd65c",
+      "sentence_anchor": "検証を通らず止まる場合、未達であることと理由を返さなけれ",
+      "body_span": [
+        42,
+        75
+      ],
+      "source_quote": "検証を通らず止まる場合、未達であることと理由を返さなければならない",
+      "guard": "guard: verification failure stop",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "C-BP"
+      ],
+      "fixed_query_ids": [
+        "C-BP ordinary failure stop cannot omit O010 unmet report EXPECT unsat",
+        "C-BP ordinary verification failure stop without unmet reason is F EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Reason and unmet are logical fields; stop phase/file duties are separate O013/O040 clauses.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O013",
+      "body_line": 99,
+      "body_sha256": "b39b384e8afbcaf5e5ed4213b07489a7dbbae0bf288ecf26106381f905f6d25a",
+      "sentence_body_span": [
+        0,
+        53
+      ],
+      "sentence_sha256": "6083f8386111009b5af181c751339fc001cec7a3ba0b81aa1cd07d7afe25d03b",
+      "sentence_anchor": "4 機能は、続行できない失敗で BLOCKED と理由を",
+      "body_span": [
+        6,
+        52
+      ],
+      "source_quote": "続行できない失敗で BLOCKED と理由を返して止まり、止まった段を報告しなければならない",
+      "guard": "guard: any of four operations with unrecoverable failure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "Interrupt",
+        "InterruptReport"
+      ],
+      "signature_ids": [
+        "S14"
+      ],
+      "fixed_query_ids": [
+        "S14 unrecoverable interruption is BLOCKED EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Do not generalize BLOCKED to review/audit nonfailure interruptions.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O013",
+      "body_line": 99,
+      "body_sha256": "b39b384e8afbcaf5e5ed4213b07489a7dbbae0bf288ecf26106381f905f6d25a",
+      "sentence_body_span": [
+        53,
+        109
+      ],
+      "sentence_sha256": "eb309b68b521c4695dfb4271d0ddaf3f30778eba2e75d30f5430dd245a042f53",
+      "sentence_anchor": "review・audit は、失敗に限らず、完了前に止ま",
+      "body_span": [
+        53,
+        108
+      ],
+      "source_quote": "review・audit は、失敗に限らず、完了前に止まる全ての場合で止まった段と理由を報告しなければならない",
+      "guard": "guard: review/audit pre-completion interruption, including nonfailure",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "InterruptReport"
+      ],
+      "signature_ids": [
+        "C-REVIEW",
+        "S13"
+      ],
+      "fixed_query_ids": [
+        "S13 review nonfailure interruption still reports phase/reason EXPECT sat",
+        "S13 forbidden review interruption omits stopped phase EXPECT unsat",
+        "C-REVIEW forbidden missing stopped-phase report EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "This phase/reason duty is separate from O005 non-applicability and from BLOCKED.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O015",
+      "body_line": 105,
+      "body_sha256": "3f2e9dd5b30796fe49d5700de0387eebf7aeff04597bdda119f6dfd8b2c5cc99",
+      "sentence_body_span": [
+        0,
+        58
+      ],
+      "sentence_sha256": "38b365fbbe44807e96e5aa24e6a700a239510581aa263070c50ee1da6d7e473e",
+      "sentence_anchor": "update は、対象スキルの全体と 1 件以上の修正の",
+      "body_span": [
+        19,
+        30
+      ],
+      "source_quote": "1 件以上の修正の根拠",
+      "guard": "guard: update receives at least one repair ground",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "ReceiveGround"
+      ],
+      "signature_ids": [
+        "S33"
+      ],
+      "fixed_query_ids": [
+        "S33 Reach old ground→new ID evaluate→current status report EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "One finite ground only; target-whole and arbitrary count acceptance remain residual group 4.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O038",
+      "body_line": 67,
+      "body_sha256": "328878a824fc241444bada40d7bb0cf56e68930e901d88df0c2ce50bdc0f9791",
+      "sentence_body_span": [
+        155,
+        205
+      ],
+      "sentence_sha256": "651042fe7029ac2e6b33c3e61b36efbdc405e3bc4e01c8cb070bb58627d35798",
+      "sentence_anchor": "途中の機能が完了せず止まった場合、後続を実行せず、その停",
+      "body_span": [
+        155,
+        179
+      ],
+      "source_quote": "途中の機能が完了せず止まった場合、後続を実行せず",
+      "guard": "guard: operation chain with an intermediate stopped operation",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "InterruptReport"
+      ],
+      "signature_ids": [
+        "S12/S31",
+        "S31"
+      ],
+      "fixed_query_ids": [
+        "S31 forbidden downstream start after stop EXPECT unsat",
+        "S12/S31 Reach partial files→interrupt→chain report, written mask retained EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Order selection/dependency resolution/input-sufficiency clauses remain residual group 4.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O038",
+      "body_line": 67,
+      "body_sha256": "328878a824fc241444bada40d7bb0cf56e68930e901d88df0c2ce50bdc0f9791",
+      "sentence_body_span": [
+        155,
+        205
+      ],
+      "sentence_sha256": "651042fe7029ac2e6b33c3e61b36efbdc405e3bc4e01c8cb070bb58627d35798",
+      "sentence_anchor": "途中の機能が完了せず止まった場合、後続を実行せず、その停",
+      "body_span": [
+        180,
+        204
+      ],
+      "source_quote": "その停止報告を連鎖全体の報告としなければならない",
+      "guard": "guard: intermediate operation stop",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "InterruptReport"
+      ],
+      "signature_ids": [
+        "S12/S31"
+      ],
+      "fixed_query_ids": [
+        "S12/S31 Reach partial files→interrupt→chain report, written mask retained EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Only the selected chain-stop/report path.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O040",
+      "body_line": 120,
+      "body_sha256": "5f6160ec5afb3071b8e7689b989212ad56c080758497d1188a542325016d5c84",
+      "sentence_body_span": [
+        0,
+        76
+      ],
+      "sentence_sha256": "c291b9ca465b6bb74e6519ab84c03726fce0b1ad0c18e7411bd37834418dfd3c",
+      "sentence_anchor": "create・update は、完了前に止まった場合、そ",
+      "body_span": [
+        27,
+        42
+      ],
+      "source_quote": "それまでに書いたファイルを残し",
+      "guard": "guard: create/update interruption before completion",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "InterruptReport"
+      ],
+      "signature_ids": [
+        "S12",
+        "S12/S31"
+      ],
+      "fixed_query_ids": [
+        "S12/S31 Reach partial files→interrupt→chain report, written mask retained EXPECT sat",
+        "S12 forbidden rollback of written files after interruption EXPECT unsat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite written-file mask, not physical file contents or rollback decision behavior.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O040",
+      "body_line": 120,
+      "body_sha256": "5f6160ec5afb3071b8e7689b989212ad56c080758497d1188a542325016d5c84",
+      "sentence_body_span": [
+        0,
+        76
+      ],
+      "sentence_sha256": "c291b9ca465b6bb74e6519ab84c03726fce0b1ad0c18e7411bd37834418dfd3c",
+      "sentence_anchor": "create・update は、完了前に止まった場合、そ",
+      "body_span": [
+        43,
+        75
+      ],
+      "source_quote": "検証済み・未検証の範囲、停止した段と理由を報告しなければならない",
+      "guard": "guard: create/update interruption before completion",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "InterruptReport"
+      ],
+      "signature_ids": [
+        "S12/S31"
+      ],
+      "fixed_query_ids": [
+        "S12/S31 Reach partial files→interrupt→chain report, written mask retained EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Finite report fields only; exact file state/report meaning requires source review.",
+      "independent_meaning_review": "pending"
+    },
+    {
+      "source": "docs/requirements/bp-operations.md",
+      "requirement_id": "O051",
+      "body_line": 70,
+      "body_sha256": "9e85a6703c14daf3d79215d6793283090bfe28b0a6da25b1e4e72f2faa76a97a",
+      "sentence_body_span": [
+        0,
+        83
+      ],
+      "sentence_sha256": "bd25c0dd28ba4d1e7a9cdeec054e9e3e7564e133ab12ae681d830819f50d8c5e",
+      "sentence_anchor": "best-practices は、4 機能の各 run ",
+      "body_span": [
+        63,
+        82
+      ],
+      "source_quote": "保存失敗の要求を適用しなければならない",
+      "guard": "guard: BP operation run; applies D035 save-failure duties as a bridge",
+      "obligation_or_exception": "source_quote_as_modeled_candidate",
+      "contract_rules": [
+        "SourceDuty"
+      ],
+      "signature_ids": [
+        "C-REVIEW",
+        "S05/S11/S28"
+      ],
+      "fixed_query_ids": [
+        "S05/S11/S28 Reach need-input→stop→save-fail→report EXPECT sat",
+        "C-REVIEW Compliant same episode combines five slots, phase/reason and save scope EXPECT sat"
+      ],
+      "classification": "candidate_selected_path",
+      "finite_scope": "Full application of all record/evidence/ledger/retention D requirements remains residual group 3.",
+      "independent_meaning_review": "pending"
+    }
+  ]
+}

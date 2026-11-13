@@ -1,0 +1,3709 @@
+{
+  "status": "source_map_approved_formal_model_unapproved_incomplete",
+  "base_head": "c67bd7cdac257f3193341ed7f37260c011205204",
+  "sources": {
+    "docs/requirements/bp-designed-skill.md": {
+      "sha256": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c",
+      "lines": 136
+    },
+    "docs/requirements/bp-operations.md": {
+      "sha256": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0",
+      "lines": 150
+    },
+    "docs/design/skill-design-patterns.md": {
+      "sha256": "13dcf260e06158fbed3cf89725be6462cc0af5dc88e7aa6c6f073e7622ede023",
+      "lines": 550
+    },
+    "docs/requirements/formal-method.md": {
+      "sha256": "2234b6e39e06e573aa80af608205c43d61e1996817334c11d001b779f2efefab",
+      "lines": 139
+    },
+    "docs/guidelines/agent-work.md": {
+      "sha256": "d83be07b5dc3cb01f0fc603b3948585e9577b152952656df180dae5af2fc1fac",
+      "lines": 78
+    },
+    "docs/guidelines/documentation.md": {
+      "sha256": "aa2133ad14d338537c8e66a9362da2ab9bf88f7dffb4668c08fa8b28ddaba3ef",
+      "lines": 16
+    },
+    "docs/guidelines/repository-operations.md": {
+      "sha256": "d7cde98057659e417797379b3200d6eef479c1716dd14ba906c1584e7cc76290",
+      "lines": 130
+    }
+  },
+  "counts": {
+    "D": 29,
+    "O": 27,
+    "total": 56,
+    "requirements_verified": 0,
+    "source_sentences": 132,
+    "normative_occurrences": 103
+  },
+  "closure_rule": "All current #### PR-BP... headings mapped exactly once; obligations/guards/exceptions are candidate interpretations, not verified semantics. Norm anchors are short source slices, not a document copy.",
+  "method_legend": {
+    "F": "finite relation/order/count candidate; no model yet",
+    "M": "independent meaning review required",
+    "R": "explicit reference constraint must be applied or left unverified"
+  },
+  "requirements": [
+    {
+      "id": "PR-BPDESIGNEDSKILL-001",
+      "key": "D001",
+      "title": "必要な形と部品の選択",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 39,
+      "body_line": 40,
+      "body_sha256": "c223cb59d03fcaa2777cfbe8de2ce97522fe9145a70d13587c51f64bf6fc8898",
+      "subject": "definition",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "形選択時",
+      "obligations": [
+        "軽い形から選択",
+        "ターン指揮にWorkflow禁止",
+        "Workflow部品",
+        "資産台帳適用条件",
+        "記録台帳免除禁止"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "形の判定",
+        "資産台帳"
+      ],
+      "exception": "なし",
+      "normative_occurrences": [
+        {
+          "offset": 52,
+          "modal": "なければならない",
+          "anchor": "形から適用し、目的に必要な形と部品を選ばなければならない。ターンごとの指"
+        },
+        {
+          "offset": 140,
+          "modal": "なければならない",
+          "anchor": "帳は同節の適用条件を満たす場合だけ持たせなければならない。資産台帳の有無"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 61,
+          "sha256": "ba80f490cee829e6c31e7203b9c58f68831c32abe775bf7b2cc7c2facd194ba4",
+          "anchor": "create・update は、設計方針文書の「形の判定",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 61,
+          "end": 149,
+          "sha256": "5c79a8db293f6fee20821cbb9eb4630a50fff052227a6669f13799f53d3a2e37",
+          "anchor": "ターンごとの指揮には Workflow script を",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 149,
+          "end": 193,
+          "sha256": "e1b74b5aec7d5e46603dee9a7ff6dbb3a1bc47a1cd2a504282427b24871b90f8",
+          "anchor": "資産台帳の有無は PR-BPDESIGNEDSKILL-",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 193,
+          "end": 226,
+          "sha256": "d1cbc997902582e1d815fcde960418fc24c255aa3b1618bdd51c2a5d0e251882",
+          "anchor": "重い構成を既定にして不要な探索や管理の費用を増やさないた",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-002",
+      "key": "D002",
+      "title": "重い形を選ぶ根拠",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 42,
+      "body_line": 43,
+      "body_sha256": "49adfe9f01bcb48f6832ef0e6659c84a19c57cb786ff97be41b830ecc546176e",
+      "subject": "definition",
+      "operations": [
+        "target"
+      ],
+      "guard": "固定集合反復/探索グラフ/複数run",
+      "obligations": [
+        "選択条件を設計説明へ",
+        "各runの条件と必要性"
+      ],
+      "methods": [
+        "M",
+        "R"
+      ],
+      "references": [
+        "形の判定"
+      ],
+      "exception": "軽い形には重い形の根拠要求なし",
+      "normative_occurrences": [
+        {
+          "offset": 40,
+          "modal": "なければならない",
+          "anchor": "グラフ型を選ばせた条件を設計の説明に残さなければならない。run を分け"
+        },
+        {
+          "offset": 98,
+          "modal": "なければならない",
+          "anchor": "が目的に必要かを後から判断できるようにしなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 49,
+          "sha256": "38c1afba3939bdfe8deac92a4434dd0ea45703118d3efb4e4739141935bbaf67",
+          "anchor": "対象スキルは、固定集合の反復型または探索グラフ型を選ばせ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 49,
+          "end": 107,
+          "sha256": "5f92ac79597ebfbce760c33c5488e2095ee5b9eed9c12b7c5c57a635d642af8d",
+          "anchor": "run を分ける場合は該当する各 run の条件を残し、",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-006",
+      "key": "D006",
+      "title": "目標の固定",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 45,
+      "body_line": 46,
+      "body_sha256": "4f078609b26bff529c1003ffee25d6b61c4b74b6e94af28a950333ca3346b93d",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "入口",
+      "obligations": [
+        "成果物/範囲/禁止/数値/指示語を固定"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "目標の固定"
+      ],
+      "exception": "なし",
+      "normative_occurrences": [
+        {
+          "offset": 65,
+          "modal": "なければならない",
+          "anchor": "禁止事項、数値条件と指示語の対象を固定しなければならない。手順を終えたこ"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 74,
+          "sha256": "54d2a6d4fb7046f6b02d7b625c35af3cbed6815cbd887588b2958af195b2e2e9",
+          "anchor": "対象スキルは、入口で設計方針文書「目標の固定」の原則に従",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 74,
+          "end": 101,
+          "sha256": "247052726cd18bb005d949d99b84e4ab640a9681f6ae34dd289aa2a6c37da256",
+          "anchor": "手順を終えたことを目的の達成と取り違えないためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-007",
+      "key": "D007",
+      "title": "停止・再開と人間の入力",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 48,
+      "body_line": 49,
+      "body_sha256": "a917a99c18a79eb61b352be286a99380e2d11c38c45de7e184cb48b94fdf47c1",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "Workflowあり/人間入力境界",
+      "obligations": [
+        "停止",
+        "判断材料と再開情報",
+        "新run続行",
+        "中断≠完了"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "停止・再開と人間の入力"
+      ],
+      "exception": "非Workflowは本項対象外",
+      "normative_occurrences": [
+        {
+          "offset": 79,
+          "modal": "なければならない",
+          "anchor": "断材料と再開に必要な情報を返して続行できなければならない。中断を完了と扱"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 88,
+          "sha256": "38f5966fec5c06de69c07474bc8d9bff122715c010def4e27214ea6741ae6af8",
+          "anchor": "Workflow を持つ対象スキルは、設計方針文書「停止",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 88,
+          "end": 112,
+          "sha256": "fb0d70a40fc7185c321cd39771a7aadb2f0aa2c1990f0448daee3a77f138e081",
+          "anchor": "中断を完了と扱わず、同じ作業を続けるためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-008",
+      "key": "D008",
+      "title": "体数と同時実行",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 51,
+      "body_line": 52,
+      "body_sha256": "5ba485399df0f33ce67943a9559096f3a2925c1658a584c1368a72a81a370097",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "Workflowあり",
+      "obligations": [
+        "必要項目保持",
+        "同時実行制限"
+      ],
+      "methods": [
+        "R",
+        "F"
+      ],
+      "references": [
+        "体数と同時実行"
+      ],
+      "exception": "なし",
+      "normative_occurrences": [
+        {
+          "offset": 59,
+          "modal": "なければならない",
+          "anchor": "要な項目を切り捨てず、同時実行を制限できなければならない。実行資源の制限"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 68,
+          "sha256": "c77b3b8f79939659f841820acc86b62db274502e4783f1b073268701ffff2508",
+          "anchor": "Workflow を持つ対象スキルは、設計方針文書「体数",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 68,
+          "end": 96,
+          "sha256": "07bbd69a332fd60570e59fb062a4c639ad6a1ab3eb6c6285f9717819aa3cb667",
+          "anchor": "実行資源の制限と未処理の黙った除外を区別するためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-009",
+      "key": "D009",
+      "title": "モデル・effort・prompt",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 54,
+      "body_line": 55,
+      "body_sha256": "207094432efbfaa061a690ed39931687b84118a515344501924bbe2968218e0d",
+      "subject": "definition",
+      "operations": [
+        "target"
+      ],
+      "guard": "Workflowあり",
+      "obligations": [
+        "全役model/effort明示",
+        "必要prompt"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "モデル・effort・prompt"
+      ],
+      "exception": "値/初期値表/変更時effort再測定/xhigh-max役限定を適合判定に使わない",
+      "normative_occurrences": [
+        {
+          "offset": 87,
+          "modal": "なければならない",
+          "anchor": "示し、判断に必要な prompt を渡さなければならない。適合の判定では"
+        },
+        {
+          "offset": 169,
+          "modal": "てはならない",
+          "anchor": "gh・max を使える役の限定には照らしてはならない（依頼者の裁定）"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 96,
+          "sha256": "4894d64c77ea6978a817ce9aa03294adf5faa3a49777214a382500f4320fa215",
+          "anchor": "Workflow を持つ対象スキルは、設計方針文書「モデ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 96,
+          "end": 184,
+          "sha256": "4a1aee8dcf45edf396961a23a05b516cae13d53ddf4c82f1c4883003019af2ea",
+          "anchor": "適合の判定ではモデル・effort の値自体、初期値の表",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 184,
+          "end": 203,
+          "sha256": "d2a4a79335144ca0a5f2ba19b160e7f9a86101b7823e142b11263243faacbaa4",
+          "anchor": "prompt の内容の原則は適用する。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-010",
+      "key": "D010",
+      "title": "権限",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 57,
+      "body_line": 58,
+      "body_sha256": "b628959a43b6962b1454ead403bef94f11da6c44b6b0256c042e3db8463f0d0a",
+      "subject": "definition",
+      "operations": [
+        "target"
+      ],
+      "guard": "Workflowあり",
+      "obligations": [
+        "役の許可/禁止を分離"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "権限"
+      ],
+      "exception": "なし",
+      "normative_occurrences": [
+        {
+          "offset": 49,
+          "modal": "なければならない",
+          "anchor": "に従い、役に許す操作と許さない操作を分けなければならない。生成・検証など"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 58,
+          "sha256": "7041561aafc3fb5f6a21b5b2e5c7934bd2f41f4b531889b6694988461e5621be",
+          "anchor": "Workflow を持つ対象スキルは、設計方針文書「権限",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 58,
+          "end": 87,
+          "sha256": "dfa9f2416da911cd9141dc3dc22db377a2e2156872671e7e7d458563fe60961d",
+          "anchor": "生成・検証などの役割分離を権限の抜けで失わないためである",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-011",
+      "key": "D011",
+      "title": "探索グラフと実行時間",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 60,
+      "body_line": 61,
+      "body_sha256": "cf0308d230ad7106cadb29b144cc1dcbbb66120b1ee0bd477d0c8394ff5458f5",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "探索グラフ型",
+      "obligations": [
+        "探索原則",
+        "実行役時間上限決定/明示",
+        "Codex強制",
+        "Claude強制不能開示"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "探索グラフ"
+      ],
+      "exception": "値の明示だけでは強制証拠にならない",
+      "normative_occurrences": [
+        {
+          "offset": 53,
+          "modal": "なければならない",
+          "anchor": "し、実行役の時間の上限を自ら決めて明示しなければならない。Codex r"
+        },
+        {
+          "offset": 122,
+          "modal": "なければならない",
+          "anchor": "強制できないことを run の結果に残さなければならない。値の明示だけを"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 62,
+          "sha256": "92ab12d75926d31583463efe653e2d8c6360325593fa61beaef0299cb37d61d3",
+          "anchor": "探索グラフ型の対象スキルは、設計方針文書「探索グラフ」の",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 62,
+          "end": 131,
+          "sha256": "6c9217f82879dc1231520429fc1551abe4b680508100c9c6a515357f3aee992e",
+          "anchor": "Codex runner ではその値で実行を制限し、Cl",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 131,
+          "end": 153,
+          "sha256": "9025d38b6c792aad58e8a8cd01441860b490edb734c5d9f966c85e2cf8ca6838",
+          "anchor": "値の明示だけを強制の証拠にしないためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-012",
+      "key": "D012",
+      "title": "状態更新の信頼性",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 63,
+      "body_line": 64,
+      "body_sha256": "7f5a06b7efbcf121b97ddb08d283a87a311d69dcf435955250d925561c90b6b4",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "探索グラフまたは資産台帳あり",
+      "obligations": [
+        "検証更新",
+        "再送/競合/中断で意味不変",
+        "CLIのみ共有状態更新",
+        "運搬/受理分離",
+        "追記/決定的照合"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "状態の書き込み"
+      ],
+      "exception": "なし",
+      "normative_occurrences": [
+        {
+          "offset": 85,
+          "modal": "なければならない",
+          "anchor": "断によって記録の意味が変わらないようにしなければならない。CLI だけが"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 94,
+          "sha256": "ba6021c1149b23c4403566f04a878c99b9b1d2c7b624b57df8be4236d31ae42a",
+          "anchor": "探索グラフまたは資産台帳を備える対象スキルは、設計方針文",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 94,
+          "end": 143,
+          "sha256": "f2ff9baca0e1c9c8c5116944b2e4f88df9256358dd2baf76341da0d41fbef7cc",
+          "anchor": "CLI だけが共有状態を更新すること、運搬、受理の分離、",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-013",
+      "key": "D013",
+      "title": "資産台帳",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 66,
+      "body_line": 67,
+      "body_sha256": "0923be8f74ff988c086ae737f92e3f681071fe789461fbf43dd109c2a48003c8",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "資産台帳あり",
+      "obligations": [
+        "対象と結果対応",
+        "確認/未確認分離",
+        "件数を判断正しさの証拠にしない"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "資産台帳"
+      ],
+      "exception": "なし",
+      "normative_occurrences": [
+        {
+          "offset": 60,
+          "modal": "なければならない",
+          "anchor": "せ、確認した範囲と未確認の範囲を区別できなければならない。台帳の件数を判"
+        },
+        {
+          "offset": 86,
+          "modal": "てはならない",
+          "anchor": "ない。台帳の件数を判断の正しさの証拠にしてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 69,
+          "sha256": "d43eef116e1fdf08de4c9b7966adf0cf9f3ebcf0c81bc1e3d923286b4195d46b",
+          "anchor": "資産台帳を備える対象スキルは、設計方針文書「資産台帳」に",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 69,
+          "end": 93,
+          "sha256": "1d8e91464b75baa7c111ae9950db79fc707fad65e017ebb2c19df58cbaf12f1c",
+          "anchor": "台帳の件数を判断の正しさの証拠にしてはならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-051",
+      "key": "D051",
+      "title": "AI の自由な判断とその限界の説明",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 69,
+      "body_line": 70,
+      "body_sha256": "7641af9de37021d24115346255e0279b9e9fd200bd26ab2563c1a28184a1f396",
+      "subject": "definition",
+      "operations": [
+        "target",
+        "create",
+        "update",
+        "review"
+      ],
+      "guard": "AI判断層に判断点あり/なし",
+      "obligations": [
+        "判断点と理由または不存在",
+        "機械対応だけで適合",
+        "create/update設計説明を照合",
+        "review全ファイル照合",
+        "列挙網羅未確認開示"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "配置の原則"
+      ],
+      "exception": "最硬層/理由意味/他層理由を適合条件にしない;create/update残危険/review未検査",
+      "normative_occurrences": [
+        {
+          "offset": 63,
+          "modal": "なければならない",
+          "anchor": "、硬い層へ置けない理由を設計の説明に残さなければならない。判断点が無い場"
+        },
+        {
+          "offset": 85,
+          "modal": "なければならない",
+          "anchor": "ればならない。判断点が無い場合もそう示さなければならない。create・"
+        },
+        {
+          "offset": 197,
+          "modal": "てはならない",
+          "anchor": "、他の層にも理由があるかを適合の条件にしてはならない。照合範囲は c"
+        },
+        {
+          "offset": 319,
+          "modal": "なければならない",
+          "anchor": "る危険、review は未検査として示さなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 72,
+          "sha256": "327c34b0c9aaff820557026e5e8f5598b199fdb5cca6dc3540a22703f94d125c",
+          "anchor": "対象スキルは、設計方針文書「配置の原則」の AI の判断",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 72,
+          "end": 94,
+          "sha256": "6155532071a7ccc7a40f9c010b6872f7750090fe6d13240e3ada4319a9731314",
+          "anchor": "判断点が無い場合もそう示さなければならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 94,
+          "end": 204,
+          "sha256": "17784284edbdd69248b05e13f2283521ee82466c4131fb4aa089796135cdd9fa",
+          "anchor": "create・update と review は、列挙ま",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 204,
+          "end": 262,
+          "sha256": "f7bac247fd6abb7f7159c12225923c2d0e484ec7bdcb05ab442f8ca2d5ba11a6",
+          "anchor": "照合範囲は create・update が設計の説明、r",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 262,
+          "end": 328,
+          "sha256": "3a8ed86b11bc6d7e1a7b978ab62f61fc666b516d2126b20330c33521f0e9363e",
+          "anchor": "列挙の網羅を機械では確認していないことを、create・",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-024",
+      "key": "D024",
+      "title": "検証すべき性質の特定",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 74,
+      "body_line": 75,
+      "body_sha256": "99b52e0c4861f4bac1d510ef7c3efdce6f1ddd729669ed4088c3910c201bd511",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "対象検証時",
+      "obligations": [
+        "要求/状態/遷移/入出力/制約から性質抽出",
+        "非形式化理由と別確認または未確認理由"
+      ],
+      "methods": [
+        "M",
+        "F"
+      ],
+      "references": [
+        "機械で確かめる"
+      ],
+      "exception": "形式化困難でも必要確認を落とさない",
+      "normative_occurrences": [
+        {
+          "offset": 84,
+          "modal": "なければならない",
+          "anchor": "由と別の確認結果または未確認の理由を残さなければならない。形式化の難しさ"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 93,
+          "sha256": "55124f45e9b061973d22e341f4d93ee4fd7a3b3955f24ec6b1c2397ef941f534",
+          "anchor": "create・update は、対象スキルの要求・状態・",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 93,
+          "end": 123,
+          "sha256": "200433384c214746582e96a8ad1d5c9d3a6d3bce125be037bd1fa1ca3f2ce1be",
+          "anchor": "形式化の難しさによって必要な確認が黙って落ちないためであ",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-025",
+      "key": "D025",
+      "title": "性質に応じた形式検証",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 77,
+      "body_line": 78,
+      "body_sha256": "810b9060e577e0409ae1012b4b62ffa6fea276ec599ebc89ca21f48e8d96b238",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "形式検証適用可能",
+      "obligations": [
+        "性質に必要な手法/道具で検証"
+      ],
+      "methods": [
+        "M",
+        "F"
+      ],
+      "references": [
+        "機械で確かめる"
+      ],
+      "exception": "TLA+/SMTは例で一律必須ではない",
+      "normative_occurrences": [
+        {
+          "offset": 47,
+          "modal": "なければならない",
+          "anchor": "質を、その性質に必要な手法と道具で検証しなければならない。TLA+ や "
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 56,
+          "sha256": "319d6732ebc19047174787ec719ddc66e168f5b7170d17e817b2cae3ce8095b0",
+          "anchor": "create・update は、形式検証を適用できる性質",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 56,
+          "end": 99,
+          "sha256": "dea51e7c2ad0305280f6e7cb656fe87afd9b9286b0a485e2f72b60890f6534f2",
+          "anchor": "TLA+ や SMT は性質に応じた道具の例であり、一律",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-026",
+      "key": "D026",
+      "title": "検証の範囲と限界の説明",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 80,
+      "body_line": 81,
+      "body_sha256": "cc674974d96d6eec3fcf82890166e9e1d60782fda7965ae31d672131f335af38",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "形式検証時",
+      "obligations": [
+        "対象/手法/道具/前提/探索範囲/結果/未検証/非形式化確認を記録"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "機械で確かめる"
+      ],
+      "exception": "記録欄存在は内容妥当性の保証ではない",
+      "normative_occurrences": [
+        {
+          "offset": 64,
+          "modal": "なければならない",
+          "anchor": "範囲と、形式化できない性質の確認を記録しなければならない。確認した範囲を"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 73,
+          "sha256": "281c7b9714957e64bedf8c8bb2111e7ca4bed5c39d7d06f7d756e182adf73453",
+          "anchor": "create・update は、形式検証の対象・手法・道",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 73,
+          "end": 101,
+          "sha256": "676330026acf4ed7ce69668bcb2d9b8f94762db4a40e8245980689f1d86fbd82",
+          "anchor": "確認した範囲を超えて「検証済み」と読まれないためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-027",
+      "key": "D027",
+      "title": "形式検証の失敗で停止",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 83,
+      "body_line": 84,
+      "body_sha256": "667127208f4fd66eac8478aa39dd48ed073705b6df47b97ee25fdbfa146ec14c",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "必要形式検証不能または性質不成立",
+      "obligations": [
+        "当run停止",
+        "対象/理由報告",
+        "同run修正続行禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "機械で確かめる"
+      ],
+      "exception": "修正/環境復旧/再検証は別runで可;非形式失敗はO011",
+      "normative_occurrences": [
+        {
+          "offset": 64,
+          "modal": "なければならない",
+          "anchor": "その run を止め、対象と理由を報告しなければならない。修正または環境"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 73,
+          "sha256": "ee2d01900918401426888fe959bfed59dfaea32a821ae3b15e42f50fdbb5afc8",
+          "anchor": "必要な形式検証を実行できないか性質が成り立たなかった場合",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 73,
+          "end": 102,
+          "sha256": "bb5458ae98bc23f94d7916cc215e582a5849dd2da07c647c14551d40f0f5e7da",
+          "anchor": "修正または環境の復旧と再検証は別の run で行ってよい",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 102,
+          "end": 139,
+          "sha256": "a31e06faa2acdb79d061b4859660f257185e232eba1b146e4718486a5b3a3f41",
+          "anchor": "形式検証以外の書き直しは PR-BPOPERATIONS",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-028",
+      "key": "D028",
+      "title": "作業と判断の監査可能性",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 88,
+      "body_line": 89,
+      "body_sha256": "05987aa90af63731d80efece1df3bc76e5c8a3b1490369cac27e8ca0484231ee",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "各担当/各run",
+      "obligations": [
+        "担当/段/対象/入力/実行/結果/根拠/失敗/未確認を後追跡",
+        "段なしを明示"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善"
+      ],
+      "exception": "段境界なしの場合も記録不要ではない",
+      "normative_occurrences": [
+        {
+          "offset": 60,
+          "modal": "なければならない",
+          "anchor": "拠・失敗・未確認を後から辿れる記録を残さなければならない。段の境界が無い"
+        },
+        {
+          "offset": 112,
+          "modal": "なければならない",
+          "anchor": "作業が判断を生んだかを特定できるようにしなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 69,
+          "sha256": "c8ba1546b346ac969295dc0683bba7f9e440752c21edda92a7e225e6fb546aba",
+          "anchor": "対象スキルは、run の各担当について、担当・段・対象・",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 69,
+          "end": 121,
+          "sha256": "74dc98938230f998c3e3f28efc57b4899a40b18373fcd356226e4fd9c320d084",
+          "anchor": "段の境界が無い場合は段が無いと示し、どの入力と作業が判断",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-029",
+      "key": "D029",
+      "title": "記録と証拠への到達",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 91,
+      "body_line": 92,
+      "body_sha256": "8f8daea6bfe782f3e08a8c1e6c819041c5cc9285971546f905d911f0d3fd0e5a",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "各run",
+      "obligations": [
+        "作業記録/証拠を環境保存",
+        "記録台帳から到達",
+        "担当共有台帳直書き禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善",
+        "状態の書き込み"
+      ],
+      "exception": "資産台帳だけで代替不可",
+      "normative_occurrences": [
+        {
+          "offset": 44,
+          "modal": "なければならない",
+          "anchor": "環境に保存し、記録台帳から辿れるようにしなければならない。資産と指摘の対"
+        },
+        {
+          "offset": 86,
+          "modal": "てはならない",
+          "anchor": "台帳だけでは、この能力を満たしたことにしてはならない。各担当は共有の"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 53,
+          "sha256": "c8c90a3011af0eccf032972dcd1edee1ecee6ef497d6b10964ffe64051bc2655",
+          "anchor": "対象スキルは、各 run の作業記録と証拠を実行環境に保",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 53,
+          "end": 93,
+          "sha256": "790db0596a0105d1c9f593310cb4f0da94d3abc407d15789e186ac25456a7478",
+          "anchor": "資産と指摘の対応を持つ資産台帳だけでは、この能力を満たし",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 93,
+          "end": 127,
+          "sha256": "4a70de12d70fa902696ca161b1a880426aa6d1d3ef9999cf652d90443355eb63",
+          "anchor": "各担当は共有の記録台帳へ直接書き込んではならない（上位の",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-032",
+      "key": "D032",
+      "title": "記録の正本",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 94,
+      "body_line": 95,
+      "body_sha256": "b5a6bc6f264b7052945aea69f6704a4911a3e308d134ba0e247044f7e909687c",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "同一内容を複数記録で使用",
+      "obligations": [
+        "正本一つ",
+        "分割時も同内容は正本参照"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善"
+      ],
+      "exception": "責務/対象による記録分割は可",
+      "normative_occurrences": [
+        {
+          "offset": 22,
+          "modal": "てはならない",
+          "anchor": "スキルは、同じ内容を複数の記録の正本にしてはならない。責務または対象"
+        },
+        {
+          "offset": 64,
+          "modal": "なければならない",
+          "anchor": "合も、同じ内容が必要な箇所は正本を参照しなければならない。記録間の食い違"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 29,
+          "sha256": "80bfd7d035e7dc2df9515818502c204350aadb48c5e462b596f85514cd32c47c",
+          "anchor": "対象スキルは、同じ内容を複数の記録の正本にしてはならない",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 29,
+          "end": 73,
+          "sha256": "eebad9968735be27eb5bac04aba196aa31d7571d75227e073bcfd0a431b0cd7d",
+          "anchor": "責務または対象で記録を分ける場合も、同じ内容が必要な箇所",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 73,
+          "end": 106,
+          "sha256": "b16d0a165f0be85e58294a80a66816fdfa4179495a33f3215e8f41f1214d4b0d",
+          "anchor": "記録間の食い違いで判断の根拠が決まらなくなることを防ぐた",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-034",
+      "key": "D034",
+      "title": "記録と過去の判断の保持",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 97,
+      "body_line": 98,
+      "body_sha256": "2ab12e5f51f09ac0a8931af46152063002afdb1c134363443a5effd5fda1d18a",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "保存成功後/新run",
+      "obligations": [
+        "保存済作業/証拠/台帳/過去判断を保持",
+        "更新後も過去到達"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善"
+      ],
+      "exception": "利用者削除指示まで",
+      "normative_occurrences": [
+        {
+          "offset": 73,
+          "modal": "なければならない",
+          "anchor": "run で更新しても過去へ辿れるようにしなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 82,
+          "sha256": "2ab12e5f51f09ac0a8931af46152063002afdb1c134363443a5effd5fda1d18a",
+          "anchor": "対象スキルは、保存できた作業記録・証拠・記録台帳と過去の",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-035",
+      "key": "D035",
+      "title": "保存失敗で停止",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 100,
+      "body_line": 101,
+      "body_sha256": "5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "記録/証拠/台帳の保存不能",
+      "obligations": [
+        "停止",
+        "保存済保持",
+        "未保存範囲/理由報告",
+        "完了禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善"
+      ],
+      "exception": "一部保存済でも失敗停止",
+      "normative_occurrences": [
+        {
+          "offset": 60,
+          "modal": "なければならない",
+          "anchor": "して、保存できなかった範囲と理由を報告しなければならない。この場合に完了"
+        },
+        {
+          "offset": 80,
+          "modal": "てはならない",
+          "anchor": "なければならない。この場合に完了と報告してはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 69,
+          "sha256": "96308853a9b17b6b131044d8eab55f5ae1837da933cb5437c2d034731b19ae29",
+          "anchor": "記録・証拠・記録台帳を保存できない場合、対象スキルは止ま",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 69,
+          "end": 87,
+          "sha256": "8a11efc92c30f1d0a2224ae5e5150c22c41c62f3cd906db74088e3f680dad41e",
+          "anchor": "この場合に完了と報告してはならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-036",
+      "key": "D036",
+      "title": "性能を見直せる記録",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 103,
+      "body_line": 104,
+      "body_sha256": "e128b679ebfae3120d1b9a234f81d1a86e9c25419cc5c12bf3ba05556257423f",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "各run",
+      "obligations": [
+        "所要時間/人介入/再試行/取得費用を記録",
+        "未取得区別"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善"
+      ],
+      "exception": "取得できない費用を既知扱いしない",
+      "normative_occurrences": [
+        {
+          "offset": 54,
+          "modal": "なければならない",
+          "anchor": "用を記録し、取得できなかった情報と区別しなければならない。後から実行条件"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 63,
+          "sha256": "9f7b5d1bf0f775c51ee84f3a4da1857ac04ae3c0a165c64fe4a5e441889ae839",
+          "anchor": "対象スキルは、run ごとの所要時間・人の介入・再試行と",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 63,
+          "end": 84,
+          "sha256": "609f3677bdd345833776c34bc8f8f0db446685e5fa926d000d8049a7480159ee",
+          "anchor": "後から実行条件と費用を比較するためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-040",
+      "key": "D040",
+      "title": "記録に適用した文書規約",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 106,
+      "body_line": 107,
+      "body_sha256": "651c7c964796b557cadf265bb93ed972008d7d2b8a4ba1f141ebb0d4d667c115",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "作業記録作成",
+      "obligations": [
+        "文書一般規約適用",
+        "実行先参照",
+        "各run適用版を不変参照特定"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善;documentation.md"
+      ],
+      "exception": "参照の存在だけでは遵守を保証しない",
+      "normative_occurrences": [
+        {
+          "offset": 42,
+          "modal": "なければならない",
+          "anchor": "し、実行先でその正本を参照できるようにしなければならない。各 run で"
+        },
+        {
+          "offset": 95,
+          "modal": "なければならない",
+          "anchor": "ようにし、後から同じ基準で読めるようにしなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 51,
+          "sha256": "3d922c40dd98ff30ccd3e0af66906ca3bb4253d55ba3e4087c23d869356a00cf",
+          "anchor": "対象スキルは、作業記録に文書の一般規約を適用し、実行先で",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 51,
+          "end": 104,
+          "sha256": "8f21183014b0c911c1ca9e4e9cc1094bb756e3812b6c572aea5a7f76b20c1175",
+          "anchor": "各 run で適用した版を不変の参照で特定できるようにし",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-014",
+      "key": "D014",
+      "title": "役ごとの制限の実効性",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 111,
+      "body_line": 112,
+      "body_sha256": "01d10739bf1bf3aed214b04cde4d49ec1dac9dbe040c51c577bd15543cf45f8c",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "create/updateが役制限をhost別に確認する場合（個別義務の条件はguarded_obligations）",
+      "obligations": [
+        "Claude Code/Codexで役制限の実効性を確認できる",
+        "Claude Codeは名前付き無視frontmatter一覧で照合",
+        "文書不可/該当記述なしの場合だけ一覧不可",
+        "一覧不可の場合はClaude Code全役制限を未確認とする",
+        "その一覧不可に基づく未確認だけで検証不合格にしない"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "形の判定",
+        "権限"
+      ],
+      "exception": "一覧古化受容;一覧不可の未確認だけで不合格禁止",
+      "normative_occurrences": [
+        {
+          "offset": 53,
+          "modal": "なければならない",
+          "anchor": "de と Codex で効くかを確認できなければならない。Claude "
+        },
+        {
+          "offset": 194,
+          "modal": "なければならない",
+          "anchor": "の記述が無い場合だけ一覧を読めないと扱わなければならない。一覧を読めない"
+        },
+        {
+          "offset": 257,
+          "modal": "てはならない",
+          "anchor": "確認とし、その未確認だけで検証不合格としてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 62,
+          "sha256": "527e3e2e13aedf79a297e4b25ba413b850bfbdee70e59cc58654c5cde847802c",
+          "anchor": "create・update は、役ごとの制限が Clau",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 62,
+          "end": 164,
+          "sha256": "190d4b6a704e2a56a8259898f729cefcd3422541b281f570dca25252eaedb463",
+          "anchor": "Claude Code では、設計方針文書が plugi",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 164,
+          "end": 203,
+          "sha256": "47f7850763e8b2451ba096406407573d59972615ff190ef12a75262ce41c5237",
+          "anchor": "文書を読めないか、その記述が無い場合だけ一覧を読めないと",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 203,
+          "end": 264,
+          "sha256": "515acefaa44941e412a68f53d367a1a96fc49f921806b0f914e76bfa40445964",
+          "anchor": "一覧を読めない場合、Claude Code の全ての役ご",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ],
+      "guarded_obligations": [
+        {
+          "guard": "create/updateの役制限確認",
+          "operations": [
+            "create",
+            "update"
+          ],
+          "hosts": [
+            "Claude Code",
+            "Codex"
+          ],
+          "obligations": [
+            "役ごとの制限が配布先で効くかを確認できる"
+          ]
+        },
+        {
+          "guard": "host=Claude Codeかつ一覧読取可",
+          "obligations": [
+            "設計方針文書の名前付き無視frontmatter設定の一覧を照合"
+          ],
+          "exception": "一覧の版が古くなる危険を受容"
+        },
+        {
+          "guard": "host=Claude Codeかつ（文書を読めない、または名前付き記述がない）",
+          "obligations": [
+            "一覧を読めないと扱う",
+            "Claude Codeの全役制限を未確認とする",
+            "その未確認だけを理由に検証不合格としない"
+          ]
+        },
+        {
+          "guard": "host=Claude Codeかつ文書を読めて名前付き記述がある",
+          "prohibitions": [
+            "一覧を読めないと扱う"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-015",
+      "key": "D015",
+      "title": "確認できない制限の開示",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 114,
+      "body_line": 115,
+      "body_sha256": "874277d316722d81cfe406234f83263aae54050807436cf05ad5db11afe8839d",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "host制限確認不能",
+      "obligations": [
+        "範囲/理由を残危険表示",
+        "Claude照合済を未確認扱い禁止",
+        "Codex別表示"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "権限"
+      ],
+      "exception": "Claude一覧照合とCodex確認を混同しない",
+      "normative_occurrences": [
+        {
+          "offset": 58,
+          "modal": "なければならない",
+          "anchor": "と理由を、残る危険として検証の結果に示さなければならない。Claude "
+        },
+        {
+          "offset": 107,
+          "modal": "てはならない",
+          "anchor": "制限を同 host の未確認として報告してはならない。Codex で"
+        },
+        {
+          "offset": 136,
+          "modal": "なければならない",
+          "anchor": "dex で確認できなかった範囲は別に示さなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 67,
+          "sha256": "9ce2fb8d83a0f30a178365f91e4175f846f6dc41078c8a2eb7374de083d54eb7",
+          "anchor": "create・update は、制限が配布先で効くかを確",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 67,
+          "end": 114,
+          "sha256": "bd3e6c09005fc80cfe581ff30136000befce92d82c102544d0ebb2d7b13cdba1",
+          "anchor": "Claude Code の一覧に照らした制限を同 hos",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 114,
+          "end": 145,
+          "sha256": "01fa8669c4d8b7391e7dfecbb6511f4adc80454ea749555cf4258b6a61343d9f",
+          "anchor": "Codex で確認できなかった範囲は別に示さなければなら",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-046",
+      "key": "D046",
+      "title": "効かない制限の修正",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 117,
+      "body_line": 118,
+      "body_sha256": "3bc1cea0a318472d5563a400a8d0db5fc4a3b2b5571891c1f5f8215c83d609dd",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "hostで効かないと確認",
+      "obligations": [
+        "不適合",
+        "修正し効くまで検証合格禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "権限"
+      ],
+      "exception": "未確認と既知不適合を区別",
+      "normative_occurrences": [
+        {
+          "offset": 52,
+          "modal": "てはならない",
+          "anchor": "不適合とし、効く形に直すまで検証合格としてはならない。未確認の危険と"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 59,
+          "sha256": "889a7cfd7bd4ffd3160108dc9a386aae24965ce67d12a5a425ec2ac66115e4f8",
+          "anchor": "create・update は、配布先で効かないと確認し",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 59,
+          "end": 84,
+          "sha256": "08b3eeed11a8f311bd2e603647fe0b9e2500ea3c656321d266eed4482aa26986",
+          "anchor": "未確認の危険と既知の不適合を混同しないためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-016",
+      "key": "D016",
+      "title": "起動数の上限の受け取りと遵守",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 122,
+      "body_line": 123,
+      "body_sha256": "cdaa3cba86ba442b1801122bff64d5e9bc8d03ab02ceea47232e2980ec2441ea",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "fan-outあり",
+      "obligations": [
+        "起動総数上限入力受取/遵守",
+        "結果なし呼出も起動計数"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "体数と同時実行"
+      ],
+      "exception": "任意件数の実host計数は有限boolでは保証不可",
+      "normative_occurrences": [
+        {
+          "offset": 52,
+          "modal": "なければならない",
+          "anchor": "入力として受け取り、その上限内で実行できなければならない。起動数には結果"
+        },
+        {
+          "offset": 82,
+          "modal": "なければならない",
+          "anchor": "動数には結果を返さなかった呼び出しも含めなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 61,
+          "sha256": "24400c1a68be30b10ad37272ae510c102664be31e5fe39ee7e5fd450285bc20f",
+          "anchor": "fan-out を持つ対象スキルは、1 run の起動数",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 61,
+          "end": 91,
+          "sha256": "4ad1b39064509067500da7fcd4395d6256f9db0fb608443743b1f3a77d82212a",
+          "anchor": "起動数には結果を返さなかった呼び出しも含めなければならな",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-019",
+      "key": "D019",
+      "title": "未処理の保持と再開",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 125,
+      "body_line": 126,
+      "body_sha256": "4f8aead9c509350dd7044568481431411ddec27991b54002af3f5c8098bc6874",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "起動上限で未処理あり",
+      "obligations": [
+        "順位付き未着手保持",
+        "停止",
+        "新run残り続行",
+        "切捨/確認済誤認禁止"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "停止・再開と人間の入力"
+      ],
+      "exception": "未処理と打切りと結果なしを区別",
+      "normative_occurrences": [
+        {
+          "offset": 67,
+          "modal": "なければならない",
+          "anchor": "り、再開した run はその残りから続けなければならない。未処理を切り捨"
+        },
+        {
+          "offset": 98,
+          "modal": "てはならない",
+          "anchor": "理を切り捨て、確認済みと読まれる結果にしてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 76,
+          "sha256": "d3a713a5e59fb16f9139a2d5fa858c8904f3350bddc608fcbddd2c0378efa562",
+          "anchor": "起動数の上限で処理できない項目がある場合、対象スキルは、",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 76,
+          "end": 105,
+          "sha256": "027fb0447ed654fbfb52e7f1c9a40706008380f707c58dd51fea7cd1f9f41618",
+          "anchor": "未処理を切り捨て、確認済みと読まれる結果にしてはならない",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-021",
+      "key": "D021",
+      "title": "上限を渡さない場合",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 128,
+      "body_line": 129,
+      "body_sha256": "1c07b7f5dbe30d6ed30b2115ff08a59ff4924f81a5563c6339e63d17062d3023",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "上限入力なし",
+      "obligations": [
+        "項目数/総起動数に入力非依存固定上限禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "体数と同時実行"
+      ],
+      "exception": "同時実行/反復/周/試行上限は対象外",
+      "normative_occurrences": [
+        {
+          "offset": 62,
+          "modal": "てはならない",
+          "anchor": "の起動数に入力に依存しない固定上限を置いてはならない。同時実行・反復"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 69,
+          "sha256": "eae677a86466085a20dcea65fd2e0300313357476c31a74f80760773f22f862b",
+          "anchor": "起動数の上限を渡さない場合、対象スキルは、fan-out",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 69,
+          "end": 95,
+          "sha256": "a09aeba874b67b944216d1e8ac5b11e0ab0a9772dd077f9d9eb85c9002480bd0",
+          "anchor": "同時実行・反復・周・試行の上限はこの制約に含めない。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPDESIGNEDSKILL-022",
+      "key": "D022",
+      "title": "host に合う上限の受け渡し",
+      "source": "docs/requirements/bp-designed-skill.md",
+      "heading_line": 131,
+      "body_line": 132,
+      "body_sha256": "0c00edc026322927bad77940505fb1ceb04a08889f7ff28c59dd5cb260d3b2df",
+      "subject": "target-run",
+      "operations": [
+        "target"
+      ],
+      "guard": "fan-outあり",
+      "obligations": [
+        "Codexは起動上限授受",
+        "nativeは上限を渡さない"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "水準と未決事項"
+      ],
+      "exception": "host判別/実APIは別確認",
+      "normative_occurrences": [
+        {
+          "offset": 77,
+          "modal": "てはならない",
+          "anchor": "native Workflow では渡してはならない。host が課"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 84,
+          "sha256": "a669a37ac47453ea176af710255456d154caa5629d567ee0ed6caf60ae626270",
+          "anchor": "fan-out を持つ対象スキルは、Codex runn",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 84,
+          "end": 134,
+          "sha256": "f8bb90f5c5dfdd9d9872393fdf957c7418ab2733058c125b787c7bae55472a46",
+          "anchor": "host が課す総起動数の制約を守り、上限が不要な ho",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-001",
+      "key": "O001",
+      "title": "4 機能の選択",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 63,
+      "body_line": 64,
+      "body_sha256": "af3311a0bfb6da4a3fc2aa4cc38ca59bd816744c1060f1c47dcefd180f328bb1",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "review",
+        "update",
+        "audit"
+      ],
+      "guard": "依頼分類",
+      "obligations": [
+        "4機能提供/該当実行",
+        "非該当不実行/理由返却"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "非該当を機能実行に変えない",
+      "normative_occurrences": [
+        {
+          "offset": 67,
+          "modal": "なければならない",
+          "anchor": "し、利用者の依頼に該当する機能を実行できなければならない。どの機能にも当"
+        },
+        {
+          "offset": 109,
+          "modal": "なければならない",
+          "anchor": "では、機能を実行せず該当が無いことを返さなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 76,
+          "sha256": "fc244db5cb84f6e137dd705dd30eadb8e6c53e125597d451d7f465cf30a4ac45",
+          "anchor": "best-practices は create・revi",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 76,
+          "end": 118,
+          "sha256": "55542bc84e971959bbe2dd4f6c1c22b39f3a7d919a98840ba11d590121678748",
+          "anchor": "どの機能にも当たらない依頼では、機能を実行せず該当が無い",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-038",
+      "key": "O038",
+      "title": "複数機能の実行と受け渡し",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 66,
+      "body_line": 67,
+      "body_sha256": "328878a824fc241444bada40d7bb0cf56e68930e901d88df0c2ce50bdc0f9791",
+      "subject": "operation-chain",
+      "operations": [
+        "all"
+      ],
+      "guard": "複数機能依頼",
+      "obligations": [
+        "指定順優先",
+        "未指定は依存順",
+        "未決/矛盾は確認",
+        "前結果受渡",
+        "不十分必須入力禁止",
+        "途中停止後続禁止",
+        "連鎖に停止報告"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "順は好みで補完しない",
+      "normative_occurrences": [
+        {
+          "offset": 97,
+          "modal": "なければならない",
+          "anchor": "が依存関係と矛盾する場合は利用者に確認しなければならない（依頼者の裁定）"
+        },
+        {
+          "offset": 148,
+          "modal": "てはならない",
+          "anchor": "し、必須入力の代わりに不十分な結果を渡してはならない。途中の機能が完"
+        },
+        {
+          "offset": 196,
+          "modal": "なければならない",
+          "anchor": "行せず、その停止報告を連鎖全体の報告としなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 114,
+          "sha256": "884cf13d59b2c15fd779199f6f73a50c63ba966fc271368b73ddd093319feb26",
+          "anchor": "複数機能を求められた場合、best-practices ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 114,
+          "end": 155,
+          "sha256": "236eb3273df320a74b1776c6a7484c40b1a4ef95c136b76937d60a972e19045b",
+          "anchor": "前の結果を次に渡して順に実行し、必須入力の代わりに不十分",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 155,
+          "end": 205,
+          "sha256": "651042fe7029ac2e6b33c3e61b36efbdc405e3bc4e01c8cb070bb58627d35798",
+          "anchor": "途中の機能が完了せず止まった場合、後続を実行せず、その停",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-051",
+      "key": "O051",
+      "title": "実行記録の保持",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 69,
+      "body_line": 70,
+      "body_sha256": "9e85a6703c14daf3d79215d6793283090bfe28b0a6da25b1e4e72f2faa76a97a",
+      "subject": "operation-run",
+      "operations": [
+        "all"
+      ],
+      "guard": "4機能の各run",
+      "obligations": [
+        "D028/029/032/034/035/036/040の記録要求を適用"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "記録と改善"
+      ],
+      "exception": "target-run一般契約との明示bridgeは記録だけ",
+      "normative_occurrences": [
+        {
+          "offset": 74,
+          "modal": "なければならない",
+          "anchor": "・記録台帳・保持・保存失敗の要求を適用しなければならない。自らの判断も生"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 83,
+          "sha256": "bd25c0dd28ba4d1e7a9cdeec054e9e3e7564e133ab12ae681d830819f50d8c5e",
+          "anchor": "best-practices は、4 機能の各 run ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 83,
+          "end": 116,
+          "sha256": "fd71aaf2fe7fa09da2a2695c840a75a09ef1bfe4fc3cdbd7e2edb37c9b03ea3a",
+          "anchor": "自らの判断も生成するスキルと同様に検証できるようにするた",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-052",
+      "key": "O052",
+      "title": "回答待ちの判断材料",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 72,
+      "body_line": 73,
+      "body_sha256": "f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281",
+      "subject": "operation-run",
+      "operations": [
+        "all"
+      ],
+      "guard": "needs_input",
+      "obligations": [
+        "理由/決める事/検証結果/影響/残作業の5材料",
+        "未存在欄は不存在明示",
+        "目標前は結果/残作業なし",
+        "目標固定時は残作業/既得結果"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "材料の不存在と未記載を区別",
+      "normative_occurrences": [
+        {
+          "offset": 85,
+          "modal": "なければならない",
+          "anchor": "返し、まだ無い材料も欄を省かず無いと示さなければならない。入力確認で目標"
+        },
+        {
+          "offset": 158,
+          "modal": "なければならない",
+          "anchor": "残る作業と、それまでに得た検証結果を示さなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 94,
+          "sha256": "d7d4675675745e479c788ccdef6390fb212ec7d8c168d0adc98dadb5ef804815",
+          "anchor": "needs_input で止まる場合、best-prac",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 94,
+          "end": 167,
+          "sha256": "bcdee3cde962ca241eb3e5b81d75126f256d5743da4df3bf56d5ca45fab65bd6",
+          "anchor": "入力確認で目標固定前に止まる場合は検証結果と残る作業が無",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-003",
+      "key": "O003",
+      "title": "依頼に基づく目標",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 77,
+      "body_line": 78,
+      "body_sha256": "e5d90d3e56af101731098b6e2fe0c96ac6e9366e68d7db25d627c1cdc0a011c4",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "書込前/目標固定",
+      "obligations": [
+        "create依頼/回答",
+        "update目的/修正根拠から固定",
+        "依頼外目標/制約禁止"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "目標の固定"
+      ],
+      "exception": "updateは対象目的を出発点にする",
+      "normative_occurrences": [
+        {
+          "offset": 57,
+          "modal": "なければならない",
+          "anchor": "ll の目標固定の原則に沿って目標を定めなければならない。依頼に無い目標"
+        },
+        {
+          "offset": 79,
+          "modal": "てはならない",
+          "anchor": "ればならない。依頼に無い目標・制約を加えてはならない。update "
+        },
+        {
+          "offset": 129,
+          "modal": "なければならない",
+          "anchor": "的と修正の根拠を出発点に同じ原則を適用しなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 66,
+          "sha256": "3c8b87749fdb7455b8d6930836c6ea41feec76791f98c44f24e7f408ec92bc0b",
+          "anchor": "create は、書く前に、依頼と回答から bp-des",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 66,
+          "end": 86,
+          "sha256": "80197e7983841b915d0120f6b67b97237584e14cb145c60b06f1576b933d9c24",
+          "anchor": "依頼に無い目標・制約を加えてはならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 86,
+          "end": 138,
+          "sha256": "c069e7caef2b0c813d9afcaabebf8a160c6fb4acd945167c166b3a869bd9ee9e",
+          "anchor": "update では、対象スキルから読み取った目的と修正の",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-005",
+      "key": "O005",
+      "title": "入力不足での停止",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 80,
+      "body_line": 81,
+      "body_sha256": "467f45bd7f172b9882c9a7b1f8ec883d9be16966071e2be64113818fb581a578",
+      "subject": "operation-run",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "目標に必要承認/回答不足",
+      "obligations": [
+        "needs_input/判断材料/停止",
+        "Workflow内待機禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "停止・再開と人間の入力"
+      ],
+      "exception": "待たれないヒントとは別",
+      "normative_occurrences": [
+        {
+          "offset": 62,
+          "modal": "なければならない",
+          "anchor": "s_input と判断材料を返して止まらなければならない。Workflo"
+        },
+        {
+          "offset": 96,
+          "modal": "てはならない",
+          "anchor": "low の run の中で入力を待ち続けてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 71,
+          "sha256": "aab4a2f5b869903738672c691d35732181fa868074482654b5aea28297f8f0ce",
+          "anchor": "create・update は、目標を定める人間の承認・",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 71,
+          "end": 103,
+          "sha256": "7c0241b27a4c0612a480c13923e2ebbacc98d31336f08a1237682cec0768a4be",
+          "anchor": "Workflow の run の中で入力を待ち続けてはな",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-008",
+      "key": "O008",
+      "title": "設計方針に沿う成果",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 83,
+      "body_line": 84,
+      "body_sha256": "00564ec6f81debd77654332b7d2fcb57d5e001a577a3c53c88404b01b8f52a4f",
+      "subject": "operation-output",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "成果提供",
+      "obligations": [
+        "全D要求を満たすスキル提供",
+        "単体1回で解ける課題の探索グラフ禁止"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "形の判定",
+        "探索グラフ"
+      ],
+      "exception": "対象定義の適合とBP自身runを同一視しない",
+      "normative_occurrences": [
+        {
+          "offset": 48,
+          "modal": "なければならない",
+          "anchor": "skill の要求を満たすスキルを提供しなければならない。1 体の ag"
+        },
+        {
+          "offset": 91,
+          "modal": "てはならない",
+          "anchor": " 回の実行で解ける課題を探索グラフ型にしてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 57,
+          "sha256": "1e02591c02ca91524a903ac269da5f4c947ecd4295e091bc614f5f2548926209",
+          "anchor": "create・update は、bp-designed-",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 57,
+          "end": 98,
+          "sha256": "8e27526d3b1b473d3d0bfa3b21ffafe33e2649fa2a9409c0c66323a5b02cf3fc",
+          "anchor": "1 体の agent の 1 回の実行で解ける課題を探索",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-037",
+      "key": "O037",
+      "title": "書き換えてよい範囲",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 86,
+      "body_line": 87,
+      "body_sha256": "5774b8933fc42a0835af0c42758b0ec71d263ccafaa16c9657853e80ea67bd9b",
+      "subject": "operation-run",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "書換時",
+      "obligations": [
+        "対象外の変更禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "run作業記録/証拠/記録台帳は範囲例外",
+      "normative_occurrences": [
+        {
+          "offset": 49,
+          "modal": "てはならない",
+          "anchor": "記録台帳を除き、対象スキルの外を書き換えてはならない。依頼の対象外へ"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 56,
+          "sha256": "bbdada9e5c68bec773f32e6ef7cf031fa9880b8f03a8348c2aa58d507a9e6d5e",
+          "anchor": "create・update は、run の作業記録・証拠",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 56,
+          "end": 76,
+          "sha256": "e2d75f873f12c05e06c5a624a70c5889bf2d75d3e7e761b215c54f01955a5bb6",
+          "anchor": "依頼の対象外へ変更を広げないためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-009",
+      "key": "O009",
+      "title": "生成と独立した検証",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 89,
+      "body_line": 90,
+      "body_sha256": "9ededde528aa0604d73aae94387bde67c165c434953de037b0003a607de3670b",
+      "subject": "operation",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "生成後検証",
+      "obligations": [
+        "生成と別context",
+        "生成者説明/自己評価を合格根拠にしない"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "別IDだけでcontext非継承や独立性は保証不可",
+      "normative_occurrences": [
+        {
+          "offset": 45,
+          "modal": "なければならない",
+          "anchor": " と別の context で成果を検証しなければならない。生成者の説明や"
+        },
+        {
+          "offset": 73,
+          "modal": "てはならない",
+          "anchor": "。生成者の説明や自己評価を合格の根拠にしてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 54,
+          "sha256": "ae2f0b1911c68ed5189226fca9bcb21cd389c6d191f7ab0a18579b407ca85fb4",
+          "anchor": "create・update は、書いた agent と別",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 54,
+          "end": 80,
+          "sha256": "8ec0e9264338ff3fcf0dfc88418ef9d88d79386b6d10740d401b631bd8390033",
+          "anchor": "生成者の説明や自己評価を合格の根拠にしてはならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-010",
+      "key": "O010",
+      "title": "検証に基づく完了",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 92,
+      "body_line": 93,
+      "body_sha256": "74bab39a8fc8b7795285025de860d43be9c5c20ccea68cf4a5b61d6298312262",
+      "subject": "operation-run",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "完了判定/検証未達停止",
+      "obligations": [
+        "必要検証通過前完了禁止",
+        "停止時未達/理由"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "必要検証の十分性をbool宣言で代替しない",
+      "normative_occurrences": [
+        {
+          "offset": 35,
+          "modal": "てはならない",
+          "anchor": "、必要な検証を通るまで成果を完了と報告してはならない。検証を通らず止"
+        },
+        {
+          "offset": 67,
+          "modal": "なければならない",
+          "anchor": "ず止まる場合、未達であることと理由を返さなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 42,
+          "sha256": "5bead754a3c9831468e1781cbb665c4d5da5dcc6907597abacd00fd89c959855",
+          "anchor": "create・update は、必要な検証を通るまで成果",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 42,
+          "end": 76,
+          "sha256": "04aa9c1270745b2f4eb55771b4bf67376d158a33660052edf77ea8044e1cd65c",
+          "anchor": "検証を通らず止まる場合、未達であることと理由を返さなけれ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-011",
+      "key": "O011",
+      "title": "検証後の書き直し",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 95,
+      "body_line": 96,
+      "body_sha256": "f5dc8d2bd69631ae27c10240d479b949e301880adb2948d1f316f4a39a164a74",
+      "subject": "operation-run",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "非形式失敗または形式不能/不成立",
+      "obligations": [
+        "非形式失敗は書直/独立再検証可",
+        "形式失敗はD027停止/同run続行禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "非形式失敗後の修正は必須ではなく許容",
+      "normative_occurrences": [
+        {
+          "offset": 45,
+          "modal": "てもよい",
+          "anchor": "を通らない場合、書き直して独立に再検証してもよい。形式検証を実行"
+        },
+        {
+          "offset": 122,
+          "modal": "てはならない",
+          "anchor": "求に従い、同じ run の書き直しで続けてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 50,
+          "sha256": "5b46618d817b1cfebe6aedc1fdb6ed232d8361694e394a5df3907f0025eb8e38",
+          "anchor": "create・update は、形式検証以外の検証を通ら",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 50,
+          "end": 129,
+          "sha256": "8f2aafcd3623203f8e90ed9a5e6e7c182e48f564ee5456a0dd2da3473686e214",
+          "anchor": "形式検証を実行できないか性質が成り立たない場合は bp-",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-013",
+      "key": "O013",
+      "title": "続行できない失敗",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 98,
+      "body_line": 99,
+      "body_sha256": "b39b384e8afbcaf5e5ed4213b07489a7dbbae0bf288ecf26106381f905f6d25a",
+      "subject": "operation-run",
+      "operations": [
+        "all"
+      ],
+      "guard": "操作/停止前件ごとのguarded_obligationsを適用",
+      "obligations": [
+        "4機能の続行不能失敗ではBLOCKED/理由を返して停止し段を報告",
+        "review/auditの完了前停止は失敗以外も段/理由を報告"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "用語",
+        "停止・再開と人間の入力"
+      ],
+      "exception": "停止理由は失敗に限定しない",
+      "normative_occurrences": [
+        {
+          "offset": 44,
+          "modal": "なければならない",
+          "anchor": "と理由を返して止まり、止まった段を報告しなければならない。review・"
+        },
+        {
+          "offset": 100,
+          "modal": "なければならない",
+          "anchor": "まる全ての場合で止まった段と理由を報告しなければならない。原因と続ける場"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 53,
+          "sha256": "6083f8386111009b5af181c751339fc001cec7a3ba0b81aa1cd07d7afe25d03b",
+          "anchor": "4 機能は、続行できない失敗で BLOCKED と理由を",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 53,
+          "end": 109,
+          "sha256": "eb309b68b521c4695dfb4271d0ddaf3f30778eba2e75d30f5430dd245a042f53",
+          "anchor": "review・audit は、失敗に限らず、完了前に止ま",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 109,
+          "end": 138,
+          "sha256": "1e058e55fd47ef622cccf2852b632b317734e1d38b60880d9401be0aeb48f8c5",
+          "anchor": "原因と続ける場所を利用者が判断できるようにするためである",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ],
+      "guarded_obligations": [
+        {
+          "guard": "続行できない失敗",
+          "operations": [
+            "create",
+            "review",
+            "update",
+            "audit"
+          ],
+          "obligations": [
+            "BLOCKEDと理由を返して止まる",
+            "止まった段を報告する"
+          ]
+        },
+        {
+          "guard": "完了前に止まる全ての場合（失敗か否かを問わない）",
+          "operations": [
+            "review",
+            "audit"
+          ],
+          "obligations": [
+            "止まった段と理由を報告する"
+          ],
+          "does_not_imply": [
+            "非失敗停止をBLOCKEDへ分類する"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-014",
+      "key": "O014",
+      "title": "作成・修正の成果と検証結果",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 101,
+      "body_line": 102,
+      "body_sha256": "62b740b27d56458549af4a6d192cf3b44f5e406bc09ec0448321aab4f4c9563e",
+      "subject": "operation-output",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "完了時",
+      "obligations": [
+        "スキル/設計説明/検証結果",
+        "指摘状態/skip/残危険"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "成果欄存在だけでは完了を許さない",
+      "normative_occurrences": [
+        {
+          "offset": 46,
+          "modal": "なければならない",
+          "anchor": "正したスキル、設計の説明、検証結果を返さなければならない。検証結果には、"
+        },
+        {
+          "offset": 101,
+          "modal": "なければならない",
+          "anchor": "含め、利用者が完了の根拠と限界を確認できなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 55,
+          "sha256": "c9afa7ce52b0ff2408971377238e5a0ba8f010d9f4b304afd8d2df9ef6cb9ebb",
+          "anchor": "create・update は、完了時に作成または修正し",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 55,
+          "end": 110,
+          "sha256": "054b1e58a535f11d718652909f74a04296237ad3146d258e026090bc915f38d0",
+          "anchor": "検証結果には、指摘の状態、skip 一覧、残る危険を含め",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-015",
+      "key": "O015",
+      "title": "修正の根拠の受け取り",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 104,
+      "body_line": 105,
+      "body_sha256": "3f2e9dd5b30796fe49d5700de0387eebf7aeff04597bdda119f6dfd8b2c5cc99",
+      "subject": "operation-input",
+      "operations": [
+        "update"
+      ],
+      "guard": "入力受理",
+      "obligations": [
+        "対象全体/根拠1件以上",
+        "目標出発点",
+        "根拠無上限/全件受理",
+        "件数拒否/切詰禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "任意件数無上限性は有限サンプルで証明不可",
+      "normative_occurrences": [
+        {
+          "offset": 49,
+          "modal": "なければならない",
+          "anchor": "拠を受け取り、その根拠を目標の出発点にしなければならない。修正の根拠の件"
+        },
+        {
+          "offset": 99,
+          "modal": "なければならない",
+          "anchor": "された根拠を件数にかかわらず全件受け取らなければならない。件数を理由に受"
+        },
+        {
+          "offset": 128,
+          "modal": "てはならない",
+          "anchor": "件数を理由に受け取りを拒否または切り詰めてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 58,
+          "sha256": "38b365fbbe44807e96e5aa24e6a700a239510581aa263070c50ee1da6d7e473e",
+          "anchor": "update は、対象スキルの全体と 1 件以上の修正の",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 58,
+          "end": 108,
+          "sha256": "86804412ebefcc2cbb045d2765cb280fd4a0430f41e47678e73a8de48e17534f",
+          "anchor": "修正の根拠の件数に上限を置いてはならず、渡された根拠を件",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 108,
+          "end": 135,
+          "sha256": "3f16e04a02229085788ed24301abf2aa336a56c53ff97945a89ae7d1ef7a4838",
+          "anchor": "件数を理由に受け取りを拒否または切り詰めてはならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-018",
+      "key": "O018",
+      "title": "全体の作り直し",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 107,
+      "body_line": 108,
+      "body_sha256": "db12ae0d8fbc125e90cc81ef4376eb4242a7a21ac11d861bad9adb5d76a3bd94",
+      "subject": "operation",
+      "operations": [
+        "update"
+      ],
+      "guard": "全体作直時",
+      "obligations": [
+        "根拠未言及部含む全体作直許容",
+        "目標/範囲/独立検証/完了の要求保持"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "作直許容は範囲外変更許可ではない",
+      "normative_occurrences": [
+        {
+          "offset": 37,
+          "modal": "てもよい",
+          "anchor": "ない部分を含め、対象スキル全体を作り直してもよい。作り直す場合も"
+        },
+        {
+          "offset": 69,
+          "modal": "なければならない",
+          "anchor": "目標・範囲・独立検証と完了の要求を満たさなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 42,
+          "sha256": "03b524a0b99833fd75ca8a488a7cec95c0284cda72ea43909e3eecadbf8e299d",
+          "anchor": "update は、修正の根拠が触れない部分を含め、対象ス",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 42,
+          "end": 78,
+          "sha256": "20273e5d025ccda32a8e9feef7c843d1e7ae84609235753bf71a20059a87e7f3",
+          "anchor": "作り直す場合も目標・範囲・独立検証と完了の要求を満たさな",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-019",
+      "key": "O019",
+      "title": "既存の振る舞いの確認",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 110,
+      "body_line": 111,
+      "body_sha256": "c9dc55d58ec0c436fb3d691e64f06a458b5e278dbc03300fcfa9e0000c83fdf4",
+      "subject": "operation",
+      "operations": [
+        "update"
+      ],
+      "guard": "作直後",
+      "obligations": [
+        "既存動作保持を後検証のみから判定",
+        "検証未対応を保持済禁止",
+        "判定不能範囲"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "実際の意味保持は後検証の質の確認要",
+      "normative_occurrences": [
+        {
+          "offset": 51,
+          "modal": "なければならない",
+          "anchor": "を、作り直した後の検証結果だけから判定しなければならない。検証が触れてい"
+        },
+        {
+          "offset": 95,
+          "modal": "なければならない",
+          "anchor": "持済みとせず、判定できなかった範囲を示さなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 60,
+          "sha256": "38b0ecc818c5ee775b108eba633af52394bb774bc29011d2538de82447bbada5",
+          "anchor": "update は、修正の根拠が触れない既存の振る舞いを保",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 60,
+          "end": 104,
+          "sha256": "f05cb80fc997d008313e35be5473c619bca190dd55580cedb92fcfb32caeb08c",
+          "anchor": "検証が触れていない振る舞いを保持済みとせず、判定できなか",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-021",
+      "key": "O021",
+      "title": "同じ run の指摘の追跡",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 113,
+      "body_line": 114,
+      "body_sha256": "2e8f5eccc81c1f0451343ff7f543ffd462f40ccc5eb67b97f53b57f7c1ad34c3",
+      "subject": "operation-run",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "同run指摘後の書換",
+      "obligations": [
+        "修正/再発追跡",
+        "結果状態",
+        "資産台帳原則"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "資産台帳"
+      ],
+      "exception": "runまたぎ追跡はO022",
+      "normative_occurrences": [
+        {
+          "offset": 60,
+          "modal": "なければならない",
+          "anchor": "か再発したかを追い、その状態を結果に示さなければならない。追跡には設計方"
+        },
+        {
+          "offset": 92,
+          "modal": "なければならない",
+          "anchor": "は設計方針文書「資産台帳」の原則を適用しなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 69,
+          "sha256": "5f7bef34a4837eaf61a97ef72984261ef8056d17d2b296044a9513c542890387",
+          "anchor": "create・update は、書き換えた後に同じ ru",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 69,
+          "end": 101,
+          "sha256": "e5298ab09edce1e2a5a6392aeacc3c7afbf6a6cc5729ae4a8d2e5e7c00796505",
+          "anchor": "追跡には設計方針文書「資産台帳」の原則を適用しなければな",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-022",
+      "key": "O022",
+      "title": "run をまたぐ追跡の保持規則",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 116,
+      "body_line": 117,
+      "body_sha256": "9916230e5dac8ad44bf3e15aefa7f5be5c1e58dbe2f38a701335cc3ea5e93184",
+      "subject": "operation-run",
+      "operations": [
+        "update"
+      ],
+      "guard": "裁定前/旧run指摘入力",
+      "obligations": [
+        "旧指摘resolved/regressed禁止",
+        "現run状態のみ",
+        "旧根拠受理可/追跡継承不可"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "水準と未決事項"
+      ],
+      "exception": "新runの新指摘を付けること自体は禁じない",
+      "normative_occurrences": [
+        {
+          "offset": 74,
+          "modal": "てはならない",
+          "anchor": "olved・regressed と報告してはならない。報告する状態は"
+        },
+        {
+          "offset": 107,
+          "modal": "なければならない",
+          "anchor": "は今の run の中で付けた状態だけとしなければならない。前の run "
+        },
+        {
+          "offset": 166,
+          "modal": "てはならない",
+          "anchor": "の追跡を今の run に引き継いだと扱ってはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 81,
+          "sha256": "f7ff1479a3dabb43f74421e62dcc41c15f3522ef8289203f54046f300b7457b5",
+          "anchor": "run をまたぐ指摘の追跡の裁定が下るまで、update",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 81,
+          "end": 116,
+          "sha256": "0cbe2d2a075b3535582d132524bb4bbfbebabf2ac0bc23998e616bfd5e9a4650",
+          "anchor": "報告する状態は今の run の中で付けた状態だけとしなけ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 116,
+          "end": 173,
+          "sha256": "8b7b92f0ed07fb001202c0c802124290b1c73505aa0b3ed9fdeeef4e757fefc4",
+          "anchor": "前の run の指摘は修正の根拠として受け取ってよいが、",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-040",
+      "key": "O040",
+      "title": "途中の成果の保持と報告",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 119,
+      "body_line": 120,
+      "body_sha256": "5f6160ec5afb3071b8e7689b989212ad56c080758497d1188a542325016d5c84",
+      "subject": "operation-run",
+      "operations": [
+        "create",
+        "update"
+      ],
+      "guard": "完了前停止",
+      "obligations": [
+        "書込済file保持",
+        "検証済/未検証/段/理由",
+        "戻す判断は利用者"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "失敗で自動rollbackしない",
+      "normative_occurrences": [
+        {
+          "offset": 67,
+          "modal": "なければならない",
+          "anchor": "・未検証の範囲、停止した段と理由を報告しなければならない。戻すかどうかは"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 76,
+          "sha256": "c291b9ca465b6bb74e6519ab84c03726fce0b1ad0c18e7411bd37834418dfd3c",
+          "anchor": "create・update は、完了前に止まった場合、そ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 76,
+          "end": 91,
+          "sha256": "0116146d8c68c62a082fc542f5a1099e03c495d867061e7c2d8b9d9538c7fdf6",
+          "anchor": "戻すかどうかは利用者が決める。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-024",
+      "key": "O024",
+      "title": "フローの評価",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 124,
+      "body_line": 125,
+      "body_sha256": "acb7400d3187c99ae82ec794893ed1a1d21f474cfeec61f0b5faa06071b0f0ea",
+      "subject": "operation",
+      "operations": [
+        "review"
+      ],
+      "guard": "フロー評価",
+      "obligations": [
+        "D要求を評価基準にする"
+      ],
+      "methods": [
+        "R",
+        "M"
+      ],
+      "references": [
+        "D全要求"
+      ],
+      "exception": "Dの定義/実行適用条件を失わない",
+      "normative_occurrences": [
+        {
+          "offset": 52,
+          "modal": "なければならない",
+          "anchor": "らし、対象スキルのフローが適切かを評価しなければならない。作成と評価で異"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 61,
+          "sha256": "c2867d5ec46f888e20e218c937ac025d29c577da860810e5fe7916f4088cdc27",
+          "anchor": "review は、bp-designed-skill の",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 61,
+          "end": 84,
+          "sha256": "f71a2935ba413abc7c4622505299d8b950b4ff83e09f250a2b6b37365c57f3cd",
+          "anchor": "作成と評価で異なる基準を適用しないためである。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-025",
+      "key": "O025",
+      "title": "仕様からの逸脱の評価",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 127,
+      "body_line": 128,
+      "body_sha256": "959f3024182da3102c5c6a61e9254bd791df99b5b07d9e50a3d9db4f58f461bb",
+      "subject": "operation",
+      "operations": [
+        "review"
+      ],
+      "guard": "仕様逸脱評価",
+      "obligations": [
+        "仕様確定値/規則",
+        "Dモデルeffort例外",
+        "対応仕様なし未検査",
+        "部分仕様を全検査済禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "BP仕様(今回は未読)"
+      ],
+      "exception": "要求整合のoracleに仕様を逆流させない",
+      "normative_occurrences": [
+        {
+          "offset": 38,
+          "modal": "なければならない",
+          "anchor": " 仕様が課す確定値と規則に照らして評価しなければならない。役ごとのモデル"
+        },
+        {
+          "offset": 88,
+          "modal": "なければならない",
+          "anchor": "esigned-skill の例外に従わなければならない。対応する仕様が"
+        },
+        {
+          "offset": 139,
+          "modal": "てはならない",
+          "anchor": "部の仕様があることを全範囲の検査済みとしてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 47,
+          "sha256": "238dd12d6f74ac3f1971b17752856688f50ec4653dd9a97a22eec4d18215b1c8",
+          "anchor": "review は、対象スキルを BP 仕様が課す確定値と",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 47,
+          "end": 97,
+          "sha256": "d2914ceedfda83bd1015434902260c9b4991e1b61ef8f1924229ed6f3cda82a1",
+          "anchor": "役ごとのモデル・effort は bp-designed",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 97,
+          "end": 146,
+          "sha256": "a19ad7c7a59321236e7bba5f8cf4a7f192687f327e0b06294f0181d9002c4c43",
+          "anchor": "対応する仕様が無い観点・範囲は未検査とし、一部の仕様があ",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-028",
+      "key": "O028",
+      "title": "監査基準と証拠の継承",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 130,
+      "body_line": 131,
+      "body_sha256": "036e0c811f86554f88d4e103809230f050e266bc14e281618962bb3874e1a1ab",
+      "subject": "operation",
+      "operations": [
+        "audit"
+      ],
+      "guard": "監査/監査基準なし",
+      "obligations": [
+        "現prompt-audit使用",
+        "形/台帳/証拠原則",
+        "後run照会",
+        "未決を裁定しない",
+        "基準なし不実行/停止/段/理由"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "形の判定",
+        "資産台帳",
+        "証拠記録の保存と照会;prompt-audit(今回は未読)"
+      ],
+      "exception": "監査基準内容は別確認待ち",
+      "normative_occurrences": [
+        {
+          "offset": 103,
+          "modal": "なければならない",
+          "anchor": "して後の run から照会できるようにしなければならない。同文書の未決事"
+        },
+        {
+          "offset": 200,
+          "modal": "なければならない",
+          "anchor": "と、継承する基準が無いという理由を報告しなければならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 112,
+          "sha256": "89216735bd442c7c737c8ade5c3e895efa2f2dfb86ccd696182b287518499e0f",
+          "anchor": "audit は、既存スキルを現行の prompt-aud",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 112,
+          "end": 132,
+          "sha256": "c2e14e2618f2c57354b5628704687af39868c1a69faf3755e36107bdeed39ebd",
+          "anchor": "同文書の未決事項はこの要求で裁定しない。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 132,
+          "end": 209,
+          "sha256": "aaad1e59041e419644096ce420bcd7f87a264e9e183b80f0a328470e27159639",
+          "anchor": "現行の prompt-audit が無い場合、監査を実行",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-030",
+      "key": "O030",
+      "title": "対象を変更しない評価",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 133,
+      "body_line": 134,
+      "body_sha256": "f91dc9eac60c8157a5107fae503fd9238a236ff835e8e5af0eb3f126d77d9641",
+      "subject": "operation-run",
+      "operations": [
+        "review",
+        "audit"
+      ],
+      "guard": "評価時",
+      "obligations": [
+        "対象書換禁止",
+        "修正主体update"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "O051の作業記録保存は対象書換とは別",
+      "normative_occurrences": [
+        {
+          "offset": 25,
+          "modal": "てはならない",
+          "anchor": "w・audit は、対象スキルを書き換えてはならない。修正は upd"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 32,
+          "sha256": "3250f51a888b67e938db938f34b170b1c845bed3abb8de3fe6ad122c01a2ae2f",
+          "anchor": "review・audit は、対象スキルを書き換えてはな",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 32,
+          "end": 47,
+          "sha256": "df39f7ce6cd3e2b07f30f2bf6946e09602804bfdaff62caa04cbf9853e9dd501",
+          "anchor": "修正は update が行う。",
+          "kind": "context_or_subclause",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-031",
+      "key": "O031",
+      "title": "指摘の独立した反証",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 136,
+      "body_line": 137,
+      "body_sha256": "3f1d6940061f154960289ebcbc6901fc4e99152dfebacff760bbb4812a64edf9",
+      "subject": "operation",
+      "operations": [
+        "review",
+        "audit"
+      ],
+      "guard": "指摘候補返却",
+      "obligations": [
+        "独立反証後に含む",
+        "却下も理由付返却"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "reviewのD051機械決定指摘だけは反証なし必須;auditに拡張禁止",
+      "normative_occurrences": [
+        {
+          "offset": 44,
+          "modal": "なければならない",
+          "anchor": "context で反証してから結果に含めなければならない。却下した指摘も"
+        },
+        {
+          "offset": 68,
+          "modal": "なければならない",
+          "anchor": "ならない。却下した指摘も理由とともに含めなければならない。ただし、rev"
+        },
+        {
+          "offset": 136,
+          "modal": "なければならない",
+          "anchor": "照合だけで決まる指摘は、反証を通さず含めなければならない（依頼者の裁定）"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 53,
+          "sha256": "7e9348056ad7a441311228909aab33ff21ca2aa32b5b10d832e92694025c1e54",
+          "anchor": "review・audit は、候補を生成と別の cont",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 53,
+          "end": 77,
+          "sha256": "0fc1a803240f675b28090107c05fdf7cd7ae946e1b7ea1e3286dd503dcf83436",
+          "anchor": "却下した指摘も理由とともに含めなければならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 77,
+          "end": 153,
+          "sha256": "c85d11790b5c1fbf764f415135f09f299b33f453dfeda41b01a6424ceaa961ee",
+          "anchor": "ただし、review の PR-BPDESIGNEDSK",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-032",
+      "key": "O032",
+      "title": "評価・監査での指摘の状態",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 139,
+      "body_line": 140,
+      "body_sha256": "a2892014f4ee0fef7bb2e72abf28864cbea8ec45ef8ee2c33ae6ed638a526604",
+      "subject": "operation-output",
+      "operations": [
+        "review",
+        "audit"
+      ],
+      "guard": "結果返却",
+      "obligations": [
+        "open/dismissedのみ",
+        "不変更runでresolved/regressed禁止"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "却下を結果から落とさない",
+      "normative_occurrences": [
+        {
+          "offset": 46,
+          "modal": "なければならない",
+          "anchor": " または dismissed として返さなければならない。対象を変更しな"
+        },
+        {
+          "offset": 93,
+          "modal": "てはならない",
+          "anchor": "olved・regressed を確定してはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 55,
+          "sha256": "3fc5a163e025f4a0d6a50c521dd2aa33365bf0db042f78828c50dde16ab477a8",
+          "anchor": "review・audit は、指摘の状態を open ま",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 55,
+          "end": 100,
+          "sha256": "131f4396dd9fe01659152d8271a0179f4712e2ed6a2fef5f2b81c1b4f7303e1a",
+          "anchor": "対象を変更しない run で resolved・regr",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-033",
+      "key": "O033",
+      "title": "確認範囲と未確認の区別",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 142,
+      "body_line": 143,
+      "body_sha256": "d4aff9e4de562fbd5417b119a31a3c3952a588a5df050944037212bd32bf571b",
+      "subject": "operation-output",
+      "operations": [
+        "review",
+        "audit"
+      ],
+      "guard": "確認結果返却",
+      "obligations": [
+        "指摘/問題なしを資産結付",
+        "coverage/skip/未検査",
+        "結果なし問題なし禁止"
+      ],
+      "methods": [
+        "R",
+        "F",
+        "M"
+      ],
+      "references": [
+        "資産台帳"
+      ],
+      "exception": "見た結付は正しさを保証しない",
+      "normative_occurrences": [
+        {
+          "offset": 65,
+          "modal": "なければならない",
+          "anchor": "skip 一覧、未検査の観点を結果に示さなければならない。結果が結び付か"
+        },
+        {
+          "offset": 94,
+          "modal": "てはならない",
+          "anchor": "結果が結び付かない資産を「問題なし」としてはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 74,
+          "sha256": "0c0cd8c23d37f7c4a7d2805c9018964bf8495c75df5f2104dc73828b0fdb118b",
+          "anchor": "review・audit は、指摘と「確認済みで問題なし",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 74,
+          "end": 101,
+          "sha256": "52cc042c391c1eb8756fa9ea40fa6142bc1d18fb103c39d6c02c226c662c5896",
+          "anchor": "結果が結び付かない資産を「問題なし」としてはならない。",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    },
+    {
+      "id": "PR-BPOPERATIONS-036",
+      "key": "O036",
+      "title": "修正へ渡せる結果",
+      "source": "docs/requirements/bp-operations.md",
+      "heading_line": 145,
+      "body_line": 146,
+      "body_sha256": "cc64bcf3a2e8daa0cea0e5259b8af04a8d9e9a857035abbd30d825f6b39caee4",
+      "subject": "operation-output",
+      "operations": [
+        "review",
+        "audit"
+      ],
+      "guard": "updateへ受渡",
+      "obligations": [
+        "根拠として受け取れる形",
+        "内容/根拠/判断状態保持"
+      ],
+      "methods": [
+        "F",
+        "M"
+      ],
+      "references": [
+        "-"
+      ],
+      "exception": "形式だけで意味の無欠損を保証不可",
+      "normative_occurrences": [
+        {
+          "offset": 44,
+          "modal": "なければならない",
+          "anchor": "e の修正の根拠として受け取れる形で返さなければならない。機能間の受け渡"
+        },
+        {
+          "offset": 77,
+          "modal": "てはならない",
+          "anchor": "受け渡しで、内容・根拠・判断の状態を失ってはならない。"
+        }
+      ],
+      "source_interpretation_status": "source_map_independently_approved_per_parent_notification",
+      "formal_status": "not_run",
+      "semantic_status": "not_reviewed",
+      "implementation_status": "out_of_scope",
+      "source_sentences": [
+        {
+          "start": 0,
+          "end": 53,
+          "sha256": "2b9d07b18f60fa66c34149d824af0672a4f5cf77c7b710c9bafbf5fc407472a1",
+          "anchor": "review・audit は、指摘を update の修",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        },
+        {
+          "start": 53,
+          "end": 84,
+          "sha256": "775597005e2088e00cab5b86e63cd20c233573766fd5724aae87a6eb606c558f",
+          "anchor": "機能間の受け渡しで、内容・根拠・判断の状態を失ってはなら",
+          "kind": "normative",
+          "semantic_pairing_status": "draft_needs_independent_review"
+        }
+      ]
+    }
+  ],
+  "inventory_check": {
+    "kind": "mechanical_source_inventory_integrity_only",
+    "checks": [
+      "56 current heading IDs exactly once",
+      "current source file SHA-256 unchanged",
+      "requirement body SHA-256 matches",
+      "132 sentence source spans SHA-256 match",
+      "103 normative occurrence offsets match"
+    ],
+    "errors": [],
+    "independent_semantic_approval": false,
+    "model_or_solver_executed": false
+  },
+  "repair": {
+    "cycle": 1,
+    "shared_limit_reference": "parent task budget: 3 cycles",
+    "scope": [
+      "D014 conditional Claude unreadable-list obligations",
+      "O013 distinct failure/report guards"
+    ],
+    "status": "independently_approved_per_parent_notification"
+  },
+  "formal_evidence": {
+    "receipt": "execution-receipt.json",
+    "correspondence": "cases.json source IDs + validation.md scenario oracle",
+    "scope": "bounded partial control/record relations, not full clauses",
+    "status": "partial_results_with_known_model_and_query_defects",
+    "independent_implementation_approval": false
+  }
+}

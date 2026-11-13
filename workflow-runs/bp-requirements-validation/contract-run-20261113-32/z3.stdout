@@ -1,0 +1,510 @@
+C01 Realizable input+save EXPECT sat
+sat
+C02 Compliant same input+save EXPECT sat
+sat
+C03 forbidden lost save reason EXPECT unsat
+unsat
+C04 mutant drop save-reason duty only EXPECT sat
+sat
+C05 nonformal rewrite is choice, completion demands reverify EXPECT sat
+sat
+S06 forbidden omitted nonexistent verification slot EXPECT unsat
+unsat
+S06/S11 known-absent material remains reportable with unsaved report EXPECT sat
+sat
+S06/S11 same source context also allows a saved report EXPECT sat
+sat
+S08/S09 Reach initial→no-response→stop→new-run EXPECT sat
+sat
+(((cap-count a0) 0)
+ ((cap-count a1) 1)
+ ((cap-count a2) 1)
+ ((cap-count a3) 0)
+ ((cap-i1-unstarted a2) true)
+ ((cap-i1-unstarted a3) true)
+ ((cap-rank-i1 a0) 1)
+ ((cap-rank-i1 a2) 1)
+ ((cap-rank-i1 a3) 1))
+S08 forbidden response-only counter EXPECT unsat
+unsat
+S08 mutant omit count duty EXPECT sat
+sat
+S09 forbidden carry old run count into new run EXPECT unsat
+unsat
+S30 Reach output→old reject whole-record frame→current accept EXPECT sat
+sat
+((old-result Rejected)
+ (current-result Accepted)
+ ((rec-read d1) 0)
+ ((rec-read d2) 3)
+ ((rec-reason d2) 7)
+ ((rec-history d2) 5)
+ ((rec-plan d2) 9)
+ ((rec-item d2) 1)
+ ((rec-remaining d2) 2)
+ ((rec-stop-snapshot d1) 17)
+ ((rec-stop-snapshot d2) 17))
+S30 forbidden old command changes semantic record EXPECT unsat
+unsat
+S30 forbidden wrong-role output accepted EXPECT unsat
+unsat
+S30 mutant omit old reject whole-record duty EXPECT sat
+sat
+S32 Reach changed→invalid affected only→reverify; use optional EXPECT sat
+sat
+(((es-old-accepted e2s) true)
+ ((es-affected-valid e1s) false)
+ ((es-unaffected-valid e1s) true)
+ ((es-affected-eligible e1s) false)
+ ((es-affected-eligible e2s) true)
+ ((es-use-affected e2s) false))
+S32 forbidden changed affected stays eligible EXPECT unsat
+unsat
+S32 mutant omit affected invalidation EXPECT sat
+sat
+S33 Reach old ground→new ID evaluate→current status report EXPECT sat
+sat
+(((fs-old-id f3) 41)
+ ((fs-current-id f3) 42)
+ ((g-origin-run (fs-current-ground f3)) old-run)
+ ((g-origin-finding (fs-current-ground f3)) 41)
+ ((fs-current-status f3) open-status)
+ ((fs-report-old-status f3) false))
+S33 forbidden old status reported EXPECT unsat
+unsat
+S33 mutant omit report-current duty EXPECT sat
+sat
+S05/S11/S28 Reach need-input→stop→save-fail→report EXPECT sat
+sat
+(((ss-run st3) old-run)
+ ((ss-episode st3) 1)
+ ((ss-saved-mask st3) 1)
+ ((ss-unsaved-mask st3) 2)
+ ((ss-unrecorded-mask st3) 3)
+ ((ss-reason-input st3) true)
+ ((ss-reason-save st3) true)
+ ((o-verification-slot stop-output) known-absent)
+ ((o-remaining-slot stop-output) known-absent))
+S05/S11/S28 forbidden lost stop reason or saved scope EXPECT unsat
+unsat
+S05 Reach stop→report→external answer→new run EXPECT sat
+sat
+(((ss-run st4) old-run)
+ ((ss-run st5) current-run)
+ ((ss-episode st4) 1)
+ ((ss-episode st5) 1)
+ ((ss-unrecorded-mask st4) 3)
+ ((ss-unrecorded-mask st5) 3))
+S05 forbidden new run without external answer EXPECT unsat
+unsat
+S07 GoalFixing remains goal-fixed=false with existing result/work slots EXPECT sat
+sat
+S07 forbidden goal-fixing prior result reported absent EXPECT unsat
+unsat
+S19 Reach stop→hint→new-run planner entry, remaining/rank preserved EXPECT sat
+sat
+(((rs-entry r2) plan-entry)
+ ((rs-remaining r0) 3)
+ ((rs-remaining r2) 3)
+ ((rs-rank-i0 r2) 0)
+ ((rs-rank-i1 r2) 1)
+ ((rs-unread-hints r2) 1))
+S19 forbidden hint erases remaining EXPECT unsat
+unsat
+S19 forbidden planner hint bypasses plan entry EXPECT unsat
+unsat
+S20 no hint and unfinished item returns same item EXPECT sat
+sat
+S20 recorded i0 survives while unrecorded i1 resumes EXPECT sat
+sat
+(((rs-recorded r2) 1)
+ ((rs-unrecorded r2) 2))
+S20 forbidden recorded i0 is regenerated/lost EXPECT unsat
+unsat
+S21 no hint and no unfinished item enters decide EXPECT sat
+sat
+(((ts-namespace ts0) target-skill)
+ ((ts-recorded ts3) 3)
+ ((ts-unrecorded ts3) 0)
+ ((ts-episode ts3) 1)
+ ((rs-episode r2) 1)
+ ((rs-entry r2) decide-entry))
+S21 forbidden restart finished stage item instead of decide EXPECT unsat
+unsat
+S22 no planner and unread hint reaches stage role EXPECT sat
+sat
+S22 forbidden nonexistent planner forced EXPECT unsat
+unsat
+S18 complete state cannot add hint or resume EXPECT unsat
+unsat
+S18 completed state rejects hint and preserves snapshot EXPECT sat
+sat
+((complete-hint-result Rejected)
+ ((rs-unread-hints r1) 0))
+S29 Reach cap stop+same episode→hint→new-run count0/remaining i1/plan EXPECT sat
+sat
+(((cap-count a3) 0)
+ ((rs-entry rc2) plan-entry)
+ ((rs-remaining rc2) 2)
+ ((rs-rank-i1 rc2) 1))
+S29 forbidden old count carried into hint resume EXPECT unsat
+unsat
+S15–S17 Reach active delivery→output→CLI accept only delivered h0 EXPECT sat
+sat
+(((h-read h1) 0)
+ ((h-read h2) 0)
+ ((h-read h3) 1)
+ ((h-all h3) 3)
+ ((h-stopped h3) false))
+S15 forbidden active hint addition stops current run EXPECT unsat
+unsat
+S16 role fails after delivery, hint remains unread EXPECT sat
+sat
+(((h-delivered hf) 1)
+ ((h-read hf) 0)
+ ((h-output-returned hf) false))
+S16 forbidden read mark at delivery before output EXPECT unsat
+unsat
+S17 forbidden mark h1 read when only h0 delivered EXPECT unsat
+unsat
+S16 mutant mark read on delivery EXPECT sat
+sat
+S17 forbidden wrong-role command marks hint read EXPECT unsat
+unsat
+S19 joined target stop→planner resume→same hint delivered/read EXPECT sat
+sat
+(((rs-episode r2) 1)
+ ((h-episode hr3) 1)
+ ((rs-unread-hints r2) 1)
+ ((h-all hr3) 1)
+ ((h-read hr3) 1)
+ ((d-role (h-delivery hr3)) 0)
+ ((d-phase (h-delivery hr3)) plan-phase))
+S22 joined no-planner stop→stage role consumes same hint EXPECT sat
+sat
+(((h-episode hr3) 1)
+ ((d-role (h-delivery hr3)) 2)
+ ((h-read hr3) 1))
+S19 forbidden hint delivery changes stop episode EXPECT unsat
+unsat
+S22 forbidden no-planner hint sent to planner role EXPECT unsat
+unsat
+S22 zero-unrecorded target path resumes decide and accepts same hint EXPECT sat
+sat
+(((ts-namespace ts0) target-skill)
+ ((ts-recorded ts3) 3)
+ ((ts-unrecorded ts3) 0)
+ ((rs-entry r2) decide-entry)
+ ((rs-episode r2) 1)
+ ((h-episode hr3) 1)
+ ((d-role (h-delivery hr3)) 2)
+ ((d-phase (h-delivery hr3)) decide-phase)
+ ((h-read hr3) 1))
+S22 decide-entry wrong planner role cannot accept hint EXPECT unsat
+unsat
+S22 decide-entry delivery without role output cannot mark read EXPECT unsat
+unsat
+S22 mutant omit recipient-role duty allows planner delivery EXPECT sat
+sat
+S19–S22 all 8 legal planner/hint/unrecorded branches have expected entry EXPECT unsat
+unsat
+S19 planner+hint+no-unrecorded has one recipient phase/role EXPECT sat
+sat
+(((rs-entry r2) plan-entry)
+ ((d-role (h-delivery hr0)) 0)
+ ((d-phase (h-delivery hr0)) plan-phase))
+S19–S22 legal hinted delivery is unique in modeled fields EXPECT unsat
+unsat
+S29 joined cap stop→count0+same ranked remainder→planner reads hint EXPECT sat
+sat
+(((cap-count a3) 0)
+ ((rs-remaining rc2) 2)
+ ((rs-rank-i1 rc2) 1)
+ ((h-episode hr3) 1)
+ ((h-read hr3) 1))
+S17/S30 same resumed state oldRead=h0 delivery=h1 retains both ACK facts EXPECT sat
+sat
+(((rs-read-hints rp1) 1)
+ ((rs-unread-hints rp1) 2)
+ ((h-all hr0) 3)
+ ((h-delivered hr2) 2)
+ ((h-read hr3) 3)
+ ((rec-read drp2) 3)
+ ((rs-read-hints rp2) 3)
+ ((rs-unread-hints rp2) 0)
+ (prior-ack-result Accepted))
+S17 forbidden old h0 read fact erased by h1 ACK EXPECT unsat
+unsat
+S17 mutant drop read-union duty erases old h0 in same context EXPECT sat
+sat
+S17 duplicate h0 ACK if accepted keeps old read fact h0 EXPECT sat
+sat
+(((h-read hd0) 1)
+ ((h-read hd3) 1))
+S10 raised handoff limit allows new run, inherited count EXPECT sat
+sat
+(((ho-count ho1) 2)
+ ((ho-episode ho1) 1))
+S10 truncation permission alone allows new run, inherited count EXPECT sat
+sat
+S10 forbidden unchanged limit/no permission EXPECT unsat
+unsat
+S10 non-subset permission i0 against remaining i1 rejected EXPECT unsat
+unsat
+S10 mutant numeric <= accepts that non-subset EXPECT sat
+sat
+S01 Reach independent passing check→complete EXPECT sat
+sat
+(((v-generator-ctx v2) 0)
+ ((v-checker-ctx v2) 1)
+ ((v-result v2) passing-verification)
+ ((v-complete v2) true))
+S01 forbidden same-context self-check completion EXPECT unsat
+unsat
+S02 Reach ordinary failure→rewrite→independent reverify→complete EXPECT sat
+sat
+(((v-run vf) old-run)
+ ((v-generation vf) 1)
+ ((v-checker-ctx vf) 6)
+ ((v-complete vf) true))
+S02 forbidden completion without reverify pass EXPECT unsat
+unsat
+S03 formal unavailable stops/reports target and reason EXPECT sat
+sat
+(((v-run v2) old-run)
+ ((v-report-target v2) 81)
+ ((v-report-reason v2) true)
+ ((v-stopped v2) true)
+ ((v-complete v2) false))
+S03 forbidden same-run rewrite after formal unavailable EXPECT unsat
+unsat
+S04 Reach formal false→stop/report EXPECT sat
+sat
+S04 formal false stops; same-run rewrite cannot continue EXPECT unsat
+unsat
+S27 simultaneous ordinary/formal failure still stops EXPECT sat
+sat
+(((o-stop x) true)
+ ((o-same-run-continue x) false)
+ ((o-rewrite x) false))
+S27 forbidden ordinary rewrite overrides formal stop EXPECT unsat
+unsat
+S28 formal failure+save failure reasons coexist EXPECT sat
+sat
+(((o-stop x) true)
+ ((o-reason-formal x) true)
+ ((o-reason-save x) true)
+ ((o-unsaved-scope x) true))
+S28 forbidden one simultaneous reason lost EXPECT unsat
+unsat
+S12/S31 Reach partial files→interrupt→chain report, written mask retained EXPECT sat
+sat
+(((i-written-mask i2) 3)
+ ((i-verified-mask i2) 1)
+ ((i-unverified-mask i2) 2)
+ ((i-phase-reported i2) true)
+ ((i-reason-reported i2) true)
+ ((i-chain-report i2) true)
+ ((i-downstream-started i2) false))
+S12 forbidden rollback of written files after interruption EXPECT unsat
+unsat
+S13 review nonfailure interruption still reports phase/reason EXPECT sat
+sat
+S13 forbidden review interruption omits stopped phase EXPECT unsat
+unsat
+S14 unrecoverable interruption is BLOCKED EXPECT sat
+sat
+(((i-blocked i2) true)
+ ((i-reason i2) 7))
+S31 forbidden downstream start after stop EXPECT unsat
+unsat
+S24 changed input→new state retains history, resets current item/plan EXPECT sat
+sat
+(((rec-run new-rec) current-run)
+ ((rec-episode new-rec) 2)
+ ((rec-phase new-rec) input-phase)
+ ((rec-item new-rec) 0)
+ ((rec-remaining new-rec) 3)
+ ((rec-history new-rec) 5)
+ ((rec-input-content new-rec) 101)
+ ((rec-stop-snapshot new-rec) 0))
+S24 forbidden same-state resume after changed input EXPECT unsat
+unsat
+S25 repaired unchanged input→same-state new-run position EXPECT sat
+sat
+(((rec-run new-rec) current-run)
+ ((rec-episode new-rec) 1)
+ ((rec-phase new-rec) execute-phase)
+ ((rec-item new-rec) 1)
+ ((rec-history new-rec) 5)
+ ((rec-cause new-rec) 7)
+ ((rec-stop-snapshot new-rec) 17))
+S24/S25 wrong blocked cause cannot authorize restart EXPECT unsat
+unsat
+S24/S25 unacknowledged repair cannot authorize restart EXPECT unsat
+unsat
+S26 native no-cap two items/one concurrent starts two EXPECT sat
+sat
+S26 native no-cap three items/one concurrent starts three EXPECT sat
+sat
+S26 forbidden native receives total-start cap EXPECT unsat
+unsat
+S26 Codex finite input cap is permitted EXPECT sat
+sat
+O005 local A witness with source guard EXPECT sat
+sat
+O005 local F witness: missing answer but process continues EXPECT sat
+sat
+O005 guard false is non-applicable, not Choice EXPECT sat
+sat
+O005 review subject is non-applicable, not semantic U EXPECT sat
+sat
+C-BP same realizable context admits A and explicit F outputs EXPECT sat
+sat
+C-BP A candidate cannot violate source duties in typed symbolic domain EXPECT unsat
+unsat
+C-BP F candidate cannot satisfy all source duties in typed symbolic domain EXPECT unsat
+unsat
+C-BP false source guard is non-applicable, not Choice EXPECT sat
+sat
+C-BP only rewrite field is Choice for ordinary nonformal failure EXPECT sat
+sat
+C-BP formal failure makes ordinary rewrite choice non-applicable EXPECT sat
+sat
+C-BP ordinary verification failure stop without unmet reason is F EXPECT sat
+sat
+C-BP ordinary failure stop cannot omit O010 unmet report EXPECT unsat
+unsat
+C-BP impossible before-goal and goal-fixing is context-infeasible EXPECT sat
+sat
+C-BP O052 review needs-input without O005 approval guard reports five slots EXPECT sat
+sat
+C-BP O052 review needs-input cannot omit decision slot EXPECT unsat
+unsat
+C-ENTRY same feasible stop snapshot admits A and explicit F outputs EXPECT sat
+sat
+C-ENTRY A cannot violate source entry/identity on finite projection EXPECT unsat
+unsat
+C-ENTRY F cannot satisfy source entry/identity on finite projection EXPECT unsat
+unsat
+C-ENTRY complete stop is non-applicable in this signature EXPECT sat
+sat
+C-ENTRY plan phase/rank01 has normal output EXPECT sat
+sat
+C-ENTRY plan phase/rank10 has normal output EXPECT sat
+sat
+C-ENTRY execute phase/rank01 has normal output EXPECT sat
+sat
+C-ENTRY execute phase/rank10 has normal output EXPECT sat
+sat
+C-ENTRY check phase/rank01 has normal output EXPECT sat
+sat
+C-ENTRY check phase/rank10 has normal output EXPECT sat
+sat
+C-ENTRY decide phase/rank01 has normal output EXPECT sat
+sat
+C-ENTRY decide phase/rank10 has normal output EXPECT sat
+sat
+C-ENTRY goal-fixed phase is outside selected target StageRef EXPECT sat
+sat
+C-ENTRY duplicate rank is inside bound but context-infeasible EXPECT sat
+sat
+C-HANDOFF same finite cap-stop context admits A and explicit F EXPECT sat
+sat
+C-HANDOFF A cannot violate source resume relation in finite projection EXPECT unsat
+unsat
+C-HANDOFF F cannot satisfy source resume relation in finite projection EXPECT unsat
+unsat
+C-HANDOFF false stop guard is non-applicable, not Choice EXPECT sat
+sat
+C-HANDOFF count outside finite 0..2 boundary is scope-outside EXPECT sat
+sat
+C-HINT same returned delivery admits A union and F old-read-loss outputs EXPECT sat
+sat
+C-HINT A accepted output cannot violate union receipt relation EXPECT unsat
+unsat
+C-HINT F accepted output cannot satisfy union receipt relation EXPECT unsat
+unsat
+C-HINT premature command rejected with full semantic frame EXPECT sat
+sat
+C-HINT framed CLI rejection with unspecified cause is U EXPECT sat
+sat
+C-HINT outside two-hint mask boundary is scope-outside EXPECT sat
+sat
+C-S32 Realizable dependency-change context without invalidation duty EXPECT sat
+sat
+C-S32 Compliant same dependency-change context plus invalidation/reverify EXPECT sat
+sat
+C-S32 same input admits A and explicit F output classes EXPECT sat
+sat
+C-S32 A cannot violate affected/unaffected source relation EXPECT unsat
+unsat
+C-S32 F cannot satisfy affected/unaffected source relation EXPECT unsat
+unsat
+C-S32 reverified eligibility permits optional current use EXPECT sat
+sat
+C-S33 Realizable old finding-ground input without report duties EXPECT sat
+sat
+C-S33 Compliant same input through receive/evaluate/report EXPECT sat
+sat
+C-S33 same input admits A and explicit old-status F final outputs EXPECT sat
+sat
+C-S33 A final report cannot carry old status EXPECT unsat
+unsat
+C-S33 F old-status final report cannot be produced by source path EXPECT unsat
+unsat
+C-S33 out-of-bound current finding ID is scope-outside EXPECT sat
+sat
+C-S28 initial→same fixed input+save stop snapshot is reachable EXPECT sat
+sat
+C-S28 Realizable same stopped snapshot without report duties EXPECT sat
+sat
+C-S28 Compliant same stopped snapshot plus all report duties EXPECT sat
+sat
+(((ss-episode st3) 1)
+ ((ss-reason-input st3) true)
+ ((ss-reason-save st3) true)
+ ((o-verification-slot stop-output) known-absent)
+ ((o-report-persistence stop-output) unsaved))
+C-S29 Realizable same cap-stop snapshot without resume/ACK duties EXPECT sat
+sat
+C-S29 Compliant same cap-stop snapshot through newrun/plan/hint ACK EXPECT sat
+sat
+C-S30 Realizable current role-output snapshot without command duties EXPECT sat
+sat
+C-S30 Compliant same output snapshot rejects old then accepts current EXPECT sat
+sat
+((old-result Rejected)
+ (current-result Accepted)
+ ((rec-stop-snapshot d1) 17)
+ ((rec-stop-snapshot d2) 17)
+ ((rec-read d1) 0)
+ ((rec-read d2) 3))
+C-REVIEW Realizable O005-nonapplicable with O052/O013/O051 same episode EXPECT sat
+sat
+C-REVIEW Compliant same episode combines five slots, phase/reason and save scope EXPECT sat
+sat
+(((i-op review-i2) review-op)
+ ((i-run review-i2) old-run)
+ ((i-episode review-i2) 1)
+ ((i-phase-reported review-i2) true)
+ ((o-decision-slot (bp-output review-output-ref)) present)
+ ((o-verification-slot (bp-output review-output-ref)) availability-unknown)
+ ((o-reason-save (bp-output review-output-ref)) true)
+ ((o-unsaved-scope (bp-output review-output-ref)) true))
+C-REVIEW forbidden missing decision slot with other active duties EXPECT unsat
+unsat
+C-REVIEW forbidden missing stopped-phase report EXPECT unsat
+unsat
+C-REVIEW forbidden missing save-failure reason EXPECT unsat
+unsat
+C-REVIEW mutant drops only decision-slot duty in same context EXPECT sat
+sat
+C-HINT-ADD active empty-hint context admits accepted A and state-loss F EXPECT sat
+sat
+C-HINT-ADD completed-state rejection is A, acceptance F EXPECT sat
+sat
+C-HINT-ADD active framed rejection has source-cause U EXPECT sat
+sat
+C-HINT-ADD outside 2bit mask is scope-outside, not semantic U EXPECT sat
+sat

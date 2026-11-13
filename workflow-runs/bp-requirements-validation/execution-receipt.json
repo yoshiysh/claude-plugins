@@ -1,0 +1,215 @@
+{
+  "status": "not_complete_model_not_approved",
+  "timestamp_utc": "2026-11-10T03:07:58.377916+00:00",
+  "base_head": "c67bd7cdac257f3193341ed7f37260c011205204",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "solver": {
+    "path": "/Users/yoshi/.codex/workflow-runs/claude-plugins/formal-method-prd/tools/z3-5.3.3-arm64-osx-13.3/bin/z3",
+    "version": "5.3.3 64 bit build 430d19e697e2ec9bad79ff210d41b4a7a5fcfa3e"
+  },
+  "commands": {
+    "initial": "/usr/bin/timeout 120 $Z3_TOOL -smt2 workflow-runs/bp-requirements-validation/checks.smt2",
+    "diagnostics": "workflow-runs/bp-requirements-validation/run_checks.sh diagnostics",
+    "supplemental": "workflow-runs/bp-requirements-validation/run_checks.sh supplemental",
+    "repair": "workflow-runs/bp-requirements-validation/run_checks.sh repair"
+  },
+  "limits": {
+    "depth": 24,
+    "query_ms": 10000,
+    "process_s": 120,
+    "solver_threads": 2,
+    "stage_s": 1200,
+    "cpu_scope": "per solver thread settings; aggregate OS CPU cap not measured"
+  },
+  "metrics": {
+    "download": "none",
+    "wall_time": "not collected with monotonic timer",
+    "cpu_seconds": "not collected",
+    "peak_memory": "not collected",
+    "cost": "unavailable"
+  },
+  "initial": {
+    "cases": 83,
+    "expected_matches": 80,
+    "unexpected": [
+      {
+        "id": "P-S08",
+        "expected": "unsat",
+        "actual": "sat",
+        "matches": false
+      },
+      {
+        "id": "P-S10",
+        "expected": "unsat",
+        "actual": "sat",
+        "matches": false
+      },
+      {
+        "id": "X-CUTOFF-NOINPUT-ACCEPT",
+        "expected": "unsat",
+        "actual": "sat",
+        "matches": false
+      }
+    ],
+    "solver_exit_code": 0
+  },
+  "repair": {
+    "authorization": "user explicitly limited extra repair to these 3 queries",
+    "cases": [
+      {
+        "id": "REPAIR-P-S08",
+        "expected": "unsat",
+        "actual": "unsat",
+        "matches": true
+      },
+      {
+        "id": "REPAIR-P-S10",
+        "expected": "unsat",
+        "actual": "unsat",
+        "matches": true
+      },
+      {
+        "id": "REPAIR-X-CUTOFF-NOINPUT-ACCEPT",
+        "expected": "unsat",
+        "actual": "unsat",
+        "matches": true
+      }
+    ],
+    "canonical_input_unchanged": true
+  },
+  "supplemental": {
+    "cases": 420,
+    "S32": [
+      {
+        "id": "S32-N-HISTORY-LOCAL",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      },
+      {
+        "id": "S32-N-REVERIFY",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      },
+      {
+        "id": "S32-N-NONUSE",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      },
+      {
+        "id": "S32-P-HISTORY-DELETE",
+        "expected": "unsat",
+        "actual": "unsat",
+        "matches": true
+      },
+      {
+        "id": "S32-P-AFFECTED-USE",
+        "expected": "unsat",
+        "actual": "unsat",
+        "matches": true
+      },
+      {
+        "id": "S32-P-UNREASONED-INVALID",
+        "expected": "unsat",
+        "actual": "unsat",
+        "matches": true
+      },
+      {
+        "id": "S32-N-OTHER-CONDITION-MISMATCH",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      },
+      {
+        "id": "S32-M-STALE-USE",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      },
+      {
+        "id": "S32-M-UNREASONED-INVALID",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      },
+      {
+        "id": "S32-M-HISTORY-DELETE",
+        "expected": "sat",
+        "actual": "sat",
+        "matches": true
+      }
+    ],
+    "classification_unhandled_sat": 404,
+    "signature_enumeration": "not exhausted; unhandled partitions remain unverified",
+    "unexpected": [
+      {
+        "id": "C-REACH-HINT-REJECT",
+        "expected": "unsat",
+        "actual": "sat",
+        "matches": false
+      }
+    ],
+    "solver_exit_code": 0,
+    "classification_unhandled_unsat": 1
+  },
+  "known_unresolved": [
+    "Cleanup persist_fail overwrites original stop_phase",
+    "Recorded check resumes at check; no-planner check resume hint delivery omitted",
+    "Goal approval missing resume guard checks input_ok but not approved",
+    "S30 lacks current run/hint snapshot binding and full old-run effects",
+    "C-REACH result binding and C unhandled partition exhaustion incomplete"
+  ],
+  "mutation_limitations": [
+    "Original M03/M08 SAT do not distinguish violations because original P baselines were SAT",
+    "S32 eligibility is separate from optional use; acquisition/context quality outside bool relation"
+  ],
+  "approvals": {
+    "source": {
+      "reviewer": "bp_req_source_review",
+      "notification": "parent relay, full source/repaired map accepted",
+      "source_hashes": {
+        "docs/requirements/bp-designed-skill.md": "e7fd43456763d8327ce8a008fd68e0a9511f3149ebfecf987f0e687f72ecbe0c",
+        "docs/requirements/bp-operations.md": "ce0b67b9c97c839d1eae2f809aaf726e77f8c4303f9353c256c5073fcfecb0c0",
+        "docs/design/skill-design-patterns.md": "13dcf260e06158fbed3cf89725be6462cc0af5dc88e7aa6c6f073e7622ede023",
+        "docs/requirements/formal-method.md": "2234b6e39e06e573aa80af608205c43d61e1996817334c11d001b779f2efefab",
+        "docs/guidelines/agent-work.md": "d83be07b5dc3cb01f0fc603b3948585e9577b152952656df180dae5af2fc1fac",
+        "docs/guidelines/documentation.md": "aa2133ad14d338537c8e66a9362da2ab9bf88f7dffb4668c08fa8b28ddaba3ef",
+        "docs/guidelines/repository-operations.md": "d7cde98057659e417797379b3200d6eef479c1716dd14ba906c1584e7cc76290"
+      },
+      "oracle_ref": "validation.md S01-S33/source-table.md; separate oracle hash at source approval not captured"
+    },
+    "design": {
+      "reviewer": "bp_req_model_review",
+      "notification": "parent relay accepted repaired plan",
+      "first_plan_hash": "afa79cb30d7c370aeb73a10ba3739fe06aa84b388334377b9807ce05d54eea2b",
+      "accepted_plan_hash": "ba66caab9769826cd9966f50793543489d7d661de73a8a83d7dda031d98019d4"
+    },
+    "implementation": "not approved"
+  },
+  "files": {
+    "checks.smt2": "320b7b6b542ec756cb5aa21fe2a923704ed24374254c8aa3ebe20a9744ceec8e",
+    "cases.json": "391030ace7babee6e9751d2c840aafe69f5911ac248f47de5d9db26c036ed500",
+    "raw.log": "5bfa18d865f7ecdc770dd3b270dff2ed4f06b8571c83ce3a5fd1d32e7730aecf",
+    "diagnostic-queries.smt2": "d3c0c6cb863ec155479036c1d66707f4ce20dce094a89a65f8c187850761a4f6",
+    "diagnostic-raw.log": "7e804548355a81d4de8faa225573212347c6e8cb1cbaa3289435acb60017b6c8",
+    "diagnostic-full-raw.log": "6e58cf1bef32586cca480e7df8d2e29728a9ca4c283b02f2a224f4158e4ae316",
+    "supplemental-queries.smt2": "6621d59074c877f68d6b5ab94cda62780b2bca29b116aff572b3d39a4042d5b0",
+    "supplemental-cases.json": "440e745bcba1231b15b59ba0a9009ac192ea6cd3bfc88d05b1c928c9b2eacf57",
+    "supplemental-raw.log": "6d59ed3a6d110fa7e8988e1a33acdaf29233447df886f4c7d9bc6864d8bf14f7",
+    "repair-queries.smt2": "1f2c3c6492ed74ed695fbe19b977ee24e11a92ced2a31ddf75c783c953ea71bf",
+    "query-repair.json": "85069122b32abac9331d056b34facc96ac176e4697955ec4cb29f56953086ade",
+    "repair-raw.log": "8337d0873d32c20874476648e3e9d501e0bfd998f95de0bd281cef78799c1bd9",
+    "run_checks.sh": "d7bcf3f92894ca45c658fc48c5e4abe3f02b73617404866eb04ddcf5379745fd",
+    "coverage.json": "5188874ed264d7a09542dde4f463a2fb593f913c75794857ad126634e522a042",
+    "source-table.md": "6a59558310263120394585231d4de45959d5c0d9c4037bc993f78028d055f075",
+    "validation.md": "1c48776b3951c9a1084cda91686199ac0c183098ae263adc7c49f427b37f7613"
+  },
+  "notes": [
+    "checks.smt2 is sole original static model; other SMT files are query tails",
+    "Generator/duplicate model removed; raw evidence retained",
+    "Diagnostic-full unintentionally repeated 3 diagnostic witnesses; repeats not counted as new verification",
+    "Original docs/specs/CLI/tests/commits/external posts unchanged"
+  ]
+}

@@ -1,0 +1,236 @@
+source	key	unit	start	end	sha256	anchor	assignment
+docs/requirements/bp-designed-skill.md	D001	sentence	0	61	ba80f490cee829e6c31e7203b9c58f68831c32abe775bf7b2cc7c2facd194ba4	create・update は、設計方針文書の「形の判定	residual-group2
+docs/requirements/bp-designed-skill.md	D001	sentence	61	149	5c79a8db293f6fee20821cbb9eb4630a50fff052227a6669f13799f53d3a2e37	ターンごとの指揮には Workflow script を	residual-group2
+docs/requirements/bp-designed-skill.md	D001	sentence	149	193	e1b74b5aec7d5e46603dee9a7ff6dbb3a1bc47a1cd2a504282427b24871b90f8	資産台帳の有無は PR-BPDESIGNEDSKILL-	residual-group2
+docs/requirements/bp-designed-skill.md	D001	sentence	193	226	d1cbc997902582e1d815fcde960418fc24c255aa3b1618bdd51c2a5d0e251882	重い構成を既定にして不要な探索や管理の費用を増やさないた	residual-group2
+docs/requirements/bp-designed-skill.md	D001	normative	52	60	c223cb59d03fcaa2777cfbe8de2ce97522fe9145a70d13587c51f64bf6fc8898	形から適用し、目的に必要な形と部品を選ばなければならない。ターンごとの指	residual-group2
+docs/requirements/bp-designed-skill.md	D001	normative	140	148	c223cb59d03fcaa2777cfbe8de2ce97522fe9145a70d13587c51f64bf6fc8898	帳は同節の適用条件を満たす場合だけ持たせなければならない。資産台帳の有無	residual-group2
+docs/requirements/bp-designed-skill.md	D002	sentence	0	49	38c1afba3939bdfe8deac92a4434dd0ea45703118d3efb4e4739141935bbaf67	対象スキルは、固定集合の反復型または探索グラフ型を選ばせ	residual-group2
+docs/requirements/bp-designed-skill.md	D002	sentence	49	107	5f92ac79597ebfbce760c33c5488e2095ee5b9eed9c12b7c5c57a635d642af8d	run を分ける場合は該当する各 run の条件を残し、	residual-group2
+docs/requirements/bp-designed-skill.md	D002	normative	40	48	49adfe9f01bcb48f6832ef0e6659c84a19c57cb786ff97be41b830ecc546176e	グラフ型を選ばせた条件を設計の説明に残さなければならない。run を分け	residual-group2
+docs/requirements/bp-designed-skill.md	D002	normative	98	106	49adfe9f01bcb48f6832ef0e6659c84a19c57cb786ff97be41b830ecc546176e	が目的に必要かを後から判断できるようにしなければならない。	residual-group2
+docs/requirements/bp-designed-skill.md	D006	sentence	0	74	54d2a6d4fb7046f6b02d7b625c35af3cbed6815cbd887588b2958af195b2e2e9	対象スキルは、入口で設計方針文書「目標の固定」の原則に従	residual-group2
+docs/requirements/bp-designed-skill.md	D006	sentence	74	101	247052726cd18bb005d949d99b84e4ab640a9681f6ae34dd289aa2a6c37da256	手順を終えたことを目的の達成と取り違えないためである。	residual-group2
+docs/requirements/bp-designed-skill.md	D006	normative	65	73	4f078609b26bff529c1003ffee25d6b61c4b74b6e94af28a950333ca3346b93d	禁止事項、数値条件と指示語の対象を固定しなければならない。手順を終えたこ	residual-group2
+docs/requirements/bp-designed-skill.md	D007	sentence	0	88	38f5966fec5c06de69c07474bc8d9bff122715c010def4e27214ea6741ae6af8	Workflow を持つ対象スキルは、設計方針文書「停止	unclassified-U
+docs/requirements/bp-designed-skill.md	D007	sentence	88	112	fb0d70a40fc7185c321cd39771a7aadb2f0aa2c1990f0448daee3a77f138e081	中断を完了と扱わず、同じ作業を続けるためである。	unclassified-U
+docs/requirements/bp-designed-skill.md	D007	normative	79	87	a917a99c18a79eb61b352be286a99380e2d11c38c45de7e184cb48b94fdf47c1	断材料と再開に必要な情報を返して続行できなければならない。中断を完了と扱	unclassified-U
+docs/requirements/bp-designed-skill.md	D008	sentence	0	68	c77b3b8f79939659f841820acc86b62db274502e4783f1b073268701ffff2508	Workflow を持つ対象スキルは、設計方針文書「体数	residual-group2
+docs/requirements/bp-designed-skill.md	D008	sentence	68	96	07bbd69a332fd60570e59fb062a4c639ad6a1ab3eb6c6285f9717819aa3cb667	実行資源の制限と未処理の黙った除外を区別するためである。	residual-group2
+docs/requirements/bp-designed-skill.md	D008	normative	59	67	5ba485399df0f33ce67943a9559096f3a2925c1658a584c1368a72a81a370097	要な項目を切り捨てず、同時実行を制限できなければならない。実行資源の制限	residual-group2
+docs/requirements/bp-designed-skill.md	D009	sentence	0	96	4894d64c77ea6978a817ce9aa03294adf5faa3a49777214a382500f4320fa215	Workflow を持つ対象スキルは、設計方針文書「モデ	residual-group2
+docs/requirements/bp-designed-skill.md	D009	sentence	96	184	4a1aee8dcf45edf396961a23a05b516cae13d53ddf4c82f1c4883003019af2ea	適合の判定ではモデル・effort の値自体、初期値の表	residual-group2
+docs/requirements/bp-designed-skill.md	D009	sentence	184	203	d2a4a79335144ca0a5f2ba19b160e7f9a86101b7823e142b11263243faacbaa4	prompt の内容の原則は適用する。	residual-group2
+docs/requirements/bp-designed-skill.md	D009	normative	87	95	207094432efbfaa061a690ed39931687b84118a515344501924bbe2968218e0d	示し、判断に必要な prompt を渡さなければならない。適合の判定では	residual-group2
+docs/requirements/bp-designed-skill.md	D009	normative	169	175	207094432efbfaa061a690ed39931687b84118a515344501924bbe2968218e0d	gh・max を使える役の限定には照らしてはならない（依頼者の裁定）	residual-group2
+docs/requirements/bp-designed-skill.md	D010	sentence	0	58	7041561aafc3fb5f6a21b5b2e5c7934bd2f41f4b531889b6694988461e5621be	Workflow を持つ対象スキルは、設計方針文書「権限	residual-group2
+docs/requirements/bp-designed-skill.md	D010	sentence	58	87	dfa9f2416da911cd9141dc3dc22db377a2e2156872671e7e7d458563fe60961d	生成・検証などの役割分離を権限の抜けで失わないためである	residual-group2
+docs/requirements/bp-designed-skill.md	D010	normative	49	57	b628959a43b6962b1454ead403bef94f11da6c44b6b0256c042e3db8463f0d0a	に従い、役に許す操作と許さない操作を分けなければならない。生成・検証など	residual-group2
+docs/requirements/bp-designed-skill.md	D011	sentence	0	62	92ab12d75926d31583463efe653e2d8c6360325593fa61beaef0299cb37d61d3	探索グラフ型の対象スキルは、設計方針文書「探索グラフ」の	unclassified-U
+docs/requirements/bp-designed-skill.md	D011	sentence	62	131	6c9217f82879dc1231520429fc1551abe4b680508100c9c6a515357f3aee992e	Codex runner ではその値で実行を制限し、Cl	unclassified-U
+docs/requirements/bp-designed-skill.md	D011	sentence	131	153	9025d38b6c792aad58e8a8cd01441860b490edb734c5d9f966c85e2cf8ca6838	値の明示だけを強制の証拠にしないためである。	unclassified-U
+docs/requirements/bp-designed-skill.md	D011	normative	53	61	cf0308d230ad7106cadb29b144cc1dcbbb66120b1ee0bd477d0c8394ff5458f5	し、実行役の時間の上限を自ら決めて明示しなければならない。Codex r	unclassified-U
+docs/requirements/bp-designed-skill.md	D011	normative	122	130	cf0308d230ad7106cadb29b144cc1dcbbb66120b1ee0bd477d0c8394ff5458f5	強制できないことを run の結果に残さなければならない。値の明示だけを	unclassified-U
+docs/requirements/bp-designed-skill.md	D012	sentence	0	94	ba6021c1149b23c4403566f04a878c99b9b1d2c7b624b57df8be4236d31ae42a	探索グラフまたは資産台帳を備える対象スキルは、設計方針文	unclassified-U
+docs/requirements/bp-designed-skill.md	D012	sentence	94	143	f2ff9baca0e1c9c8c5116944b2e4f88df9256358dd2baf76341da0d41fbef7cc	CLI だけが共有状態を更新すること、運搬、受理の分離、	unclassified-U
+docs/requirements/bp-designed-skill.md	D012	normative	85	93	7f5a06b7efbcf121b97ddb08d283a87a311d69dcf435955250d925561c90b6b4	断によって記録の意味が変わらないようにしなければならない。CLI だけが	unclassified-U
+docs/requirements/bp-designed-skill.md	D013	sentence	0	69	d43eef116e1fdf08de4c9b7966adf0cf9f3ebcf0c81bc1e3d923286b4195d46b	資産台帳を備える対象スキルは、設計方針文書「資産台帳」に	residual-group3
+docs/requirements/bp-designed-skill.md	D013	sentence	69	93	1d8e91464b75baa7c111ae9950db79fc707fad65e017ebb2c19df58cbaf12f1c	台帳の件数を判断の正しさの証拠にしてはならない。	residual-group3
+docs/requirements/bp-designed-skill.md	D013	normative	60	68	0923be8f74ff988c086ae737f92e3f681071fe789461fbf43dd109c2a48003c8	せ、確認した範囲と未確認の範囲を区別できなければならない。台帳の件数を判	residual-group3
+docs/requirements/bp-designed-skill.md	D013	normative	86	92	0923be8f74ff988c086ae737f92e3f681071fe789461fbf43dd109c2a48003c8	ない。台帳の件数を判断の正しさの証拠にしてはならない。	residual-group3
+docs/requirements/bp-designed-skill.md	D051	sentence	0	72	327c34b0c9aaff820557026e5e8f5598b199fdb5cca6dc3540a22703f94d125c	対象スキルは、設計方針文書「配置の原則」の AI の判断	residual-group2
+docs/requirements/bp-designed-skill.md	D051	sentence	72	94	6155532071a7ccc7a40f9c010b6872f7750090fe6d13240e3ada4319a9731314	判断点が無い場合もそう示さなければならない。	residual-group2
+docs/requirements/bp-designed-skill.md	D051	sentence	94	204	17784284edbdd69248b05e13f2283521ee82466c4131fb4aa089796135cdd9fa	create・update と review は、列挙ま	residual-group2
+docs/requirements/bp-designed-skill.md	D051	sentence	204	262	f7bac247fd6abb7f7159c12225923c2d0e484ec7bdcb05ab442f8ca2d5ba11a6	照合範囲は create・update が設計の説明、r	residual-group2
+docs/requirements/bp-designed-skill.md	D051	sentence	262	328	3a8ed86b11bc6d7e1a7b978ab62f61fc666b516d2126b20330c33521f0e9363e	列挙の網羅を機械では確認していないことを、create・	residual-group2
+docs/requirements/bp-designed-skill.md	D051	normative	63	71	7641af9de37021d24115346255e0279b9e9fd200bd26ab2563c1a28184a1f396	、硬い層へ置けない理由を設計の説明に残さなければならない。判断点が無い場	residual-group2
+docs/requirements/bp-designed-skill.md	D051	normative	85	93	7641af9de37021d24115346255e0279b9e9fd200bd26ab2563c1a28184a1f396	ればならない。判断点が無い場合もそう示さなければならない。create・	residual-group2
+docs/requirements/bp-designed-skill.md	D051	normative	197	203	7641af9de37021d24115346255e0279b9e9fd200bd26ab2563c1a28184a1f396	、他の層にも理由があるかを適合の条件にしてはならない。照合範囲は c	residual-group2
+docs/requirements/bp-designed-skill.md	D051	normative	319	327	7641af9de37021d24115346255e0279b9e9fd200bd26ab2563c1a28184a1f396	る危険、review は未検査として示さなければならない。	residual-group2
+docs/requirements/bp-designed-skill.md	D024	sentence	0	93	55124f45e9b061973d22e341f4d93ee4fd7a3b3955f24ec6b1c2397ef941f534	create・update は、対象スキルの要求・状態・	residual-group4
+docs/requirements/bp-designed-skill.md	D024	sentence	93	123	200433384c214746582e96a8ad1d5c9d3a6d3bce125be037bd1fa1ca3f2ce1be	形式化の難しさによって必要な確認が黙って落ちないためであ	residual-group4
+docs/requirements/bp-designed-skill.md	D024	normative	84	92	99b52e0c4861f4bac1d510ef7c3efdce6f1ddd729669ed4088c3910c201bd511	由と別の確認結果または未確認の理由を残さなければならない。形式化の難しさ	residual-group4
+docs/requirements/bp-designed-skill.md	D025	sentence	0	56	319d6732ebc19047174787ec719ddc66e168f5b7170d17e817b2cae3ce8095b0	create・update は、形式検証を適用できる性質	residual-group4
+docs/requirements/bp-designed-skill.md	D025	sentence	56	99	dea51e7c2ad0305280f6e7cb656fe87afd9b9286b0a485e2f72b60890f6534f2	TLA+ や SMT は性質に応じた道具の例であり、一律	residual-group4
+docs/requirements/bp-designed-skill.md	D025	normative	47	55	810b9060e577e0409ae1012b4b62ffa6fea276ec599ebc89ca21f48e8d96b238	質を、その性質に必要な手法と道具で検証しなければならない。TLA+ や 	residual-group4
+docs/requirements/bp-designed-skill.md	D026	sentence	0	73	281c7b9714957e64bedf8c8bb2111e7ca4bed5c39d7d06f7d756e182adf73453	create・update は、形式検証の対象・手法・道	residual-group4
+docs/requirements/bp-designed-skill.md	D026	sentence	73	101	676330026acf4ed7ce69668bcb2d9b8f94762db4a40e8245980689f1d86fbd82	確認した範囲を超えて「検証済み」と読まれないためである。	residual-group4
+docs/requirements/bp-designed-skill.md	D026	normative	64	72	cc674974d96d6eec3fcf82890166e9e1d60782fda7965ae31d672131f335af38	範囲と、形式化できない性質の確認を記録しなければならない。確認した範囲を	residual-group4
+docs/requirements/bp-designed-skill.md	D027	sentence	0	73	ee2d01900918401426888fe959bfed59dfaea32a821ae3b15e42f50fdbb5afc8	必要な形式検証を実行できないか性質が成り立たなかった場合	unclassified-U
+docs/requirements/bp-designed-skill.md	D027	sentence	73	102	bb5458ae98bc23f94d7916cc215e582a5849dd2da07c647c14551d40f0f5e7da	修正または環境の復旧と再検証は別の run で行ってよい	unclassified-U
+docs/requirements/bp-designed-skill.md	D027	sentence	102	139	a31e06faa2acdb79d061b4859660f257185e232eba1b146e4718486a5b3a3f41	形式検証以外の書き直しは PR-BPOPERATIONS	unclassified-U
+docs/requirements/bp-designed-skill.md	D027	normative	64	72	667127208f4fd66eac8478aa39dd48ed073705b6df47b97ee25fdbfa146ec14c	その run を止め、対象と理由を報告しなければならない。修正または環境	unclassified-U
+docs/requirements/bp-designed-skill.md	D028	sentence	0	69	c8ba1546b346ac969295dc0683bba7f9e440752c21edda92a7e225e6fb546aba	対象スキルは、run の各担当について、担当・段・対象・	residual-group3
+docs/requirements/bp-designed-skill.md	D028	sentence	69	121	74dc98938230f998c3e3f28efc57b4899a40b18373fcd356226e4fd9c320d084	段の境界が無い場合は段が無いと示し、どの入力と作業が判断	residual-group3
+docs/requirements/bp-designed-skill.md	D028	normative	60	68	05987aa90af63731d80efece1df3bc76e5c8a3b1490369cac27e8ca0484231ee	拠・失敗・未確認を後から辿れる記録を残さなければならない。段の境界が無い	residual-group3
+docs/requirements/bp-designed-skill.md	D028	normative	112	120	05987aa90af63731d80efece1df3bc76e5c8a3b1490369cac27e8ca0484231ee	作業が判断を生んだかを特定できるようにしなければならない。	residual-group3
+docs/requirements/bp-designed-skill.md	D029	sentence	0	53	c8c90a3011af0eccf032972dcd1edee1ecee6ef497d6b10964ffe64051bc2655	対象スキルは、各 run の作業記録と証拠を実行環境に保	residual-group3
+docs/requirements/bp-designed-skill.md	D029	sentence	53	93	790db0596a0105d1c9f593310cb4f0da94d3abc407d15789e186ac25456a7478	資産と指摘の対応を持つ資産台帳だけでは、この能力を満たし	residual-group3
+docs/requirements/bp-designed-skill.md	D029	sentence	93	127	4a70de12d70fa902696ca161b1a880426aa6d1d3ef9999cf652d90443355eb63	各担当は共有の記録台帳へ直接書き込んではならない（上位の	residual-group3
+docs/requirements/bp-designed-skill.md	D029	normative	44	52	8f8daea6bfe782f3e08a8c1e6c819041c5cc9285971546f905d911f0d3fd0e5a	環境に保存し、記録台帳から辿れるようにしなければならない。資産と指摘の対	residual-group3
+docs/requirements/bp-designed-skill.md	D029	normative	86	92	8f8daea6bfe782f3e08a8c1e6c819041c5cc9285971546f905d911f0d3fd0e5a	台帳だけでは、この能力を満たしたことにしてはならない。各担当は共有の	residual-group3
+docs/requirements/bp-designed-skill.md	D032	sentence	0	29	80bfd7d035e7dc2df9515818502c204350aadb48c5e462b596f85514cd32c47c	対象スキルは、同じ内容を複数の記録の正本にしてはならない	residual-group3
+docs/requirements/bp-designed-skill.md	D032	sentence	29	73	eebad9968735be27eb5bac04aba196aa31d7571d75227e073bcfd0a431b0cd7d	責務または対象で記録を分ける場合も、同じ内容が必要な箇所	residual-group3
+docs/requirements/bp-designed-skill.md	D032	sentence	73	106	b16d0a165f0be85e58294a80a66816fdfa4179495a33f3215e8f41f1214d4b0d	記録間の食い違いで判断の根拠が決まらなくなることを防ぐた	residual-group3
+docs/requirements/bp-designed-skill.md	D032	normative	22	28	b5a6bc6f264b7052945aea69f6704a4911a3e308d134ba0e247044f7e909687c	スキルは、同じ内容を複数の記録の正本にしてはならない。責務または対象	residual-group3
+docs/requirements/bp-designed-skill.md	D032	normative	64	72	b5a6bc6f264b7052945aea69f6704a4911a3e308d134ba0e247044f7e909687c	合も、同じ内容が必要な箇所は正本を参照しなければならない。記録間の食い違	residual-group3
+docs/requirements/bp-designed-skill.md	D034	sentence	0	82	2ab12e5f51f09ac0a8931af46152063002afdb1c134363443a5effd5fda1d18a	対象スキルは、保存できた作業記録・証拠・記録台帳と過去の	unclassified-U
+docs/requirements/bp-designed-skill.md	D034	normative	73	81	2ab12e5f51f09ac0a8931af46152063002afdb1c134363443a5effd5fda1d18a	run で更新しても過去へ辿れるようにしなければならない。	unclassified-U
+docs/requirements/bp-designed-skill.md	D035	sentence	0	69	96308853a9b17b6b131044d8eab55f5ae1837da933cb5437c2d034731b19ae29	記録・証拠・記録台帳を保存できない場合、対象スキルは止ま	unclassified-U
+docs/requirements/bp-designed-skill.md	D035	sentence	69	87	8a11efc92c30f1d0a2224ae5e5150c22c41c62f3cd906db74088e3f680dad41e	この場合に完了と報告してはならない。	unclassified-U
+docs/requirements/bp-designed-skill.md	D035	normative	60	68	5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b	して、保存できなかった範囲と理由を報告しなければならない。この場合に完了	unclassified-U
+docs/requirements/bp-designed-skill.md	D035	normative	80	86	5fe80748f67d2ec64bd54afc704ffa30fa26d6411a4c465b627974d4c48bd26b	なければならない。この場合に完了と報告してはならない。	unclassified-U
+docs/requirements/bp-designed-skill.md	D036	sentence	0	63	9f7b5d1bf0f775c51ee84f3a4da1857ac04ae3c0a165c64fe4a5e441889ae839	対象スキルは、run ごとの所要時間・人の介入・再試行と	residual-group3
+docs/requirements/bp-designed-skill.md	D036	sentence	63	84	609f3677bdd345833776c34bc8f8f0db446685e5fa926d000d8049a7480159ee	後から実行条件と費用を比較するためである。	residual-group3
+docs/requirements/bp-designed-skill.md	D036	normative	54	62	e128b679ebfae3120d1b9a234f81d1a86e9c25419cc5c12bf3ba05556257423f	用を記録し、取得できなかった情報と区別しなければならない。後から実行条件	residual-group3
+docs/requirements/bp-designed-skill.md	D040	sentence	0	51	3d922c40dd98ff30ccd3e0af66906ca3bb4253d55ba3e4087c23d869356a00cf	対象スキルは、作業記録に文書の一般規約を適用し、実行先で	residual-group3
+docs/requirements/bp-designed-skill.md	D040	sentence	51	104	8f21183014b0c911c1ca9e4e9cc1094bb756e3812b6c572aea5a7f76b20c1175	各 run で適用した版を不変の参照で特定できるようにし	residual-group3
+docs/requirements/bp-designed-skill.md	D040	normative	42	50	651c7c964796b557cadf265bb93ed972008d7d2b8a4ba1f141ebb0d4d667c115	し、実行先でその正本を参照できるようにしなければならない。各 run で	residual-group3
+docs/requirements/bp-designed-skill.md	D040	normative	95	103	651c7c964796b557cadf265bb93ed972008d7d2b8a4ba1f141ebb0d4d667c115	ようにし、後から同じ基準で読めるようにしなければならない。	residual-group3
+docs/requirements/bp-designed-skill.md	D014	sentence	0	62	527e3e2e13aedf79a297e4b25ba413b850bfbdee70e59cc58654c5cde847802c	create・update は、役ごとの制限が Clau	residual-group2
+docs/requirements/bp-designed-skill.md	D014	sentence	62	164	190d4b6a704e2a56a8259898f729cefcd3422541b281f570dca25252eaedb463	Claude Code では、設計方針文書が plugi	residual-group2
+docs/requirements/bp-designed-skill.md	D014	sentence	164	203	47f7850763e8b2451ba096406407573d59972615ff190ef12a75262ce41c5237	文書を読めないか、その記述が無い場合だけ一覧を読めないと	residual-group2
+docs/requirements/bp-designed-skill.md	D014	sentence	203	264	515acefaa44941e412a68f53d367a1a96fc49f921806b0f914e76bfa40445964	一覧を読めない場合、Claude Code の全ての役ご	residual-group2
+docs/requirements/bp-designed-skill.md	D014	normative	53	61	01d10739bf1bf3aed214b04cde4d49ec1dac9dbe040c51c577bd15543cf45f8c	de と Codex で効くかを確認できなければならない。Claude 	residual-group2
+docs/requirements/bp-designed-skill.md	D014	normative	194	202	01d10739bf1bf3aed214b04cde4d49ec1dac9dbe040c51c577bd15543cf45f8c	の記述が無い場合だけ一覧を読めないと扱わなければならない。一覧を読めない	residual-group2
+docs/requirements/bp-designed-skill.md	D014	normative	257	263	01d10739bf1bf3aed214b04cde4d49ec1dac9dbe040c51c577bd15543cf45f8c	確認とし、その未確認だけで検証不合格としてはならない。	residual-group2
+docs/requirements/bp-designed-skill.md	D015	sentence	0	67	9ce2fb8d83a0f30a178365f91e4175f846f6dc41078c8a2eb7374de083d54eb7	create・update は、制限が配布先で効くかを確	residual-group2
+docs/requirements/bp-designed-skill.md	D015	sentence	67	114	bd3e6c09005fc80cfe581ff30136000befce92d82c102544d0ebb2d7b13cdba1	Claude Code の一覧に照らした制限を同 hos	residual-group2
+docs/requirements/bp-designed-skill.md	D015	sentence	114	145	01fa8669c4d8b7391e7dfecbb6511f4adc80454ea749555cf4258b6a61343d9f	Codex で確認できなかった範囲は別に示さなければなら	residual-group2
+docs/requirements/bp-designed-skill.md	D015	normative	58	66	874277d316722d81cfe406234f83263aae54050807436cf05ad5db11afe8839d	と理由を、残る危険として検証の結果に示さなければならない。Claude 	residual-group2
+docs/requirements/bp-designed-skill.md	D015	normative	107	113	874277d316722d81cfe406234f83263aae54050807436cf05ad5db11afe8839d	制限を同 host の未確認として報告してはならない。Codex で	residual-group2
+docs/requirements/bp-designed-skill.md	D015	normative	136	144	874277d316722d81cfe406234f83263aae54050807436cf05ad5db11afe8839d	dex で確認できなかった範囲は別に示さなければならない。	residual-group2
+docs/requirements/bp-designed-skill.md	D046	sentence	0	59	889a7cfd7bd4ffd3160108dc9a386aae24965ce67d12a5a425ec2ac66115e4f8	create・update は、配布先で効かないと確認し	residual-group2
+docs/requirements/bp-designed-skill.md	D046	sentence	59	84	08b3eeed11a8f311bd2e603647fe0b9e2500ea3c656321d266eed4482aa26986	未確認の危険と既知の不適合を混同しないためである。	residual-group2
+docs/requirements/bp-designed-skill.md	D046	normative	52	58	3bc1cea0a318472d5563a400a8d0db5fc4a3b2b5571891c1f5f8215c83d609dd	不適合とし、効く形に直すまで検証合格としてはならない。未確認の危険と	residual-group2
+docs/requirements/bp-designed-skill.md	D016	sentence	0	61	24400c1a68be30b10ad37272ae510c102664be31e5fe39ee7e5fd450285bc20f	fan-out を持つ対象スキルは、1 run の起動数	unclassified-U
+docs/requirements/bp-designed-skill.md	D016	sentence	61	91	4ad1b39064509067500da7fcd4395d6256f9db0fb608443743b1f3a77d82212a	起動数には結果を返さなかった呼び出しも含めなければならな	unclassified-U
+docs/requirements/bp-designed-skill.md	D016	normative	52	60	cdaa3cba86ba442b1801122bff64d5e9bc8d03ab02ceea47232e2980ec2441ea	入力として受け取り、その上限内で実行できなければならない。起動数には結果	unclassified-U
+docs/requirements/bp-designed-skill.md	D016	normative	82	90	cdaa3cba86ba442b1801122bff64d5e9bc8d03ab02ceea47232e2980ec2441ea	動数には結果を返さなかった呼び出しも含めなければならない。	unclassified-U
+docs/requirements/bp-designed-skill.md	D019	sentence	0	76	d3a713a5e59fb16f9139a2d5fa858c8904f3350bddc608fcbddd2c0378efa562	起動数の上限で処理できない項目がある場合、対象スキルは、	unclassified-U
+docs/requirements/bp-designed-skill.md	D019	sentence	76	105	027fb0447ed654fbfb52e7f1c9a40706008380f707c58dd51fea7cd1f9f41618	未処理を切り捨て、確認済みと読まれる結果にしてはならない	unclassified-U
+docs/requirements/bp-designed-skill.md	D019	normative	67	75	4f8aead9c509350dd7044568481431411ddec27991b54002af3f5c8098bc6874	り、再開した run はその残りから続けなければならない。未処理を切り捨	unclassified-U
+docs/requirements/bp-designed-skill.md	D019	normative	98	104	4f8aead9c509350dd7044568481431411ddec27991b54002af3f5c8098bc6874	理を切り捨て、確認済みと読まれる結果にしてはならない。	unclassified-U
+docs/requirements/bp-designed-skill.md	D021	sentence	0	69	eae677a86466085a20dcea65fd2e0300313357476c31a74f80760773f22f862b	起動数の上限を渡さない場合、対象スキルは、fan-out	unclassified-U
+docs/requirements/bp-designed-skill.md	D021	sentence	69	95	a09aeba874b67b944216d1e8ac5b11e0ab0a9772dd077f9d9eb85c9002480bd0	同時実行・反復・周・試行の上限はこの制約に含めない。	unclassified-U
+docs/requirements/bp-designed-skill.md	D021	normative	62	68	1c07b7f5dbe30d6ed30b2115ff08a59ff4924f81a5563c6339e63d17062d3023	の起動数に入力に依存しない固定上限を置いてはならない。同時実行・反復	unclassified-U
+docs/requirements/bp-designed-skill.md	D022	sentence	0	84	a669a37ac47453ea176af710255456d154caa5629d567ee0ed6caf60ae626270	fan-out を持つ対象スキルは、Codex runn	unclassified-U
+docs/requirements/bp-designed-skill.md	D022	sentence	84	134	f8bb90f5c5dfdd9d9872393fdf957c7418ab2733058c125b787c7bae55472a46	host が課す総起動数の制約を守り、上限が不要な ho	unclassified-U
+docs/requirements/bp-designed-skill.md	D022	normative	77	83	0c00edc026322927bad77940505fb1ceb04a08889f7ff28c59dd5cb260d3b2df	native Workflow では渡してはならない。host が課	unclassified-U
+docs/requirements/bp-operations.md	O001	sentence	0	76	fc244db5cb84f6e137dd705dd30eadb8e6c53e125597d451d7f465cf30a4ac45	best-practices は create・revi	residual-group4
+docs/requirements/bp-operations.md	O001	sentence	76	118	55542bc84e971959bbe2dd4f6c1c22b39f3a7d919a98840ba11d590121678748	どの機能にも当たらない依頼では、機能を実行せず該当が無い	residual-group4
+docs/requirements/bp-operations.md	O001	normative	67	75	af3311a0bfb6da4a3fc2aa4cc38ca59bd816744c1060f1c47dcefd180f328bb1	し、利用者の依頼に該当する機能を実行できなければならない。どの機能にも当	residual-group4
+docs/requirements/bp-operations.md	O001	normative	109	117	af3311a0bfb6da4a3fc2aa4cc38ca59bd816744c1060f1c47dcefd180f328bb1	では、機能を実行せず該当が無いことを返さなければならない。	residual-group4
+docs/requirements/bp-operations.md	O038	sentence	0	114	884cf13d59b2c15fd779199f6f73a50c63ba966fc271368b73ddd093319feb26	複数機能を求められた場合、best-practices 	unclassified-U
+docs/requirements/bp-operations.md	O038	sentence	114	155	236eb3273df320a74b1776c6a7484c40b1a4ef95c136b76937d60a972e19045b	前の結果を次に渡して順に実行し、必須入力の代わりに不十分	unclassified-U
+docs/requirements/bp-operations.md	O038	sentence	155	205	651042fe7029ac2e6b33c3e61b36efbdc405e3bc4e01c8cb070bb58627d35798	途中の機能が完了せず止まった場合、後続を実行せず、その停	unclassified-U
+docs/requirements/bp-operations.md	O038	normative	97	105	328878a824fc241444bada40d7bb0cf56e68930e901d88df0c2ce50bdc0f9791	が依存関係と矛盾する場合は利用者に確認しなければならない（依頼者の裁定）	unclassified-U
+docs/requirements/bp-operations.md	O038	normative	148	154	328878a824fc241444bada40d7bb0cf56e68930e901d88df0c2ce50bdc0f9791	し、必須入力の代わりに不十分な結果を渡してはならない。途中の機能が完	unclassified-U
+docs/requirements/bp-operations.md	O038	normative	196	204	328878a824fc241444bada40d7bb0cf56e68930e901d88df0c2ce50bdc0f9791	行せず、その停止報告を連鎖全体の報告としなければならない。	unclassified-U
+docs/requirements/bp-operations.md	O051	sentence	0	83	bd25c0dd28ba4d1e7a9cdeec054e9e3e7564e133ab12ae681d830819f50d8c5e	best-practices は、4 機能の各 run 	unclassified-U
+docs/requirements/bp-operations.md	O051	sentence	83	116	fd71aaf2fe7fa09da2a2695c840a75a09ef1bfe4fc3cdbd7e2edb37c9b03ea3a	自らの判断も生成するスキルと同様に検証できるようにするた	unclassified-U
+docs/requirements/bp-operations.md	O051	normative	74	82	9e85a6703c14daf3d79215d6793283090bfe28b0a6da25b1e4e72f2faa76a97a	・記録台帳・保持・保存失敗の要求を適用しなければならない。自らの判断も生	unclassified-U
+docs/requirements/bp-operations.md	O052	sentence	0	94	d7d4675675745e479c788ccdef6390fb212ec7d8c168d0adc98dadb5ef804815	needs_input で止まる場合、best-prac	unclassified-U
+docs/requirements/bp-operations.md	O052	sentence	94	167	bcdee3cde962ca241eb3e5b81d75126f256d5743da4df3bf56d5ca45fab65bd6	入力確認で目標固定前に止まる場合は検証結果と残る作業が無	unclassified-U
+docs/requirements/bp-operations.md	O052	normative	85	93	f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281	返し、まだ無い材料も欄を省かず無いと示さなければならない。入力確認で目標	unclassified-U
+docs/requirements/bp-operations.md	O052	normative	158	166	f0d7defde9e73627ebb417dd1dcb21aa0218d16a692c5a9419c2bb17f7367281	残る作業と、それまでに得た検証結果を示さなければならない。	unclassified-U
+docs/requirements/bp-operations.md	O003	sentence	0	66	3c8b87749fdb7455b8d6930836c6ea41feec76791f98c44f24e7f408ec92bc0b	create は、書く前に、依頼と回答から bp-des	residual-group2
+docs/requirements/bp-operations.md	O003	sentence	66	86	80197e7983841b915d0120f6b67b97237584e14cb145c60b06f1576b933d9c24	依頼に無い目標・制約を加えてはならない。	residual-group2
+docs/requirements/bp-operations.md	O003	sentence	86	138	c069e7caef2b0c813d9afcaabebf8a160c6fb4acd945167c166b3a869bd9ee9e	update では、対象スキルから読み取った目的と修正の	residual-group2
+docs/requirements/bp-operations.md	O003	normative	57	65	e5d90d3e56af101731098b6e2fe0c96ac6e9366e68d7db25d627c1cdc0a011c4	ll の目標固定の原則に沿って目標を定めなければならない。依頼に無い目標	residual-group2
+docs/requirements/bp-operations.md	O003	normative	79	85	e5d90d3e56af101731098b6e2fe0c96ac6e9366e68d7db25d627c1cdc0a011c4	ればならない。依頼に無い目標・制約を加えてはならない。update 	residual-group2
+docs/requirements/bp-operations.md	O003	normative	129	137	e5d90d3e56af101731098b6e2fe0c96ac6e9366e68d7db25d627c1cdc0a011c4	的と修正の根拠を出発点に同じ原則を適用しなければならない。	residual-group2
+docs/requirements/bp-operations.md	O005	sentence	0	71	aab4a2f5b869903738672c691d35732181fa868074482654b5aea28297f8f0ce	create・update は、目標を定める人間の承認・	unclassified-U
+docs/requirements/bp-operations.md	O005	sentence	71	103	7c0241b27a4c0612a480c13923e2ebbacc98d31336f08a1237682cec0768a4be	Workflow の run の中で入力を待ち続けてはな	unclassified-U
+docs/requirements/bp-operations.md	O005	normative	62	70	467f45bd7f172b9882c9a7b1f8ec883d9be16966071e2be64113818fb581a578	s_input と判断材料を返して止まらなければならない。Workflo	unclassified-U
+docs/requirements/bp-operations.md	O005	normative	96	102	467f45bd7f172b9882c9a7b1f8ec883d9be16966071e2be64113818fb581a578	low の run の中で入力を待ち続けてはならない。	unclassified-U
+docs/requirements/bp-operations.md	O008	sentence	0	57	1e02591c02ca91524a903ac269da5f4c947ecd4295e091bc614f5f2548926209	create・update は、bp-designed-	residual-group2
+docs/requirements/bp-operations.md	O008	sentence	57	98	8e27526d3b1b473d3d0bfa3b21ffafe33e2649fa2a9409c0c66323a5b02cf3fc	1 体の agent の 1 回の実行で解ける課題を探索	residual-group2
+docs/requirements/bp-operations.md	O008	normative	48	56	00564ec6f81debd77654332b7d2fcb57d5e001a577a3c53c88404b01b8f52a4f	skill の要求を満たすスキルを提供しなければならない。1 体の ag	residual-group2
+docs/requirements/bp-operations.md	O008	normative	91	97	00564ec6f81debd77654332b7d2fcb57d5e001a577a3c53c88404b01b8f52a4f	 回の実行で解ける課題を探索グラフ型にしてはならない。	residual-group2
+docs/requirements/bp-operations.md	O037	sentence	0	56	bbdada9e5c68bec773f32e6ef7cf031fa9880b8f03a8348c2aa58d507a9e6d5e	create・update は、run の作業記録・証拠	unclassified-U
+docs/requirements/bp-operations.md	O037	sentence	56	76	e2d75f873f12c05e06c5a624a70c5889bf2d75d3e7e761b215c54f01955a5bb6	依頼の対象外へ変更を広げないためである。	unclassified-U
+docs/requirements/bp-operations.md	O037	normative	49	55	5774b8933fc42a0835af0c42758b0ec71d263ccafaa16c9657853e80ea67bd9b	記録台帳を除き、対象スキルの外を書き換えてはならない。依頼の対象外へ	unclassified-U
+docs/requirements/bp-operations.md	O009	sentence	0	54	ae2f0b1911c68ed5189226fca9bcb21cd389c6d191f7ab0a18579b407ca85fb4	create・update は、書いた agent と別	unclassified-U
+docs/requirements/bp-operations.md	O009	sentence	54	80	8ec0e9264338ff3fcf0dfc88418ef9d88d79386b6d10740d401b631bd8390033	生成者の説明や自己評価を合格の根拠にしてはならない。	unclassified-U
+docs/requirements/bp-operations.md	O009	normative	45	53	9ededde528aa0604d73aae94387bde67c165c434953de037b0003a607de3670b	 と別の context で成果を検証しなければならない。生成者の説明や	unclassified-U
+docs/requirements/bp-operations.md	O009	normative	73	79	9ededde528aa0604d73aae94387bde67c165c434953de037b0003a607de3670b	。生成者の説明や自己評価を合格の根拠にしてはならない。	unclassified-U
+docs/requirements/bp-operations.md	O010	sentence	0	42	5bead754a3c9831468e1781cbb665c4d5da5dcc6907597abacd00fd89c959855	create・update は、必要な検証を通るまで成果	unclassified-U
+docs/requirements/bp-operations.md	O010	sentence	42	76	04aa9c1270745b2f4eb55771b4bf67376d158a33660052edf77ea8044e1cd65c	検証を通らず止まる場合、未達であることと理由を返さなけれ	unclassified-U
+docs/requirements/bp-operations.md	O010	normative	35	41	74bab39a8fc8b7795285025de860d43be9c5c20ccea68cf4a5b61d6298312262	、必要な検証を通るまで成果を完了と報告してはならない。検証を通らず止	unclassified-U
+docs/requirements/bp-operations.md	O010	normative	67	75	74bab39a8fc8b7795285025de860d43be9c5c20ccea68cf4a5b61d6298312262	ず止まる場合、未達であることと理由を返さなければならない。	unclassified-U
+docs/requirements/bp-operations.md	O011	sentence	0	50	5b46618d817b1cfebe6aedc1fdb6ed232d8361694e394a5df3907f0025eb8e38	create・update は、形式検証以外の検証を通ら	unclassified-U
+docs/requirements/bp-operations.md	O011	sentence	50	129	8f2aafcd3623203f8e90ed9a5e6e7c182e48f564ee5456a0dd2da3473686e214	形式検証を実行できないか性質が成り立たない場合は bp-	unclassified-U
+docs/requirements/bp-operations.md	O011	normative	45	49	f5dc8d2bd69631ae27c10240d479b949e301880adb2948d1f316f4a39a164a74	を通らない場合、書き直して独立に再検証してもよい。形式検証を実行	unclassified-U
+docs/requirements/bp-operations.md	O011	normative	122	128	f5dc8d2bd69631ae27c10240d479b949e301880adb2948d1f316f4a39a164a74	求に従い、同じ run の書き直しで続けてはならない。	unclassified-U
+docs/requirements/bp-operations.md	O013	sentence	0	53	6083f8386111009b5af181c751339fc001cec7a3ba0b81aa1cd07d7afe25d03b	4 機能は、続行できない失敗で BLOCKED と理由を	unclassified-U
+docs/requirements/bp-operations.md	O013	sentence	53	109	eb309b68b521c4695dfb4271d0ddaf3f30778eba2e75d30f5430dd245a042f53	review・audit は、失敗に限らず、完了前に止ま	unclassified-U
+docs/requirements/bp-operations.md	O013	sentence	109	138	1e058e55fd47ef622cccf2852b632b317734e1d38b60880d9401be0aeb48f8c5	原因と続ける場所を利用者が判断できるようにするためである	unclassified-U
+docs/requirements/bp-operations.md	O013	normative	44	52	b39b384e8afbcaf5e5ed4213b07489a7dbbae0bf288ecf26106381f905f6d25a	と理由を返して止まり、止まった段を報告しなければならない。review・	unclassified-U
+docs/requirements/bp-operations.md	O013	normative	100	108	b39b384e8afbcaf5e5ed4213b07489a7dbbae0bf288ecf26106381f905f6d25a	まる全ての場合で止まった段と理由を報告しなければならない。原因と続ける場	unclassified-U
+docs/requirements/bp-operations.md	O014	sentence	0	55	c9afa7ce52b0ff2408971377238e5a0ba8f010d9f4b304afd8d2df9ef6cb9ebb	create・update は、完了時に作成または修正し	unclassified-U
+docs/requirements/bp-operations.md	O014	sentence	55	110	054b1e58a535f11d718652909f74a04296237ad3146d258e026090bc915f38d0	検証結果には、指摘の状態、skip 一覧、残る危険を含め	unclassified-U
+docs/requirements/bp-operations.md	O014	normative	46	54	62b740b27d56458549af4a6d192cf3b44f5e406bc09ec0448321aab4f4c9563e	正したスキル、設計の説明、検証結果を返さなければならない。検証結果には、	unclassified-U
+docs/requirements/bp-operations.md	O014	normative	101	109	62b740b27d56458549af4a6d192cf3b44f5e406bc09ec0448321aab4f4c9563e	含め、利用者が完了の根拠と限界を確認できなければならない。	unclassified-U
+docs/requirements/bp-operations.md	O015	sentence	0	58	38b365fbbe44807e96e5aa24e6a700a239510581aa263070c50ee1da6d7e473e	update は、対象スキルの全体と 1 件以上の修正の	unclassified-U
+docs/requirements/bp-operations.md	O015	sentence	58	108	86804412ebefcc2cbb045d2765cb280fd4a0430f41e47678e73a8de48e17534f	修正の根拠の件数に上限を置いてはならず、渡された根拠を件	unclassified-U
+docs/requirements/bp-operations.md	O015	sentence	108	135	3f16e04a02229085788ed24301abf2aa336a56c53ff97945a89ae7d1ef7a4838	件数を理由に受け取りを拒否または切り詰めてはならない。	unclassified-U
+docs/requirements/bp-operations.md	O015	normative	49	57	3f2e9dd5b30796fe49d5700de0387eebf7aeff04597bdda119f6dfd8b2c5cc99	拠を受け取り、その根拠を目標の出発点にしなければならない。修正の根拠の件	unclassified-U
+docs/requirements/bp-operations.md	O015	normative	99	107	3f2e9dd5b30796fe49d5700de0387eebf7aeff04597bdda119f6dfd8b2c5cc99	された根拠を件数にかかわらず全件受け取らなければならない。件数を理由に受	unclassified-U
+docs/requirements/bp-operations.md	O015	normative	128	134	3f2e9dd5b30796fe49d5700de0387eebf7aeff04597bdda119f6dfd8b2c5cc99	件数を理由に受け取りを拒否または切り詰めてはならない。	unclassified-U
+docs/requirements/bp-operations.md	O018	sentence	0	42	03b524a0b99833fd75ca8a488a7cec95c0284cda72ea43909e3eecadbf8e299d	update は、修正の根拠が触れない部分を含め、対象ス	residual-group4
+docs/requirements/bp-operations.md	O018	sentence	42	78	20273e5d025ccda32a8e9feef7c843d1e7ae84609235753bf71a20059a87e7f3	作り直す場合も目標・範囲・独立検証と完了の要求を満たさな	residual-group4
+docs/requirements/bp-operations.md	O018	normative	37	41	db12ae0d8fbc125e90cc81ef4376eb4242a7a21ac11d861bad9adb5d76a3bd94	ない部分を含め、対象スキル全体を作り直してもよい。作り直す場合も	residual-group4
+docs/requirements/bp-operations.md	O018	normative	69	77	db12ae0d8fbc125e90cc81ef4376eb4242a7a21ac11d861bad9adb5d76a3bd94	目標・範囲・独立検証と完了の要求を満たさなければならない。	residual-group4
+docs/requirements/bp-operations.md	O019	sentence	0	60	38b0ecc818c5ee775b108eba633af52394bb774bc29011d2538de82447bbada5	update は、修正の根拠が触れない既存の振る舞いを保	residual-group4
+docs/requirements/bp-operations.md	O019	sentence	60	104	f05cb80fc997d008313e35be5473c619bca190dd55580cedb92fcfb32caeb08c	検証が触れていない振る舞いを保持済みとせず、判定できなか	residual-group4
+docs/requirements/bp-operations.md	O019	normative	51	59	c9dc55d58ec0c436fb3d691e64f06a458b5e278dbc03300fcfa9e0000c83fdf4	を、作り直した後の検証結果だけから判定しなければならない。検証が触れてい	residual-group4
+docs/requirements/bp-operations.md	O019	normative	95	103	c9dc55d58ec0c436fb3d691e64f06a458b5e278dbc03300fcfa9e0000c83fdf4	持済みとせず、判定できなかった範囲を示さなければならない。	residual-group4
+docs/requirements/bp-operations.md	O021	sentence	0	69	5f7bef34a4837eaf61a97ef72984261ef8056d17d2b296044a9513c542890387	create・update は、書き換えた後に同じ ru	residual-group4
+docs/requirements/bp-operations.md	O021	sentence	69	101	e5298ab09edce1e2a5a6392aeacc3c7afbf6a6cc5729ae4a8d2e5e7c00796505	追跡には設計方針文書「資産台帳」の原則を適用しなければな	residual-group4
+docs/requirements/bp-operations.md	O021	normative	60	68	2e8f5eccc81c1f0451343ff7f543ffd462f40ccc5eb67b97f53b57f7c1ad34c3	か再発したかを追い、その状態を結果に示さなければならない。追跡には設計方	residual-group4
+docs/requirements/bp-operations.md	O021	normative	92	100	2e8f5eccc81c1f0451343ff7f543ffd462f40ccc5eb67b97f53b57f7c1ad34c3	は設計方針文書「資産台帳」の原則を適用しなければならない。	residual-group4
+docs/requirements/bp-operations.md	O022	sentence	0	81	f7ff1479a3dabb43f74421e62dcc41c15f3522ef8289203f54046f300b7457b5	run をまたぐ指摘の追跡の裁定が下るまで、update	unclassified-U
+docs/requirements/bp-operations.md	O022	sentence	81	116	0cbe2d2a075b3535582d132524bb4bbfbebabf2ac0bc23998e616bfd5e9a4650	報告する状態は今の run の中で付けた状態だけとしなけ	unclassified-U
+docs/requirements/bp-operations.md	O022	sentence	116	173	8b7b92f0ed07fb001202c0c802124290b1c73505aa0b3ed9fdeeef4e757fefc4	前の run の指摘は修正の根拠として受け取ってよいが、	unclassified-U
+docs/requirements/bp-operations.md	O022	normative	74	80	9916230e5dac8ad44bf3e15aefa7f5be5c1e58dbe2f38a701335cc3ea5e93184	olved・regressed と報告してはならない。報告する状態は	unclassified-U
+docs/requirements/bp-operations.md	O022	normative	107	115	9916230e5dac8ad44bf3e15aefa7f5be5c1e58dbe2f38a701335cc3ea5e93184	は今の run の中で付けた状態だけとしなければならない。前の run 	unclassified-U
+docs/requirements/bp-operations.md	O022	normative	166	172	9916230e5dac8ad44bf3e15aefa7f5be5c1e58dbe2f38a701335cc3ea5e93184	の追跡を今の run に引き継いだと扱ってはならない。	unclassified-U
+docs/requirements/bp-operations.md	O040	sentence	0	76	c291b9ca465b6bb74e6519ab84c03726fce0b1ad0c18e7411bd37834418dfd3c	create・update は、完了前に止まった場合、そ	unclassified-U
+docs/requirements/bp-operations.md	O040	sentence	76	91	0116146d8c68c62a082fc542f5a1099e03c495d867061e7c2d8b9d9538c7fdf6	戻すかどうかは利用者が決める。	unclassified-U
+docs/requirements/bp-operations.md	O040	normative	67	75	5f6160ec5afb3071b8e7689b989212ad56c080758497d1188a542325016d5c84	・未検証の範囲、停止した段と理由を報告しなければならない。戻すかどうかは	unclassified-U
+docs/requirements/bp-operations.md	O024	sentence	0	61	c2867d5ec46f888e20e218c937ac025d29c577da860810e5fe7916f4088cdc27	review は、bp-designed-skill の	residual-group4
+docs/requirements/bp-operations.md	O024	sentence	61	84	f71a2935ba413abc7c4622505299d8b950b4ff83e09f250a2b6b37365c57f3cd	作成と評価で異なる基準を適用しないためである。	residual-group4
+docs/requirements/bp-operations.md	O024	normative	52	60	acb7400d3187c99ae82ec794893ed1a1d21f474cfeec61f0b5faa06071b0f0ea	らし、対象スキルのフローが適切かを評価しなければならない。作成と評価で異	residual-group4
+docs/requirements/bp-operations.md	O025	sentence	0	47	238dd12d6f74ac3f1971b17752856688f50ec4653dd9a97a22eec4d18215b1c8	review は、対象スキルを BP 仕様が課す確定値と	residual-group4
+docs/requirements/bp-operations.md	O025	sentence	47	97	d2914ceedfda83bd1015434902260c9b4991e1b61ef8f1924229ed6f3cda82a1	役ごとのモデル・effort は bp-designed	residual-group4
+docs/requirements/bp-operations.md	O025	sentence	97	146	a19ad7c7a59321236e7bba5f8cf4a7f192687f327e0b06294f0181d9002c4c43	対応する仕様が無い観点・範囲は未検査とし、一部の仕様があ	residual-group4
+docs/requirements/bp-operations.md	O025	normative	38	46	959f3024182da3102c5c6a61e9254bd791df99b5b07d9e50a3d9db4f58f461bb	 仕様が課す確定値と規則に照らして評価しなければならない。役ごとのモデル	residual-group4
+docs/requirements/bp-operations.md	O025	normative	88	96	959f3024182da3102c5c6a61e9254bd791df99b5b07d9e50a3d9db4f58f461bb	esigned-skill の例外に従わなければならない。対応する仕様が	residual-group4
+docs/requirements/bp-operations.md	O025	normative	139	145	959f3024182da3102c5c6a61e9254bd791df99b5b07d9e50a3d9db4f58f461bb	部の仕様があることを全範囲の検査済みとしてはならない。	residual-group4
+docs/requirements/bp-operations.md	O028	sentence	0	112	89216735bd442c7c737c8ade5c3e895efa2f2dfb86ccd696182b287518499e0f	audit は、既存スキルを現行の prompt-aud	unclassified-U
+docs/requirements/bp-operations.md	O028	sentence	112	132	c2e14e2618f2c57354b5628704687af39868c1a69faf3755e36107bdeed39ebd	同文書の未決事項はこの要求で裁定しない。	unclassified-U
+docs/requirements/bp-operations.md	O028	sentence	132	209	aaad1e59041e419644096ce420bcd7f87a264e9e183b80f0a328470e27159639	現行の prompt-audit が無い場合、監査を実行	unclassified-U
+docs/requirements/bp-operations.md	O028	normative	103	111	036e0c811f86554f88d4e103809230f050e266bc14e281618962bb3874e1a1ab	して後の run から照会できるようにしなければならない。同文書の未決事	unclassified-U
+docs/requirements/bp-operations.md	O028	normative	200	208	036e0c811f86554f88d4e103809230f050e266bc14e281618962bb3874e1a1ab	と、継承する基準が無いという理由を報告しなければならない。	unclassified-U
+docs/requirements/bp-operations.md	O030	sentence	0	32	3250f51a888b67e938db938f34b170b1c845bed3abb8de3fe6ad122c01a2ae2f	review・audit は、対象スキルを書き換えてはな	residual-group4
+docs/requirements/bp-operations.md	O030	sentence	32	47	df39f7ce6cd3e2b07f30f2bf6946e09602804bfdaff62caa04cbf9853e9dd501	修正は update が行う。	residual-group4
+docs/requirements/bp-operations.md	O030	normative	25	31	f91dc9eac60c8157a5107fae503fd9238a236ff835e8e5af0eb3f126d77d9641	w・audit は、対象スキルを書き換えてはならない。修正は upd	residual-group4
+docs/requirements/bp-operations.md	O031	sentence	0	53	7e9348056ad7a441311228909aab33ff21ca2aa32b5b10d832e92694025c1e54	review・audit は、候補を生成と別の cont	residual-group4
+docs/requirements/bp-operations.md	O031	sentence	53	77	0fc1a803240f675b28090107c05fdf7cd7ae946e1b7ea1e3286dd503dcf83436	却下した指摘も理由とともに含めなければならない。	residual-group4
+docs/requirements/bp-operations.md	O031	sentence	77	153	c85d11790b5c1fbf764f415135f09f299b33f453dfeda41b01a6424ceaa961ee	ただし、review の PR-BPDESIGNEDSK	residual-group4
+docs/requirements/bp-operations.md	O031	normative	44	52	3f1d6940061f154960289ebcbc6901fc4e99152dfebacff760bbb4812a64edf9	context で反証してから結果に含めなければならない。却下した指摘も	residual-group4
+docs/requirements/bp-operations.md	O031	normative	68	76	3f1d6940061f154960289ebcbc6901fc4e99152dfebacff760bbb4812a64edf9	ならない。却下した指摘も理由とともに含めなければならない。ただし、rev	residual-group4
+docs/requirements/bp-operations.md	O031	normative	136	144	3f1d6940061f154960289ebcbc6901fc4e99152dfebacff760bbb4812a64edf9	照合だけで決まる指摘は、反証を通さず含めなければならない（依頼者の裁定）	residual-group4
+docs/requirements/bp-operations.md	O032	sentence	0	55	3fc5a163e025f4a0d6a50c521dd2aa33365bf0db042f78828c50dde16ab477a8	review・audit は、指摘の状態を open ま	residual-group4
+docs/requirements/bp-operations.md	O032	sentence	55	100	131f4396dd9fe01659152d8271a0179f4712e2ed6a2fef5f2b81c1b4f7303e1a	対象を変更しない run で resolved・regr	residual-group4
+docs/requirements/bp-operations.md	O032	normative	46	54	a2892014f4ee0fef7bb2e72abf28864cbea8ec45ef8ee2c33ae6ed638a526604	 または dismissed として返さなければならない。対象を変更しな	residual-group4
+docs/requirements/bp-operations.md	O032	normative	93	99	a2892014f4ee0fef7bb2e72abf28864cbea8ec45ef8ee2c33ae6ed638a526604	olved・regressed を確定してはならない。	residual-group4
+docs/requirements/bp-operations.md	O033	sentence	0	74	0c0cd8c23d37f7c4a7d2805c9018964bf8495c75df5f2104dc73828b0fdb118b	review・audit は、指摘と「確認済みで問題なし	residual-group4
+docs/requirements/bp-operations.md	O033	sentence	74	101	52cc042c391c1eb8756fa9ea40fa6142bc1d18fb103c39d6c02c226c662c5896	結果が結び付かない資産を「問題なし」としてはならない。	residual-group4
+docs/requirements/bp-operations.md	O033	normative	65	73	d4aff9e4de562fbd5417b119a31a3c3952a588a5df050944037212bd32bf571b	skip 一覧、未検査の観点を結果に示さなければならない。結果が結び付か	residual-group4
+docs/requirements/bp-operations.md	O033	normative	94	100	d4aff9e4de562fbd5417b119a31a3c3952a588a5df050944037212bd32bf571b	結果が結び付かない資産を「問題なし」としてはならない。	residual-group4
+docs/requirements/bp-operations.md	O036	sentence	0	53	2b9d07b18f60fa66c34149d824af0672a4f5cf77c7b710c9bafbf5fc407472a1	review・audit は、指摘を update の修	residual-group4
+docs/requirements/bp-operations.md	O036	sentence	53	84	775597005e2088e00cab5b86e63cd20c233573766fd5724aae87a6eb606c558f	機能間の受け渡しで、内容・根拠・判断の状態を失ってはなら	residual-group4
+docs/requirements/bp-operations.md	O036	normative	44	52	cc64bcf3a2e8daa0cea0e5259b8af04a8d9e9a857035abbd30d825f6b39caee4	e の修正の根拠として受け取れる形で返さなければならない。機能間の受け渡	residual-group4
+docs/requirements/bp-operations.md	O036	normative	77	83	cc64bcf3a2e8daa0cea0e5259b8af04a8d9e9a857035abbd30d825f6b39caee4	受け渡しで、内容・根拠・判断の状態を失ってはならない。	residual-group4
