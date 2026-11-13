@@ -302,6 +302,12 @@ test('create: 計画（独立な 2 体・統合・振り分け・単位ごとの
   const t2 = log.find((x) => x.label === 'propose-T2')
   assert.ok(t2.prompt.includes('T1 の決定'), '依存のある論点に上流の案の中身が渡る')
   assert.ok(log.findIndex((x) => x.label === 'propose-T1') < log.findIndex((x) => x.label === 'propose-T2'))
+  const t1 = log.filter((x) => x.label === 'propose-T1')
+  assert.equal(t1.length, 2, '欠陥で戻した論点の実行役は 2 回走る')
+  assert.ok(!t1[0].prompt.includes('### 前の案'), '初回には前の案が無い')
+  const back = t1[1].prompt.split('### 前の案')[1] || ''
+  assert.ok(back.includes('T1 の決定'), '欠陥で戻した論点の実行役に前の案（決定の文）が渡る')
+  assert.ok(!back.startsWith('\nnull'), '前の案が null で渡らない')
   const L = ledger(state)
   assert.ok(L.written)
   assert.match(readFileSync(art, 'utf8'), /決定と理由を書いた/)

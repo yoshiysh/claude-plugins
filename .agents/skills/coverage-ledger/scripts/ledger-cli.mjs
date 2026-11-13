@@ -133,7 +133,7 @@ function buildArgs(L, d, dir, unread) {
     const issues = L.plan.issues || []
     const pending = issues.filter((i) => !L.proposals[i.id] || (L.issue_defects[i.id] || []).length)
     const cap = Math.floor((C.LIMITS.maxAgents - 2) / 2)
-    const batch = pending.slice(0, cap).map((i) => ({ ...i, items: L.routes.filter((r) => r.dest === 'issue' && r.target === i.id).map((r) => ({ id: r.input_id, kind: L.items.find((x) => x.id === r.input_id).kind, text: textOf[r.input_id] })), defects: L.issue_defects[i.id] || [] }))
+    const batch = pending.slice(0, cap).map((i) => ({ ...i, items: L.routes.filter((r) => r.dest === 'issue' && r.target === i.id).map((r) => ({ id: r.input_id, kind: L.items.find((x) => x.id === r.input_id).kind, text: textOf[r.input_id] })), defects: L.issue_defects[i.id] || [], prev: L.proposals[i.id] || null }))
     return {
       ...base, stage: 'generate', issues: batch, accepted: Object.fromEntries(Object.entries(L.proposals).filter(([k]) => !batch.some((b) => b.id === k))),
       allIssueIds: issues.map((i) => i.id), issueTitles: issues.map((i) => ({ id: i.id, title: i.title, question: i.question })), writeAfter: pending.length <= cap,

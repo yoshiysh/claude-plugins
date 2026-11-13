@@ -474,7 +474,7 @@ async function generateStage() {
 この論点の案を 1 つ決め、理由・退けた案・未確認の前提（確かめ方）を返す。利用者の価値判断が要るものだけを open_questions_for_user に挙げる。下の入力の全てについて、読んだ証拠に逐語の引用を read に付ける。
 ### 上流の論点の案（前提にする。決め直さない）
 ${JSON.stringify(upstream)}
-${defects.length ? `### この論点に戻ってきた欠陥（直す）\n${JSON.stringify(defects)}\n### 前の案\n${JSON.stringify(accepted[it.id] || null)}` : ''}
+${defects.length ? `### この論点に戻ってきた欠陥（直す）\n${JSON.stringify(defects)}\n### 前の案\n${JSON.stringify(it.prev || null)}` : ''}
 ### 入力（全文）
 ${items.map((i) => `#### ${i.id} [${i.kind}]\n${i.text}`).join('\n\n') || '（なし）'}`, PROPOSAL_SCHEMA, (r) => checkProposal(r, it, items)).then((x) => ({ issue_id: it.id, ...x }))
     }))
