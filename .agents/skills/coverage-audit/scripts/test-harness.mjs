@@ -39,27 +39,6 @@ const jsonAfter = (prompt, head) => {
 export const requestOf = (prompt) => prompt.slice(prompt.indexOf('## 依頼文\n') + '## 依頼文\n'.length, prompt.indexOf('\n## 決定の記録')).trim()
 export const goalIds = (prompt) => JSON.parse(prompt.slice(prompt.indexOf('## 項目の id（items に使う）\n') + '## 項目の id（items に使う）\n'.length).split('\n')[0])
 export const groupItems = (prompt) => bodyLines(prompt).map((l) => JSON.parse(l))
-// 計画役・統合役の prompt の「目標・受け入れ基準の id（goals に使う）」の一覧。
-export const goalItemIdsOf = (prompt) => { const h = '### 目標・受け入れ基準の id（goals に使う）\n'; const i = prompt.indexOf(h); return i < 0 ? [] : JSON.parse(prompt.slice(i + h.length).split('\n')[0]) }
-// 束の「受け入れ基準」「固定した制約」の節の項目の id（constraint_map に使う。目標の項目は含めない）。
-export function constraintIdsOf(prompt) {
-  const ids = []
-  let on = false
-  for (const l of prompt.split('\n')) {
-    if (/^## /.test(l)) on = /^## (受け入れ基準|固定した制約)/.test(l)
-    const m = on && /^ {2}- ([A-Z][A-Z0-9-]*\d[\w-]*): /.exec(l)
-    if (m && !ids.includes(m[1])) ids.push(m[1])
-  }
-  return ids
-}
-// 観点の検証役の prompt（束を含む）の「### 本文（観点）」の観点。
-export const unitOf = (prompt) => JSON.parse(prompt.slice(prompt.indexOf('### 本文（観点）\n') + '### 本文（観点）\n'.length).split('\n')[0])
-// 閉じた問いの答え: Q1・Q2 と goals ごとの Q3。no にする問いを noFor(key) で選ぶ（key は Q1・Q2・Q3:<goal>）。引用は観点の手続き。
-export function unitAnswers(prompt, noFor = () => false) {
-  const u = unitOf(prompt)
-  const qs = [{ question: 'Q1' }, { question: 'Q2' }, ...(u.goals || []).map((g) => ({ question: 'Q3', goal_id: g }))]
-  return { unit_id: u.id, answers: qs.map((q) => ({ ...q, answer: noFor(q.question === 'Q3' ? `Q3:${q.goal_id}` : q.question) ? 'no' : 'yes', quote: u.procedure })) }
-}
 // 計画役・統合役の prompt の索引（1 行 1 資産、先頭の欄が資産の id）から、資産の id を読む。
 export const indexIds = (prompt) => bodyLines(prompt).map((l) => l.split('\t')[0]).filter(Boolean)
 
@@ -76,7 +55,7 @@ export function mockAgent(over = {}, log = []) {
     const name = opts.label.split('（')[0]
     if (over[name]) { const r = over[name](prompt, opts, log); if (r !== undefined) return r }
     if (over[role]) { const r = over[role](prompt, opts, log); if (r !== undefined) return r }
-    const lenses = [{ id: 'X1', name: '整合', procedure: '主張と根拠を対応づけて食い違いを探す', applies_to: indexIds(prompt), goals: goalItemIdsOf(prompt) }]
+    const lenses = [{ id: 'X1', name: '整合', procedure: '主張と根拠を対応づけて食い違いを探す', applies_to: indexIds(prompt) }]
     if (role === 'goal') return { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: requestOf(prompt) }], items: goalIds(prompt) }] }
     if (role === 'plan') return { lenses, questions: [], constraint_map: constraintMap(prompt) }
     if (role === 'integrate') {
@@ -86,7 +65,7 @@ export function mockAgent(over = {}, log = []) {
       const defects = prompt.includes('### 欠陥（index') ? jsonAfter(prompt, '### 欠陥（index は配列の位置）') : []
       return { lenses, questions: [], constraint_map: constraintMap(prompt), source_map: src.map((s) => ({ source: s, merged_into: 'X1', dropped_reason: '' })), defect_responses: defects.map((d) => ({ defect_index: d.index, action: 'fixed', reason: '直した' })) }
     }
-    if (role === 'verify' && opts.label.startsWith('verify-unit-')) return unitAnswers(prompt)
+    if (role === 'verify' && opts.label.startsWith('verify-unit-')) return { unit_id: opts.label.slice('verify-unit-'.length).split('（')[0], defects: [] }
     if (role === 'read') return { cell_id: opts.label.slice('read-'.length).split('（')[0], evidence: evidenceOf(prompt), findings: [], outside_notes: [], none_reason: '手続きに沿って全て読み、該当が無かった' }
     if (role === 'verify') {
       const fs = jsonAfter(prompt, '### 指摘（index は配列の位置）')
@@ -98,7 +77,7 @@ export function mockAgent(over = {}, log = []) {
   }
 }
 function constraintMap(prompt) {
-  const ids = constraintIdsOf(prompt)
+  const ids = [...prompt.matchAll(/^ {2}- ([A-Z][A-Z0-9-]*\d[\w-]*): /gm)].map((m) => m[1])
   return ids.map((id) => ({ constraint_id: id, handled_by: ['purpose'] }))
 }
 

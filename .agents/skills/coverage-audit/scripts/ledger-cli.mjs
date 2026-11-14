@@ -142,8 +142,6 @@ function commonBrief(L, unread) {
   return `# 依頼の束（coverage-audit）
 ## 固定した目標（変えない。constraint_map の対象ではない）
 ${goalLines(L.goal.text)}
-## 目標の項目（観点の goals で id を指す）
-${itemLines(L.goal.items)}
 ## 受け入れ基準（満たすかを確かめる。id で指す）
 ${itemLines(L.criteria)}
 ## 固定した制約（変えない。id で指す）
@@ -152,8 +150,6 @@ ${unread.length ? `## 利用者のヒント（取り込む）\n${unread.map((h) 
 }
 const briefRef = (dir, text) => wholeRef(writeSnap(dir, text), text)
 const targetAssetIds = (L) => Object.keys(L.assets).filter((id) => !L.assets[id].retro)
-// 計画の観点の goals が指す id（目標と受け入れ基準。制約は constraint_map で受ける）。
-const goalItemIds = (L) => [...L.goal.items, ...L.criteria].map((c) => c.id)
 // 持ち越しで資産が変わる（節が足される・見出しが変わる）と、計画の applies_to が実在しない資産を指すか、どの観点も当たらない資産が出る。
 // 枡を読む前に計画の欠陥として統合役に戻す。同じ欠陥は重ねない（同じ状態の next が同じ呼び出しを返すように）。
 // 持ち越しは新しいやり直しの契機なので、欠陥を足したときはやり直しの数を戻す（前の run で上限に達した台帳が、答える先の無い needs_input で止まらないように）。
@@ -186,7 +182,7 @@ function buildArgs(L, d, dir, unread) {
     } else {
       // 統合し直さないときは、前の計画のうち中身が変わって検証していない観点だけを、観点ごとの束で渡す。
       units = ((L.plan && L.plan.lenses) || []).filter((u) => !L.verified_units.includes(C.unitKey(u)))
-        .map((u) => ({ unit_id: u.id, key: C.unitKey(u), goals: Array.isArray(u.goals) ? u.goals : [], brief: briefRef(dir, `${common}\n### 本文（観点）\n${C.unitText(u)}\n`) }))
+        .map((u) => ({ unit_id: u.id, key: C.unitKey(u), brief: briefRef(dir, `${common}\n### 本文（観点）\n${C.unitText(u)}\n`) }))
     }
     // 束は役ごとに分け、各役にはその役が要る文だけを渡す（計画役・観点の検証役に前の欠陥や依頼文を見せない）。
     // brief: 共通の前提だけ（計画役・最初の統合役・この呼び出しで統合した観点の検証役）。goalBrief: 依頼文と決定の記録（目標の照合役）。
@@ -197,7 +193,7 @@ function buildArgs(L, d, dir, unread) {
       ? briefRef(dir, `${common}\n### 前の計画\n${JSON.stringify(L.plan, null, 1)}\n### 欠陥（index は配列の位置）\n${rows(L.plan_defects.map((x, i) => ({ index: i, ...x })))}\n### 利用者の回答\n${rows(answers)}\n`)
       : null
     return {
-      ...base, brief: briefRef(dir, common), goalChecked: L.goal.checked, goalItemIds: goalItemIds(L),
+      ...base, brief: briefRef(dir, common), goalChecked: L.goal.checked,
       ...(L.goal.checked ? {} : { goalBrief: briefRef(dir, `${common}\n## 依頼文\n${L.request}\n## 決定の記録\n${L.decisions ?? '（無し）'}\n`), goalIds: goalIds(L) }),
       ...(again ? { againBrief: again } : {}), givenLensIds: L.lenses.filter((l) => l.origin === 'user').map((l) => l.id),
       prevLensIds, defectCount: L.plan_defects.length, answerIds: answers.map((a) => a.id), index, units, verifiedKeys: L.verified_units, ...(assetIds ? { assetIds } : {}),
@@ -295,7 +291,7 @@ const bump = (L, k) => {
 const clear = (L, k) => { delete L.attempts[k] }
 
 function ingestPlan(L, res, args) {
-  const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: args.givenLensIds.length > 0, givenLensIds: args.givenLensIds, assetIds: targetAssetIds(L), goalItemIds: goalItemIds(L) }
+  const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: args.givenLensIds.length > 0, givenLensIds: args.givenLensIds, assetIds: targetAssetIds(L) }
   // 目標の照合: 照合役が挙げた成果の引用と項目の id を照らし、どの項目にも受け止められていない成果を人間に返す。
   if (!args.goalChecked) {
     const g = res.goal_check
@@ -319,12 +315,10 @@ function ingestPlan(L, res, args) {
   for (const uc of res.unit_checks || []) {
     const u = units.get(uc.unit_id)
     if (!u || uc.key !== C.unitKey(u)) continue // 計画が変わった後の検証は使わない
-    // 閉じた問いの答えだけを受け付け、no の答えだけを欠陥にする（自由な欠陥の列挙は受け付けない）。
-    const p = C.checkUnitVerdict(uc.result, u.id, Array.isArray(u.goals) ? u.goals : [], C.unitText(u))
+    const p = C.checkUnitVerdict(uc.result, u.id, C.unitText(u))
     if (p.length) { bump(L, `unit:${u.id}`); addEvent(L, 'plan', 'rejected_unit_check', `${u.id}: ${p.join(' / ')}`, u.id); continue }
     clear(L, `unit:${u.id}`)
-    const ds = C.unitDefects(uc.result, u.id)
-    if (ds.length) for (const d of ds) { L.plan_defects.push(d); addEvent(L, 'plan', 'unit_defect', `${u.id}: ${d.claim}`, u.id) }
+    if (uc.result.defects.length) for (const d of uc.result.defects) { L.plan_defects.push({ unit_id: u.id, ...d }); addEvent(L, 'plan', 'unit_defect', `${u.id}: ${d.claim}`, u.id) }
     else L.verified_units.push(uc.key)
   }
   // 計画の観点を台帳の観点に写す。変われば枡は古くなる。
@@ -454,7 +448,7 @@ function cmdAnswer(o) {
     Object.assign(L, { goal: { text: text.goal, items: g.goal, checked: false, checked_by: null, problems: [] }, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints })
     clear(L, 'goal')
     // 基準・制約の id が変われば、計画の受け皿が合わなくなる。静的な欠陥として統合役に直させる。
-    const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: !needPlan(L), givenLensIds: L.lenses.filter((l) => l.origin === 'user').map((l) => l.id), goalItemIds: goalItemIds(L) }
+    const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: !needPlan(L), givenLensIds: L.lenses.filter((l) => l.origin === 'user').map((l) => l.id) }
     if (L.plan) for (const x of C.checkPlan(L.plan, ctx)) L.plan_defects.push({ unit_id: '', kind: 'static', claim: x, quote: '' })
     save(dir, L)
     return { ok: true, next: '目標の照合からやり直す。next を流す' }

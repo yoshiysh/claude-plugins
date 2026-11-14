@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 const SRC = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
-return { LIMITS, PER_CELL, RESERVED_LENSES, norm, argsSum, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkAppliesTo, checkPlan, checkUnitVerdict, unitDefects, checkGroups, groupKeys, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
+return { LIMITS, PER_CELL, RESERVED_LENSES, norm, argsSum, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkAppliesTo, checkPlan, checkUnitVerdict, checkGroups, groupKeys, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
 
 export const MAX_ATTEMPTS = 2 // 同じ枡・段の欠け（読めない・照合に落ちる）の上限。run をまたいで数える
 const PLAN_ROUNDS = 2 // 欠陥を直す統合のやり直しの上限
