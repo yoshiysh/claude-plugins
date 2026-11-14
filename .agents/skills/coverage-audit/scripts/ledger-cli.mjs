@@ -77,7 +77,19 @@ function writeSnap(dir, text) {
   if (!existsSync(file) || sha(read(file)).slice(0, 16) !== name) writeAtomic(file, text)
   return file
 }
-const wholeRef = (file, text) => { const end = text.split('\n').length; return { snapshot: file, start: 1, end, hash: rangeHash(text, 1, end) } }
+// args の参照は写しのファイル名だけにする（stateDir の長い絶対 path を args に 1 回だけ載せ、Workflow source が結合する）。
+const wholeRef = (file, text) => { const end = text.split('\n').length; return { snapshot: path.basename(file), start: 1, end, hash: rangeHash(text, 1, end) } }
+// 対象の共通の基準ディレクトリ（末尾に区切りを付ける）。args の資産・枡の id と path はここからの相対にし、基準は 1 回だけ載せる。
+// 台帳の id は絶対 path のまま（持ち越しの台帳を壊さない）。共通の先頭が無ければ空にして相対にしない。
+function targetBase(files) {
+  const parts = files.map((f) => path.dirname(f).split(path.sep))
+  if (!parts.length) return ''
+  let n = 0
+  while (parts.every((p) => n < p.length && p[n] === parts[0][n])) n++
+  const d = parts[0].slice(0, n).join(path.sep)
+  return !n ? '' : d.endsWith(path.sep) ? d : d + path.sep
+}
+const short = (base, s) => (base && s.startsWith(base) ? s.slice(base.length) : s)
 
 // 対象のファイルを今の内容で資産にし、同じ内容を写しに書く。消えた・読めない対象は返す（枡 0 件で完了にしない）。
 function currentAssets(L, dir) {
@@ -130,6 +142,8 @@ function commonBrief(L, unread) {
   return `# 依頼の束（coverage-audit）
 ## 固定した目標（変えない。constraint_map の対象ではない）
 ${goalLines(L.goal.text)}
+## 目標の項目（観点の goals で id を指す）
+${itemLines(L.goal.items)}
 ## 受け入れ基準（満たすかを確かめる。id で指す）
 ${itemLines(L.criteria)}
 ## 固定した制約（変えない。id で指す）
@@ -137,22 +151,42 @@ ${itemLines(L.constraints)}
 ${unread.length ? `## 利用者のヒント（取り込む）\n${unread.map((h) => `- [${h.id}] ${h.text}`).join('\n')}\n` : ''}`
 }
 const briefRef = (dir, text) => wholeRef(writeSnap(dir, text), text)
+const targetAssetIds = (L) => Object.keys(L.assets).filter((id) => !L.assets[id].retro)
+// 計画の観点の goals が指す id（目標と受け入れ基準。制約は constraint_map で受ける）。
+const goalItemIds = (L) => [...L.goal.items, ...L.criteria].map((c) => c.id)
+// 持ち越しで資産が変わる（節が足される・見出しが変わる）と、計画の applies_to が実在しない資産を指すか、どの観点も当たらない資産が出る。
+// 枡を読む前に計画の欠陥として統合役に戻す。同じ欠陥は重ねない（同じ状態の next が同じ呼び出しを返すように）。
+// 持ち越しは新しいやり直しの契機なので、欠陥を足したときはやり直しの数を戻す（前の run で上限に達した台帳が、答える先の無い needs_input で止まらないように）。
+function checkCarriedPlan(L) {
+  if (!needPlan(L) || !L.plan) return
+  let added = 0
+  for (const x of C.checkAppliesTo(L.plan.lenses, targetAssetIds(L))) {
+    if (L.plan_defects.some((d) => d.kind === 'static' && d.claim === x)) continue
+    L.plan_defects.push({ unit_id: '', kind: 'static', claim: x, quote: '' })
+    addEvent(L, 'plan', 'static_problem', x)
+    added++
+  }
+  if (added) L.plan_rounds = 0
+}
 function buildArgs(L, d, dir, unread) {
   const roles = Object.fromEntries(Object.entries(L.roles).map(([k, r]) => [k, { model: r.model, effort: r.effort }]))
-  const base = { skillDir: path.dirname(HERE), stage: d.step, roles, criteriaIds: L.criteria.map((c) => c.id), constraintIds: L.constraints.map((c) => c.id) }
+  const tb = targetBase(L.targets)
+  const base = { skillDir: path.dirname(HERE), stage: d.step, roles, criteriaIds: L.criteria.map((c) => c.id), constraintIds: L.constraints.map((c) => c.id), snapDir: snapDir(dir) + path.sep, targetBase: tb }
   const common = commonBrief(L, unread)
   if (d.step === 'plan') {
     const answers = L.answers.filter((a) => !L.answered.includes(a.id) && a.target_kind === 'question')
     const integrates = needPlan(L) && (!L.plan || L.plan_defects.length || answers.length)
     let index = null
     let units = []
+    let assetIds = null
     if (integrates) {
+      assetIds = targetAssetIds(L).map((id) => short(tb, id))
       const text = Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => `${id}\t${a.snap}\t${a.start}-${a.end}\t${(a.trail || []).join(' > ') || a.heading}`).join('\n')
       index = briefRef(dir, text)
     } else {
       // 統合し直さないときは、前の計画のうち中身が変わって検証していない観点だけを、観点ごとの束で渡す。
       units = ((L.plan && L.plan.lenses) || []).filter((u) => !L.verified_units.includes(C.unitKey(u)))
-        .map((u) => ({ unit_id: u.id, key: C.unitKey(u), brief: briefRef(dir, `${common}\n### 本文（観点）\n${C.unitText(u)}\n`) }))
+        .map((u) => ({ unit_id: u.id, key: C.unitKey(u), goals: Array.isArray(u.goals) ? u.goals : [], brief: briefRef(dir, `${common}\n### 本文（観点）\n${C.unitText(u)}\n`) }))
     }
     // 束は役ごとに分け、各役にはその役が要る文だけを渡す（計画役・観点の検証役に前の欠陥や依頼文を見せない）。
     // brief: 共通の前提だけ（計画役・最初の統合役・この呼び出しで統合した観点の検証役）。goalBrief: 依頼文と決定の記録（目標の照合役）。
@@ -163,10 +197,10 @@ function buildArgs(L, d, dir, unread) {
       ? briefRef(dir, `${common}\n### 前の計画\n${JSON.stringify(L.plan, null, 1)}\n### 欠陥（index は配列の位置）\n${rows(L.plan_defects.map((x, i) => ({ index: i, ...x })))}\n### 利用者の回答\n${rows(answers)}\n`)
       : null
     return {
-      ...base, brief: briefRef(dir, common), goalChecked: L.goal.checked,
+      ...base, brief: briefRef(dir, common), goalChecked: L.goal.checked, goalItemIds: goalItemIds(L),
       ...(L.goal.checked ? {} : { goalBrief: briefRef(dir, `${common}\n## 依頼文\n${L.request}\n## 決定の記録\n${L.decisions ?? '（無し）'}\n`), goalIds: goalIds(L) }),
       ...(again ? { againBrief: again } : {}), givenLensIds: L.lenses.filter((l) => l.origin === 'user').map((l) => l.id),
-      prevLensIds, defectCount: L.plan_defects.length, answerIds: answers.map((a) => a.id), index, units, verifiedKeys: L.verified_units,
+      prevLensIds, defectCount: L.plan_defects.length, answerIds: answers.map((a) => a.id), index, units, verifiedKeys: L.verified_units, ...(assetIds ? { assetIds } : {}),
     }
   }
   if (d.step === 'review') {
@@ -178,7 +212,7 @@ function buildArgs(L, d, dir, unread) {
       const a = L.assets[c.asset]
       if (!a) continue
       const l = L.lenses.find((x) => x.id === c.lens)
-      cells.push({ cell_id: id, path: a.path, snapshot: a.snap, start: a.start, end: a.end, hash: a.hash, blocks: a.blocks.map(([s, e]) => [a.start + s, a.start + e]), pass: c.pass, lens: l.id, brief: briefRef(dir, `${common}\n## 観点\n観点: ${l.name}\n手続き: ${l.procedure}\n`) })
+      cells.push({ cell_id: short(tb, id), path: a.retro ? a.path : short(tb, a.path), ...(a.retro ? { retro: true } : {}), snapshot: path.basename(a.snap), start: a.start, end: a.end, hash: a.hash, blocks: a.blocks.map(([s, e]) => [a.start + s, a.start + e]), pass: c.pass, lens: l.id, brief: briefRef(dir, `${common}\n## 観点\n観点: ${l.name}\n手続き: ${l.procedure}\n`) })
     }
     return { ...base, cells }
   }
@@ -203,6 +237,7 @@ function cmdNext(o) {
   }
   const { assets, missing } = currentAssets(L, dir)
   const changes = refresh(L, assets)
+  if (!missing.length) checkCarriedPlan(L)
   for (;;) {
     openCycle(L)
     const d = decide(L, { missingTargets: missing })
@@ -237,7 +272,7 @@ function cmdNext(o) {
 
 // args が指す写しを読み、範囲の hash が args と合うかを照らす。合わなければ受け取らない。
 function readRef(dir, ref, what) {
-  const file = path.resolve(String(ref.snapshot))
+  const file = path.resolve(snapDir(dir), String(ref.snapshot))
   if (path.dirname(file) !== snapDir(dir) || !existsSync(file)) throw new Fail(`${what} の写しが stateDir の写しの置き場に無い: ${ref.snapshot}`)
   const text = read(file)
   if (rangeHash(text, ref.start, ref.end) !== ref.hash) throw new Fail(`${what} の写しの hash が args と違う（写しが書き換わった。next からやり直す）: ${ref.snapshot}`)
@@ -260,7 +295,7 @@ const bump = (L, k) => {
 const clear = (L, k) => { delete L.attempts[k] }
 
 function ingestPlan(L, res, args) {
-  const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: args.givenLensIds.length > 0, givenLensIds: args.givenLensIds }
+  const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: args.givenLensIds.length > 0, givenLensIds: args.givenLensIds, assetIds: targetAssetIds(L), goalItemIds: goalItemIds(L) }
   // 目標の照合: 照合役が挙げた成果の引用と項目の id を照らし、どの項目にも受け止められていない成果を人間に返す。
   if (!args.goalChecked) {
     const g = res.goal_check
@@ -284,10 +319,12 @@ function ingestPlan(L, res, args) {
   for (const uc of res.unit_checks || []) {
     const u = units.get(uc.unit_id)
     if (!u || uc.key !== C.unitKey(u)) continue // 計画が変わった後の検証は使わない
-    const p = C.checkUnitVerdict(uc.result, u.id, C.unitText(u))
+    // 閉じた問いの答えだけを受け付け、no の答えだけを欠陥にする（自由な欠陥の列挙は受け付けない）。
+    const p = C.checkUnitVerdict(uc.result, u.id, Array.isArray(u.goals) ? u.goals : [], C.unitText(u))
     if (p.length) { bump(L, `unit:${u.id}`); addEvent(L, 'plan', 'rejected_unit_check', `${u.id}: ${p.join(' / ')}`, u.id); continue }
     clear(L, `unit:${u.id}`)
-    if (uc.result.defects.length) for (const d of uc.result.defects) { L.plan_defects.push({ unit_id: u.id, ...d }); addEvent(L, 'plan', 'unit_defect', `${u.id}: ${d.claim}`, u.id) }
+    const ds = C.unitDefects(uc.result, u.id)
+    if (ds.length) for (const d of ds) { L.plan_defects.push(d); addEvent(L, 'plan', 'unit_defect', `${u.id}: ${d.claim}`, u.id) }
     else L.verified_units.push(uc.key)
   }
   // 計画の観点を台帳の観点に写す。変われば枡は古くなる。
@@ -295,18 +332,21 @@ function ingestPlan(L, res, args) {
   for (const l of L.lenses) l.version = lensVersion(l)
 }
 
+// args の枡の id は対象の基準からの相対（振り返りの枡と、基準を持たない前の形の args はそのまま）。台帳の id に戻してから使う。
+const fullCellId = (L, args, s) => (L.cells[s] ? s : `${args.targetBase || ''}${s}`)
 function ingestReview(L, res, args, dir) {
   const rows = new Map((res.cells || []).map((r) => [r.cell_id, r]))
   for (const sent of args.cells) {
-    const c = L.cells[sent.cell_id]
+    const id = fullCellId(L, args, sent.cell_id)
+    const c = L.cells[id]
     if (!c || c.status === 'gone') continue
     const row = rows.get(sent.cell_id)
     if (!row) continue // 走らなかった枡は試行に数えず、次の呼び出しで渡す
     const a = L.assets[c.asset]
     if (!a || a.hash !== sent.hash) continue // 読んだ後に対象が変わった。次の next で古い印が付く
     const before = c.attempts
-    const text = readRef(dir, sent, sent.cell_id)
-    settleCell(L, sent.cell_id, row, { ...withBlocks({ text }), cell_id: sent.cell_id, retro: !!a.retro })
+    const text = readRef(dir, sent, id)
+    settleCell(L, id, row, { ...withBlocks({ text }), cell_id: id, retro: !!a.retro })
     if (allFailed && c.attempts > before) c.env_attempts = (c.env_attempts || 0) + c.attempts - before
   }
 }
@@ -414,7 +454,7 @@ function cmdAnswer(o) {
     Object.assign(L, { goal: { text: text.goal, items: g.goal, checked: false, checked_by: null, problems: [] }, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints })
     clear(L, 'goal')
     // 基準・制約の id が変われば、計画の受け皿が合わなくなる。静的な欠陥として統合役に直させる。
-    const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: !needPlan(L), givenLensIds: L.lenses.filter((l) => l.origin === 'user').map((l) => l.id) }
+    const ctx = { constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: !needPlan(L), givenLensIds: L.lenses.filter((l) => l.origin === 'user').map((l) => l.id), goalItemIds: goalItemIds(L) }
     if (L.plan) for (const x of C.checkPlan(L.plan, ctx)) L.plan_defects.push({ unit_id: '', kind: 'static', claim: x, quote: '' })
     save(dir, L)
     return { ok: true, next: '目標の照合からやり直す。next を流す' }

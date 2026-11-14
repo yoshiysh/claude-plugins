@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 const SRC = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
-return { LIMITS, PER_CELL, RESERVED_LENSES, norm, argsSum, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkPlan, checkUnitVerdict, checkGroups, groupKeys, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
+return { LIMITS, PER_CELL, RESERVED_LENSES, norm, argsSum, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkAppliesTo, checkPlan, checkUnitVerdict, unitDefects, checkGroups, groupKeys, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
 
 export const MAX_ATTEMPTS = 2 // 同じ枡・段の欠け（読めない・照合に落ちる）の上限。run をまたいで数える
 const PLAN_ROUNDS = 2 // 欠陥を直す統合のやり直しの上限
@@ -32,7 +32,10 @@ const RETRO_LENSES = [
 ]
 
 export const sha = (s) => createHash('sha256').update(String(s)).digest('hex')
-export const lensVersion = (l) => sha(JSON.stringify([l.name, l.procedure])).slice(0, 12)
+// 観点の版: 名前・手続きと、当てる資産（applies_to。計画の観点だけが持つ）。持たない観点の版は名前と手続きだけで決まる。
+export const lensVersion = (l) => sha(JSON.stringify(Array.isArray(l.applies_to) ? [l.name, l.procedure, [...new Set(l.applies_to)].sort()] : [l.name, l.procedure])).slice(0, 12)
+// 観点がその資産に当たるか。applies_to を持たない観点（スキルの観点・利用者の観点・横展開の観点）は全ての資産に当たる。
+export const appliesTo = (l, assetId) => !Array.isArray(l.applies_to) || l.applies_to.includes(assetId)
 const slug = (s) => s.toLowerCase().replace(/[`*_~[\]()<>#:"'!?,.。、（）「」]/g, '').trim().replace(/\s+/g, '-') || 'section'
 // 行の範囲（1 始まり・両端を含む）の本文と hash。資産・索引・束ねの全件で同じ式を使い、ingest が写しと照らす。
 export const rangeText = (text, start, end) => String(text).split('\n').slice(start - 1, end).join('\n')
@@ -95,7 +98,7 @@ export function newLedger({ goal, goalItems, checkedBy = null, request, decision
     version: 1, rev: 0, cycle: 1, goal: { text: goal, items: goalItems, checked: !!checkedBy, checked_by: checkedBy, problems: [] }, request, decisions, criteria, constraints,
     config: { ...DEFAULT_CONFIG, ...config }, roles, targets, seeds: seeds || [],
     plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], verified_units: [], answers: [], answered: [],
-    lenses: [...SKILL_LENSES.map((l) => ({ ...l, origin: 'skill' })), ...(lenses || []).map((l) => ({ ...l, origin: 'user' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
+    lenses: [...SKILL_LENSES.map((l) => ({ ...l, origin: 'skill' })), ...(lenses || []).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
     attempts: {}, env_attempts: {}, fail_streak: 0,
     assets: {}, cells: {}, findings: {}, events: [], groups: [], retro_cycles: [], group_cycles: [], saturation: [],
     calls: [], agents: [], hints_read: [], pending: null,
@@ -116,7 +119,7 @@ export function refresh(L, assets, { partial = false } = {}) {
   if (!partial) for (const id of Object.keys(L.assets)) if (!now.has(id) && !L.assets[id].retro) { changes.gone.push(id); delete L.assets[id] }
   const wantLens = new Map(L.lenses.map((l) => [l.id, l]))
   for (const a of assets) {
-    for (const l of a.retro ? L.lenses.filter((x) => x.retro) : targetLenses(L)) {
+    for (const l of a.retro ? L.lenses.filter((x) => x.retro) : targetLenses(L).filter((x) => appliesTo(x, a.id))) {
       for (let p = 1; p <= L.config.k; p++) {
         const id = `${a.id}|${l.id}|p${p}`
         const c = L.cells[id]
@@ -131,7 +134,8 @@ export function refresh(L, assets, { partial = false } = {}) {
   }
   for (const [id, c] of Object.entries(L.cells)) {
     const a = L.assets[c.asset]
-    if ((!a || !wantLens.has(c.lens)) && c.status !== 'gone') {
+    const l = wantLens.get(c.lens)
+    if ((!a || !l || !appliesTo(l, c.asset)) && c.status !== 'gone') {
       c.status = 'gone'
       for (const f of Object.values(L.findings)) if (f.cell === id && f.status === 'current') f.status = 'gone'
     }

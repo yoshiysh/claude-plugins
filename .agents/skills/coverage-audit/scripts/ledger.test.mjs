@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C, MAX_ASSET_LINES, MAX_ATTEMPTS, MAX_BLOCKS, findingId, retroAssets, splitAssets } from './ledger-core.mjs'
-import { cli, drive, evidenceOf, groupItems, mockAgent, runWorkflow, tmp } from './test-harness.mjs'
+import { cli, constraintIdsOf, drive, evidenceOf, goalItemIdsOf, groupItems, indexIds, mockAgent, runWorkflow, tmp, unitAnswers } from './test-harness.mjs'
 
 const DOC = `# 対象の文書
 
@@ -28,6 +28,8 @@ function setup(t, extra = [], doc = DOC) {
   return { d, state, doc: path.join(d, 'doc.md') }
 }
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
+// args の写しはファイル名、枡の id は対象の基準からの相対で載る。
+const snapFile = (args, r) => `${args.snapDir}${r.snapshot}`
 const finding = (claim, quote, layer = '実装') => ({ claim, quote, severity: 'MEDIUM', layer })
 const readWith = (findingsFor) => (prompt, opts) => {
   const cell = opts.label.slice('read-'.length).split('（')[0]
@@ -67,6 +69,11 @@ test('引用の照合: 短い・無い・見出しだけは読んだ証拠にな
   assert.match(C.quoteProblem('見出しの文字列はここに十分な長さで', text), /見出しだけ/)
   assert.equal(C.quoteProblem('2| 本文の一行目はこのように', text), null)
   assert.equal(C.quoteProblem('     2\t本文の一行目はこのように', text), null, 'Read の行番号の形も外す')
+  const short = '前の行の本文はここまでの長さで続く。\n  記録と持ち越し  \n後の行の本文はここからの長さで続く。'
+  assert.equal(C.quoteProblem('記録と持ち越し', short), null, '範囲の空でない 1 行の全体なら短くてよい')
+  assert.equal(C.quoteProblem('82| 記録と持ち越し', short), null, '行番号を付けた 1 行の全体も同じ')
+  assert.match(C.quoteProblem('記録と持ち', short), /字未満/, '行の一部の短い引用は拒否する')
+  assert.match(C.quoteProblem('前の行の本文', short), /字未満/, '長い行の一部の短い引用も拒否する')
   const asset = { cell_id: 'c', text: Array.from({ length: 80 }, (_, i) => `これは ${i} 行目の本文の文字列です`).join('\n'), blocks: [[0, 39], [40, 79]], need: 2 }
   const half = { cell_id: 'c', evidence: ['これは 1 行目の本文の文字列です'], findings: [], outside_notes: [], none_reason: 'なし' }
   assert.match(C.checkRead(half, asset).join(), /2 区画のうち 1 区画/)
@@ -134,6 +141,18 @@ test('不正な出力: 偽の引用の読みは受け付けず、読み直す', 
   assert.equal(c.status, 'settled')
   assert.equal(c.attempts, 1, '偽の引用は ingest が写しに照らして落とし、試行に数えて次の呼び出しで読み直す')
   assert.ok(L.events.some((e) => e.kind === 'rejected_read'))
+})
+
+test('枡の id: 読む役が cell_id を切り詰めて返しても、script の持つ id で受け付ける', async (t) => {
+  const { state } = setup(t)
+  const { stop } = await drive(state, mockAgent({ read: (p, o) => {
+    const cell = o.label.slice('read-'.length).split('（')[0]
+    return { cell_id: cell.slice(-20), evidence: evidenceOf(p), findings: [], outside_notes: [], none_reason: '該当なし' }
+  } }))
+  assert.equal(stop.stop, 'complete')
+  const L = ledger(state)
+  assert.ok(Object.values(L.cells).every((c) => c.status === 'settled' && c.attempts === 0), JSON.stringify(Object.values(L.cells).map((c) => [c.status, c.attempts, c.problems])))
+  assert.ok(!L.events.some((e) => e.kind === 'rejected_read'))
 })
 
 test('検証役の却下: 検証が揃わない枡は読み直しに戻り、次で確かめられる', async (t) => {
@@ -267,7 +286,7 @@ test('束の写し: 束が書き換わったら ingest は台帳を変えずに�
   const n = cli('next', '--state', state)
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
   writeFileSync(path.join(d, 'r.json'), JSON.stringify(await runWorkflow(args, mockAgent())))
-  writeFileSync(args.brief.snapshot, `${readFileSync(args.brief.snapshot, 'utf8')}書き足し\n`)
+  writeFileSync(snapFile(args, args.brief), `${readFileSync(snapFile(args, args.brief), 'utf8')}書き足し\n`)
   const before = readFileSync(path.join(state, 'ledger.json'), 'utf8')
   const g = cli('ingest', '--state', state, '--result', path.join(d, 'r.json'))
   assert.equal(g.code, 2)
@@ -336,7 +355,7 @@ test('写し: args の hash と写しが違えば ingest は台帳を変えず�
   assert.equal(n.step, 'review')
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
   const res = await runWorkflow(args, mockAgent())
-  writeFileSync(args.cells[0].snapshot, readFileSync(args.cells[0].snapshot, 'utf8').replace('一つ目の主張', '書き換えた主張'))
+  writeFileSync(snapFile(args, args.cells[0]), readFileSync(snapFile(args, args.cells[0]), 'utf8').replace('一つ目の主張', '書き換えた主張'))
   const rp = path.join(state, 'r.json')
   writeFileSync(rp, JSON.stringify(res))
   const before = readFileSync(path.join(state, 'ledger.json'), 'utf8')
@@ -347,11 +366,55 @@ test('写し: args の hash と写しが違えば ingest は台帳を変えず�
   // next からやり直すと、書き換わった写しを書き直して同じ呼び出しを返し、受け取れる。
   const again = cli('next', '--state', state)
   assert.equal(again.call_id, n.call_id)
-  assert.match(readFileSync(args.cells[0].snapshot, 'utf8'), /一つ目の主張/)
+  assert.match(readFileSync(snapFile(args, args.cells[0]), 'utf8'), /一つ目の主張/)
   writeFileSync(rp, JSON.stringify(await runWorkflow(args, mockAgent())))
   assert.equal(cli('ingest', '--state', state, '--result', rp).code, 0)
   const L = ledger(state)
-  assert.ok(args.cells.every((c) => L.cells[c.cell_id].status === 'settled'))
+  assert.ok(args.cells.every((c) => L.cells[`${args.targetBase}${c.cell_id}`].status === 'settled'))
+})
+
+test('args の path: 長い絶対 path の状態ディレクトリと対象でも、args に stateDir と対象の基準はそれぞれ 1 回だけ載る', async (t) => {
+  const d = tmp(t)
+  const long = (k) => path.join(d, ...Array.from({ length: 8 }, (_, i) => `${k}-${i}-とても長いディレクトリの名前-abcdefghij`))
+  const tdir = long('targets')
+  const state = long('state')
+  assert.ok(tdir.length > 200 && state.length > 200)
+  mkdirSync(tdir, { recursive: true })
+  const targets = ['a.md', 'b.md'].map((f) => path.join(tdir, f))
+  for (const f of targets) writeFileSync(f, DOC)
+  writeFileSync(path.join(d, 'goal.md'), '- G1: 対象の文書の見落としを観点ごとに確かめた指摘の一覧 〔request: 対象の文書を観点ごとにレビューして、確かめた指摘を返してほしい〕\n')
+  writeFileSync(path.join(d, 'request.md'), '対象の文書を観点ごとにレビューして、確かめた指摘を返してほしい')
+  const r = cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), ...targets.flatMap((f) => ['--target', f]))
+  assert.equal(r.code, 0, JSON.stringify(r))
+  // JSON の文の中の形で数える（Windows の区切り \\ は JSON で \\\\ になる）。
+  const count = (s, x) => s.split(JSON.stringify(x).slice(1, -1)).length - 1
+  const seen = new Set()
+  for (let i = 0; i < 20; i++) {
+    const n = cli('next', '--state', state)
+    assert.equal(n.code, 0, JSON.stringify(n))
+    if (n.stop) break
+    seen.add(n.step)
+    const raw = readFileSync(n.args_path, 'utf8')
+    const args = JSON.parse(raw)
+    assert.equal(count(raw, state), 1, `${n.step}: stateDir は 1 回`)
+    assert.equal(count(raw, tdir), 1, `${n.step}: 対象の基準は 1 回`)
+    for (const f of targets) assert.equal(count(raw, f), 0, `${n.step}: 対象の絶対 path は載らない`)
+    if (n.step === 'review') assert.ok(args.cells.length >= 2 && args.cells.every((c) => !path.isAbsolute(c.cell_id) && !path.isAbsolute(c.snapshot)))
+    const res = await runWorkflow(args, mockAgent())
+    // 資産の id を基準と結合し直せていれば、Workflow の中の applies_to の照合が通り、やり直しが起きない。
+    if (n.step === 'plan' && args.index) assert.deepEqual(res.plan_problems, [])
+    assert.ok(res.agents.every((a) => !a.label.includes('やり直し')), JSON.stringify(res.agents.map((a) => a.label)))
+    const rp = path.join(d, `r-${n.call_id}.json`)
+    writeFileSync(rp, JSON.stringify(res))
+    const g = cli('ingest', '--state', state, '--result', rp)
+    assert.equal(g.code, 0, JSON.stringify(g))
+  }
+  assert.ok(seen.has('plan') && seen.has('review'), [...seen].join(','))
+  // 台帳の枡の id は絶対 path のまま（持ち越しの台帳を壊さない）で、読んだ枡に印が付く。
+  const L = ledger(state)
+  const ids = Object.keys(L.cells).filter((id) => !id.startsWith('retro:'))
+  assert.ok(ids.length && ids.every((id) => targets.some((f) => id.startsWith(`${f}#`))))
+  assert.ok(ids.some((id) => L.cells[id].status === 'settled'))
 })
 
 test('args の大きさ: 対象が大きくても args は本文を含まず ARGS_MAX_BYTES 以下', async (t) => {
@@ -379,7 +442,8 @@ async function scaledRun(t, s) {
   writeFileSync(path.join(d, 'doc.md'), DOC)
   writeFileSync(path.join(d, 'request.md'), `${req}\n依頼文だけにある一文 RQONLY`)
   writeFileSync(path.join(d, 'goal.md'), `- G1: ${M}の指摘の一覧 〔request: ${req}〕\n`)
-  writeFileSync(path.join(d, 'criteria.md'), `- AC1: ${M}を満たす 〔request: ${req}〕\n`)
+  // 受け入れ基準を s 件にし、観点の goals ごとの閉じた問い（Q3）の no で計画の欠陥を s 件以上にする。
+  writeFileSync(path.join(d, 'criteria.md'), Array.from({ length: s }, (_, i) => `- AC${i + 1}: ${M}を満たす${i} 〔request: ${req}〕\n`).join(''))
   writeFileSync(path.join(d, 'decisions.md'), `- ${M}を守る\n`)
   writeFileSync(path.join(d, 'constraints.md'), `- D1: ${M}を守る 〔decisions: ${M}を守る〕\n`)
   const state = path.join(d, 'state')
@@ -388,22 +452,22 @@ async function scaledRun(t, s) {
   for (let i = 0; i < s; i++) assert.equal(cli('hint', '--state', state, '--text', `${M}ヒント${i}`).code, 0)
   const proc = `${M}主張ごとに根拠の文を対応づける`
   const lenses = [{ id: 'X1', name: `${M}整合`, procedure: proc }]
-  const cmap = (p) => [...p.matchAll(/^ {2}- ([A-Z][A-Z0-9]*\d): /gm)].map((m) => ({ constraint_id: m[1], handled_by: ['X1'] }))
+  const cmap = (p) => constraintIdsOf(p).map((id) => ({ constraint_id: id, handled_by: ['X1'] }))
   const qs = Array.from({ length: s }, (_, i) => ({ id: `Q${i + 1}`, question: `${M}問${i}`, why_value_judgment: `${M}理由`, options: [`${M}案`] }))
   let unitDefects = true
   let manyFindings = true
   const log = []
   const agentFn = mockAgent({
-    plan: (p) => ({ lenses, questions: [], constraint_map: cmap(p) }),
+    plan: (p) => ({ lenses: lenses.map((l) => ({ ...l, applies_to: indexIds(p), goals: goalItemIdsOf(p) })), questions: [], constraint_map: cmap(p) }),
     integrate: (p) => {
       const again = p.includes('### 前の計画')
       const defects = p.includes('### 欠陥（index') ? JSON.parse(p.split('### 欠陥（index は配列の位置）\n')[1].split('\n#')[0]) : []
-      return { lenses, questions: p.includes(`${M}回答`) ? [] : qs, constraint_map: cmap(p), source_map: (again ? ['P:X1'] : ['A:X1', 'B:X1']).map((x) => ({ source: x, merged_into: 'X1', dropped_reason: '' })), defect_responses: defects.map((x) => ({ defect_index: x.index, action: 'fixed', reason: '直した' })) }
+      return { lenses: lenses.map((l) => ({ ...l, applies_to: indexIds(p), goals: goalItemIdsOf(p) })), questions: p.includes(`${M}回答`) ? [] : qs, constraint_map: cmap(p), source_map: (again ? ['P:X1'] : ['A:X1', 'B:X1']).map((x) => ({ source: x, merged_into: 'X1', dropped_reason: '' })), defect_responses: defects.map((x) => ({ defect_index: x.index, action: 'fixed', reason: '直した' })) }
     },
     verify: (p, o) => {
       if (!o.label.startsWith('verify-unit-') || !unitDefects) return undefined
       unitDefects = false
-      return { unit_id: 'X1', defects: Array.from({ length: s }, (_, i) => ({ kind: `${M}大きすぎる`, claim: `${M}欠陥${i}`, quote: proc })) }
+      return unitAnswers(p, (k) => k.startsWith('Q3:'))
     },
     read: readWith((cell, p) => {
       if (!manyFindings || !cell.endsWith('一つ目の節|X1|p1')) return undefined
@@ -459,9 +523,9 @@ test('args の大きさ: 担当が読む文は全て束の写しに入り、args
   assert.ok(Object.values(big.L.findings).length >= 60, '多数の指摘を束ねる')
   // 役ごとの束: 計画役・観点の検証役は依頼文・前の欠陥を読まず、目標の照合役は前の計画を読まない。
   const by = (re) => big.log.filter((x) => re.test(x.label))
-  assert.ok(by(/^integrate-again/).some((x) => x.prompt.includes(`${big.M}欠陥0`)) && by(/^integrate-again/).some((x) => x.prompt.includes(`${big.M}回答`)), "見直しの統合役は欠陥と回答を読む")
+  assert.ok(by(/^integrate-again/).some((x) => x.prompt.includes('"kind":"Q3"')) && by(/^integrate-again/).some((x) => x.prompt.includes(`${big.M}回答`)), "見直しの統合役は欠陥と回答を読む")
   for (const x of [...by(/^plan-[AB]/), ...by(/^integrate$/), ...by(/^verify-unit-/)]) {
-    assert.ok(!x.prompt.includes('RQONLY') && !x.prompt.includes(`${big.M}欠陥0`) && !x.prompt.includes('### 前の計画'), `${x.label} が要らない文を読む`)
+    assert.ok(!x.prompt.includes('RQONLY') && !x.prompt.includes('"kind":"Q3"') && !x.prompt.includes('### 前の計画'), `${x.label} が要らない文を読む`)
   }
   assert.ok(by(/^goal-check/).length >= 2 && by(/^goal-check/).every((x) => x.prompt.includes('RQONLY') && !x.prompt.includes('### 前の計画')))
   for (const [i, c] of big.calls.entries()) {
@@ -477,8 +541,10 @@ test('k=2: 各回の読む役と検証役は別のモデルで起動する', asy
   const { stop } = await drive(state, mockAgent({ read: readWith((cell) => (cell.endsWith('一つ目の節|L1|p1') || cell.endsWith('一つ目の節|L1|p2') ? [finding('根拠が無い主張', 'この節は一つ目の主張を述べる本文の行である。')] : undefined)) }, log))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   for (const p of [1, 2]) {
-    const r = log.find((x) => x.label === `read-${Object.keys(ledger(state).cells).find((k) => k.endsWith(`一つ目の節|L1|p${p}`))}`)
-    const v = log.find((x) => x.label === `verify-${Object.keys(ledger(state).cells).find((k) => k.endsWith(`一つ目の節|L1|p${p}`))}`)
+    // label の枡の id は対象の基準からの相対。台帳の id の末尾と同じ。
+    const id = Object.keys(ledger(state).cells).find((k) => k.endsWith(`一つ目の節|L1|p${p}`))
+    const r = log.find((x) => x.label.startsWith('read-') && id.endsWith(x.label.slice('read-'.length)))
+    const v = log.find((x) => x.label.startsWith('verify-') && id.endsWith(x.label.slice('verify-'.length)))
     assert.ok(r && v, `p${p} の読みと検証が走る`)
     assert.notEqual(r.model, v.model, `p${p} の読む役と検証役のモデル`)
   }
@@ -507,9 +573,9 @@ test('計画: 観点の検証が欠陥を出し続けたら、統合のやり直
   const state = path.join(d, 'state')
   assert.equal(cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--target', path.join(d, 'doc.md')).code, 0)
   const log = []
-  const { stop } = await drive(state, mockAgent({ verify: (p, o) => (o.label.startsWith('verify-unit-X1') ? { unit_id: 'X1', defects: [{ kind: '大きすぎる', claim: '問いが 2 つある', quote: '"procedure":"主張と根拠を対応づけて' }] } : undefined) }, log))
+  const { stop } = await drive(state, mockAgent({ verify: (p, o) => (o.label.startsWith('verify-unit-X1') ? unitAnswers(p, (k) => k === 'Q1') : undefined) }, log))
   assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
-  assert.ok(stop.plan_defects.length >= 1)
+  assert.deepEqual(stop.plan_defects.map((x) => [x.unit_id, x.kind]), [['X1', 'Q1']], 'no の答えだけが欠陥')
   const labels = log.map((x) => x.label)
   assert.ok(labels.includes('plan-A') && labels.includes('plan-B') && labels.includes('integrate') && labels.includes('integrate-again'))
   const idx = log.find((x) => x.label === 'plan-A').prompt
@@ -647,4 +713,163 @@ test('answer: 質問への回答から作る制約の id は、既にある基�
   const ids = ledger(state).constraints.map((c) => c.id)
   assert.equal(new Set(ids).size, ids.length, JSON.stringify(ids))
   assert.deepEqual(ids, ['D1', 'A1', 'A2'])
+})
+
+// ---------------- 観点を当てる資産（applies_to） ----------------
+// 計画役を走らせる台帳（利用者の観点を渡さない）。
+function setupPlanned(t, doc = DOC) {
+  const d = tmp(t)
+  writeFileSync(path.join(d, 'doc.md'), doc)
+  writeFileSync(path.join(d, 'goal.md'), '- G1: 対象の文書の見落としを確かめた指摘の一覧 〔request: 対象の文書をレビューしてほしい〕\n')
+  writeFileSync(path.join(d, 'request.md'), '対象の文書をレビューしてほしい')
+  const state = path.join(d, 'state')
+  assert.equal(cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--target', path.join(d, 'doc.md')).code, 0)
+  return { d, state, doc: path.join(d, 'doc.md') }
+}
+// 計画役・統合役が、観点 X1 を 1 つ目の資産に、X2 を 2 つ目の資産に当てる計画を返す。
+const splitPlan = (p) => {
+  const [a, b] = indexIds(p)
+  const goals = goalItemIdsOf(p)
+  const lenses = [{ id: 'X1', name: '整合', procedure: '主張と根拠を対応づけて食い違いを探す', applies_to: [a], goals }, { id: 'X2', name: '用語', procedure: '用語ごとに定義の文を対応づけ、定義の無い用語を探す', applies_to: [b], goals }]
+  const src = p.includes('### 前の計画') ? ['P:X1', 'P:X2'] : [...p.matchAll(/^### ([AB])（/gm)].flatMap((m) => [`${m[1]}:X1`, `${m[1]}:X2`])
+  return { lenses, questions: [], constraint_map: [], source_map: src.map((s) => ({ source: s, merged_into: s.slice(-2), dropped_reason: '' })), defect_responses: [] }
+}
+
+test('applies_to: 枡は観点の数 × 資産の数でなく、当てた組の数（スキルの観点は全ての資産）', async (t) => {
+  const { state } = setupPlanned(t)
+  const log = []
+  const { stop } = await drive(state, mockAgent({ plan: splitPlan, integrate: splitPlan }, log))
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  const L = ledger(state)
+  const assets = Object.keys(L.assets).filter((id) => !L.assets[id].retro)
+  assert.equal(assets.length, 2)
+  // purpose・layer は 2 資産の全てに、X1・X2 は 1 資産ずつ: 2 × 2 + 1 + 1 = 6（全ての組なら 4 × 2 = 8）。
+  assert.equal(stop.coverage.cells, 6)
+  const live = Object.entries(L.cells).filter(([, c]) => c.status !== 'gone').map(([id]) => id)
+  assert.ok(live.includes(`${assets[0]}|X1|p1`) && live.includes(`${assets[1]}|X2|p1`))
+  assert.ok(!live.includes(`${assets[1]}|X1|p1`) && !live.includes(`${assets[0]}|X2|p1`), '当てていない組の枡を作らない')
+  assert.ok(!log.some((x) => x.label === `read-${assets[1]}|X1|p1`), '当てていない組は読まない')
+  assert.deepEqual(L.lenses.find((l) => l.id === 'X1').applies_to, [assets[0]], '台帳の観点が applies_to を持ち越す')
+})
+
+test('applies_to: 実在しない id・どの観点も当たらない資産・どの資産にも当たらない観点は、計画の欠陥', () => {
+  const ctx = { constraintIds: [], lensesGiven: false, givenLensIds: [], assetIds: ['a#1', 'a#2'] }
+  const lens = (id, applies_to) => ({ id, name: id, procedure: '何かを列挙して照らす', applies_to, goals: ['G1'] })
+  assert.deepEqual(C.checkPlan({ lenses: [lens('X1', ['a#1']), lens('X2', ['a#2'])], questions: [], constraint_map: [] }, ctx), [])
+  assert.match(C.checkPlan({ lenses: [lens('X1', ['a#1', 'a#9']), lens('X2', ['a#2'])], questions: [], constraint_map: [] }, ctx).join(), /X1 の applies_to に実在しない資産: a#9/)
+  assert.match(C.checkPlan({ lenses: [lens('X1', ['a#1'])], questions: [], constraint_map: [] }, ctx).join(), /どの観点も当たらない資産: a#2/)
+  assert.match(C.checkPlan({ lenses: [lens('X1', ['a#1', 'a#2']), lens('X2', [])], questions: [], constraint_map: [] }, ctx).join(), /観点 X2 がどの資産にも当たらない/)
+  assert.match(C.checkPlan({ lenses: [{ id: 'X1', name: 'X1', procedure: '何かを列挙して照らす', goals: ['G1'] }], questions: [], constraint_map: [] }, ctx).join(), /観点 X1 の applies_to が/, 'applies_to の無い観点を全ての資産に倒さない')
+})
+
+test('applies_to: 照合に落ちる計画は受け付けず、統合のやり直しに戻し、消えなければ枡を読まずに needs_input', async (t) => {
+  const { state } = setupPlanned(t)
+  const log = []
+  const bad = (p) => { const r = splitPlan(p); r.lenses[0].applies_to = ['/nowhere.md#無い節']; return r }
+  const { stop } = await drive(state, mockAgent({ plan: bad, integrate: bad }, log))
+  assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
+  assert.ok(stop.plan_defects.some((x) => /実在しない資産/.test(x.claim)))
+  assert.ok(stop.plan_defects.some((x) => /どの観点も当たらない資産/.test(x.claim)))
+  assert.ok(log.some((x) => x.label === 'integrate-again'), '既存のやり直しの流れに乗る')
+  assert.ok(!log.some((x) => x.label.startsWith('read-')), '受け付けない計画で枡を読まない')
+})
+
+test('applies_to: 持ち越しで足された節にどの観点も当たらなければ、枡を読む前に計画をやり直す', async (t) => {
+  const { state, doc } = setupPlanned(t)
+  assert.equal((await drive(state, mockAgent({ plan: splitPlan, integrate: splitPlan }))).stop.stop, 'complete')
+  writeFileSync(doc, `${DOC}\n## 三つ目の節\nこの節は後から足した三つ目の主張を述べる本文の行である。\n`)
+  const n = cli('next', '--state', state)
+  assert.equal(n.step, 'plan', JSON.stringify(n))
+  assert.equal(cli('next', '--state', state).call_id, n.call_id, '同じ状態の next は同じ呼び出しを返す（欠陥を重ねない）')
+  const L = ledger(state)
+  assert.ok(L.plan_defects.some((x) => /どの観点も当たらない資産: .*三つ目の節/.test(x.claim)), JSON.stringify(L.plan_defects))
+  const third = (p) => { const r = splitPlan(p); r.lenses[1].applies_to = indexIds(p).slice(1); return r }
+  const { stop } = await drive(state, mockAgent({ plan: third, integrate: third }))
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  assert.ok(Object.keys(ledger(state).cells).some((k) => k.endsWith('三つ目の節|X2|p1')))
+})
+
+test('applies_to: 観点の当てる資産が変われば、外れた組の枡は gone になり、当てる組は版が変わるので読み直す', async (t) => {
+  const { state } = setupPlanned(t)
+  assert.equal((await drive(state, mockAgent({ plan: splitPlan, integrate: splitPlan }))).stop.stop, 'complete')
+  const L = ledger(state)
+  const [a, b] = Object.keys(L.assets).filter((id) => !L.assets[id].retro)
+  // X1 を 2 つ目の資産へ移す（台帳の観点を直接書き換え、版の変化で持ち越しを確かめる）。
+  L.lenses.find((l) => l.id === 'X1').applies_to = [b]
+  L.plan.lenses.find((l) => l.id === 'X1').applies_to = [b]
+  writeFileSync(path.join(state, 'ledger.json'), JSON.stringify(L))
+  const n = cli('next', '--state', state)
+  const L2 = ledger(state)
+  assert.equal(L2.cells[`${a}|X1|p1`].status, 'gone')
+  assert.equal(L2.cells[`${b}|X1|p1`].status, 'unseen')
+  assert.equal(L2.cells[`${a}|X2|p1`], undefined)
+  assert.ok(n.step === 'plan' || n.step === 'review', JSON.stringify(n))
+})
+
+test('applies_to: 持ち越しの欠陥は、前の run でやり直しの上限に達した台帳でも計画役に戻す（applies_to の無い前の計画を含む）', async (t) => {
+  for (const kind of ['added-section', 'no-applies-to']) {
+    const { state, doc } = setupPlanned(t)
+    assert.equal((await drive(state, mockAgent({ plan: splitPlan, integrate: splitPlan }))).stop.stop, 'complete')
+    const L = ledger(state)
+    L.plan_rounds = 2
+    if (kind === 'no-applies-to') for (const l of [...L.plan.lenses, ...L.lenses.filter((x) => x.origin === 'plan')]) delete l.applies_to
+    writeFileSync(path.join(state, 'ledger.json'), JSON.stringify(L))
+    if (kind === 'added-section') writeFileSync(doc, `${DOC}\n## 三つ目の節\nこの節は後から足した三つ目の主張を述べる本文の行である。\n`)
+    const n = cli('next', '--state', state)
+    assert.equal(n.step, 'plan', `${kind}: ${JSON.stringify(n)}`)
+    assert.equal(ledger(state).plan_rounds, 0, kind)
+  }
+})
+
+// ---------------- 観点が受け持つ目標（goals）と、観点の検証役の閉じた問い ----------------
+test('goals: 実在しない id・どの観点にも無い目標・受け入れ基準・空の goals は、計画の静的な欠陥', () => {
+  const ctx = { constraintIds: [], lensesGiven: false, givenLensIds: [], goalItemIds: ['G1', 'AC1'] }
+  const lens = (id, goals) => ({ id, name: id, procedure: '何かを列挙して照らす', applies_to: ['a#1'], goals })
+  const plan = (...lenses) => C.checkPlan({ lenses, questions: [], constraint_map: [] }, ctx)
+  assert.deepEqual(plan(lens('X1', ['G1']), lens('X2', ['AC1'])), [])
+  assert.match(plan(lens('X1', ['G1', 'AC1', 'G9'])).join(), /観点 X1 の goals に実在しない目標・受け入れ基準: G9/)
+  assert.match(plan(lens('X1', ['G1'])).join(), /どの観点の goals にも無い目標・受け入れ基準: AC1/)
+  assert.match(plan(lens('X1', ['G1', 'AC1']), lens('X2', [])).join(), /観点 X2 の goals が空/)
+  assert.match(plan({ id: 'X1', name: 'X1', procedure: '何かを列挙して照らす', applies_to: ['a#1'] }).join(), /観点 X1 の goals が目標・受け入れ基準の id の配列でない/)
+})
+
+test('goals: 被覆に落ちる計画は受け付けず、統合のやり直しに戻す（plan の args には目標・受け入れ基準の id が常に載る）', async (t) => {
+  const { state } = setupPlanned(t)
+  const bad = (p) => { const r = splitPlan(p); for (const l of r.lenses) l.goals = []; return r }
+  const { stop, steps } = await drive(state, mockAgent({ plan: bad, integrate: bad }))
+  assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
+  assert.ok(stop.plan_defects.some((x) => x.kind === 'static' && /どの観点の goals にも無い目標・受け入れ基準: G1/.test(x.claim)), JSON.stringify(stop.plan_defects))
+  const plans = steps.filter((s) => s.step === 'plan')
+  assert.ok(plans.length >= 2 && plans.every((s) => JSON.stringify(s.args.goalItemIds) === '["G1"]'), '目標の照合の後の plan にも id が載る')
+})
+
+test('閉じた問い: 全て yes なら欠陥 0、no の答えだけが欠陥、過不足・自由な欠陥・逐語でない引用は受け付けない', () => {
+  const u = { id: 'X1', name: '整合', procedure: '主張ごとに根拠の文を列挙し、目標と照らす', applies_to: ['a#1'], goals: ['G1', 'AC1'] }
+  const text = C.unitText(u)
+  const p = `### 本文（観点）\n${text}\n`
+  const yes = unitAnswers(p)
+  assert.deepEqual(C.checkUnitVerdict(yes, 'X1', u.goals, text), [])
+  assert.deepEqual(C.unitDefects(yes, 'X1'), [])
+  const no = unitAnswers(p, (k) => k === 'Q2' || k === 'Q3:AC1')
+  assert.deepEqual(C.checkUnitVerdict(no, 'X1', u.goals, text), [])
+  assert.deepEqual(C.unitDefects(no, 'X1').map((d) => [d.kind, d.goal_id]), [['Q2', undefined], ['Q3', 'AC1']])
+  assert.match(C.unitDefects(no, 'X1')[1].claim, /^Q3（AC1）: /)
+  assert.match(C.checkUnitVerdict({ ...yes, defects: [{ kind: '大きすぎる', claim: '問いが 2 つある', quote: u.procedure }] }, 'X1', u.goals, text).join(), /自由な欠陥/)
+  assert.match(C.checkUnitVerdict({ ...yes, answers: yes.answers.filter((a) => a.goal_id !== 'AC1') }, 'X1', u.goals, text).join(), /答えの無い問い: Q3:AC1/)
+  assert.match(C.checkUnitVerdict({ ...yes, answers: [...yes.answers, { question: 'Q3', goal_id: 'G9', answer: 'no', quote: u.procedure }] }, 'X1', u.goals, text).join(), /聞いていない問い: Q3:G9/)
+  assert.match(C.checkUnitVerdict({ ...yes, answers: [...yes.answers, { question: 'Q4', answer: 'no', quote: u.procedure }] }, 'X1', u.goals, text).join(), /聞いていない問い: Q4/)
+  assert.match(C.checkUnitVerdict({ ...yes, answers: [...yes.answers, yes.answers[0]] }, 'X1', u.goals, text).join(), /答えの重複: Q1/)
+  assert.match(C.checkUnitVerdict({ ...yes, answers: yes.answers.map((a, i) => (i ? a : { ...a, answer: 'maybe' })) }, 'X1', u.goals, text).join(), /yes・no でない/)
+  assert.match(C.checkUnitVerdict({ ...yes, answers: yes.answers.map((a, i) => (i ? a : { ...a, quote: '観点の本文に無い偽の引用の文字列' })) }, 'X1', u.goals, text).join(), /逐語で無い/)
+})
+
+test('閉じた問い: 自由な欠陥の返り値は受け付けず（rejected_unit_check）、計画の欠陥にしない', async (t) => {
+  const { state } = setupPlanned(t)
+  const free = (p, o) => (o.label.startsWith('verify-unit-X1') ? { ...unitAnswers(p), defects: [{ kind: '大きすぎる', claim: '問いが 2 つある', quote: '主張と根拠を対応づけて食い違いを探す' }] } : undefined)
+  const { stop } = await drive(state, mockAgent({ plan: splitPlan, integrate: splitPlan, verify: free }))
+  assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
+  assert.ok(stop.stuck.includes('unit:X1'), JSON.stringify(stop))
+  const L = ledger(state)
+  assert.ok(!L.plan_defects.some((x) => /問いが 2 つある/.test(x.claim)), '自由な欠陥は計画の欠陥にならない')
+  assert.ok(L.events.some((e) => e.kind === 'rejected_unit_check' && /自由な欠陥/.test(e.text)))
 })

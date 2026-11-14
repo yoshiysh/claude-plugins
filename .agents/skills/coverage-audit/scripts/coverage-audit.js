@@ -3,7 +3,7 @@ export const meta = {
   description: '台帳の 1 段（plan・review・group のどれか）を 1 回だけ流し、生の結果と起動の記録を返す。台帳を書くのは呼び出し側の CLI',
   requirements: ['read-only', 'fresh-thread'],
   phases: [
-    { title: 'plan', detail: '目標の照合・独立な計画役 2 体・統合・観点ごとの検証' },
+    { title: 'plan', detail: '目標の照合・独立な計画役 2 体・統合・観点ごとの閉じた問い' },
     { title: 'review', detail: '枡ごとに読む役 → 形の照合 → 別のモデル・反証側の検証役' },
     { title: 'group', detail: '確かめた指摘を根本原因で束ね、別のモデル 2 体で反証する' },
   ],
@@ -34,11 +34,13 @@ const argsSum = (a) => fnv(canon(Object.fromEntries(Object.entries(a).filter(([k
 // 行番号は外して照らす（「N| 」の形と、Read の「   N\t」の形）。
 const stripNums = (s) => String(s ?? '').replace(/(^|\n)[ \t]*\d+(\| ?|\t)/g, '$1')
 const norm = (s) => stripNums(s).replace(/\s+/g, ' ').trim()
+// 短い引用は、本文の全体か、本文の空でない 1 行の全体を引くときだけ受け付ける。
+const wholeLine = (n, text) => String(text).split('\n').some((l) => l.trim() && norm(l) === n)
 function quoteProblem(q, text) {
   const n = norm(q)
   const body = norm(text)
   if (!n) return '引用が空'
-  if (n.length < QUOTE_MIN && n !== body) return `引用が ${QUOTE_MIN} 字未満`
+  if (n.length < QUOTE_MIN && n !== body && !wholeLine(n, text)) return `引用が ${QUOTE_MIN} 字未満`
   if (!body.includes(n)) return '引用が本文に逐語で無い'
   const headings = String(text).split('\n').filter((l) => /^#{1,6}\s/.test(l)).map((l) => norm(l.replace(/^#{1,6}\s*/, '')))
   if (headings.includes(n.replace(/^#{1,6}\s*/, '')) && n !== body) return '見出しだけの引用は読んだ証拠にならない'
@@ -54,10 +56,10 @@ function blocksHit(quotes, asset) {
   return hit
 }
 // 読みの形だけの照合。Workflow は本文を持たないので、ここまでを Workflow の中で照らしてやり直させる。
-function checkReadShape(rep, cellId) {
+// 枡の id は script が持つ値を正とし、読む役には写させない（長い id を写すと先頭を落として返すため）。
+function checkReadShape(rep) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
-  if (rep.cell_id !== cellId) p.push(`cell_id が違う: ${rep.cell_id}`)
   if (!arr(rep.evidence).length && !arr(rep.findings).length) p.push('読んだ証拠の引用が無い')
   arr(rep.findings).forEach((f, i) => {
     if (!isStr(f && f.claim)) p.push(`findings[${i}]: claim が空`)
@@ -70,7 +72,7 @@ function checkReadShape(rep, cellId) {
 }
 // 読みの全ての照合。CLI の ingest が、args の hash と合う写しの本文に対して使う。
 function checkRead(rep, asset) {
-  const p = checkReadShape(rep, asset.cell_id)
+  const p = checkReadShape(rep)
   if (!rep || typeof rep !== 'object') return p
   arr(rep.evidence).forEach((q, i) => { const e = quoteProblem(q, asset.text); if (e) p.push(`evidence[${i}]: ${e}`) })
   arr(rep.findings).forEach((f, i) => { const e = quoteProblem(f && f.quote, asset.text); if (e) p.push(`findings[${i}]: ${e}`) })
@@ -101,6 +103,41 @@ function settleVerdict(v, text) {
 // 観点の同一性: 中身が変われば検証し直す。
 const unitKey = (u) => fnv(canon(u))
 const unitText = (u) => JSON.stringify(u)
+// 計画の観点を当てる資産（applies_to）の照合。id の実在、どの資産にも計画の観点が 1 つ以上当たるか、どの観点も 1 つ以上の資産に当たるか。
+// 資産の被覆は計画の観点だけで数える（全ての資産に当たる purpose・layer を数えると、この照合は落ちなくなる）。
+// assetIds を渡さないと形だけを照らす。CLI は ingest と、持ち越しで資産が変わった next で照らす。
+function checkAppliesTo(lenses, assetIds) {
+  const p = []
+  const known = Array.isArray(assetIds) ? new Set(assetIds) : null
+  const hit = new Set()
+  for (const l of arr(lenses)) {
+    if (!Array.isArray(l && l.applies_to) || !l.applies_to.every(isStr)) { p.push(`観点 ${l && l.id} の applies_to が資産の id の配列でない`); continue }
+    if (!l.applies_to.length) p.push(`観点 ${l.id} がどの資産にも当たらない（applies_to が空）`)
+    for (const id of l.applies_to) {
+      if (known && !known.has(id)) p.push(`観点 ${l.id} の applies_to に実在しない資産: ${id}`)
+      hit.add(id)
+    }
+  }
+  if (known) for (const id of known) if (!hit.has(id)) p.push(`どの観点も当たらない資産: ${id}`)
+  return p
+}
+// 計画の観点が受け持つ目標・受け入れ基準（goals）の照合。id の実在、どの目標・受け入れ基準もどれかの計画の観点の goals に入るか、どの観点の goals も空でないか。
+// 被覆は計画の観点だけで数える。goalItemIds を渡さないと形だけを照らす。
+function checkGoals(lenses, goalItemIds) {
+  const p = []
+  const known = Array.isArray(goalItemIds) ? new Set(goalItemIds) : null
+  const hit = new Set()
+  for (const l of arr(lenses)) {
+    if (!Array.isArray(l && l.goals) || !l.goals.every(isStr)) { p.push(`観点 ${l && l.id} の goals が目標・受け入れ基準の id の配列でない`); continue }
+    if (!l.goals.length) p.push(`観点 ${l.id} の goals が空`)
+    for (const id of l.goals) {
+      if (known && !known.has(id)) p.push(`観点 ${l.id} の goals に実在しない目標・受け入れ基準: ${id}`)
+      hit.add(id)
+    }
+  }
+  if (known) for (const id of known) if (!hit.has(id)) p.push(`どの観点の goals にも無い目標・受け入れ基準: ${id}`)
+  return p
+}
 function checkPlan(L, ctx) {
   if (!L || typeof L !== 'object') return ['返り値が無い']
   const p = []
@@ -113,6 +150,8 @@ function checkPlan(L, ctx) {
   }
   for (const q of arr(L.questions)) { add(q.id, '質問'); if (!isStr(q.why_value_judgment)) p.push(`質問 ${q.id} に価値判断の理由が無い`) }
   if (!ctx.lensesGiven && !arr(L.lenses).length) p.push('観点が 0 件')
+  p.push(...checkAppliesTo(L.lenses, ctx.assetIds))
+  if (!ctx.lensesGiven || arr(L.lenses).length) p.push(...checkGoals(L.lenses, ctx.goalItemIds))
   const units = new Set([...arr(L.lenses).map((l) => l.id), ...RESERVED_LENSES, ...arr(ctx.givenLensIds)])
   const mapped = new Set()
   for (const m of arr(L.constraint_map)) {
@@ -144,18 +183,39 @@ function checkPlan(L, ctx) {
   }
   return p
 }
+// 観点の検証役に聞く閉じた問い。Q3 は観点の goals の id ごとに聞く。答えの no だけが計画の欠陥になる。
+const UNIT_QUESTIONS = {
+  Q1: '手続きが「何を列挙するか」を書いているか',
+  Q2: '手続きが「列挙したものを何と照らすか」を書いているか',
+  Q3: 'その手続きで、この目標・受け入れ基準が果たされたかを確かめられるか',
+}
+const ANSWERS = ['yes', 'no']
+// 期待する答えの組: Q1・Q2 を 1 つずつ、Q3 を goals の id ごとに 1 つずつ。過不足と自由な欠陥（defects）は受け付けない。
 // text を渡さないと引用の形だけを照らす（Workflow が観点の本文を持たない束の渡し方。逐語かは CLI の ingest が照らす）。
-function checkUnitVerdict(rep, unitId, text) {
+function checkUnitVerdict(rep, unitId, goals, text) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
   if (rep.unit_id !== unitId) p.push(`unit_id が違う: ${rep.unit_id}`)
-  arr(rep.defects).forEach((d, i) => {
-    if (!isStr(d && d.claim)) p.push(`defects[${i}]: claim が空`)
-    const e = text == null ? (isStr(d && d.quote) ? null : '引用が空') : quoteProblem(d && d.quote, text)
-    if (e) p.push(`defects[${i}]: ${e}`)
+  if ('defects' in rep) p.push('自由な欠陥（defects）は受け付けない。閉じた問いの答え（answers）だけを返す')
+  const want = new Set(['Q1', 'Q2', ...arr(goals).map((g) => `Q3:${g}`)])
+  const seen = new Set()
+  arr(rep.answers).forEach((a, i) => {
+    const k = a && a.question === 'Q3' ? `Q3:${a.goal_id}` : a && a.question
+    if (!want.has(k)) { p.push(`answers[${i}]: 聞いていない問い: ${k}`); return }
+    if (seen.has(k)) p.push(`answers[${i}]: 答えの重複: ${k}`)
+    seen.add(k)
+    if (!ANSWERS.includes(a.answer)) p.push(`answers[${i}]: answer が yes・no でない`)
+    const e = text == null ? (isStr(a.quote) ? null : '引用が空') : quoteProblem(a.quote, text)
+    if (e) p.push(`answers[${i}]: ${e}`)
   })
+  for (const k of want) if (!seen.has(k)) p.push(`答えの無い問い: ${k}`)
   return p
 }
+// no の答えを計画の欠陥にする（照合を通った返り値にだけ使う）。
+const unitDefects = (rep, unitId) => arr(rep && rep.answers).filter((a) => a.answer === 'no').map((a) => ({
+  unit_id: unitId, kind: a.question, ...(a.question === 'Q3' ? { goal_id: a.goal_id } : {}),
+  claim: `${a.question}${a.question === 'Q3' ? `（${a.goal_id}）` : ''}: ${UNIT_QUESTIONS[a.question]} → no`, quote: a.quote,
+}))
 function checkGroups(rep, keys) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
@@ -303,20 +363,23 @@ else {
 if (argProblems.length) return { stage: A && A.stage, call_id: A && A.callId, status: 'blocked', reason: 'args の検査に落ちた', problems: argProblems, agents: [] }
 
 // 写しのファイルの読み方。本文は args に載らないので、担当が Read で自分の範囲だけを読む。
-const rangeOf = (r) => `写し: ${r.snapshot}\n行: ${r.start}-${r.end}（Read の offset=${r.start}, limit=${r.end - r.start + 1}。この範囲の外は読まない）`
+// args の写しは stateDir の写しの置き場（snapDir）からのファイル名、資産・枡の id と path は対象の基準（targetBase）からの相対で載る。担当に渡すときに結合する。
+const snapOf = (r) => `${A.snapDir || ''}${r.snapshot}`
+const targetOf = (c) => (c.retro ? c.path : `${A.targetBase || ''}${c.path}`)
+const rangeOf = (r) => `写し: ${snapOf(r)}\n行: ${r.start}-${r.end}（Read の offset=${r.start}, limit=${r.end - r.start + 1}。この範囲の外は読まない）`
 // 担当が読む文（目標・基準・制約・ヒント、段ごとの依頼文・前の計画・欠陥・回答・観点の手続き）は束（brief）の写しにあり、args には参照だけがある。
 const COMMON = (b) => `
 ## 共通の前提
 - 目的: 対象を資産 × 観点の枡に分けて網羅的に検査し、見落としと見ていない所を台帳に残す。検査だけをし、対象を直さない・書かない。あなたはその中の 1 つの役で、受け持ち以外を読まない。
 - 依頼の束: まず Read で下のファイルを全て読む。固定した目標（変えない。constraint_map の対象ではない）・受け入れ基準と固定した制約（id で指す）・利用者のヒント（あれば取り込む）と、この役に要る文はそこにある。束に無いことを推測で埋めない。
-束: ${b.snapshot}（hash ${b.hash}）
+束: ${snapOf(b)}（hash ${b.hash}）
 - ファイルは変えない。結果は返り値だけで返す。読めなかったものは推測で埋めず、そう書く。
 - 引用は読んだ本文からの逐語の写しにする（行番号は含めない）。引用は script が機械で照合し、合わないものは受け付けない。
 `
 
 // ---------------- plan（独立な 2 体 → 統合 → 観点ごとの検証） ----------------
 const UNIT_PROPS = {
-  lenses: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, procedure: { type: 'string' } }, required: ['id', 'name', 'procedure'] } },
+  lenses: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, procedure: { type: 'string' }, applies_to: { type: 'array', items: { type: 'string' } }, goals: { type: 'array', items: { type: 'string' } } }, required: ['id', 'name', 'procedure', 'applies_to', 'goals'] } },
   questions: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, question: { type: 'string' }, why_value_judgment: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['id', 'question', 'why_value_judgment', 'options'] } },
   constraint_map: { type: 'array', items: { type: 'object', properties: { constraint_id: { type: 'string' }, handled_by: { type: 'array', items: { type: 'string' } } }, required: ['constraint_id', 'handled_by'] } },
 }
@@ -331,11 +394,11 @@ const INTEGRATED_SCHEMA = {
   required: [...Object.keys(UNIT_PROPS), 'source_map', 'defect_responses'],
 }
 const GOAL_SCHEMA = { type: 'object', properties: { outcomes: { type: 'array', items: { type: 'object', properties: { outcome: { type: 'string' }, quotes: { type: 'array', items: { type: 'object', properties: { source: { type: 'string', enum: ['request', 'decisions'] }, quote: { type: 'string' } }, required: ['source', 'quote'] } }, items: { type: 'array', items: { type: 'string' } } }, required: ['outcome', 'quotes', 'items'] } } }, required: ['outcomes'] }
-const UNIT_VERDICT_SCHEMA = { type: 'object', properties: { unit_id: { type: 'string' }, defects: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string' }, claim: { type: 'string' }, quote: { type: 'string' } }, required: ['kind', 'claim', 'quote'] } } }, required: ['unit_id', 'defects'] }
+const UNIT_VERDICT_SCHEMA = { type: 'object', properties: { unit_id: { type: 'string' }, answers: { type: 'array', items: { type: 'object', properties: { question: { type: 'string', enum: Object.keys(UNIT_QUESTIONS) }, goal_id: { type: 'string' }, answer: { type: 'string', enum: ANSWERS }, quote: { type: 'string' } }, required: ['question', 'answer', 'quote'] } } }, required: ['unit_id', 'answers'] }
 
 async function planStage() {
   phase('plan')
-  const ctx = { constraintIds: [...arr(A.criteriaIds), ...arr(A.constraintIds)], lensesGiven: arr(A.givenLensIds).length > 0, givenLensIds: arr(A.givenLensIds) }
+  const ctx = { constraintIds: [...arr(A.criteriaIds), ...arr(A.constraintIds)], lensesGiven: arr(A.givenLensIds).length > 0, givenLensIds: arr(A.givenLensIds), goalItemIds: arr(A.goalItemIds), ...(Array.isArray(A.assetIds) ? { assetIds: A.assetIds.map((id) => `${A.targetBase || ''}${id}`) } : {}) }
   const out = { goal_check: null, planners: null, plan: null, plan_problems: [], unit_checks: [] }
   // 目標の照合: 依頼文と決定の記録が求める成果を挙げ、どの項目が受け止めるかを返す（呼ぶ側が照合済みなら goalChecked で流さない）。
   if (!A.goalChecked) {
@@ -352,15 +415,19 @@ ${JSON.stringify(arr(A.goalIds))}`, GOAL_SCHEMA, (r) => checkGoalMap(r, arr(A.go
     const RULES = `
 ### 観点の規則
 - 観点の数・例・型枠は与えない。目標と対象の中身から切る。
-- 観点（lenses）: 対象を資産（節・行の塊）ごとに見るときの手続き（何を列挙し、何と照らすか）。観点 purpose（目的）と layer（層と範囲）はスキルが持つので作らない。
+- 観点（lenses）: 対象を資産（節・行の塊）ごとに見るときの手続き（何を列挙し、何と照らすか）。観点 purpose（目的）と layer（層と範囲）はスキルが持ち、全ての資産に当たるので作らない。
+- 当てる資産（applies_to）: 観点ごとに、その観点で確かめることが目標とその資産の中身に関係する資産を、下の索引の資産の id で全て挙げる。関係の無い資産には当てない（関係の無い組を見ても見落としは減らない）。関係があるかを重さで決めず、迷う資産は当てる。どの資産にも計画の観点が 1 つ以上当たるようにする。script が id の実在と被覆を照らす。
+- 受け持つ目標（goals）: 観点ごとに、その観点の手続きで果たされたかを確かめる目標・受け入れ基準を、下の id で 1 つ以上挙げる。どの目標・受け入れ基準も、どれかの観点の goals に入れる。script が id の実在と被覆を照らす。
 - 受け入れ基準と固定した制約の全てに、受け皿の観点を constraint_map で付ける（constraint_id に基準か制約の id）。
-- 利用者への質問（questions）: 価値判断が要り、制約で答えが出ていないものだけ。`
+- 利用者への質問（questions）: 価値判断が要り、制約で答えが出ていないものだけ。
+### 目標・受け入れ基準の id（goals に使う）
+${JSON.stringify(arr(A.goalItemIds))}`
     const INDEX = `### 対象の索引（資産の id・写しのファイル・行の範囲・見出し）\n${A.index ? `${rangeOf(A.index)}\n各行の写しと範囲を Read で開けば資産の本文を読める。観点を切るのに要る所だけを読む。` : '（無し）'}`
     let integ
     if (!arr(A.prevLensIds).length) {
       const planPrompt = (who) => `${COMMON(A.brief)}
 ## あなたの役: 計画役 ${who}
-もう 1 体の計画役が同じ目標と対象から独立に作る。相手の結果は見ない。後で統合役が調停する。観点の一覧は、全ての資産に当てる検査の分母になる。
+もう 1 体の計画役が同じ目標と対象から独立に作る。相手の結果は見ない。後で統合役が調停する。観点と当てる資産の組が、検査の分母（枡）になる。
 ${RULES}
 ${INDEX}`
       const check = (r) => checkPlan(r, ctx)
@@ -374,7 +441,7 @@ ${INDEX}`
       const sources = ok.flatMap(([w, x]) => arr(x.result.lenses).map((u) => `${w}:${u.id}`))
       integ = await checked('integrator', 'integrate', `${COMMON(A.brief)}
 ## あなたの役: 統合役
-互いを見ずに作った ${ok.map(([w]) => w).join(' と ')} を 1 つにする。どちらかを丸ごと採らず、目標と対象に照らして決める。全ての元の観点に、統合先（merged_into）か落とす理由（dropped_reason）を source_map で付ける。片方にしか無い観点を黙って落とさない。
+互いを見ずに作った ${ok.map(([w]) => w).join(' と ')} を 1 つにする。どちらかを丸ごと採らず、目標と対象に照らして決める。全ての元の観点に、統合先（merged_into）か落とす理由（dropped_reason）を source_map で付ける。片方にしか無い観点を黙って落とさない。観点を併せるときは当てる資産（applies_to）も併せ、元のどちらかが当てた資産を黙って落とさない。
 ${RULES}
 ${INDEX}
 ${ok.map(([w, x]) => `### ${w}（静的な検査の残り ${x.problems.length} 件${x.problems.length ? ': ' + x.problems.join(' / ') : ''}）\n${JSON.stringify(x.result)}`).join('\n')}
@@ -392,18 +459,24 @@ ${INDEX}
     out.plan_problems = integ.problems
     if (!integ.result) return { ...out, status: 'blocked', reason: '統合役が返らなかった' }
   }
-  // 観点ごとに、新しい context の検証役が欠陥を探す（中身が変わった観点だけを見る）。
+  // 観点ごとに、新しい context の検証役が閉じた問いに答える（中身が変わった観点だけを見る）。
   // この呼び出しで統合した計画の観点は返り値の本文で渡し、前の計画の観点は CLI が書いた観点ごとの束（units）で渡す。
   const verified = new Set(arr(A.verifiedKeys))
   const units = out.plan
-    ? arr(out.plan.lenses).filter((u) => !verified.has(unitKey(u))).map((u) => ({ unit_id: u.id, key: unitKey(u), text: unitText(u) }))
-    : arr(A.units).map((u) => ({ unit_id: u.unit_id, key: u.key, brief: u.brief }))
+    ? arr(out.plan.lenses).filter((u) => !verified.has(unitKey(u))).map((u) => ({ unit_id: u.id, key: unitKey(u), goals: arr(u.goals), text: unitText(u) }))
+    : arr(A.units).map((u) => ({ unit_id: u.unit_id, key: u.key, goals: arr(u.goals), brief: u.brief }))
   const maxUnits = Math.max(0, Math.floor((LIMITS.maxAgents - agents.length) / 2))
   const toVerify = units.slice(0, maxUnits)
   const checks = await pipeline(toVerify, (u) => checked('unit_verifier', `verify-unit-${u.unit_id}`, `${COMMON(u.brief || A.brief)}
-## あなたの役: 観点の検証役（反証側。観点 ${u.unit_id} だけを見る）
-この観点には欠陥があるという前提で読む。作った者の説明を信じない。見るもの: 1 体で 1 枡を読んで判定できない大きさ・問いが 2 つ以上・層の誤り（上の層の決め直し、下の層の細部）・制約との矛盾・目標に効かない観点・手続きが「何を列挙し、何と照らすか」になっていない。良い点は書かない。欠陥ごとに、観点の本文からの逐語の引用を付ける。
-${u.text != null ? `### 本文（観点）\n${u.text}` : '観点の本文は束の「### 本文（観点）」にある。'}`, UNIT_VERDICT_SCHEMA, (r) => checkUnitVerdict(r, u.unit_id, u.text)).then((x) => ({ unit_id: u.unit_id, key: u.key, ...x })))
+## あなたの役: 観点の検証役（観点 ${u.unit_id} だけを見る）
+下の閉じた問いだけに yes か no で答える。問いの外のこと（観点の大きさ・問いの数・層・制約との矛盾・当てる資産の当否・手続きの細部の良し悪し）は判定しない（細部は枡を読んだ結果で直す）。欠陥を自由に挙げない。作った者の説明を信じず、観点の本文に書いてあることだけで答える。
+答えごとに、観点の本文からの逐語の引用を quote に付ける（yes なら根拠の箇所、no なら足りない手続きの箇所）。script が照合する。
+### 問い（answers に 1 つずつ返す。Q3 は goal_id に目標・受け入れ基準の id を入れる）
+- Q1: ${UNIT_QUESTIONS.Q1}
+- Q2: ${UNIT_QUESTIONS.Q2}
+${u.goals.length ? u.goals.map((g) => `- Q3（goal_id: ${g}）: ${UNIT_QUESTIONS.Q3}`).join('\n') : '- Q3: 観点に goals が無いので聞かない'}
+目標・受け入れ基準の本文は束にある。
+${u.text != null ? `### 本文（観点）\n${u.text}` : '観点の本文は束の「### 本文（観点）」にある。'}`, UNIT_VERDICT_SCHEMA, (r) => checkUnitVerdict(r, u.unit_id, u.goals, u.text)).then((x) => ({ unit_id: u.unit_id, key: u.key, ...x })))
   out.unit_checks = checks.map((x, i) => x || { unit_id: toVerify[i].unit_id, key: toVerify[i].key, result: null, problems: ['pipeline が null を返した'] })
   out.units_not_verified = units.slice(maxUnits).map((u) => u.unit_id)
   return { ...out, status: 'ok' }
@@ -413,13 +486,12 @@ ${u.text != null ? `### 本文（観点）\n${u.text}` : '観点の本文は束�
 const READ_SCHEMA = {
   type: 'object',
   properties: {
-    cell_id: { type: 'string' },
     evidence: { type: 'array', items: { type: 'string' } },
     findings: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, quote: { type: 'string' }, severity: { type: 'string', enum: SEVERITIES }, layer: { type: 'string', enum: LAYERS } }, required: ['claim', 'quote', 'severity', 'layer'] } },
     outside_notes: { type: 'array', items: { type: 'string' } },
     none_reason: { type: 'string' },
   },
-  required: ['cell_id', 'evidence', 'findings', 'outside_notes', 'none_reason'],
+  required: ['evidence', 'findings', 'outside_notes', 'none_reason'],
 }
 const VERIFY_SCHEMA = { type: 'object', properties: { verdicts: { type: 'array', items: { type: 'object', properties: { index: { type: 'integer' }, verdict: { type: 'string', enum: VERDICTS }, reason: { type: 'string' }, quote: { type: 'string' } }, required: ['index', 'verdict', 'reason', 'quote'] } } }, required: ['verdicts'] }
 const roleFor = (base, pass) => (`${base}_${pass}` in A.roles ? `${base}_${pass}` : base in A.roles ? base : `${base}_1`)
@@ -430,12 +502,12 @@ async function reviewStage() {
     const rd = await checked(roleFor('reader', c.pass), `read-${c.cell_id}`, `${COMMON(c.brief)}
 ## あなたの役: 読む役（枡 ${c.cell_id} だけ。下の範囲の外は読まない）
 観点 ${c.lens} の名前と手続きは束の「## 観点」にある。
-- 下の範囲を Read で全て読み、手続きに沿って確かめる。区画（${arr(c.blocks).map(([s, e]) => `${s}-${e} 行`).join('・')}）のそれぞれから 1 つ以上、逐語の引用を evidence に挙げる（読んだ証拠。script が区画ごとに照合する）。
+- 下の範囲を Read で全て読み、手続きに沿って確かめる。区画（${arr(c.blocks).map(([s, e]) => `${s}-${e} 行`).join('・')}）のそれぞれから 1 つ以上、逐語の引用を evidence に挙げる（読んだ証拠。script が区画ごとに照合する）。evidence の各要素には本文の逐語の写しだけを入れ、区画名・行番号・説明・括弧を付けない（見出しの行だけは証拠にならない）。
 - 観点に当たる欠陥を、逐語の引用（quote）・重さ・原因の層（${LAYERS.join('・')}）と共に findings に返す。層は、直すべき層を選ぶ（本文の層とは限らない）。重さで絞らない。
 - 観点の外で気づいたことは指摘にせず outside_notes に書く。
 - 指摘が無ければ、確かめたことを none_reason に書く。
-### 本文の範囲（元のファイル: ${c.path}）
-${rangeOf(c)}`, READ_SCHEMA, (r) => checkReadShape(r, c.cell_id))
+### 本文の範囲（元のファイル: ${targetOf(c)}）
+${rangeOf(c)}`, READ_SCHEMA, (r) => checkReadShape(r))
     const fs = rd.result && !rd.problems.length ? arr(rd.result.findings) : []
     let vf = null
     if (fs.length) {
@@ -446,7 +518,7 @@ ${rangeOf(c)}`, READ_SCHEMA, (r) => checkReadShape(r, c.cell_id))
 観点 ${c.lens}（名前と手続きは束の「## 観点」にある）
 ### 指摘（index は配列の位置）
 ${JSON.stringify(fs.map((f, i) => ({ index: i, claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer })))}
-### 本文の範囲（元のファイル: ${c.path}）
+### 本文の範囲（元のファイル: ${targetOf(c)}）
 ${rangeOf(c)}`, VERIFY_SCHEMA, (r) => checkVerify(r, fs.length))
     }
     return { cell_id: c.cell_id, read: rd.result, read_problems: rd.problems, verify: vf && vf.result, verify_problems: vf ? vf.problems : [] }

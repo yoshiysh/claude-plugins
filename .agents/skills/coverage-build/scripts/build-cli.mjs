@@ -64,12 +64,12 @@ function writeAtomic(file, text) {
 }
 function save(dir, L) { L.rev += 1; writeAtomic(ledgerPath(dir), JSON.stringify(L, null, 1)) }
 const hints = (dir) => { const f = path.join(dir, 'hints.jsonl'); return existsSync(f) ? read(f).split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [] }
-// 束（brief）の写し: 内容の hash の名前で置く。args にはこの path と hash だけを載せる。
+// 束（brief）の写し: 内容の hash の名前で置く。args にはこのファイル名と hash だけを載せる（写しの置き場 snapDir は args に 1 回だけ載り、Workflow source が結合する）。
 function writeSnap(dir, text) {
   const name = sha(text).slice(0, 16)
   const file = path.join(dir, 'snap', `${name}.md`)
   if (!existsSync(file) || sha(read(file)).slice(0, 16) !== name) writeAtomic(file, text)
-  return { path: file, hash: name }
+  return { path: path.basename(file), hash: name }
 }
 const abs = (L, rel) => path.join(L.repo, rel)
 const fileHash = (p) => (existsSync(p) ? sha(read(p)).slice(0, 16) : null)
@@ -133,7 +133,7 @@ ${stage === 'implement' && u.tests.length ? `- 読むだけのテスト（別の
 }
 function buildArgs(L, d, dir, unread) {
   const roles = Object.fromEntries(Object.entries(L.roles).map(([k, r]) => [k, { model: r.model, effort: r.effort }]))
-  const base = { skillDir: SKILL_DIR, stage: d.step, roles }
+  const base = { skillDir: SKILL_DIR, stage: d.step, roles, snapDir: path.join(dir, 'snap') + path.sep }
   if (d.step === 'design') {
     const inputs = archInputs(L, dir)
     const inputText = `## 入力（全て、読んだか読まないかを申告する）\n${inputs.map((p) => `- ${p}`).join('\n') || '- なし'}\n${baselineText(L)}`

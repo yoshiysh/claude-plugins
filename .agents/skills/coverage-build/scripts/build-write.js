@@ -47,7 +47,7 @@ const rows = await pipeline(arr(A.tasks), async (t) => {
   let out = null
   try {
     out = await agent(`## 依頼の束
-まず Read で ${t.brief.path} を全て読む（hash ${t.brief.hash}）。目的・固定した目標と基準と制約・単位の設計・読むファイルはそこにある。
+まず Read で ${A.snapDir || ''}${t.brief.path} を全て読む（hash ${t.brief.hash}）。目的・固定した目標と基準と制約・単位の設計・読むファイルはそこにある。
 ## あなたの役: ${ROLE === 'test_writer' ? 'テストの担当' : '実装の担当'}（単位 ${t.unit_id} だけ）
 ${WHAT}
 - 書いてよいのは次の path だけ（repo からの相対）: ${t.paths.join(', ')}。他のファイルは書かない・消さない。

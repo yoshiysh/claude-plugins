@@ -136,7 +136,7 @@ Workflow({
 })
 ```
 
-args を書き換えない（source が `argsSum` で写し違い・切り詰めを拒否し、`ingest` が `call_id` を照らす）。args には本文を載せない。載るのは、`next` が `stateDir/snap/` に内容の hash の名前で書いた束（brief）の path と hash、id と path の一覧だけで、担当は Read で束を読む。前の設計をやり直すときも、前の設計は束の中の path で渡り、args には載らない。native Workflow が tasks の `.output` に残す返り値（`result` に包んだ形）は、そのまま `ingest` に渡してよい。
+args を書き換えない（source が `argsSum` で写し違い・切り詰めを拒否し、`ingest` が `call_id` を照らす）。args には本文を載せない。載るのは、`next` が `stateDir/snap/` に内容の hash の名前で書いた束（brief）のファイル名と hash（写しの置き場 `snapDir` は 1 回だけ載る）、id と path の一覧だけで、担当は Read で束を読む。前の設計をやり直すときも、前の設計は束の中の path で渡り、args には載らない。native Workflow が tasks の `.output` に残す返り値（`result` に包んだ形）は、そのまま `ingest` に渡してよい。
 
 ## coverage-audit を呼ぶ
 

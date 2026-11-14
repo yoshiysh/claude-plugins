@@ -33,10 +33,12 @@ const argsSum = (a) => fnv(canon(Object.fromEntries(Object.entries(a).filter(([k
 // </sum>
 const stripNums = (s) => String(s ?? '').replace(/(^|\n)[ \t]*\d+(\| ?|\t)/g, '$1')
 const norm = (s) => stripNums(s).replace(/\s+/g, ' ').trim()
+// 短い引用は、本文の全体か、本文の空でない 1 行の全体を引くときだけ受け付ける。
+const wholeLine = (n, text) => String(text).split('\n').some((l) => l.trim() && norm(l) === n)
 function quoteProblem(q, text) {
   const n = norm(q)
   if (!n) return '引用が空'
-  if (n.length < QUOTE_MIN && n !== norm(text)) return `引用が ${QUOTE_MIN} 字未満`
+  if (n.length < QUOTE_MIN && n !== norm(text) && !wholeLine(n, text)) return `引用が ${QUOTE_MIN} 字未満`
   if (!norm(text).includes(n)) return '引用が本文に逐語で無い'
   return null
 }
@@ -254,7 +256,7 @@ else {
 if (argProblems.length) return { stage: A && A.stage, call_id: A && A.callId, status: 'blocked', reason: 'args の検査に落ちた', problems: argProblems, agents: [] }
 
 // 束（brief）は CLI が stateDir に書いた写し。args には path と hash だけが載る。
-const readBrief = (b) => `## 依頼の束\nまず Read で ${b.path} を全て読む（hash ${b.hash}）。目的・固定した目標と基準と制約・読むファイル・受け持ちはそこにある。束に無いことを推測で埋めず、読めなかったものはそう書く。ファイルは変えない。結果は返り値だけで返す。`
+const readBrief = (b) => `## 依頼の束\nまず Read で ${A.snapDir || ''}${b.path} を全て読む（hash ${b.hash}）。目的・固定した目標と基準と制約・読むファイル・受け持ちはそこにある。束に無いことを推測で埋めず、読めなかったものはそう書く。ファイルは変えない。結果は返り値だけで返す。`
 
 const ARCH_SCHEMA = {
   type: 'object',
