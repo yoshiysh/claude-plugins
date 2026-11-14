@@ -1,0 +1,14 @@
+{
+  "goal_checker": { "model": "sonnet", "effort": "medium", "why": "依頼文と決定の記録から求める成果を引用つきで挙げ、目標・基準・制約の項目へ対応づける。範囲は狭いが、項目を書いた者と別の目で読む" },
+  "planner_a": { "model": "opus", "effort": "high", "why": "分母（観点の一覧）を目標と対象から切る判断。B と別のモデルで独立にする" },
+  "planner_b": { "model": "sonnet", "effort": "high", "why": "A と別のモデルで同じ問いを解き、盲点の重なりを減らす" },
+  "integrator": { "model": "opus", "effort": "high", "why": "2 案の調停と欠陥への応答。誤ると全体が崩れる" },
+  "unit_verifier": { "model": "opus", "effort": "medium", "why": "反証側。観点を作った役と別の context・枠組みで 1 観点だけ見る" },
+  "reader_1": { "model": "sonnet", "effort": "medium", "why": "1 枡を手続きで読む。p 回目は reader_p を使う（無ければ reader_1）" },
+  "verifier": { "model": "opus", "effort": "medium", "why": "反証側の検証。p 回目の読みは verifier_p があればそれを使う。読む役と別のモデルにする" },
+  "reader_2": { "model": "opus", "effort": "medium", "why": "k=2 のときの 2 回目。1 回目と別のモデルにする" },
+  "verifier_2": { "model": "sonnet", "effort": "medium", "why": "2 回目の読みの検証。reader_2 と別のモデルにする" },
+  "grouper": { "model": "opus", "effort": "high", "why": "全件を根本原因で束ね、層と横展開の手続きを決める" },
+  "refuter_a": { "model": "opus", "effort": "medium", "why": "束の反証。b と別のモデル" },
+  "refuter_b": { "model": "sonnet", "effort": "medium", "why": "束の反証。a と別のモデル" }
+}

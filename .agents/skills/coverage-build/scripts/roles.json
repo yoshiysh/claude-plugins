@@ -1,0 +1,10 @@
+{
+  "goal_checker": { "model": "sonnet", "effort": "medium", "why": "依頼文と決定の記録から求める成果を引用つきで挙げ、目標・基準・制約の項目へ対応づける。範囲は狭いが、項目を書いた者と別の目で読む" },
+  "architect": { "model": "opus", "effort": "high", "why": "単位への分割と依存の決定。誤ると全ての単位が崩れ、設計からやり直しになる" },
+  "unit_designer": { "model": "opus", "effort": "medium", "why": "1 単位の詳細設計。範囲は 1 単位だが、テストのケースの分母を決める" },
+  "test_writer": { "model": "sonnet", "effort": "high", "why": "設計のケースをテストに写す。実装の担当と別のモデルにし、同じ思い込みを持ち込まない" },
+  "implementer": { "model": "opus", "effort": "high", "why": "1 単位をやり切る持続力。テストを書いた担当と別のモデル" },
+  "retro_planner": { "model": "opus", "effort": "high", "why": "出来事の全体から原因の意図を選ぶ判断" },
+  "retro_examiner": { "model": "sonnet", "effort": "medium", "why": "意図 1 件を記録に当たって確かめる" },
+  "retro_verifier": { "model": "opus", "effort": "medium", "why": "反証側。実行役と別のモデル・新しい context で結論だけを見る" }
+}

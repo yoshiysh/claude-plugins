@@ -2,43 +2,46 @@
 // 役の出力の静的な照合は Workflow source の <checks> 区間が正本で、ここはそれを読み込んで使う（写しを持たない）。
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import path from 'node:path'
 
-const SRC = readFileSync(new URL('./coverage-ledger.js', import.meta.url), 'utf8')
+const SRC = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
-return { LIMITS, PER_CELL, QUOTE_MIN, LAYERS, SEVERITIES, VERDICTS, DESTS, RESERVED_LENSES, norm, argsSum, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkPlan, checkRoutes, checkUnitVerdict, checkProposal, checkWriter, checkGroups }`)()
+return { LIMITS, PER_CELL, RESERVED_LENSES, norm, argsSum, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkPlan, checkUnitVerdict, checkGroups, groupKeys, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
 
-export const MAX_ATTEMPTS = 2 // 同じ枡の欠け（読めない・照合に落ちる）の上限。run をまたいで数える
-export const PLAN_ROUNDS = 2 // 欠陥を直す統合のやり直しの上限
-export const CHUNK_LINES = 80 // 見出しの無いファイルを切る行数
-export const MAX_ASSET_LINES = 120 // 1 体に渡す本文の上限（G17）。超える節は切る
-export const ROUTE_BATCH = 15 // 振り分け役 1 体に渡す入力の件数
-export const MAX_ROUTE_BATCHES = 10
-export const UPPER = ['方針', '要求']
-export const DEFAULT_CONFIG = { k: 1, max_cycles: 4, max_sections: 12, max_agents_total: 600 }
+export const MAX_ATTEMPTS = 2 // 同じ枡・段の欠け（読めない・照合に落ちる）の上限。run をまたいで数える
+const PLAN_ROUNDS = 2 // 欠陥を直す統合のやり直しの上限
+const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数続いたら止める
+const CHUNK_LINES = 80 // 見出しの無いファイルを切る行数
+export const MAX_ASSET_LINES = 120 // 1 体が読む範囲の行数の上限。超える節は切る
+const BLOCK_LINES = 40 // 読んだ証拠の区画のおよその行数
+export const MAX_BLOCKS = 4 // 1 つの資産で引用を求める区画の数の上限
+const UPPER = ['方針', '要求']
+const DEFAULT_CONFIG = { k: 1, max_cycles: 4, max_agents_total: 600 }
 
-// スキルが持つ観点。目的の観点（目標の固定を review にも当てる）と、層の観点（G06）。
-export const SKILL_LENSES = [
+// スキルが持つ観点。目的の観点（固定した目標に照らす）と、層の観点。
+const SKILL_LENSES = [
   { id: 'purpose', name: '目的と固定した制約', procedure: 'この部分の主張ごとに、固定した目標と制約のどれに効くかを対応づけてから、効かない主張、制約と食い違う主張、目標に要るのに書かれていないことを探す。' },
-  { id: 'layer', name: '層と範囲', procedure: 'この部分の内容ごとに層（方針・要求・方式設計・詳細設計・実装）を判定してから、成果物の層より上の決め直し、下の層の細部の書き過ぎ、範囲の外への広がり、上の層へ戻すべき欠陥を探す。' },
+  { id: 'layer', name: '層と範囲', procedure: 'この部分の内容ごとに層（方針・要求・方式設計・詳細設計・実装）を判定してから、対象の層より上の決め直し、下の層の細部の書き過ぎ、範囲の外への広がり、上の層へ戻すべき欠陥を探す。' },
 ]
-// 振り返りの観点（振り返りの Workflow の L1〜L4 を一般化）。
-export const RETRO_LENSES = [
-  { id: 'R1', name: '網羅と測れたか', procedure: 'この段で何を網羅すべきだったか（対象・観点・入力）を先に列挙し、出来事の記録と照らす。次に、効果や欠陥を後から測れる記録（同一性・根拠・件数）が残っているかを確かめる。' },
-  { id: 'R2', name: '正しさと一貫性', procedure: 'この段の出力が、誤り・食い違い・確かめていない主張をそのまま次の段へ流していないかを、出来事の具体例で確かめる。生成と検証が分かれていたかも見る。' },
+// 振り返りの観点。悪かった出来事を、網羅・正しさ・費用・層の 4 つの面から見る。
+const RETRO_LENSES = [
+  { id: 'R1', name: '網羅と測れたか', procedure: 'この段で何を網羅すべきだったか（対象・観点）を先に列挙し、出来事の記録と照らす。次に、効果や欠陥を後から測れる記録（同一性・根拠・件数）が残っているかを確かめる。' },
+  { id: 'R2', name: '正しさと一貫性', procedure: 'この段の出力が、誤り・食い違い・確かめていない主張をそのまま次の段へ流していないかを、出来事の具体例で確かめる。読む役と検証役が分かれていたかも見る。' },
   { id: 'R3', name: '費用とモデル・effort', procedure: 'この段の起動数と欠測の内訳から、役の難しさに対してモデルと effort が過大か過小かを判定する。同じ結果をより少ない費用で得られた形があれば挙げる。' },
-  { id: 'R4', name: '層と範囲', procedure: 'この段が目標の範囲と成果物の層に合っていたか、範囲の外へ広がったか狭めすぎたか、欠陥を原因の層へ戻せたかを、出来事から判定する。' },
+  { id: 'R4', name: '層と範囲', procedure: 'この段が目標の範囲と対象の層に合っていたか、範囲の外へ広がったか狭めすぎたか、欠陥を原因の層へ戻せたかを、出来事から判定する。' },
 ]
 
 export const sha = (s) => createHash('sha256').update(String(s)).digest('hex')
-const lensVersion = (l) => sha(JSON.stringify([l.name, l.procedure, l.items || []])).slice(0, 12)
+export const lensVersion = (l) => sha(JSON.stringify([l.name, l.procedure])).slice(0, 12)
 const slug = (s) => s.toLowerCase().replace(/[`*_~[\]()<>#:"'!?,.。、（）「」]/g, '').trim().replace(/\s+/g, '-') || 'section'
+// 行の範囲（1 始まり・両端を含む）の本文と hash。資産・索引・束ねの全件で同じ式を使い、ingest が写しと照らす。
+export const rangeText = (text, start, end) => String(text).split('\n').slice(start - 1, end).join('\n')
+export const rangeHash = (text, start, end) => sha(rangeText(text, start, end)).slice(0, 16)
 
-// 読んだ証拠の区画: 本文を need 個の窓に分け、各窓から 1 つは引用させる（M5）。
-function withBlocks(a) {
+// 読んだ証拠の区画: 本文を need 個の窓に分け、各窓から 1 つは引用させる。
+export function withBlocks(a) {
   const n = a.text.split('\n').length
-  const need = Math.min(4, Math.max(1, Math.ceil(n / 40)))
+  const need = Math.min(MAX_BLOCKS, Math.max(1, Math.ceil(n / BLOCK_LINES)))
   const size = Math.ceil(n / need)
   const blocks = []
   for (let s = 0; s < n; s += size) blocks.push([s, Math.min(n, s + size) - 1])
@@ -74,53 +77,24 @@ export function splitAssets(rel, text) {
       const k = (used.get(id) || 0) + 1
       used.set(id, k)
       if (k > 1) id += `~${k}`
-      const t = lines.slice(s, Math.min(p.end, s + MAX_ASSET_LINES)).join('\n')
+      const e = Math.min(p.end, s + MAX_ASSET_LINES)
+      const t = lines.slice(s, e).join('\n')
       if (!t.split('\n').some((l) => l.trim() && !/^#{1,6}\s/.test(l))) continue // 見出しだけの塊は読む本文が無い
-      out.push(withBlocks({ id, path: rel, heading: p.heading, trail: p.trail || [], start: s + 1, text: t, hash: sha(t).slice(0, 16) }))
+      out.push(withBlocks({ id, path: rel, heading: p.heading, trail: p.trail || [], start: s + 1, end: e, text: t, hash: sha(t).slice(0, 16) }))
     }
   }
   return out
 }
 
-// 材料を ID・種類・出所・全文付きの項目に分ける（build-inputs.mjs の一般化）。要約は入れない。
-export function splitItems(file, text, prefix, routable = true) {
-  const items = []
-  const add = (id, kind, t, lines, r = routable) => { if (String(t).trim()) items.push({ id, kind, routable: r, text: String(t).trim(), source: { path: file, lines } }) }
-  if (/\.jsonl$/i.test(file)) {
-    text.split('\n').forEach((l, i) => {
-      if (!l.trim()) return
-      const o = JSON.parse(l)
-      add(o.id || `${prefix}${i + 1}`, o.kind || prefix, typeof o.text === 'string' ? o.text : JSON.stringify(o), [i + 1, i + 1], o.routable === undefined ? routable : !!o.routable)
-    })
-  } else if (/\.(md|markdown)$/i.test(file) && /^#{1,6}\s/m.test(text)) {
-    const L = text.split('\n')
-    const heads = L.map((l, i) => (/^#{1,6}\s/.test(l) ? i : -1)).filter((i) => i >= 0)
-    if (heads[0] > 0) add(`${prefix}0`, 'section', L.slice(0, heads[0]).join('\n'), [1, heads[0]])
-    heads.forEach((h, k) => { const e = k + 1 < heads.length ? heads[k + 1] : L.length; add(`${prefix}${k + 1}`, 'section', L.slice(h, e).join('\n'), [h + 1, e]) })
-  } else add(`${prefix}1`, 'file', text, [1, text.split('\n').length])
-  return items
-}
+export const readGoalFiles = C.readGoalFiles
+export const goalIds = (L) => [...L.goal.items, ...L.criteria, ...L.constraints].map((c) => c.id)
+export const goalSources = (L) => C.citeSources({ request: L.request, ...(L.decisions != null ? { decisions: L.decisions } : {}) })
 
-// 制約: 「- 」で始まる行を 1 件にする。「D1: ...」のように id で始まればその id を使う。
-export function parseConstraints(text) {
-  const out = []
-  for (const l of text.split('\n')) {
-    const m = /^-\s+(.*)$/.exec(l)
-    if (!m) continue
-    const idm = /^([A-Z][A-Z0-9]*\d)[:：]\s*(.*)$/.exec(m[1])
-    out.push(idm ? { id: idm[1], text: idm[2] } : { id: `K${out.length + 1}`, text: m[1] })
-  }
-  const ids = out.map((c) => c.id)
-  if (new Set(ids).size !== ids.length) throw new Error('制約の id が重複している')
-  return out
-}
-
-export function newLedger({ mode, goal, request, constraints, targets, artifact, items, lenses, config, roles, seeds }) {
+export function newLedger({ goal, goalItems, checkedBy = null, request, decisions = null, criteria = [], constraints, targets, lenses, config, roles, seeds }) {
   const L = {
-    version: 1, rev: 0, mode, cycle: 1, goal: { text: goal, checked: false, problems: [] }, request, constraints,
-    config: { ...DEFAULT_CONFIG, ...config }, roles, targets, artifact: artifact || null, items, seeds: seeds || [],
-    plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], routes: [], verified_units: [], answers: [], answered: [],
-    proposals: {}, issue_defects: {}, writer_defects: [], sections: [], written: false,
+    version: 1, rev: 0, cycle: 1, goal: { text: goal, items: goalItems, checked: !!checkedBy, checked_by: checkedBy, problems: [] }, request, decisions, criteria, constraints,
+    config: { ...DEFAULT_CONFIG, ...config }, roles, targets, seeds: seeds || [],
+    plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], verified_units: [], answers: [], answered: [],
     lenses: [...SKILL_LENSES.map((l) => ({ ...l, origin: 'skill' })), ...(lenses || []).map((l) => ({ ...l, origin: 'user' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
     attempts: {}, env_attempts: {}, fail_streak: 0,
     assets: {}, cells: {}, findings: {}, events: [], groups: [], retro_cycles: [], group_cycles: [], saturation: [],
@@ -137,7 +111,7 @@ export function refresh(L, assets, { partial = false } = {}) {
   const changes = { added: [], stale: [], gone: [] }
   for (const a of assets) {
     if (!L.assets[a.id]) changes.added.push(a.id)
-    L.assets[a.id] = { path: a.path, heading: a.heading, trail: a.trail || [], start: a.start, hash: a.hash, ...(a.retro ? { retro: true, text: a.text, blocks: a.blocks, need: a.need } : {}) }
+    L.assets[a.id] = { path: a.path, heading: a.heading, trail: a.trail || [], start: a.start, end: a.end, hash: a.hash, snap: a.snap, blocks: a.blocks, need: a.need, ...(a.retro ? { retro: true } : {}) }
   }
   if (!partial) for (const id of Object.keys(L.assets)) if (!now.has(id) && !L.assets[id].retro) { changes.gone.push(id); delete L.assets[id] }
   const wantLens = new Map(L.lenses.map((l) => [l.id, l]))
@@ -165,9 +139,9 @@ export function refresh(L, assets, { partial = false } = {}) {
   return changes
 }
 
-export const eventId = (L) => `E${L.cycle}-${L.events.filter((e) => e.cycle === L.cycle).length + 1}`
+const eventId = (L) => `E${L.cycle}-${L.events.filter((e) => e.cycle === L.cycle).length + 1}`
 export function addEvent(L, stage, kind, text, ref = null) { L.events.push({ id: eventId(L), cycle: L.cycle, stage, kind, text, ref }) }
-// 同じ枡の別々の指摘を 1 件に潰さない（H4）: 枡・引用・主張から決める。
+// 同じ枡の別々の指摘を 1 件に潰さない: 枡・引用・主張から決める。
 export const findingId = (cell, f) => `${cell}#${sha(`${C.norm(f.quote)}|${C.norm(f.claim)}`).slice(0, 10)}`
 
 export function coverage(L) {
@@ -178,74 +152,73 @@ export function coverage(L) {
   return { cells: live.length, settled: settled.length, settled_with_verifier: settled.filter(([, c]) => c.verifier).length, settled_no_findings: settled.filter(([, c]) => !c.verifier).length, disclosed: by('disclosed'), pending: [...by('unseen'), ...by('seen')] }
 }
 export const currentFindings = (L) => Object.entries(L.findings).filter(([, f]) => f.status === 'current').map(([id, f]) => ({ id, ...f }))
-const needUnits = (L) => L.mode === 'create' || !L.lenses.some((l) => l.origin === 'user')
-const routable = (L) => L.items.filter((i) => i.routable)
+export const needPlan = (L) => !L.lenses.some((l) => l.origin === 'user')
+const todoCells = (L) => Object.entries(L.cells).filter(([, c]) => ['unseen', 'seen'].includes(c.status) && c.attempts < MAX_ATTEMPTS).map(([id]) => id)
 
-// 次の 1 手か停止を、台帳だけから決める（探索グラフの意図は台帳から導く）。
+// この周の振り返りと束ねが済んだ後に読む枡が出た（持ち越しで対象が変わった）ら、次の周を開く。
+// 開かなければ、新しい指摘が振り返り・束ね・横展開を通らずに complete になる。
+export function openCycle(L) {
+  if (L.retro_cycles.includes(L.cycle) && L.group_cycles.includes(L.cycle) && todoCells(L).length) { L.cycle += 1; return true }
+  return false
+}
+
+// 次の 1 手か停止を、台帳だけから決める。
 export function decide(L, { missingTargets = [] } = {}) {
   const stop = (kind, reasons, extra = {}) => ({ stop: kind, reasons, ...extra })
   if (missingTargets.length) return stop('blocked', [`対象が読めない: ${missingTargets.join(', ')}`], { cause: 'input' })
-  if (L.fail_streak >= 2) return stop('blocked', [`全ての役が欠けた呼び出しが ${L.fail_streak} 回続いた`], { cause: 'failure' })
-  if (L.cycle > L.config.max_cycles) return stop('limit', [`周が上限 ${L.config.max_cycles} に達した。上限を上げる入力で再開する`])
+  if (L.fail_streak >= MAX_FAIL_STREAK) return stop('blocked', [`全ての役が欠けた呼び出しが ${L.fail_streak} 回続いた`], { cause: 'failure' })
+  if (L.cycle > L.config.max_cycles) return stop('limit', [`周が上限 ${L.config.max_cycles} を超えた。上限を上げる入力で再開する`])
   const spent = L.agents.length
   if (spent >= L.config.max_agents_total) return stop('limit', [`起動数が上限 ${L.config.max_agents_total} に達した（${spent}）。上限を上げる入力で再開する`])
-  if (L.goal.problems.length && !L.goal.checked) return stop('needs_input', ['固定した目標が依頼文と合わない'], { goal_problems: L.goal.problems })
+  if (L.goal.problems.length && !L.goal.checked) return stop('needs_input', ['依頼文・決定の記録が求める成果のうち、目標・基準・制約のどの項目も受け止めていないものがある'], { goal_gaps: L.goal.problems })
   const stuck = Object.entries(L.attempts).filter(([, n]) => n >= MAX_ATTEMPTS).map(([k]) => k)
   if (stuck.length) return stop('needs_input', ['試行の上限まで欠けた段がある'], { stuck })
-  const unrouted = routable(L).filter((i) => !L.routes.some((r) => r.input_id === i.id))
-  const planUnits = L.plan ? [...(L.plan.issues || []), ...(L.plan.lenses || [])] : []
-  const unverified = planUnits.filter((u) => !L.verified_units.includes(C.unitKey(u, L.routes)))
+  const unverified = ((L.plan && L.plan.lenses) || []).filter((u) => !L.verified_units.includes(C.unitKey(u)))
   const newAnswers = L.answers.filter((a) => !L.answered.includes(a.id) && a.target_kind === 'question')
   if (L.plan_defects.length && L.plan_rounds >= PLAN_ROUNDS && !newAnswers.length) return stop('needs_input', [`計画の欠陥が統合のやり直し ${PLAN_ROUNDS} 回で消えない`], { plan_defects: L.plan_defects })
-  if (!L.goal.checked || (needUnits(L) && !L.plan) || L.plan_defects.length || unrouted.length || unverified.length || newAnswers.length) return { step: 'plan' }
+  if (!L.goal.checked || (needPlan(L) && !L.plan) || L.plan_defects.length || unverified.length || newAnswers.length) return { step: 'plan' }
   const openQ = ((L.plan && L.plan.questions) || []).filter((q) => !L.answers.some((a) => a.id === q.id))
   if (openQ.length) return stop('needs_input', ['利用者への質問がある'], { questions: openQ })
-  if (L.mode === 'create') {
-    const pending = (L.plan.issues || []).filter((i) => !L.proposals[i.id] || (L.issue_defects[i.id] || []).length)
-    if (pending.length || !L.written || L.writer_defects.length) return { step: 'generate' }
-  }
   const cov = coverage(L)
-  const todo = Object.entries(L.cells).filter(([, c]) => ['unseen', 'seen'].includes(c.status) && c.attempts < MAX_ATTEMPTS).map(([id]) => id)
+  const todo = todoCells(L)
   if (todo.length) return { step: 'review', cells: todo }
   if (!L.retro_cycles.includes(L.cycle)) return { step: 'retro' }
   if (!L.group_cycles.includes(L.cycle)) return { step: 'group' }
   // ここまで来たら、この周にやることは無い。
+  const answered = (id) => L.answers.some((a) => a.id === id)
   const cur = currentFindings(L)
-  const upper = cur.filter((f) => f.verdict === 'confirmed' && UPPER.includes(f.layer) && !L.answers.some((a) => a.id === f.id))
-  const upperGroups = L.groups.filter((g) => g.status !== 'refuted' && UPPER.includes(g.layer) && !L.answers.some((a) => a.id === g.id))
-  const unverifiable = cur.filter((f) => f.verdict === 'unverifiable' && !L.answers.some((a) => a.id === f.id))
-  const rejected = cur.filter((f) => f.fix === 'rejected' && !L.answers.some((a) => a.id === f.id))
-  const live = cov.cells
-  if (!live) return stop('blocked', ['枡が 0 件（対象が空か、全て消えた）'], { cause: 'target' })
+  const upper = cur.filter((f) => f.verdict === 'confirmed' && UPPER.includes(f.layer) && !answered(f.id))
+  const upperGroups = L.groups.filter((g) => g.status !== 'refuted' && UPPER.includes(g.layer) && !answered(g.id))
+  const unverifiable = cur.filter((f) => f.verdict === 'unverifiable' && !answered(f.id))
+  if (!cov.cells) return stop('blocked', ['枡が 0 件（対象が空か、全て消えた）'], { cause: 'target' })
   if (!cov.settled) return stop('blocked', ['読みを受け付けた枡が 1 つも無い（全ての役が欠けたか、照合に落ち続けた）'], { cause: 'failure', disclosed: cov.disclosed })
-  if (upper.length || upperGroups.length || unverifiable.length || rejected.length) {
+  if (upper.length || upperGroups.length || unverifiable.length) {
     return stop('needs_input', [
-      ...(upper.length || upperGroups.length ? ['上の層（方針・要求）が原因の欠陥は、自動で直さず利用者に返す'] : []),
+      ...(upper.length || upperGroups.length ? ['上の層（方針・要求）が原因の欠陥・束は、呼ぶ側が直す前に利用者が判断する'] : []),
       ...(unverifiable.length ? [`検証不能の指摘 ${unverifiable.length} 件`] : []),
-      ...(rejected.length ? [`書き手が退けた指摘 ${rejected.length} 件`] : []),
-    ], { upper: upper.map((f) => f.id), upper_groups: upperGroups.map((g) => g.id), unverifiable: unverifiable.map((f) => f.id), rejected: rejected.map((f) => f.id) })
+    ], { upper: upper.map((f) => f.id), upper_groups: upperGroups.map((g) => g.id), unverifiable: unverifiable.map((f) => f.id) })
   }
   return stop('complete', ['全ての枡が確かめられたか開示され、読み直す枡が 0 件'], { disclosed: cov.disclosed })
 }
 
-// 起動の前に最悪の起動数を見積もる（G18）。1 回の呼び出しは LIMITS.maxAgents に収める。
+// 起動の前に最悪の起動数を見積もる。1 回の呼び出しは LIMITS.maxAgents に収める。
 export function estimate(step, args) {
   if (step === 'review') return args.cells.length * C.PER_CELL
-  // plan は単位の数が計画役の後で決まるので、単位の検証が残りの枠を全て使う最悪を見積もる。
+  // plan は観点の数が計画役の後で決まるので、観点の検証が残りの枠を全て使う最悪を見積もる。
   if (step === 'plan') return C.LIMITS.maxAgents
-  if (step === 'generate') return 2 * args.issues.length + (args.writeAfter ? 2 : 0)
-  if (step === 'group') return 2 + 2 * args.items.length
+  if (step === 'group') return 2 + 2 * args.count
   return 0
 }
 
-// 確かめた枡の印は、読みと検証の両方が静的な検査を通ったときだけ付ける。
+// 確かめた枡の印は、読みと検証の両方が静的な検査を通ったときだけ付ける。asset は写しから作った本文を持つ。
 export function settleCell(L, cellId, row, asset) {
   const c = L.cells[cellId]
-  const readP = asset ? C.checkRead(row.read, asset) : ['資産が消えた']
+  const stage = asset.retro ? 'retro' : 'review'
+  const readP = C.checkRead(row.read, asset)
   if (readP.length) {
     c.attempts += 1
     c.problems = readP
-    addEvent(L, asset && asset.retro ? 'retro' : 'review', row.read ? 'rejected_read' : 'missing_read', `${cellId}: ${readP.join(' / ')}`, cellId)
+    addEvent(L, stage, row.read ? 'rejected_read' : 'missing_read', `${cellId}: ${readP.join(' / ')}`, cellId)
     if (c.attempts >= MAX_ATTEMPTS) { c.status = 'disclosed'; addEvent(L, 'control', 'disclosed', `${cellId} を試行 ${c.attempts} 回で開示に倒した`, cellId) }
     return
   }
@@ -256,7 +229,7 @@ export function settleCell(L, cellId, row, asset) {
       c.status = 'seen'
       c.attempts += 1
       c.problems = vp.map((x) => `検証: ${x}`)
-      addEvent(L, 'review', row.verify ? 'rejected_verify' : 'missing_verify', `${cellId}: ${vp.join(' / ')}`, cellId)
+      addEvent(L, stage, row.verify ? 'rejected_verify' : 'missing_verify', `${cellId}: ${vp.join(' / ')}`, cellId)
       if (c.attempts >= MAX_ATTEMPTS) { c.status = 'disclosed'; addEvent(L, 'control', 'disclosed', `${cellId} の検証が試行 ${c.attempts} 回で揃わず開示に倒した`, cellId) }
       return
     }
@@ -266,27 +239,28 @@ export function settleCell(L, cellId, row, asset) {
     const v = (row.verify.verdicts || []).find((x) => x.index === i)
     const verdict = C.settleVerdict(v, asset.text)
     const id = findingId(cellId, f)
-    L.findings[id] = { cell: cellId, cycle: L.cycle, claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer, verdict, verdict_reason: v ? v.reason : '', status: 'current', fix: null }
-    if (verdict !== 'confirmed') addEvent(L, 'review', verdict, `${id}: ${f.claim}（${v ? v.reason : '判定なし'}）`, id)
-    else if (L.mode === 'create' && !asset.retro) addEvent(L, 'generate', 'defect', `${id}: ${f.claim}`, id)
+    L.findings[id] = { cell: cellId, cycle: L.cycle, claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer, verdict, verdict_reason: v ? v.reason : '', status: 'current' }
+    if (verdict !== 'confirmed') addEvent(L, stage, verdict, `${id}: ${f.claim}（${v ? v.reason : '判定なし'}）`, id)
   })
   Object.assign(c, { status: 'settled', verifier: fs.length > 0, problems: [], outside_notes: row.read.outside_notes || [], none_reason: row.read.none_reason || '' })
 }
 
-// 振り返りの資産: この周の悪かった出来事を段ごとに 1 資産にし、出来事ごとに区画を作る（全件を引用させる）。
+// 振り返りの資産: まだ振り返っていない出来事を、段ごとに 1 行 1 件で並べ、MAX_ASSET_LINES 行ごとの資産に分ける。
+// 区画は通常の資産と同じ式（withBlocks）で、1 体に全ての出来事の引用を求めない。本文は呼び出し側が写しに書く。
 export function retroAssets(L) {
-  // まだ振り返っていない出来事を全て拾う（前の周の振り返りの後に起きた出来事も、次の周で拾う）。
   const ev = L.events.filter((e) => !e.retro)
   for (const e of ev) e.retro = L.cycle
-  const stages = [...new Set(ev.map((e) => e.stage))].sort()
-  return stages.map((s) => {
-    const es = ev.filter((e) => e.stage === s)
-    const lines = []
-    const blocks = []
-    for (const e of es) { const t = `[${e.id}] (${e.kind}) ${e.text}`.split('\n'); blocks.push([lines.length, lines.length + t.length - 1]); lines.push(...t) }
-    const text = lines.join('\n')
-    return { id: `retro:c${L.cycle}:${s}`, path: `retro:c${L.cycle}:${s}`, heading: s, start: 1, text, hash: sha(text).slice(0, 16), retro: true, blocks, need: blocks.length }
-  })
+  const out = []
+  for (const s of [...new Set(ev.map((e) => e.stage))].sort()) {
+    const lines = ev.filter((e) => e.stage === s).map((e) => `[${e.id}] (${e.kind}) ${String(e.text).replace(/\s*\n\s*/g, ' / ')}`)
+    const chunks = Math.ceil(lines.length / MAX_ASSET_LINES)
+    for (let n = 0; n < chunks; n++) {
+      const text = lines.slice(n * MAX_ASSET_LINES, (n + 1) * MAX_ASSET_LINES).join('\n')
+      const id = `retro:c${L.cycle}:${s}${chunks > 1 ? `/c${n + 1}` : ''}`
+      out.push(withBlocks({ id, path: id, heading: s, start: 1, end: text.split('\n').length, text, hash: sha(text).slice(0, 16), retro: true }))
+    }
+  }
+  return out
 }
 
 // 較正: 利用者が仕込んだ既知の欠陥（seeds）を、観点・読む役ごとに何件拾えたか（再現率）。
@@ -294,7 +268,7 @@ export function calibration(L) {
   if (!L.seeds.length) return null
   const rows = {}
   for (const s of L.seeds) {
-    for (const [id, f] of Object.entries(L.findings)) {
+    for (const f of Object.values(L.findings)) {
       if (f.status !== 'current') continue
       const c = L.cells[f.cell]
       const a = L.assets[c.asset]
@@ -314,5 +288,3 @@ export function calibration(L) {
   }
   return per
 }
-
-export const resolveAbs = (p) => path.resolve(p)
