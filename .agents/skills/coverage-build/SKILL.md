@@ -8,7 +8,7 @@ description: >
   「この機能を設計からレビューまで通して作って」「このスキルを目標に合わせて直して（文書とコードが混ざってよい）」
   「この実装が目標を満たすか確かめて、直すならどの層からかを返して」のような依頼で使う
   （Use when building or updating documents or code through goal, design, design review, implementation, and implementation review with layer-routed rework）。
-  対象外: 検査だけで、指摘を戻す先の層（目標・設計・実装）まで要らないもの（coverage-audit）、1 体で 1 回で済む小さな変更、このリポジトリの差分・PR のレビュー（repo-review）。
+  対象外: 目標に照らした網羅的な検査だけで振り返りも要らないもの（coverage-audit）、1 体で 1 回で済む小さな変更、このリポジトリの差分・PR のレビュー（repo-review）。
 ---
 
 # Coverage build
@@ -68,7 +68,7 @@ review は直さず、出来事ごとに戻す先の層を報告して終わる�
 | `--target`（update・review。複数可） | 既にある対象のファイル |
 | `--check`（任意・複数可） | 実装の後に流す check の argv の JSON 配列（例 `'["node","--test","x.test.mjs"]'`）。shell を通さず、cwd は `--repo` |
 
-goal.md・criteria.md・constraints.md の各行の末尾に、request.md か decisions.md からの逐語の引用を `〔request: …〕` か `〔decisions: …〕` で 1 つ以上付ける。短い引用は、引用元の 1 件の全体（decisions.md の 1 行の全体、または request.md の空でない 1 行の全体〔前後の空白を除く〕）を引くとき以外は init が字数で拒否する（最小字数は `CITE_MIN`、拒否のメッセージにも出る）。引用の中に `〔` `〕` は書けない。`- ` で始まらない行（見出しと空行を除く）、引用の無い項目、引用元に逐語で無い引用は init が拒否する。指示語は固有名に置き換える。
+goal.md・criteria.md・constraints.md の各行の末尾に、request.md か decisions.md からの逐語の引用を `〔request: …〕` か `〔decisions: …〕` で 1 つ以上付ける。引用は 12 字以上にする（decisions.md の 1 行の全体、または request.md の空でない 1 行の全体〔前後の空白を除く〕を引くときは短くてよい）。引用の中に `〔` `〕` は書けない。`- ` で始まらない行（見出しと空行を除く）、引用の無い項目、引用元に逐語で無い引用は init が拒否する。指示語は固有名に置き換える。
 
 | ファイル | 例（1 行が 1 件） |
 |---|---|
