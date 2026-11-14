@@ -32,7 +32,7 @@ export function newLedger({ mode, repo, goal, goalItems, request, decisions, cri
     version: 1, rev: 0, mode, repo, cycle: 1, goal: { text: goal, items: goalItems, checked: false, problems: [] }, request, decisions, criteria, constraints, inputs, targets, checks,
     config: { ...DEFAULT_CONFIG, ...config }, roles, arch: null, need_arch: mode !== 'review', arch_rounds: 0, arch_causes: [], units: {}, audits: {}, baseline: null,
     checks_run: null, events: [], facts: [], intents: [], retro: { rounds: 0, dry: 0, due: false }, human: [], answers: [], notes: [], routes: [],
-    attempts: {}, fail_streak: 0, agents: [], calls: [], hints_read: [], pending: null, stopped: null,
+    attempts: {}, env_attempts: {}, fail_streak: 0, agents: [], calls: [], hints_read: [], pending: null, stopped: null,
   }
 }
 
@@ -130,8 +130,9 @@ export function route(L) {
   for (const id of redo.tests) { L.units[id].tests_for = null; L.units[id].impl_for = null; touched.add(id) }
   for (const id of redo.impl) { L.units[id].impl_for = null; touched.add(id) }
   for (const id of touched) { const u = L.units[id]; u.rounds += 1; u.causes = causes.get(id) || [`上流の単位の設計がやり直しになった`] }
-  if (L.arch_rounds > L.config.max_unit_rounds && redo.arch) L.human.push({ id: 'rounds:arch', reason: `方式設計のやり直しが ${L.config.max_unit_rounds} 回を超えた`, text: arr(L.arch_causes).join(' / ') })
-  for (const id of touched) if (L.units[id].rounds > L.config.max_unit_rounds) L.human.push({ id: `rounds:${id}`, reason: `単位 ${id} のやり直しが ${L.config.max_unit_rounds} 回を超えた`, text: L.units[id].causes.join(' / ') })
+  // 超えた回ごとに別の id にする（同じ id だと、前の回答で次の超過も回答済みに見える）。
+  if (L.arch_rounds > L.config.max_unit_rounds && redo.arch) L.human.push({ id: `rounds:arch#${L.cycle}`, reason: `方式設計のやり直しが ${L.config.max_unit_rounds} 回を超えた`, text: arr(L.arch_causes).join(' / ') })
+  for (const id of touched) if (L.units[id].rounds > L.config.max_unit_rounds) L.human.push({ id: `rounds:${id}#${L.cycle}`, reason: `単位 ${id} のやり直しが ${L.config.max_unit_rounds} 回を超えた`, text: L.units[id].causes.join(' / ') })
   // やり直した後は、中身が同じでもレビューと check をやり直す（同じ欠陥が残れば、もう一度戻して上限で止まる）。
   if (redo.arch || touched.size) { L.cycle += 1; delete L.audits.impl; L.checks_run = null }
   if (redo.arch || redo.design.size) delete L.audits.design

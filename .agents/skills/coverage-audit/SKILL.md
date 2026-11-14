@@ -49,7 +49,7 @@ description: >
 | constraints.md（任意） | 制約（検査の進め方で守ること）。1 行 1 件で `- D1: ...` |
 | lenses.json（任意） | 利用者が決めた観点 `[{id, name, procedure}]`。procedure は「何を列挙し、何と照らすか」の手続き。無ければ計画役が切る |
 
-goal.md・criteria.md・constraints.md の各行の末尾に、request.md か decisions.md からの逐語の引用を `〔request: …〕` か `〔decisions: …〕` で 1 つ以上付ける。引用は 12 字以上にする（decisions.md の 1 行の全体、または request.md の空でない 1 行の全体〔前後の空白を除く〕を引くときは短くてよい）。引用の中に `〔` `〕` は書けない。`- ` で始まらない行（見出しと空行を除く）、引用の無い項目、引用元に逐語で無い引用は init が拒否する。指示語は固有名に置き換える。
+goal.md・criteria.md・constraints.md の各行の末尾に、request.md か decisions.md からの逐語の引用を `〔request: …〕` か `〔decisions: …〕` で 1 つ以上付ける。短い引用は、引用元の 1 件の全体（decisions.md の 1 行の全体、または request.md の空でない 1 行の全体〔前後の空白を除く〕）を引くとき以外は init が字数で拒否する（最小字数は `CITE_MIN`、拒否のメッセージにも出る）。引用の中に `〔` `〕` は書けない。`- ` で始まらない行（見出しと空行を除く）、引用の無い項目、引用元に逐語で無い引用は init が拒否する。指示語は固有名に置き換える。
 
 | ファイル | 例（1 行が 1 件） |
 |---|---|

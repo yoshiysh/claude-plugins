@@ -300,7 +300,7 @@ else {
   if (!A.roles || typeof A.roles !== 'object') argProblems.push('roles が無い')
   if (A.argsSum !== argsSum(A)) argProblems.push('args の写しが next の出力と違う（argsSum が合わない）')
 }
-if (argProblems.length) return { stage: A && A.stage, status: 'blocked', reason: 'args の検査に落ちた', problems: argProblems, agents: [] }
+if (argProblems.length) return { stage: A && A.stage, call_id: A && A.callId, status: 'blocked', reason: 'args の検査に落ちた', problems: argProblems, agents: [] }
 
 // 写しのファイルの読み方。本文は args に載らないので、担当が Read で自分の範囲だけを読む。
 const rangeOf = (r) => `写し: ${r.snapshot}\n行: ${r.start}-${r.end}（Read の offset=${r.start}, limit=${r.end - r.start + 1}。この範囲の外は読まない）`

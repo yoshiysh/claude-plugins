@@ -429,7 +429,11 @@ function cmdAnswer(o) {
     // 回答は利用者の言葉として決定の記録に足し、その行を引用する制約にする（引用の無い項目を作らない）。
     const said = `${id} への利用者の回答: ${text.replace(/\s*\n\s*/g, ' ')}`
     L.decisions = `${L.decisions != null ? `${L.decisions}\n` : ''}- ${said}`
-    L.constraints.push({ id: `A${L.answers.length}`, text: said, cites: [{ source: 'decisions', quote: said }] })
+    // id は目標・基準・制約の id に無い最小の A<n>（coverage-build から渡った A<n> や、利用者が書いた A<n> と重ねない）。
+    const used = [...L.goal.items, ...L.criteria, ...L.constraints].map((c) => c.id)
+    let n = 1
+    while (used.includes(`A${n}`)) n++
+    L.constraints.push({ id: `A${n}`, text: said, cites: [{ source: 'decisions', quote: said }] })
   }
   save(dir, L)
   return { ok: true }

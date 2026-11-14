@@ -8,7 +8,7 @@ description: >
   「この機能を設計からレビューまで通して作って」「このスキルを目標に合わせて直して（文書とコードが混ざってよい）」
   「この実装が目標を満たすか確かめて、直すならどの層からかを返して」のような依頼で使う
   （Use when building or updating documents or code through goal, design, design review, implementation, and implementation review with layer-routed rework）。
-  対象外: 目標に照らした網羅的な検査だけで振り返りも要らないもの（coverage-audit）、1 体で 1 回で済む小さな変更、このリポジトリの差分・PR のレビュー（repo-review）。
+  対象外: 検査だけで、指摘を戻す先の層（目標・設計・実装）まで要らないもの（coverage-audit）、1 体で 1 回で済む小さな変更、このリポジトリの差分・PR のレビュー（repo-review）。
 ---
 
 # Coverage build
@@ -68,7 +68,7 @@ review は直さず、出来事ごとに戻す先の層を報告して終わる�
 | `--target`（update・review。複数可） | 既にある対象のファイル |
 | `--check`（任意・複数可） | 実装の後に流す check の argv の JSON 配列（例 `'["node","--test","x.test.mjs"]'`）。shell を通さず、cwd は `--repo` |
 
-goal.md・criteria.md・constraints.md の各行の末尾に、request.md か decisions.md からの逐語の引用を `〔request: …〕` か `〔decisions: …〕` で 1 つ以上付ける。引用は 12 字以上にする（decisions.md の 1 行の全体、または request.md の空でない 1 行の全体〔前後の空白を除く〕を引くときは短くてよい）。引用の中に `〔` `〕` は書けない。`- ` で始まらない行（見出しと空行を除く）、引用の無い項目、引用元に逐語で無い引用は init が拒否する。指示語は固有名に置き換える。
+goal.md・criteria.md・constraints.md の各行の末尾に、request.md か decisions.md からの逐語の引用を `〔request: …〕` か `〔decisions: …〕` で 1 つ以上付ける。短い引用は、引用元の 1 件の全体（decisions.md の 1 行の全体、または request.md の空でない 1 行の全体〔前後の空白を除く〕）を引くとき以外は init が字数で拒否する（最小字数は `CITE_MIN`、拒否のメッセージにも出る）。引用の中に `〔` `〕` は書けない。`- ` で始まらない行（見出しと空行を除く）、引用の無い項目、引用元に逐語で無い引用は init が拒否する。指示語は固有名に置き換える。
 
 | ファイル | 例（1 行が 1 件） |
 |---|---|
@@ -142,7 +142,7 @@ args を書き換えない（source が `argsSum` で写し違い・切り詰め
 
 現状の検査・設計レビュー・実装レビュー・review の検査は、同じ repo のスキル coverage-audit を**スキル呼び出し**で使う（このスキルの CLI から coverage-audit のファイルを読んだり実行したりしない）。`next` の `audit` に、coverage-audit の init の引数（`init_argv`）と、その中のファイル（`goal`・`request`・`decisions`・`criteria`・`constraints`）と `targets` が載る。これらは CLI が書いたもので、司令塔は言い換えずにそのまま渡す。受け入れ基準（実装レビューでは単位ごとの受け入れ `U<n>A<m>` を含む）は制約と別の `criteria` で渡る。基準・制約が 0 件なら `criteria`・`constraints` とその引数は載らない。`init_argv` は照合済みの印 `--goal-checked coverage-build` を含み、coverage-audit は目標の照合を流さない。
 
-1. `audit.initialized` が false なら、coverage-audit の CLI に `audit.init_argv` をそのまま渡して init する。true なら init を流さない（同じ対象の集合の台帳を持ち越し、変わった枡だけが読み直される）。
+1. `audit.initialized` が false なら、coverage-audit の CLI に `audit.init_argv` をそのまま渡して init する。true なら init を流さない（対象の集合と渡す入力の中身が同じ台帳を持ち越し、変わった枡だけが読み直される。answer で制約が足されたときや単位ごとの受け入れが変わったときは入力が変わるので、新しい置き場になり initialized は false）。
 2. coverage-audit の手順を、その `next` が止まるまで回す。coverage-audit が needs_input で止まったときは、上の層の指摘・検証不能（`upper`・`upper_groups`・`unverifiable`）だけなら回答せずに 3 へ進む（このスキルが層への戻しと人間への返し方を決める）。それ以外（質問・試行の上限）は coverage-audit の「止まったとき」に従って利用者に返す。
 3. coverage-audit の `status` の出力をファイルに保存し、`CLI import-audit --state <stateDir> --status <file>` を流す。
 
@@ -155,7 +155,7 @@ args を書き換えない（source が `argsSum` で写し違い・切り詰め
 | stop | 返すもの | 続け方 |
 |---|---|---|
 | complete | create・update: 単位ごとの成果物の path、レビューで見ていない枡（`audits.*.not_seen`）、check の結果、進め方の気づき（`notes`）。review: 出来事ごとに戻す先の層（`routes`）。盲点が相関しうること（どの役も Anthropic のモデル） | 対象が変わったら同じ台帳で `next`（変わったものだけを見直す） |
-| needs_input | `reasons` と、決めること（`human`・`questions`・`stuck`・`goal_gaps`）を判断材料つきで。`goal_gaps` は、どの項目にも受け止められていない成果とその引用 | 利用者の判断を `CLI answer --state <stateDir> --id <id> --text "..."`（回答を利用者の言葉として決定の記録に足し、その行を引用する制約にして、方式設計からやり直す）か `CLI dismiss ...`（直さない判断を記録するだけ）で足して `next`。目標・受け入れ基準・制約・決定の記録を直すときは `--id goal`・`criteria`・`constraints`・`decisions` と `--file <直したファイル>`（中身を置き換え、引用を照らし直し、目標の照合からやり直す。照合を通らなければ台帳を変えずに拒否する）。`stuck` は `--id attempts:<キー>`、やり直しの上限は `--id rounds:<単位>` |
+| needs_input | `reasons` と、決めること（`human`・`questions`・`stuck`・`goal_gaps`）を判断材料つきで。`goal_gaps` は、どの項目にも受け止められていない成果とその引用 | 利用者の判断を `CLI answer --state <stateDir> --id <id> --text "..."`（回答を利用者の言葉として決定の記録に足し、その行を引用する制約にして、方式設計からやり直す）か `CLI dismiss ...`（直さない判断を記録するだけ）で足して `next`。目標・受け入れ基準・制約・決定の記録を直すときは `--id goal`・`criteria`・`constraints`・`decisions` と `--file <直したファイル>`（中身を置き換え、引用を照らし直し、目標の照合からやり直す。照合を通らなければ台帳を変えずに拒否する）。`stuck` は `--id attempts:<キー>`、やり直しの上限は `human` に出る `--id rounds:<単位>#<周>`（超えた回ごとに別の id） |
 | limit | どの上限か、ここまでの結果 | 利用者が上限を変えるなら `CLI config --state <stateDir> --max-cycles N`（か `--max-agents-total`・`--max-unit-rounds`）の後で `next` |
 | blocked | `cause`（input・failure）と理由 | 原因を直して `next` |
 

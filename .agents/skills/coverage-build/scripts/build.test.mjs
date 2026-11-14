@@ -241,8 +241,9 @@ test('上限: 起動数の上限で limit、やり直しの上限を超えたら
   const audit = (phase) => (phase === 'impl' ? auditStatus({ confirmed: [{ path: path.join(s.repo, 'src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus())
   const r = await drive(s.state, mockAgent(), { audit })
   assert.equal(r.stop.stop, 'needs_input')
-  assert.ok(r.stop.human.some((h) => h.id === 'rounds:U1'))
-  assert.equal(cli('answer', '--state', s.state, '--id', 'rounds:U1', '--text', '続ける').code, 0)
+  const h = r.stop.human.find((x) => x.id.startsWith('rounds:U1'))
+  assert.ok(h)
+  assert.equal(cli('answer', '--state', s.state, '--id', h.id, '--text', '続ける').code, 0)
   assert.equal(ledger(s.state).units.U1.rounds, 0)
 })
 
@@ -402,3 +403,63 @@ test('ingest: 受け付けなかった出力があれば、その理由を出力
   assert.equal(ok.code, 0)
   assert.equal(ok.rejected, undefined, '受け付けた出力だけなら rejected を載せない')
 })
+
+test('上限: やり直しの上限に答えた後にまた上限を超えたら、もう一度 needs_input で人間に返す', async (t) => {
+  const s = setup(t, { extra: ['--max-unit-rounds', '1', '--max-cycles', '10'] })
+  const audit = (phase) => (phase === 'impl' ? auditStatus({ confirmed: [{ path: path.join(s.repo, 'src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus())
+  const first = await drive(s.state, mockAgent(), { audit })
+  assert.equal(first.stop.stop, 'needs_input', JSON.stringify(first.stop))
+  const h1 = first.stop.human.find((h) => h.id.startsWith('rounds:U1'))
+  assert.ok(h1, JSON.stringify(first.stop.human))
+  assert.equal(cli('answer', '--state', s.state, '--id', h1.id, '--text', '続ける').code, 0)
+  assert.equal(ledger(s.state).units.U1.rounds, 0)
+  const second = await drive(s.state, mockAgent(), { audit })
+  assert.equal(second.stop.stop, 'needs_input', JSON.stringify(second.stop))
+  const h2 = second.stop.human.find((h) => h.id.startsWith('rounds:U1'))
+  assert.ok(h2 && h2.id !== h1.id, '超えた回ごとに別の id で返す')
+})
+
+test('全件失敗から再開: 全ての役が欠けた呼び出しで増えた試行を戻し、原因を直した run は完了する', async (t) => {
+  const { state } = setup(t)
+  const dead = await drive(state, async () => null)
+  assert.equal(dead.stop.stop, 'blocked', JSON.stringify(dead.stop))
+  assert.equal(dead.stop.cause, 'failure')
+  const again = await drive(state, mockAgent())
+  assert.equal(again.stop.stop, 'complete', JSON.stringify(again.stop))
+})
+
+test('answer: 回答から作る制約の id は、既にある目標・基準・制約の id と重ならない', async (t) => {
+  const { d, state } = setup(t, { checks: [['node', '-e', 'process.exit(3)']] })
+  const { stop } = await drive(state, mockAgent())
+  assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
+  writeFileSync(path.join(d, 'c-a1.md'), '- D1: 依存を足さない 〔decisions: 依存を足さない〕\n- A1: 入力が 1 なら 2 を返す 〔decisions: 入力が 1 なら 2 を返す〕\n')
+  assert.equal(cli('answer', '--state', state, '--id', 'constraints', '--file', path.join(d, 'c-a1.md')).code, 0)
+  assert.equal(cli('answer', '--state', state, '--id', stop.human[0].id, '--text', 'check を直す').code, 0)
+  const ids = ledger(state).constraints.map((c) => c.id)
+  assert.deepEqual(ids, ['D1', 'A1', 'A2'])
+})
+
+for (const shape of ['runner', 'native']) {
+  test(`振り返り: pipeline の callback の引数の形（${shape}）に依らず、全ての意図を実行して結果を意図に結ぶ`, async (t) => {
+    const { state } = setup(t)
+    let n = 0
+    const audit = (phase) => (phase === 'impl' && n++ === 0 ? auditStatus({ confirmed: [{ path: path.join(path.dirname(state), 'repo/src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus())
+    let planned = false
+    const log = []
+    const over = {
+      'retro-plan': (p) => {
+        const m = /^- (E\d+) \[impl_review\/finding/m.exec(readFileSync(/Read で (\S+) を全て読む/.exec(p)[1], 'utf8'))
+        if (!m || planned) return undefined
+        planned = true
+        return { intents: [{ basis: [m[1]], hypothesis: '一つ目の仮説', layer: '実装', look_at: ['x'] }, { basis: [m[1]], hypothesis: '二つ目の仮説', layer: '実装', look_at: ['x'] }] }
+      },
+    }
+    await drive(state, mockAgent(over, log), { audit, run: (args, fn) => runWorkflow(args, fn, { shape }) })
+    assert.ok(planned)
+    const labels = log.map((x) => x.label.split('（')[0]).filter((l) => l.startsWith('retro-exam'))
+    assert.deepEqual([...new Set(labels)].sort(), ['retro-exam-0', 'retro-exam-1'])
+    const its = ledger(state).intents.filter((i) => /の仮説$/.test(i.hypothesis))
+    assert.equal(its.length, 2)
+    assert.ok(its.every((i) => i.status !== 'not_run'), JSON.stringify(its))
+  })
+}

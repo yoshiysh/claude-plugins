@@ -319,7 +319,9 @@ async function retroStage() {
   const intents = pl.result && !pl.problems.length ? arr(pl.result.intents) : []
   const cap = Math.max(0, Math.floor(left() / 3))
   const run = intents.slice(0, cap)
-  const rows = await pipeline(run, async (it, i) => {
+  // 添字は items に持たせる（pipeline の callback の第 2 引数は、native では元の item、runner では添字で、形が違う）。
+  // 結果も添字で意図に結ぶ（pipeline の返り値の並びに頼らない）。
+  const rows = await pipeline(run.map((it, i) => ({ it, i })), async ({ it, i }) => {
     const ex = await checked('retro_examiner', `retro-exam-${i}`, `${readBrief(A.brief)}
 ## あなたの役: 振り返りの実行役（意図 1 件だけ）
 ### 意図
@@ -337,7 +339,7 @@ ${JSON.stringify(ex.result)}`, JUDGE_SCHEMA)
     }
     return { index: i, exam: ex.result, exam_problems: ex.problems, judge, judge_problems: judge ? checkJudge(judge) : [] }
   })
-  return { status: 'ok', intents: pl.result, intent_problems: pl.problems, exams: rows.map((r, i) => r || { index: i, exam: null, exam_problems: ['pipeline が null を返した'], judge: null, judge_problems: [] }), not_run: intents.slice(cap).map((_, i) => cap + i) }
+  return { status: 'ok', intents: pl.result, intent_problems: pl.problems, exams: run.map((_, i) => rows.find((r) => r && r.index === i) || { index: i, exam: null, exam_problems: ['pipeline が null を返した'], judge: null, judge_problems: [] }), not_run: intents.slice(cap).map((_, i) => cap + i) }
 }
 
 const body = A.stage === 'design' ? await designStage() : await retroStage()

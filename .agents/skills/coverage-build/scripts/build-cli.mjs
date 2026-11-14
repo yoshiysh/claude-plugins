@@ -245,7 +245,12 @@ function cmdInit(o) {
 function cmdNext(o) {
   const dir = path.resolve(need(o, 'state'))
   const L = load(dir)
-  if (L.stopped && L.stopped.stop === 'blocked' && L.stopped.cause === 'failure') L.fail_streak = 0
+  // blocked（failure）の後の next は、原因を直した再開として扱い、連続の数と、全ての役が欠けた呼び出しで増えた試行を戻す。
+  if (L.stopped && L.stopped.stop === 'blocked' && L.stopped.cause === 'failure') {
+    L.fail_streak = 0
+    for (const [k, n] of Object.entries(L.env_attempts || {})) if (k in L.attempts) { L.attempts[k] -= n; if (L.attempts[k] <= 0) delete L.attempts[k] }
+    L.env_attempts = {}
+  }
   for (;;) {
     writeDesign(L, dir)
     const keys = keysOf(L, dir)
@@ -304,9 +309,15 @@ function cmdIngest(o) {
   const args = JSON.parse(read(p.args_path))
   recordCall(L, res, p.step)
   const seen = L.events.length
+  const before = { ...L.attempts }
   if (p.step === 'design') ingestDesign(L, res, args, reader(L, dir))
   else if (p.step === 'retro') ingestRetro(L, res, args, reader(L, dir))
   else ingestWrite(L, res, args, p.before, hashesNow(L))
+  // 全ての役が欠けた呼び出しで増えた試行は env_attempts にも数え、blocked（failure）から再開したときに戻す（coverage-audit と同じ）。
+  L.env_attempts = L.env_attempts || {}
+  const ag = Array.isArray(res.agents) ? res.agents : []
+  if (ag.length && ag.every((a) => !a.ok)) for (const [k, n] of Object.entries(L.attempts)) if (n > (before[k] || 0)) L.env_attempts[k] = (L.env_attempts[k] || 0) + n - (before[k] || 0)
+  for (const k of Object.keys(L.env_attempts)) if (!(k in L.attempts)) delete L.env_attempts[k]
   L.hints_read.push(...p.hints)
   L.pending = null
   save(dir, L)
@@ -390,6 +401,8 @@ function cmdHint(o) {
 // それ以外の id への回答は、利用者の言葉として決定の記録に足し、その行を引用する制約にして方式設計からやり直す。dismiss は記録だけ。
 const GOAL_FILES = { goal: 'goal', criteria: 'criteria', constraints: 'constraints', decisions: 'decisions' }
 const itemsText = (xs) => xs.map((c) => `- ${c.id}: ${c.text}${c.cites.map((q) => ` 〔${q.source}: ${q.quote}〕`).join('')}`).join('\n')
+// 回答から作る制約の id: 目標・基準・制約の id に無い最小の A<n>（利用者が書いた A<n> や、coverage-build から渡った A<n> と重ねない）。
+const freeAnswerId = (ids) => { let n = 1; while (ids.includes(`A${n}`)) n++; return `A${n}` }
 function cmdAnswer(o, dismiss = false) {
   const dir = path.resolve(need(o, 'state'))
   const L = load(dir)
@@ -411,13 +424,14 @@ function cmdAnswer(o, dismiss = false) {
   const known = isQ || L.human.some((h) => h.id === id) || id.startsWith('attempts:')
   if (!known) throw new Fail(`台帳に無い id: ${id}`)
   if (id.startsWith('attempts:')) delete L.attempts[id.slice('attempts:'.length)]
-  if (id === 'rounds:arch') L.arch_rounds = 0
-  else if (id.startsWith('rounds:') && L.units[id.slice(7)]) L.units[id.slice(7)].rounds = 0
+  const rounds = id.startsWith('rounds:') ? id.slice('rounds:'.length).split('#')[0] : null // rounds:<単位か arch>#<周>
+  if (rounds === 'arch') L.arch_rounds = 0
+  else if (rounds && L.units[rounds]) L.units[rounds].rounds = 0
   L.answers.push({ id, text, dismiss })
   if (!dismiss && !id.startsWith('attempts:') && !id.startsWith('rounds:')) {
     const said = `${id} への利用者の回答: ${text.replace(/\s*\n\s*/g, ' ')}`
     L.decisions = `${L.decisions != null ? `${L.decisions}\n` : ''}- ${said}`
-    L.constraints.push({ id: `A${L.answers.length}`, text: said, cites: [{ source: 'decisions', quote: said }] })
+    L.constraints.push({ id: freeAnswerId(goalIds(L)), text: said, cites: [{ source: 'decisions', quote: said }] })
     if (L.mode !== 'review') L.need_arch = true
   }
   save(dir, L)

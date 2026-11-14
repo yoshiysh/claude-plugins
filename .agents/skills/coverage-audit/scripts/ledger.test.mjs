@@ -614,3 +614,37 @@ test('ingest: 受け付けなかった出力があれば、その理由を出力
   assert.equal(ok.code, 0)
   assert.equal(ok.rejected, undefined)
 })
+
+test('ingest: Workflow が args を拒否した結果は、呼び出しの違いでなく args の拒否として案内する', async (t) => {
+  const { state, d } = setup(t)
+  const n = cli('next', '--state', state)
+  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  const res = await runWorkflow({ ...args, criteriaIds: [...(args.criteriaIds || []), 'AC9'] }, mockAgent())
+  assert.equal(res.status, 'blocked')
+  writeFileSync(path.join(d, 'r.json'), JSON.stringify(res))
+  const g = cli('ingest', '--state', state, '--result', path.join(d, 'r.json'))
+  assert.equal(g.code, 2)
+  assert.match(g.error, /args を拒否/)
+})
+
+test('answer: 質問への回答から作る制約の id は、既にある基準・制約の id と重ならない', async (t) => {
+  const { d } = setup(t)
+  writeFileSync(path.join(d, 'g.md'), '- G1: 値を計算する関数\n')
+  writeFileSync(path.join(d, 'c.md'), '- D1: 依存を足さない\n- A1: coverage-build の回答から来た制約\n')
+  const state = path.join(d, 'qa')
+  assert.equal(cli('init', '--state', state, '--goal', path.join(d, 'g.md'), '--request', path.join(d, 'request.md'), '--constraints', path.join(d, 'c.md'), '--target', path.join(d, 'doc.md'), '--goal-checked', 'coverage-build').code, 0)
+  const qs = [{ id: 'Q1', question: 'どちらにするか', why_value_judgment: '価値の判断', options: ['甲', '乙'] }]
+  const base = mockAgent()
+  const agentFn = async (prompt, opts) => {
+    const r = await base(prompt, opts)
+    if (opts.label.startsWith('integrate') && !ledger(state).answers.length) return { ...r, questions: qs }
+    return r
+  }
+  const { stop } = await drive(state, agentFn)
+  assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
+  assert.deepEqual(stop.questions.map((q) => q.id), ['Q1'])
+  assert.equal(cli('answer', '--state', state, '--id', 'Q1', '--text', '甲にする').code, 0)
+  const ids = ledger(state).constraints.map((c) => c.id)
+  assert.equal(new Set(ids).size, ids.length, JSON.stringify(ids))
+  assert.deepEqual(ids, ['D1', 'A1', 'A2'])
+})

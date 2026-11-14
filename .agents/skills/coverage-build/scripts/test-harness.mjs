@@ -61,9 +61,11 @@ export function mockAgent(over = {}, log = []) {
   }
 }
 
-export async function runWorkflow(args, agentFn) {
+// shape: pipeline の callback に渡す引数の形。runner は (item, index)、native は (prevResult, originalItem, index)（1 段なら prevResult は item）。
+export async function runWorkflow(args, agentFn, { shape = 'runner' } = {}) {
   const parallel = (ts) => Promise.all(ts.map((t) => Promise.resolve().then(t).catch(() => null)))
-  const pipeline = (items, fn) => Promise.all(items.map((x, i) => Promise.resolve().then(() => fn(x, i)).catch(() => null)))
+  const call = shape === 'native' ? (fn, x, i) => fn(x, x, i) : (fn, x, i) => fn(x, i)
+  const pipeline = (items, fn) => Promise.all(items.map((x, i) => Promise.resolve().then(() => call(fn, x, i)).catch(() => null)))
   const body = ['tests', 'implement'].includes(args.stage) ? bodies.write : bodies.step
   return body(agentFn, parallel, pipeline, () => {}, () => {}, args, undefined)
 }

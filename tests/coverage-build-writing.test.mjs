@@ -30,3 +30,11 @@ test('writing.md の冒頭に、どこの写しかが書いてある', () => {
   assert.match(head, /plugins\/workflow\/skills\/prd-spec\/references\/document-structure\.md/)
   assert.match(head, /2\.7 表・図・散文の使い分け/)
 })
+
+test('writing.md の冒頭に、本文が委ねる正本の §6 の分担の 1 文が正本と同じ文で置いてある', () => {
+  const sentence = '図は状態の集合と主フローを持ち、表は主フロー以外の組み合わせを持つ。'
+  const head = read('.agents/skills/coverage-build/references/writing.md').split('\n## ')[0]
+  assert.ok(head.replace(/\s+/g, '').includes(sentence), '写しの節の外（冒頭）に置く')
+  const s6 = read('plugins/workflow/skills/prd-spec/references/document-structure.md').split('\n## 6. ')[1].split('\n## ')[0]
+  assert.ok(s6.replace(/\s+/g, '').includes(sentence), '正本の §6 に同じ文がある')
+})
