@@ -9,6 +9,8 @@ REFERENCES := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_references.p
 TRACEABILITY := scripts/traceability/cli.mjs
 TRACEABILITY_CONFIG := traceability.config.json
 VERIFICATION_OUTPUT ?= .artifacts/verification
+RUNTIME_DIR := $(SKILLS_DIR)/dynamic-workflow-runner/scripts/runtime
+RUNTIME_STAMP := $(RUNTIME_DIR)/node_modules/.package-lock.stamp
 
 # スキル一覧・tests ディレクトリはどちらも毎回導出する。ハードコードすると、スキルの
 # 追加・リネームのたびに検証対象から静かに漏れる（実例: worktree-sync → cleanup-branches の
@@ -29,8 +31,11 @@ EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixt
 .PHONY: test portability references check runtime-deps traceability traceability-complete
 
 # Pinned runtime dependencies are installed before discovery executes Node tests.
-runtime-deps:
-	@cd $(SKILLS_DIR)/dynamic-workflow-runner/scripts/runtime && $(NPM) ci --ignore-scripts --no-audit --no-fund
+$(RUNTIME_STAMP): $(RUNTIME_DIR)/package-lock.json
+	@cd $(RUNTIME_DIR) && $(NPM) ci --ignore-scripts --no-audit --no-fund
+	@mkdir -p $(dir $@) && touch $@
+
+runtime-deps: $(RUNTIME_STAMP)
 
 # 合否ゲート。1 つでも失敗したら止まる。
 test: runtime-deps references
@@ -38,10 +43,8 @@ test: runtime-deps references
 		echo "── $$s"; \
 		$(PYTHON) $(VALIDATOR) $(SKILLS_DIR)/$$s --verbose; \
 	done
-	@set -e; for t in $(TEST_DIRS); do \
-		echo "── unittest $$t"; \
-		$(PYTHON) -m unittest discover -s $$t -p 'test_*.py'; \
-	done
+	@echo "── unittest"
+	@$(PYTHON) scripts/parallel_unittest.py $(TEST_DIRS)
 	@if [ -n "$(NODE_TEST_FILES)" ]; then \
 		echo "── Node tests"; \
 		$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT) -- $(NODE_TEST_FILES); \

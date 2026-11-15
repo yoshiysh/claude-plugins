@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from doc_check_client import run_worker  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -35,7 +36,11 @@ def _tx(args):
 
 
 def _run(ws, *args):
-    return subprocess.run(["node", str(DOC_CHECK), *args, *_tx(args), "--workspace", str(ws)], capture_output=True, text=True)
+    if not args:
+        raise ValueError("mode is required")
+    mode = args[0]
+    rest = list(args[1:]) + list(_tx(args))
+    return run_worker(ws, mode, rest)
 
 
 # STDOUT_FNV: doc_check が CLI の stdout に付ける digest の欄。中身の照合は test_prd_pure（prd-spec.js が計算し直して合う）が持つので、
