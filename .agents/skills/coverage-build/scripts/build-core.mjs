@@ -32,7 +32,7 @@ export function newLedger({ mode, repo, goal, goalItems, request, decisions, cri
     version: 1, rev: 0, mode, repo, cycle: 1, goal: { text: goal, items: goalItems, checked: false, problems: [] }, request, decisions, criteria, constraints, inputs, targets, checks,
     config: { ...DEFAULT_CONFIG, ...config }, roles, arch: null, need_arch: mode !== 'review', arch_rounds: 0, arch_causes: [], units: {}, audits: {}, baseline: null,
     checks_run: null, events: [], facts: [], intents: [], retro: { rounds: 0, dry: 0, due: false }, human: [], answers: [], notes: [], routes: [],
-    attempts: {}, env_attempts: {}, fail_streak: 0, agents: [], calls: [], hints_read: [], pending: null, stopped: null,
+    attempts: {}, env_attempts: {}, fail_streak: 0, agents: [], calls: [], hints_read: [], pending: null, stopped: null, audit_frame: null, audit_events_seen: [],
   }
 }
 
@@ -44,14 +44,18 @@ export function ownerOf(L, rel) {
   for (const u of unitList(L)) { if (u.paths.includes(rel)) return { unit: u.id, test: false }; if (u.tests.includes(rel)) return { unit: u.id, test: true } }
   return { unit: null, test: false }
 }
-export const coverIds = (L) => [...L.criteria, ...L.constraints].map((c) => c.id)
+// 単位の covers の受け皿: 受け入れ基準と制約。どちらも 0 件なら目標の項目の id を受け皿にする（受け皿が無いと方式設計が「covers が空」で必ず落ちる）。
+export function coverIds(L) {
+  const ids = [...L.criteria, ...L.constraints].map((c) => c.id)
+  return ids.length ? ids : L.goal.items.map((c) => c.id)
+}
 const dependents = (L, id) => {
   const out = new Set([id])
   for (let grew = true; grew;) { grew = false; for (const u of unitList(L)) if (!out.has(u.id) && u.depends_on.some((d) => out.has(d))) { out.add(u.id); grew = true } }
   return [...out]
 }
 
-// 設計の写し: 方式設計 1 枚と単位ごとに 1 枚。coverage-audit の資産と単位が 1 対 1 で結び付くように分ける。
+// 設計の写し: 方式設計 1 枚と単位ごとに 1 枚。coverage-audit の資産はファイルの中のブロック（段落・箇条書き・表など）で切られるが、資産の id は path を含むので、指摘のファイルから単位が決まる。
 export function renderDesign(L) {
   if (!L.arch) return {}
   const us = unitList(L)
@@ -60,7 +64,6 @@ export function renderDesign(L) {
       ...us.map((u) => `| ${u.id} ${u.title} | ${u.kind} | ${u.responsibility} | ${u.paths.join('<br>')} | ${u.tests.join('<br>') || '-'} | ${u.depends_on.join(', ') || '-'} | ${u.covers.join(', ')} |`)].join('\n') + '\n',
   }
   for (const u of us) {
-    // 見出しは 1 つだけにする（coverage-audit は見出しごとに資産を切るので、単位が 1 つの資産になり、短い節の枡が増えない）。
     files[`${u.id}.md`] = [`# ${u.id}: ${u.title}`, '', `**責務**: ${u.responsibility}`, '', `**持つファイル**: ${u.paths.join(', ')}`, ...(u.tests.length ? ['', `**テスト（実装より先に別の担当が書く）**: ${u.tests.join(', ')}`] : []),
       '', '**仕様**', '', u.spec || '（未設計）', '', '**受け入れ**', '', ...u.acceptance.map((a) => `- ${a.id}: ${a.text}`), ...(u.cases.length ? ['', '**ケース**', '', '| 条件 | 期待 |', '|---|---|', ...u.cases.map((c) => `| ${c.condition} | ${c.expect} |`)] : [])].join('\n') + '\n'
   }
@@ -289,8 +292,9 @@ export function ingestRetro(L, res, args, readText) {
   L.retro.dry = added ? 0 : L.retro.dry + 1
 }
 
-// coverage-audit の指摘の id（枡#hash、枡は 資産|観点|回、資産は path#見出し）から path を取る。
-// coverage-audit 自身の振り返りの資産（retro:c<周>:<段>）は対象のファイルでないので null。
+// coverage-audit の指摘の id（枡#hash、枡は 資産|観点|回）から path を取る。資産の id は path#<中身の位置>
+// （Markdown は 見出しの経路/<ブロックの種類><序数>・_frontmatter、JS は宣言の名前、他は c<n>。長い範囲は /c<n>、重なりは ~<k>）で、位置の側に # を含まない。
+// 振り返りの資産（retro:c<周>:<段>）は対象のファイルでないので null（照合済みの印のある台帳は作らないが、形として受ける）。
 export function findingPath(id) {
   const cell = String(id).slice(0, String(id).lastIndexOf('#'))
   const asset = cell.split('|')[0]
@@ -324,6 +328,12 @@ export function importAudit(L, status, phase, { readText, unitOfPath }) {
   for (const f of arr(status.findings && status.findings.unverifiable)) {
     if (phase === 'baseline') base.unverifiable.push(f)
     else addEvent(L, { stage, kind: 'unverifiable', text: `検証不能の指摘 ${f.id}: ${f.claim}`, ref: f.id })
+  }
+  // coverage-audit のこの段の出来事（振り返りの資産を作らずに status で返す）を、探索グラフの出来事として 1 回だけ受ける。
+  for (const e of arr(status.events)) {
+    if (!e || !e.id || L.audit_events_seen.includes(e.id)) continue
+    L.audit_events_seen.push(e.id)
+    addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit の出来事 ${e.id} [${e.stage}/${e.kind}]: ${e.text}`, ref: e.id })
   }
   if (phase === 'baseline') L.baseline = base
   else for (const c of base.not_seen) addEvent(L, { stage, kind: 'not_seen', text: `見ていない枡（開示）: ${c}` })

@@ -54,6 +54,7 @@ function load(dir) {
   if (!existsSync(ledgerPath(dir))) throw new Fail(`台帳が無い: ${ledgerPath(dir)}（init を先に流す）`)
   const L = JSON.parse(read(ledgerPath(dir)))
   if (!L.goal || !Array.isArray(L.goal.items)) throw new Fail(`台帳の形式が古い（目標の項目と引用を持たない）: ${ledgerPath(dir)}。goal.md などを 1 行 1 件・引用つきに直し、新しい stateDir で init からやり直す`)
+  if (!Array.isArray(L.audit_events_seen)) throw new Fail(`台帳の形式が古い（coverage-audit の出来事の受けた記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   return L
 }
 function writeAtomic(file, text) {
@@ -171,10 +172,17 @@ ${readable.map((p) => `- ${p}`).join('\n')}
 }
 const listFiles = (d) => (existsSync(d) ? readdirSync(d, { recursive: true }).map((f) => path.join(d, String(f))).filter((f) => /\.(json|md|log)$/.test(f) && !f.includes(`${path.sep}snap${path.sep}`)) : [])
 
-// coverage-audit に渡す入力を CLI が決定的に書く（司令塔が目標を言い換えない）。同じ対象の集合なら同じ置き場を使い、変わった枡だけが読み直される。
-// 目標はこのスキルが照合済みなので、照合済みの印（--goal-checked coverage-build）を付けて渡し、coverage-audit は照合を流さない。
+// coverage-audit に渡す入力を CLI が決定的に書く（司令塔が目標を言い換えない）。
+// coverage-audit の台帳は stateDir/audit/state の 1 つに固定する。台帳が無ければ init、あれば reframe で段と枠（目標・基準・制約・決定の記録・対象）を差し替える。
+// reframe は全ての枡を読み直し、計画から作り直す。同じ段の検査を回している間（取り込みの前）に next を流し直しても、
+// 入力が同じなら argv を返し直さない（途中の検査と、coverage-audit の answer で足した A<n> を消さないため）。入力が変われば reframe を返す。
+// 目標はこのスキルが照合済みなので、init には照合済みの印（--goal-checked coverage-build）を付け、coverage-audit は照合を流さない。reframe は台帳の印を残す。
 // 受け入れ基準（単位ごとの受け入れを含む）は制約と取り違えないよう、coverage-audit の基準の欄（criteria.md）で渡す。
 // 基準・制約が 0 件なら、その欄のファイルも引数も渡さない（「- なし」を書くと coverage-audit が「AC1: なし」という項目として読む）。
+export const auditState = (dir) => path.join(dir, 'audit', 'state')
+function auditPhaseOf(state) {
+  try { return JSON.parse(read(path.join(state, 'ledger.json'))).phase } catch { return undefined }
+}
 function prepAudit(L, dir, phase, keys) {
   const targets = phase === 'design' ? designFiles(L, dir) : phase === 'impl' ? ownedPaths(L).map((p) => abs(L, p)) : L.targets
   const frame = {
@@ -189,21 +197,30 @@ function prepAudit(L, dir, phase, keys) {
     ...(criteria.length ? { 'criteria.md': `${items(criteria)}\n` } : {}), ...(L.constraints.length ? { 'constraints.md': `${items(L.constraints)}\n` } : {}),
     ...(L.decisions != null ? { 'decisions.md': `${L.decisions}\n` } : {}),
   }
-  const auditDir = path.join(dir, 'audit', `${phase}-${sha(C.canon({ targets: [...targets].sort(), files })).slice(0, 12)}`)
-  for (const [f, t] of Object.entries(files)) writeAtomic(path.join(auditDir, 'in', f), t)
-  const state = path.join(auditDir, 'state')
-  const inFile = (f) => path.join(auditDir, 'in', f)
+  const inDir = path.join(dir, 'audit', 'in', phase)
+  for (const f of existsSync(inDir) ? readdirSync(inDir) : []) if (!(f in files)) rmSync(path.join(inDir, f))
+  for (const [f, t] of Object.entries(files)) writeAtomic(path.join(inDir, f), t)
+  const state = auditState(dir)
+  const inFile = (f) => path.join(inDir, f)
+  const frameKey = sha(C.canon({ phase, targets: [...targets].sort(), files })).slice(0, 16)
+  const exists = existsSync(path.join(state, 'ledger.json'))
+  // 同じ段・同じ入力で init か reframe を返した後（取り込みの前）で、台帳がその段にあれば、argv を返さずに続けさせる。
+  const framed = exists && L.audit_frame && L.audit_frame.phase === phase && L.audit_frame.key === frameKey && auditPhaseOf(state) === phase
+  L.audit_frame = { phase, key: frameKey }
   L.pending = { step: 'audit', phase, key: keys[phase], audit_state: state }
   const audit = {
-    state, initialized: existsSync(path.join(state, 'ledger.json')),
-    goal: inFile('goal.md'), request: inFile('request.md'),
+    state, goal: inFile('goal.md'), request: inFile('request.md'),
     ...Object.fromEntries(['criteria', 'constraints', 'decisions'].filter((k) => files[`${k}.md`]).map((k) => [k, inFile(`${k}.md`)])), targets,
   }
-  audit.init_argv = ['init', '--state', state, '--goal', audit.goal, '--request', audit.request,
-    ...['criteria', 'constraints', 'decisions'].flatMap((k) => (audit[k] ? [`--${k}`, audit[k]] : [])), '--goal-checked', 'coverage-build', ...targets.flatMap((f) => ['--target', f])]
+  const frameArgv = [...['goal', 'request', 'criteria', 'constraints', 'decisions'].flatMap((k) => (audit[k] ? [`--${k}`, audit[k]] : [])), ...targets.flatMap((f) => ['--target', f]), '--phase', phase]
+  if (framed) audit.framed = true
+  else if (exists) audit.reframe_argv = ['reframe', '--state', state, ...frameArgv]
+  else audit.init_argv = ['init', '--state', state, ...frameArgv, '--goal-checked', 'coverage-build']
   return {
     step: 'audit', phase, cycle: L.cycle, audit,
-    then: `audit.initialized が false なら coverage-audit の CLI に audit.init_argv をそのまま渡して init し、coverage-audit を止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`,
+    then: framed
+      ? `coverage-audit の台帳は既にこの段にある（argv は無い）。coverage-audit の next から止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`
+      : `coverage-audit の CLI に audit.${exists ? 'reframe_argv' : 'init_argv'} をそのまま渡し、coverage-audit を止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`,
   }
 }
 
@@ -332,6 +349,8 @@ function cmdImportAudit(o) {
   const p = L.pending
   if (!p || p.step !== 'audit') throw new Fail('取り込む coverage-audit が無い（next が audit を返した後に流す）')
   const status = unwrap(JSON.parse(read(need(o, 'status'))))
+  // coverage-audit の status は段ごとに分かれる。上の階層は今の段の節なので、待っている段と同じ段の status だけを受ける。
+  if (!status || status.phase !== p.phase) throw new Fail(`待っている段と違う段の status（待っているのは ${p.phase}、受け取ったのは ${status && status.phase}）。coverage-audit の台帳をこの段にしてから（next の audit の argv）流し直す`, { phase: p.phase })
   writeDesign(L, dir)
   const now = keysOf(L, dir)[p.phase]
   if (now !== p.key) throw new Fail('検査に渡した後に対象が変わった（next からやり直す）', { phase: p.phase })
@@ -343,6 +362,7 @@ function cmdImportAudit(o) {
   let base
   try { base = importAudit(L, status, p.phase, { readText: reader(L, dir), unitOfPath }) } catch (e) { throw new Fail(e.message) }
   writeAtomic(path.join(dir, 'audit', `${p.phase}-status.json`), JSON.stringify(status, null, 1))
+  L.audit_frame = null
   L.audits[p.phase] = { imported: p.key, state: p.audit_state, cycle: L.cycle, not_seen: base.not_seen, findings: (status.findings && status.findings.confirmed || []).length }
   if (p.phase !== 'baseline') L.retro.due = true
   L.pending = null

@@ -287,7 +287,7 @@ ${JSON.stringify(A.goalIds)}`, GOAL_SCHEMA, (r) => checkGoalMap(r, A.goalIds))).
     const a = await checked('architect', 'architect', `${readBrief(A.arch.brief)}
 ## あなたの役: 方式設計の役
 目標を、1 体が 1 回で設計・実装・検査できる大きさの単位に分ける。単位の数・例・型枠は与えない。目標・基準・制約と入力の中身から切る。
-- 単位ごとに、持つファイル（paths。repo からの相対 path）、code の単位ならテストのファイル（tests。実装とは別の担当が先に書く）、依存（depends_on）、効く基準・制約の id（covers）を決める。1 つのファイルは 1 つの単位だけが持つ。
+- 単位ごとに、持つファイル（paths。repo からの相対 path）、code の単位ならテストのファイル（tests。実装とは別の担当が先に書く）、依存（depends_on）、効く基準・制約の id（covers。受け入れ基準と制約が 0 件のときは目標の項目の id）を決める。1 つのファイルは 1 つの単位だけが持つ。
 - 複数の単位にまたがる決定は、それを決める単位を 1 つ置き、使う単位はそれに depends_on で依存する。
 - 全ての基準と制約に受け皿の単位を付ける。
 - 入力は全て、読んだなら逐語の引用（inputs_read）、読まないなら理由（inputs_not_read）を返す。引用は script が照らす。

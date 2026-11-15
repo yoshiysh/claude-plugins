@@ -70,17 +70,21 @@ export async function runWorkflow(args, agentFn, { shape = 'runner' } = {}) {
   return body(agentFn, parallel, pipeline, () => {}, () => {}, args, undefined)
 }
 
-// coverage-audit の status の偽物。confirmed は [{path, quote, layer, claim}]。
-export function auditStatus({ confirmed = [], unverifiable = [], skip = [], stop = 'complete', pending = [] } = {}) {
-  return {
-    stopped: { stop }, pending: null, coverage: { pending },
+// coverage-audit の status の偽物。confirmed は [{path, quote, layer, claim}]。phase はその検査の段（coverage-audit の台帳が記録する段）。
+// 今の段の節（coverage・skip・findings・groups・events）を上の階層と phases[phase] の両方に置き、others で前の段の節（phase_records の写し）を足せる。
+export function auditStatus({ phase, confirmed = [], unverifiable = [], skip = [], stop = 'complete', pending = [], events = [], groups = [], others = {} } = {}) {
+  if (!phase) throw new Error('auditStatus には phase が要る（coverage-audit の status は段ごとに分かれる）')
+  const section = {
+    coverage: { pending },
     findings: { confirmed: confirmed.map((f, i) => ({ id: `${f.path}#sec|purpose|p1#h${i}`, severity: 'HIGH', layer: f.layer, claim: f.claim || '欠陥', quote: f.quote })), unverifiable },
     skip: skip.map((cell) => ({ cell, problems: [] })),
+    groups, events,
   }
+  return { phase, stopped: { stop }, pending: null, ...section, phases: { ...others, [phase]: section } }
 }
 
 // next → Workflow / 偽の coverage-audit / run-checks → ingest を止まるまで回す。audit(phase, out) は status を返す。
-export async function drive(state, agentFn, { audit = () => auditStatus(), run = runWorkflow, maxSteps = 40, wrap = false } = {}) {
+export async function drive(state, agentFn, { audit = (phase) => auditStatus({ phase }), run = runWorkflow, maxSteps = 40, wrap = false } = {}) {
   const steps = []
   for (let i = 0; i < maxSteps; i++) {
     const n = cli('next', '--state', state)

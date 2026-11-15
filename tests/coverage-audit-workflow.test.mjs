@@ -29,7 +29,7 @@ function reviewSetup(t) {
 test('meta: limits の写しが本体と一致し、最悪の起動数が maxAgents に収まる', () => {
   assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
   assert.deepEqual([...META.requirements], ['read-only', 'fresh-thread'])
-  assert.ok(Math.floor(C.LIMITS.maxAgents / C.PER_CELL) * C.PER_CELL <= C.LIMITS.maxAgents)
+  assert.equal(C.PER_CELL, undefined, '枡ごとの起動数 PER_CELL は無い（review の起動数は workers の行の数）')
   assert.ok(1 + 4 + 2 <= C.LIMITS.maxAgents, 'plan の固定部分（目標・計画役 2 体とやり直し・統合とやり直し）が収まる')
   for (const role of ['goal_checker', 'planner_a', 'planner_b', 'integrator', 'unit_verifier', 'reader_1', 'verifier', 'grouper', 'refuter_a', 'refuter_b']) {
     assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort, `roles.json に ${role} の model と effort がある`)
@@ -43,20 +43,35 @@ test('meta: limits の写しが本体と一致し、最悪の起動数が maxAge
   }
 })
 
-test('runner: review の流れが最後まで回り、全ての枡を確かめて完了する', async (t) => {
-  const state = reviewSetup(t)
-  const { stop } = await drive(state, mockAgent(), { run: viaRunner(t) })
-  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.equal(stop.coverage.settled, 6)
+test('roles: 観点の精査役 lens_reviewer は opus、unit_verifier は sonnet で統合役と別のモデル、refuter_a は sonnet・refuter_b は opus', () => {
+  assert.ok(ROLES.lens_reviewer && ROLES.lens_reviewer.effort && ROLES.lens_reviewer.why, 'roles.json に lens_reviewer の model・effort・理由がある')
+  assert.equal(ROLES.lens_reviewer.model, 'opus')
+  assert.equal(ROLES.unit_verifier.model, 'sonnet')
+  assert.notEqual(ROLES.unit_verifier.model, ROLES.integrator.model, '観点の検証役は統合役と別のモデル')
+  assert.equal(ROLES.refuter_a.model, 'sonnet')
+  assert.equal(ROLES.refuter_b.model, 'opus')
+  assert.notEqual(ROLES.refuter_a.model, ROLES.grouper.model, 'refuter_a は束ね役と別のモデル')
 })
 
-test('runner: schema に合わない出力は null になり、欠測として試行に数える', async (t) => {
+test('runner: review の流れが最後まで回り、全ての枡を確かめて完了する', async (t) => {
   const state = reviewSetup(t)
-  const bad = mockAgent({ read: (p, o) => (o.label.includes('一つ目の節|purpose') ? { cell_id: 1 } : undefined) })
+  const { stop, steps } = await drive(state, mockAgent(), { run: viaRunner(t) })
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  assert.equal(stop.coverage.settled, 6)
+  // review の 1 回の起動数は workers の行の数（2 × k × N）で、maxAgents に収まる。
+  for (const s of steps.filter((x) => x.step === 'review')) {
+    assert.equal(s.res.agents.length, s.args.workers.length)
+    assert.ok(s.args.workers.length <= C.LIMITS.maxAgents)
+  }
+})
+
+test('runner: 照合に落ちる枡の提出は拒否され、出し直しても落ちれば試行の上限で開示に倒す', async (t) => {
+  const state = reviewSetup(t)
+  const bad = mockAgent({ read: (p, o) => (o.label.includes('一つ目の節/p1|purpose') ? { cell_id: 1 } : undefined) })
   const { stop } = await drive(state, bad, { run: viaRunner(t) })
   assert.equal(stop.stop, 'complete')
   assert.equal(stop.disclosed.length, 1)
-  assert.ok(stop.disclosed[0].includes('一つ目の節|purpose'))
+  assert.ok(stop.disclosed[0].includes('一つ目の節/p1|purpose'))
 })
 
 test('runner: 計画・読み・振り返り・束ねが回り、上の層の欠陥は needs_input で返す', async (t) => {
@@ -64,7 +79,7 @@ test('runner: 計画・読み・振り返り・束ねが回り、上の層の欠
   const once = { done: false }
   const agentFn = mockAgent({
     read: (p, o) => {
-      if (once.done || !o.label.includes('二つ目の節|purpose')) return undefined
+      if (once.done || !o.label.includes('二つ目の節/p1|purpose')) return undefined
       once.done = true
       return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '目標に効かない', quote: 'この節は二つ目の主張を述べる本文の行である。', severity: 'LOW', layer: '要求' }], outside_notes: ['観点の外の気づき'], none_reason: '' }
     },

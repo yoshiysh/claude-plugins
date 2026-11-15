@@ -140,13 +140,13 @@ args を書き換えない（source が `argsSum` で写し違い・切り詰め
 
 ## coverage-audit を呼ぶ
 
-現状の検査・設計レビュー・実装レビュー・review の検査は、同じ repo のスキル coverage-audit を**スキル呼び出し**で使う（このスキルの CLI から coverage-audit のファイルを読んだり実行したりしない）。`next` の `audit` に、coverage-audit の init の引数（`init_argv`）と、その中のファイル（`goal`・`request`・`decisions`・`criteria`・`constraints`）と `targets` が載る。これらは CLI が書いたもので、司令塔は言い換えずにそのまま渡す。受け入れ基準（実装レビューでは単位ごとの受け入れ `U<n>A<m>` を含む）は制約と別の `criteria` で渡る。基準・制約が 0 件なら `criteria`・`constraints` とその引数は載らない。`init_argv` は照合済みの印 `--goal-checked coverage-build` を含み、coverage-audit は目標の照合を流さない。
+現状の検査・設計レビュー・実装レビュー・review の検査は、同じ repo のスキル coverage-audit を**スキル呼び出し**で使う（このスキルの CLI から coverage-audit のファイルを読んだり実行したりしない）。coverage-audit の台帳は `stateDir/audit/state` の 1 つに固定し、段ごとに作り直さない。`next` の `audit` には、台帳の置き場 `state` と、その段のファイル（`goal`・`request`・`decisions`・`criteria`・`constraints`）と `targets` が載り、引数は `init_argv`（台帳が無いとき）か `reframe_argv`（あるとき）の一方だけが載る。これらは CLI が書いたもので、司令塔は言い換えずにそのまま渡す。受け入れ基準（実装レビューでは単位ごとの受け入れ `U<n>A<m>` を含む）は制約と別の `criteria` で渡る。基準・制約が 0 件なら `criteria`・`constraints` とその引数は載らない。どちらの引数も段（`--phase`。baseline・design・impl・review）を含む。`init_argv` は照合済みの印 `--goal-checked coverage-build` を含み、coverage-audit は目標の照合を流さない。`reframe_argv` は台帳の印を残したまま目標・基準・制約・決定の記録・対象と段を差し替え、coverage-audit は全ての枡を読み直して計画から作り直す。
 
-1. `audit.initialized` が false なら、coverage-audit の CLI に `audit.init_argv` をそのまま渡して init する。true なら init を流さない（対象の集合と渡す入力の中身が同じ台帳を持ち越し、変わった枡だけが読み直される。answer で制約が足されたときや単位ごとの受け入れが変わったときは入力が変わるので、新しい置き場になり initialized は false）。
+1. `audit.init_argv` か `audit.reframe_argv` を coverage-audit の CLI にそのまま渡す。どちらも無く `audit.framed` が true なら、この段の台帳に既にしてあるので何も渡さない（検査の途中で `next` を流し直したとき。reframe し直すと途中の検査と coverage-audit の answer で足した `A<n>` が消える）。answer で制約が足されたときや単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳の `reframe_argv` が載る。
 2. coverage-audit の手順を、その `next` が止まるまで回す。coverage-audit が needs_input で止まったときは、上の層の指摘・検証不能（`upper`・`upper_groups`・`unverifiable`）だけなら回答せずに 3 へ進む（このスキルが層への戻しと人間への返し方を決める）。それ以外（質問・試行の上限）は coverage-audit の「止まったとき」に従って利用者に返す。
 3. coverage-audit の `status` の出力をファイルに保存し、`CLI import-audit --state <stateDir> --status <file>` を流す。
 
-`import-audit` は、検査が終わっていない（読み終えていない枡がある・blocked・limit）出力と、検査に渡した後に対象が変わった出力を拒否する。確かめた指摘の引用を今の本文に照らし、指摘を単位と層へ結ぶ（現状の検査の指摘は設計の入力にし、目標・方針の層だけを人間に返す）。開示した枡は見ていないものとして記録し、見たとして扱わない。
+`import-audit` は、検査が終わっていない（読み終えていない枡がある・blocked・limit）出力、待っている段と違う段の出力（`status.phase`）、検査に渡した後に対象が変わった出力を拒否する。coverage-audit の status は段ごとに分かれ、上の階層の指摘・束ね・出来事は今の段のものだけなので、取り込むのはその段の分だけ。coverage-audit はこの印のある台帳では振り返りを流さず、検査の中の出来事を status の `events` で返す。取り込みはそれを進め方の出来事（`audit_internal`）として 1 回だけ受け、このスキルの振り返りの探索グラフが受ける。確かめた指摘の引用を今の本文に照らし、指摘を単位と層へ結ぶ（現状の検査の指摘は設計の入力にし、目標・方針の層だけを人間に返す）。開示した枡は見ていないものとして記録し、見たとして扱わない。
 
 ## 止まったとき
 

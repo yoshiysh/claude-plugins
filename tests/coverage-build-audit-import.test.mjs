@@ -2,7 +2,7 @@
 // 2 つのスキルのファイルを読むので、配布物に入らないリポジトリ直下の tests/ に置く。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { cli as auditCli, drive as auditDrive, evidenceOf, mockAgent as auditAgent } from '../.agents/skills/coverage-audit/scripts/test-harness.mjs'
 import { cli, drive, mockAgent, setup } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
@@ -12,19 +12,23 @@ test('設計レビュー: coverage-audit の status を取り込み、指摘を�
   const log = []
   const runAudit = async (phase, out) => {
     const a = out.audit
-    assert.equal(a.initialized, false)
+    assert.ok(Array.isArray(a.init_argv) && a.reframe_argv === undefined, '置き場に台帳が無いので init_argv')
+    assert.equal(a.state, path.join(state, 'audit', 'state'))
     // coverage-build が書いた init の引数をそのまま渡す（照合済みの印を含む）。
     const init = auditCli(...a.init_argv)
     assert.equal(init.code, 0, JSON.stringify(init))
+    // 資産は見出しの下のブロックで切られるので、引用の文を本文に含む U1.md の資産の purpose の枡を 1 つだけ選ぶ。
+    const quote = '入力を受け取り、決まった値を返す。'
     const once = { done: false }
     const agentFn = auditAgent({
       read: (p, o) => {
-        if (once.done || !o.label.includes('U1.md') || !o.label.includes('|purpose|')) return undefined
+        if (once.done || !o.label.includes('U1.md') || !o.label.includes('|purpose|') || !evidenceOf(p).some((l) => l.includes(quote))) return undefined
         once.done = true
-        return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '値の決め方が基準に照らせない', quote: '入力を受け取り、決まった値を返す。', severity: 'HIGH', layer: '詳細設計' }], outside_notes: [], none_reason: '' }
+        return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '値の決め方が基準に照らせない', quote, severity: 'HIGH', layer: '詳細設計' }], outside_notes: [], none_reason: '' }
       },
     }, log)
     const r = await auditDrive(a.state, agentFn)
+    assert.ok(once.done, '引用の文を本文に含む U1.md の purpose の枡に指摘を返した')
     assert.ok(['complete', 'needs_input'].includes(r.stop.stop), JSON.stringify(r.stop))
     return auditCli('status', '--state', a.state)
   }
@@ -61,4 +65,34 @@ test('受け入れ基準・制約が無い update: coverage-audit に基準・�
   assert.equal(auditCli(...audit.init_argv).code, 0)
   const AL = JSON.parse(readFileSync(path.join(audit.state, 'ledger.json'), 'utf8'))
   assert.deepEqual([AL.criteria, AL.constraints], [[], []])
+})
+
+test('段をまたいで 1 つの台帳: 設計レビューは init、実装レビューは同じ置き場の台帳を reframe し、その段の status だけを取り込む', async (t) => {
+  const { state } = setup(t)
+  const calls = []
+  const runAudit = async (phase, out) => {
+    const a = out.audit
+    const argv = a.init_argv || a.reframe_argv
+    assert.ok(argv && !(a.init_argv && a.reframe_argv), `init_argv か reframe_argv のどちらか一方: ${JSON.stringify(a)}`)
+    const r = auditCli(...argv)
+    assert.equal(r.code, 0, JSON.stringify(r))
+    calls.push({ phase, kind: argv[0], state: a.state, targets: a.targets })
+    const d = await auditDrive(a.state, auditAgent())
+    assert.ok(['complete', 'needs_input'].includes(d.stop.stop), JSON.stringify(d.stop))
+    return auditCli('status', '--state', a.state)
+  }
+  const { stop, steps } = await drive(state, mockAgent(), { audit: runAudit })
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  assert.deepEqual(calls.map((c) => [c.phase, c.kind]), [['design', 'init'], ['impl', 'reframe']])
+  assert.deepEqual([...new Set(calls.map((c) => c.state))], [path.join(state, 'audit', 'state')])
+  const ledgers = readdirSync(state, { recursive: true }).map(String).filter((f) => path.basename(f) === 'ledger.json')
+  assert.deepEqual(ledgers, [path.join('audit', 'state', 'ledger.json')], 'coverage-audit の台帳は 1 つ')
+  const AL = JSON.parse(readFileSync(path.join(state, 'audit', 'state', 'ledger.json'), 'utf8'))
+  assert.equal(AL.phase, 'impl')
+  assert.ok(AL.phase_records && AL.phase_records.design, '設計レビューの節を同じ台帳に残す')
+  assert.equal(AL.goal.checked_by, 'coverage-build')
+  assert.deepEqual([...AL.targets].sort(), [...calls[1].targets].sort(), '対象を実装の段のものに差し替える')
+  const imp = steps.filter((s) => s.step === 'audit').map((s) => s.ingest)
+  assert.ok(imp.every((g) => g.code === 0), JSON.stringify(imp))
+  assert.deepEqual(imp.map((g) => g.phase), ['design', 'impl'])
 })
