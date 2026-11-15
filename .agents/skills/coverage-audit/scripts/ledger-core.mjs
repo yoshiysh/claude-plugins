@@ -17,7 +17,7 @@ const BLOCK_LINES = 40 // 読んだ証拠の区画のおよその行数
 export const MAX_BLOCKS = 4 // 1 つの資産で引用を求める区画の数の上限
 const UPPER = ['方針', '要求']
 // workers: review の 1 回の呼び出しで、回と待ち行列（読む・検証）ごとに起動する worker の数。行の数は 2 × k × workers。
-const DEFAULT_CONFIG = { k: 1, max_cycles: 4, max_agents_total: 600, workers: 4 }
+const DEFAULT_CONFIG = { k: 1, max_cycles: 2, max_agents_total: 600, workers: 4 }
 
 // スキルが持つ観点。目的の観点（固定した目標に照らす）と、層の観点。
 const SKILL_LENSES = [
@@ -360,6 +360,34 @@ export function openCycle(L) {
   return false
 }
 
+// 横展開の収束。束ねが新しい型を返したときだけ観点を作り、次の周に進む（新しい型が 0 件なら周を進めず complete に向かう）。
+// 今の周が上限の周（段の始まりから max_cycles 周目）なら、新しい型を展開せずに群だけを残し、needs_input で利用者に返す。
+export const atCycleCap = (L) => L.cycle - L.phase_start.cycle + 1 >= L.config.max_cycles
+export const lateralLensIds = (L) => L.lenses.filter((l) => String(l.origin || '').startsWith('lateral:')).map((l) => l.id)
+// 展開していない新しい型の群: 型があり、既存の型に結ばず、反証されず、横展開の観点が無く、回答の無い群（台帳の欄から導く）。
+export function lateralGroups(L) {
+  const live = new Set(L.lenses.map((l) => l.id))
+  return L.groups.filter((g) => g.pattern && g.pattern.trim() && !g.extends && g.status !== 'refuted' && !live.has(`lat-${g.id}`) && !L.answers.some((a) => a.id === g.id))
+}
+// 上限を下げた台帳（config --max-cycles）: 上限の周より後の周に当てる横展開の観点（上限の周以降の束ねが作った観点）を外し、
+// 周を上限の周に戻す。外した観点の枡と指摘は、続く refresh が gone にする。作った元の群は lateralGroups が返す。
+export function capCycles(L) {
+  const cap = L.phase_start.cycle + L.config.max_cycles - 1
+  if (L.cycle <= cap) return false
+  const over = new Set(L.groups.filter((g) => g.cycle >= cap).map((g) => `lateral:${g.id}`))
+  const drop = L.lenses.filter((l) => over.has(l.origin)).map((l) => l.id)
+  if (!drop.length) return false
+  // 外す観点の当たる資産は元の群に残し、上限を上げた後の next が展開し直せるようにする。
+  for (const l of L.lenses) if (over.has(l.origin)) { const g = L.groups.find((x) => `lateral:${x.id}` === l.origin); if (g) g.applies_to = l.applies_to }
+  L.lenses = L.lenses.filter((l) => !over.has(l.origin))
+  const from = L.cycle
+  L.cycle = cap
+  L.retro_cycles = L.retro_cycles.filter((c) => c <= cap)
+  L.group_cycles = L.group_cycles.filter((c) => c <= cap)
+  addEvent(L, 'control', 'cycle_cap', `周の上限 ${L.config.max_cycles} を超えた周（${from}）の横展開の観点を外し、周 ${cap} に戻した: ${drop.join(', ')}`)
+  return true
+}
+
 // 次の 1 手か停止を、台帳だけから決める。
 export function decide(L, { missingTargets = [] } = {}) {
   const stop = (kind, reasons, extra = {}) => ({ stop: kind, reasons, ...extra })
@@ -391,13 +419,15 @@ export function decide(L, { missingTargets = [] } = {}) {
   const upper = cur.filter((f) => f.verdict === 'confirmed' && UPPER.includes(f.layer) && !answered(f.id))
   const upperGroups = L.groups.filter((g) => g.status !== 'refuted' && UPPER.includes(g.layer) && !answered(g.id))
   const unverifiable = cur.filter((f) => f.verdict === 'unverifiable' && !answered(f.id))
+  const lateral = lateralGroups(L)
   if (!cov.cells) return stop('blocked', ['枡が 0 件（対象が空か、全て消えた）'], { cause: 'target' })
   if (!cov.settled) return stop('blocked', ['読みを受け付けた枡が 1 つも無い（全ての役が欠けたか、照合に落ち続けた）'], { cause: 'failure', disclosed: cov.disclosed })
-  if (upper.length || upperGroups.length || unverifiable.length) {
+  if (upper.length || upperGroups.length || unverifiable.length || lateral.length) {
     return stop('needs_input', [
       ...(upper.length || upperGroups.length ? ['上の層（方針・要求）が原因の欠陥・束は、呼ぶ側が直す前に利用者が判断する'] : []),
       ...(unverifiable.length ? [`検証不能の指摘 ${unverifiable.length} 件`] : []),
-    ], { upper: upper.map((f) => f.id), upper_groups: upperGroups.map((g) => g.id), unverifiable: unverifiable.map((f) => f.id) })
+      ...(lateral.length ? [`横展開が周の上限 ${L.config.max_cycles} で収束しない（展開していない新しい型の群 ${lateral.length} 件）。群ごとに、展開せずに記録するかを利用者が判断する`] : []),
+    ], { upper: upper.map((f) => f.id), upper_groups: upperGroups.map((g) => g.id), unverifiable: unverifiable.map((f) => f.id), lateral_groups: lateral.map((g) => g.id) })
   }
   return stop('complete', ['全ての枡が確かめられたか開示され、読み直す枡が 0 件'], { disclosed: cov.disclosed })
 }

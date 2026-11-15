@@ -633,7 +633,8 @@ test('上限: 1 回の呼び出しの起動数（workers の行の数）は LIMI
 
 
 test('持ち越し: complete の後に対象が変わったら周を進め、新しい指摘も振り返りと束ねを通る', async (t) => {
-  const { state, doc } = setup(t)
+  // 周は段の始まりから数える。持ち越しの周が既定の上限（2）に届かないよう、上限を明示する。
+  const { state, doc } = setup(t, ['--max-cycles', '4'])
   assert.equal((await drive(state, mockAgent())).stop.stop, 'complete')
   const cycle = ledger(state).cycle
   writeFileSync(doc, DOC.replace('二つ目の主張を述べる', '二つ目の主張を書き換えて述べる'))
@@ -648,7 +649,7 @@ test('持ち越し: complete の後に対象が変わったら周を進め、新
   assert.equal(grouped.length, 1)
   assert.match(grouped[0].claim, /根拠が無い/)
   const L = ledger(state)
-  assert.ok(L.cycle > cycle + 1, '持ち越しの周を開き、束ねの後に次の周へ進む')
+  assert.equal(L.cycle, cycle + 1, '持ち越しの周を開き、新しい型が 0 件の束ねの後は次の周に進まない')
   assert.ok(L.retro_cycles.includes(cycle + 1) && L.group_cycles.includes(cycle + 1))
 })
 

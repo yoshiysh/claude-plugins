@@ -4,7 +4,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  C, MAX_ATTEMPTS, addEvent, calibration, coverage, currentFindings, decide, estimate, goalIds, goalSources, lensVersion, needPlan, newLedger, openCycle, planAnswerKinds,
+  C, MAX_ATTEMPTS, addEvent, atCycleCap, calibration, capCycles, coverage, currentFindings, decide, estimate, goalIds, goalSources, lateralGroups, lateralLensIds, lensVersion, needPlan, newLedger, openCycle, planAnswerKinds,
   phaseEvents, rangeHash, rangeText, readGoalFiles, refresh, releaseClaims, retroAssets, sha, splitAssets, startPhase, submitRead, submitVerify, withBlocks,
 } from './ledger-core.mjs'
 
@@ -335,7 +335,17 @@ function buildArgs(L, d, dir, unread) {
     const found = currentFindings(L).filter((f) => f.verdict === 'confirmed' && f.cycle === L.cycle)
     const keys = C.groupKeys(found.length)
     const text = found.map((f, i) => JSON.stringify({ key: keys[i], finding: f.id, where: L.cells[f.cell].asset, lens: L.cells[f.cell].lens, claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer })).join('\n')
-    return { ...base, brief: briefRef(dir, common), count: found.length, items: found.length ? briefRef(dir, text) : null, index: found.length ? indexRef(L, dir) : null }
+    // 既にある横展開の観点（id・型・根本原因）は別の写しで渡し、束ね役が既存の型に結ぶ（extends）か新しい型かを返す。args には id だけを載せる。
+    const lateralIds = lateralLensIds(L)
+    const lat = lateralIds.map((id) => {
+      const l = L.lenses.find((x) => x.id === id)
+      const g = L.groups.find((x) => `lateral:${x.id}` === l.origin)
+      return JSON.stringify({ id, pattern: l.procedure, root_cause: g ? g.root_cause : l.name })
+    }).join('\n')
+    return {
+      ...base, brief: briefRef(dir, common), count: found.length, items: found.length ? briefRef(dir, text) : null, index: found.length ? indexRef(L, dir) : null,
+      lateralIds, lateral: found.length && lateralIds.length ? briefRef(dir, lat) : null,
+    }
   }
   throw new Fail(`未知の段: ${d.step}`)
 }
@@ -356,6 +366,10 @@ function next(dir) {
   // 取り込み（ingest）を経ずに来た next: 取られたまま提出されなかった枡を戻し、前の呼び出しと別の呼び出しにする。
   if (releaseClaims(L)) L.call_seq += 1
   const { assets, missing } = currentAssets(L, dir)
+  // 周の上限を下げた台帳は、上限を超えた周の横展開の観点を外してから対象に合わせる（その枡と指摘は refresh が gone にする）。
+  // 上限を上げた台帳は、上限の周で展開しなかった群を展開して次の周を開く。
+  capCycles(L)
+  expandLateral(L)
   const changes = refresh(L, assets)
   if (!missing.length) checkCarriedPlan(L)
   for (;;) {
@@ -539,11 +553,30 @@ function ingestReview(L) {
   L.call_seq += 1
 }
 
+// 新しい型の群から横展開の観点を作る（既にあれば作らない）。
+function addLateral(L, id, gr) {
+  const l = { id: `lat-${id}`, name: `横展開: ${gr.root_cause}`.slice(0, 120), procedure: gr.pattern, applies_to: [...new Set(gr.applies_to)], origin: `lateral:${id}` }
+  l.version = lensVersion(l)
+  if (L.lenses.some((x) => x.id === l.id)) return false
+  L.lenses.push(l)
+  return true
+}
+// 上限の周で展開しなかった今の周の群は、config --max-cycles で上限を上げた後の next が展開し、次の周を開く（回答した群は展開しない）。
+// 当たる資産は、展開しなかった群に残した applies_to（任意の欄）から取る。無ければ展開できないので、needs_input のまま返す。
+function expandLateral(L) {
+  if (atCycleCap(L) || !L.group_cycles.includes(L.cycle)) return false
+  const gs = lateralGroups(L).filter((g) => g.cycle === L.cycle)
+  let made = 0
+  for (const g of gs) if (Array.isArray(g.applies_to) && g.applies_to.length && addLateral(L, g.id, g)) made += 1
+  if (made) L.cycle += 1
+  return made > 0
+}
+
 function ingestGroup(L, res, args, dir) {
   const ids = readRef(dir, args.items, '束ねの全件').split('\n').map((l) => JSON.parse(l).finding)
   const keys = C.groupKeys(args.count)
   const g = res.grouping
-  const p = res.status === 'blocked' ? [res.reason] : C.checkGroups(g, keys, targetAssetIds(L))
+  const p = res.status === 'blocked' ? [res.reason] : C.checkGroups(g, keys, targetAssetIds(L), lateralLensIds(L))
   if (p.length) {
     bump(L, `group:${L.cycle}`)
     addEvent(L, 'group', 'rejected_grouping', p.join(' / '))
@@ -552,22 +585,25 @@ function ingestGroup(L, res, args, dir) {
   clear(L, `group:${L.cycle}`)
   const judged = new Map((res.judged || []).map((j) => [j.group.id, j]))
   const toId = (k) => ids[keys.indexOf(k)]
+  // 上限の周の新しい型は展開しない（群だけを残し、decide が needs_input の lateral_groups で返す）。
+  const cap = atCycleCap(L)
+  let made = 0
   for (const gr of g.groups) {
     const j = judged.get(gr.id)
     const status = j ? j.status : 'unverified'
     const id = `G${L.cycle}-${gr.id}`
-    L.groups.push({ id, cycle: L.cycle, root_cause: gr.root_cause, layer: gr.layer, keys: gr.keys.map(toId), pattern: gr.pattern, status, votes: j ? j.votes : [] })
-    if (status === 'refuted') continue
-    // 横展開: 確かめた欠陥の型を、束ね役が返した型の当たる資産（applies_to）へ問い直す観点にする（重さで絞らない。計画が除いた資産には枡を作らない）。
-    if (gr.pattern && gr.pattern.trim()) {
-      const l = { id: `lat-${id}`, name: `横展開: ${gr.root_cause}`.slice(0, 120), procedure: gr.pattern, applies_to: [...new Set(gr.applies_to)], origin: `lateral:${id}` }
-      l.version = lensVersion(l)
-      if (!L.lenses.some((x) => x.id === l.id)) L.lenses.push(l)
-    }
+    const ext = typeof gr.extends === 'string' && gr.extends.trim() ? gr.extends : null
+    const keep = cap && !ext && gr.pattern && gr.pattern.trim() ? { applies_to: [...new Set(gr.applies_to)] } : {}
+    L.groups.push({ id, cycle: L.cycle, root_cause: gr.root_cause, layer: gr.layer, keys: gr.keys.map(toId), pattern: gr.pattern, status, votes: j ? j.votes : [], ...(ext ? { extends: ext } : {}), ...keep })
+    if (status === 'refuted' || ext || cap) continue
+    // 横展開: 新しい型（extends が無く pattern がある群）だけを、束ね役が返した型の当たる資産（applies_to）へ問い直す観点にする
+    // （重さで絞らない。計画が除いた資産には枡を作らない）。既存の型に結ぶ群は、指摘をその群に結ぶだけにする。
+    if (gr.pattern && gr.pattern.trim() && addLateral(L, id, gr)) made += 1
   }
-  L.saturation.push({ cycle: L.cycle, confirmed_new: keys.length, groups: g.groups.length, lateral_lenses: g.groups.filter((x) => x.pattern && x.pattern.trim()).length })
+  L.saturation.push({ cycle: L.cycle, confirmed_new: keys.length, groups: g.groups.length, lateral_lenses: made })
   L.group_cycles.push(L.cycle)
-  L.cycle += 1
+  // 新しい型が 0 件なら次の周に進まない（読む枡が無いので complete か needs_input に向かう）。
+  if (made) L.cycle += 1
 }
 
 // native Workflow の tasks の .output（返り値を result に包んだ形）も、そのまま受け付ける。包みの判定は coverage-build の build-cli.mjs と同じ。
@@ -589,7 +625,7 @@ function ingest(dir, o) {
   if (res.status === 'blocked' && res.reason === 'args の検査に落ちた') throw new Fail('Workflow が args を拒否した（args_path のファイルの中身を書き換えずに渡し直す）', { problems: res.problems })
   // 写しの照合を先に済ませる（合わなければ台帳を変えずに拒否する）。
   const briefs = [args.brief, args.goalBrief, args.againBrief, ...(args.cells || []).map((c) => c.brief), ...(args.units || []).map((u) => u.brief), ...(args.reviewUnits || []).map((u) => u.brief)].filter(Boolean)
-  for (const r of [...(args.cells || []), ...(args.index ? [args.index] : []), ...(args.lensIndex ? [args.lensIndex] : []), ...(args.items ? [args.items] : []), ...briefs]) readRef(dir, r, r.cell_id || '索引・全件・束')
+  for (const r of [...(args.cells || []), ...(args.index ? [args.index] : []), ...(args.lensIndex ? [args.lensIndex] : []), ...(args.items ? [args.items] : []), ...(args.lateral ? [args.lateral] : []), ...briefs]) readRef(dir, r, r.cell_id || '索引・全件・束')
   const seen = L.events.length
   allFailed = (Array.isArray(res.agents) && res.agents.length > 0 && res.agents.every((a) => !a.ok)) || (L.pending.step === 'review' && !L.pending.submits)
   recordCall(L, res, L.pending.step, allFailed)
@@ -608,7 +644,7 @@ function phaseSection(L) {
   const by = (k) => cur.reduce((m, f) => ({ ...m, [f[k]]: (m[f[k]] || 0) + 1 }), {})
   return {
     findings: { by_verdict: by('verdict'), by_layer: by('layer'), confirmed: cur.filter((f) => f.verdict === 'confirmed').map((f) => ({ id: f.id, severity: f.severity, layer: f.layer, claim: f.claim, quote: f.quote })), unverifiable: cur.filter((f) => f.verdict === 'unverifiable').map((f) => ({ id: f.id, claim: f.claim })) },
-    groups: L.groups.map((g) => ({ id: g.id, status: g.status, layer: g.layer, root_cause: g.root_cause, lateral: !!(g.pattern && g.pattern.trim()) })),
+    groups: L.groups.map((g) => ({ id: g.id, status: g.status, layer: g.layer, root_cause: g.root_cause, lateral: L.lenses.some((l) => l.id === `lat-${g.id}`), ...(g.extends ? { extends: g.extends } : {}) })),
     events: phaseEvents(L).map((e) => ({ id: e.id, stage: e.stage, kind: e.kind, text: e.text })),
   }
 }

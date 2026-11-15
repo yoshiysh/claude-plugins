@@ -306,9 +306,11 @@ function checkLensReview(rep, lens, otherIds, texts) {
   for (const k of want2) if (!seen2.has(k)) p.push(`N2 の答えの無い観点: ${k}`)
   return p
 }
-// 束ねの照合。全 key がちょうど 1 つの群に入るか、層の値、型（pattern）のある群が当てる資産（applies_to）を空でなく挙げるか。
+// 束ねの照合。全 key がちょうど 1 つの群に入るか、層の値、既存の型に結ぶ群（extends）がある横展開の観点を指すか、
+// 新しい型（extends が無く pattern がある）の群が当てる資産（applies_to）を空でなく挙げるか。extends のある群は型を作らないので applies_to を照らさない。
 // assetIds を渡すと applies_to の id の実在も照らす（Workflow は資産の一覧を持たないので形だけ、CLI の ingest が実在まで照らす）。
-function checkGroups(rep, keys, assetIds) {
+// lateralIds は今ある横展開の観点の id（lat- で始まる）。extends はこの中の id だけを受け付ける。
+function checkGroups(rep, keys, assetIds, lateralIds) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
   const count = new Map()
@@ -319,6 +321,8 @@ function checkGroups(rep, keys, assetIds) {
     if (!isStr(g.root_cause)) p.push(`群 ${g.id} の root_cause が空`)
     if (!LAYERS.includes(g.layer)) p.push(`群 ${g.id} の layer が不正`)
     for (const k of arr(g.keys)) count.set(k, (count.get(k) || 0) + 1)
+    if (g.extends !== undefined && g.extends !== '' && (!isStr(g.extends) || !g.extends.startsWith('lat-') || (Array.isArray(lateralIds) && !lateralIds.includes(g.extends)))) p.push(`群 ${g.id} の extends が今ある横展開の観点の id でない: ${g.extends}`)
+    else if (isStr(g.extends)) continue
     if (isStr(g.pattern)) {
       if (!Array.isArray(g.applies_to) || !g.applies_to.length || !g.applies_to.every(isStr)) p.push(`群 ${g.id} は型（pattern）があるのに、当てる資産（applies_to）が資産の id の空でない配列でない`)
       else if (Array.isArray(assetIds)) for (const id of g.applies_to) if (!assetIds.includes(id)) p.push(`群 ${g.id} の applies_to に実在しない資産: ${id}`)
@@ -689,7 +693,7 @@ JSON Schema: ${JSON.stringify(READ_SCHEMA)}`}
 const GROUP_SCHEMA = {
   type: 'object',
   properties: {
-    groups: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, root_cause: { type: 'string' }, layer: { type: 'string', enum: LAYERS }, keys: { type: 'array', items: { type: 'string' } }, pattern: { type: 'string' }, applies_to: { type: 'array', items: { type: 'string' } } }, required: ['id', 'root_cause', 'layer', 'keys', 'pattern', 'applies_to'] } },
+    groups: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, root_cause: { type: 'string' }, layer: { type: 'string', enum: LAYERS }, keys: { type: 'array', items: { type: 'string' } }, pattern: { type: 'string' }, applies_to: { type: 'array', items: { type: 'string' } }, extends: { type: 'string' } }, required: ['id', 'root_cause', 'layer', 'keys', 'pattern', 'applies_to'] } },
     unassigned: { type: 'array', items: { type: 'string' } },
   },
   required: ['groups', 'unassigned'],
@@ -701,10 +705,13 @@ async function groupStage() {
   const g = await checked('grouper', 'group', `${COMMON(A.brief)}
 ## あなたの役: 束ね役
 下の写しの全件（この周に確かめた指摘。振り返りで確かめた悪かった出来事を含む。1 行 1 件の JSON で key を持つ）を根本原因で束ねる。症状でなく原因で束ね、全ての key（K1〜K${A.count}）をちょうど 1 つの群に入れる（入れられないものは unassigned）。重さで絞らない。群ごとに、直すべき層（${LAYERS.join('・')}）を選び、同じ型の欠陥を資産へ問い直すための手続き（何を列挙し、何と照らすか）を pattern に書き、その型が当たる資産を下の索引の資産の id で applies_to に全て挙げる（全件の where の資産に限らない。型にならない群は pattern を空文字、applies_to を空の配列にする）。
+群が、下の「既にある横展開の観点」のどれかと同じ型（同じ根本原因で、同じ手続きで問い直せる）の例なら、extends にその観点の id を書き、pattern を空文字、applies_to を空の配列にする（その型は展開済みなので、新しい観点を作らない）。どれとも違う新しい型のときだけ extends を空文字にして pattern を書く。
 ### 全件
 ${rangeOf(A.items)}
 ### 対象の索引（1 行 1 資産のタブ区切り: 資産の id・写しのファイル・行の範囲・見出しの経路・種類・先頭の数語。applies_to に使う）
-${A.index ? `${rangeOf(A.index)}` : '（無し）'}`, GROUP_SCHEMA, (r) => checkGroups(r, keys))
+${A.index ? `${rangeOf(A.index)}` : '（無し）'}
+### 既にある横展開の観点（1 行 1 観点の JSON: id・型の手続き pattern・根本原因 root_cause。extends に使う）
+${A.lateral ? `${rangeOf(A.lateral)}` : '（無し）'}`, GROUP_SCHEMA, (r) => checkGroups(r, keys, undefined, arr(A.lateralIds)))
   if (!g.result) return { status: 'blocked', reason: '束ね役が返らなかった', problems: g.problems }
   const groups = arr(g.result.groups).slice(0, Math.floor((LIMITS.maxAgents - agents.length) / 2))
   const refPrompt = (gr) => `${COMMON(A.brief)}
