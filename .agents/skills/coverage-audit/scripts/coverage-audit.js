@@ -1,7 +1,7 @@
 export const meta = {
   name: 'coverage-audit-step',
   description: '台帳の 1 段（plan・review・group のどれか）を 1 回だけ流し、生の結果と起動の記録を返す。台帳を書くのは呼び出し側の CLI',
-  requirements: ['read-only', 'fresh-thread'],
+  requirements: ['fresh-thread', 'workspace-write'],
   phases: [
     { title: 'plan', detail: '目標の照合・独立な計画役 2 体・統合・観点の精査（N1・N2）・観点ごとの閉じた問い' },
     { title: 'review', detail: '読む役の worker が待ち行列から資産を取り、枡ごとに提出する → 全て終わってから、別のモデル・反証側の検証役の worker が指摘のある枡を取る' },

@@ -12,7 +12,7 @@ import { WF, cli, drive, evidenceOf, mockAgent, runWorkflow, tmp } from '../.age
 const META = readSourceMetadata(readFileSync(WF, 'utf8'))
 const ROLES = JSON.parse(readFileSync(path.join(path.dirname(WF), 'roles.json'), 'utf8'))
 
-const backend = (agentFn) => ({ capabilities: ['read-only', 'fresh-thread'], run: (prompt, options) => agentFn(prompt, options) })
+const backend = (agentFn) => ({ capabilities: ['read-only', 'fresh-thread', 'workspace-write'], run: (prompt, options) => agentFn(prompt, options) })
 const viaRunner = (t) => (args, agentFn) => Workflow({ scriptPath: WF, args }, { backend: backend(agentFn), runDir: path.join(tmp(t), 'run'), trustedSource: true, ...META.limits })
 
 function reviewSetup(t) {
@@ -28,7 +28,7 @@ function reviewSetup(t) {
 
 test('meta: limits の写しが本体と一致し、最悪の起動数が maxAgents に収まる', () => {
   assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
-  assert.deepEqual([...META.requirements], ['read-only', 'fresh-thread'])
+  assert.deepEqual([...META.requirements], ['fresh-thread', 'workspace-write'])
   assert.equal(C.PER_CELL, undefined, '枡ごとの起動数 PER_CELL は無い（review の起動数は workers の行の数）')
   assert.ok(1 + 4 + 2 <= C.LIMITS.maxAgents, 'plan の固定部分（目標・計画役 2 体とやり直し・統合とやり直し）が収まる')
   for (const role of ['goal_checker', 'planner_a', 'planner_b', 'integrator', 'unit_verifier', 'reader_1', 'verifier', 'grouper', 'refuter_a', 'refuter_b']) {

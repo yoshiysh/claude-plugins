@@ -99,7 +99,7 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
 3. Workflow の返り値をそのまま JSON でファイルに保存し、`CLI ingest --state <stateDir> --result <file>` を流す。native Workflow が tasks に残す出力ファイル（`.output`。返り値を `result` に包んだ形）は、保存し直さずにその path をそのまま `--result` に渡してよい。CLI が写しの hash・引用・件数・ID を照らし直し、通ったものだけを台帳に入れる。受け付けなかった出力があれば、その理由が出力の `rejected`（`ok` は呼び出しを取り込んだことを指す）に載るので、読んで直す。
 4. 2 に戻る。
 
-`next` は台帳だけから次の 1 手を決める（目標の照合と観点の計画 → 枡を読む → 振り返り → 束ねと横展開 → 次の周）。束ね役は群ごとに、既にある横展開の観点の型の例（`extends` にその観点の id）か新しい型（`pattern`）かを返し、新しい型のときだけ横展開の観点を作って次の周を開く。新しい型が 0 件なら次の周に進まず、上限の周（既定 `max_cycles` 2）で新しい型が残れば展開せずに needs_input で返す（収束の条件の詳細は references/ledger.md の「横展開の収束」）。計画は、観点ごとに当てる資産（`applies_to`）と受け持つ目標の部分（`goals: [{id, part}]`。part は目標・受け入れ基準の本文からの逐語の引用）を持ち、どの観点も関係しない資産を理由と共に除く資産（`excluded`）に入れる。全ての資産が `applies_to` の和か `excluded` のどちらか一方にちょうど 1 回入ること、`applies_to` と `goals` の id の実在、part の逐語、どの目標・基準もどれかの観点の `goals` に入ることを script が照らし、外れは計画の欠陥として統合役に戻す。持ち越しで資産が変わったときも、枡を読む前に同じ照合を流す。除いた資産はどの観点でも読まず、`status` の `excluded` で開示する。観点ごとの検証役には閉じた問い（手続きが何を列挙するかを書いているか・何と照らすかを書いているか・`goals` の要素ごとにその部分が果たされたかを確かめられるか）だけを yes/no と逐語の引用で答えさせ、no の答えだけが計画の欠陥（id は `P<n>`）になる。統合役が no の欠陥に `rejected` と応答しても退けたことにはならず、その観点は次の検証で問い直される。手続きの細部の良し悪しは計画の段で聞かず、枡を読んだ結果で直す（理由は references/ledger.md）。目標の照合では、照合役が依頼文と決定の記録から利用者の求める成果を引用つきで挙げ、各成果を受け止める項目の id を返す。script が引用の実在・id の実在を照らし、どの項目にも受け止められていない成果があれば `needs_input` で返す。照合役は、項目が依頼に無いものを足したか・範囲を狭めたかを判定しない（足していないことは init の引用の照合が確かめる）。同じ状態で `next` を流し直すと同じ呼び出し（同じ `call_id`）が返るので、Workflow が途中で落ちたら 2 からやり直せばよい。待っている `call_id` と違う結果は `ingest` が拒否する。
+`next` は台帳だけから次の 1 手を決める（目標の照合と観点の計画 → 枡を読む → 振り返り → 束ねと横展開 → 次の周）。束ね役は群ごとに、既にある横展開の観点の型の例（`extends` にその観点の id）か新しい型（`pattern`）かを返し、新しい型のときだけ横展開の観点を作って次の周を開く。新しい型が 0 件なら次の周に進まず、上限の周（段の始まりから `max_cycles` 周目）で新しい型が残れば展開せずに needs_input で返す（収束の条件の詳細は references/ledger.md の「横展開の収束」）。計画は、観点ごとに当てる資産（`applies_to`）と受け持つ目標の部分（`goals: [{id, part}]`。part は目標・受け入れ基準の本文からの逐語の引用）を持ち、どの観点も関係しない資産を理由と共に除く資産（`excluded`）に入れる。全ての資産が `applies_to` の和か `excluded` のどちらか一方にちょうど 1 回入ること、`applies_to` と `goals` の id の実在、part の逐語、どの目標・基準もどれかの観点の `goals` に入ることを script が照らし、外れは計画の欠陥として統合役に戻す。持ち越しで資産が変わったときも、枡を読む前に同じ照合を流す。除いた資産はどの観点でも読まず、`status` の `excluded` で開示する。観点ごとの検証役には閉じた問い（手続きが何を列挙するかを書いているか・何と照らすかを書いているか・`goals` の要素ごとにその部分が果たされたかを確かめられるか）だけを yes/no と逐語の引用で答えさせ、no の答えだけが計画の欠陥（id は `P<n>`）になる。統合役が no の欠陥に `rejected` と応答しても退けたことにはならず、その観点は次の検証で問い直される。手続きの細部の良し悪しは計画の段で聞かず、枡を読んだ結果で直す（理由は references/ledger.md）。目標の照合では、照合役が依頼文と決定の記録から利用者の求める成果を引用つきで挙げ、各成果を受け止める項目の id を返す。script が引用の実在・id の実在を照らし、どの項目にも受け止められていない成果があれば `needs_input` で返す。照合役は、項目が依頼に無いものを足したか・範囲を狭めたかを判定しない（足していないことは init の引用の照合が確かめる）。同じ状態で `next` を流し直すと同じ呼び出し（同じ `call_id`）が返るので、Workflow が途中で落ちたら 2 からやり直せばよい。待っている `call_id` と違う結果は `ingest` が拒否する。
 
 枡を読む（review）の段は、待ち行列から枡を取る worker の形で回る。
 - `args.workers` の行（`{id, role, pass, queue}`。回ごとに読む役と検証役の待ち行列へ `workers` 体ずつ）ごとに 1 体を起動する。検証役の worker は、全ての回の読む役の worker が終わってから起動する。読む役と検証役の worker は混ぜない。
@@ -122,11 +122,11 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
 > 前処理は「手順」の 1〜2、成功後処理は 3。runner の verified return 以外で 3 へ進まず、runner 未 install・
 > `unsupported_runtime`・`rejected_source`・`workflow_incomplete` はそのまま報告する。
 >
-> **Codex classification: read-only supported**。runner request の `requirements` と `limits` は source の
+> **Codex classification: workspace-write required**（review の worker が書くため。host は `workspace.mode: "workspace-write"` を設定する）。runner request の `requirements` と `limits` は source の
 > `meta.requirements`・`meta.limits` をそのまま使い、SKILL.md に値を写さない。args の `roles` にある model 名（既定の役の表と
 > `init --roles` の上書きの全て）に runner の `modelMap` を明示する。担当は `stateDir/snap/` の写しを Read で読む。
 > review の worker は `stateDir` に結果のファイルを書き、Bash で `CLI claim`・`CLI submit` を流す。native Workflow の subagent が Bash で CLI を流せることは確かめてある。
-> Codex の runner の worker が `stateDir` のファイルを読めるか・書けるか、CLI を流せるかは確かめていない（流せなければ提出の無い呼び出しとして数えられ、続けば blocked（failure）で止まる）。
+> `stateDir` は作業ツリーの外にあり、Codex の runner の worker がそこを読めるか・書けるか、CLI を流せるかは確かめていない（流せなければ提出の無い呼び出しとして数えられ、続けば blocked（failure）で止まる）。
 
 ```js
 Workflow({
