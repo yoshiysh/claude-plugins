@@ -4,7 +4,7 @@
 #   tools/claude-strata [claude オプション...]
 #   tools/claude-strata --status        # トンネルと Strata の稼働状態を確認
 #   tools/claude-strata --start-server  # WSL 上で Strata サーバーを起動 (未起動時のみ)
-#   tools/claude-strata --restart-server# WSL 上で Strata サーバーを再起動
+#   tools/claude-strata --restart-server # WSL 上で Strata サーバーを再起動
 #   tools/claude-strata --stop-server   # WSL 上で Strata サーバーを停止
 #   tools/claude-strata --stop-tunnel   # 起動中の SSH トンネルを切断
 #   tools/claude-strata --sync-key      # WSL から API キーを再取得してローカルに保存
@@ -55,8 +55,8 @@ is_tunnel_healthy() {
 }
 
 is_server_running_on_wsl() {
-  ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<'EOF' >/dev/null 2>&1
-ss -tlpn 2>/dev/null | grep -qE ":8080\b" || pgrep -f "serve\.server" >/dev/null
+  ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<EOF >/dev/null 2>&1
+ss -tlpn 2>/dev/null | grep -qE ":${STRATA_PORT}\\b" || pgrep -f "serve\\.server" >/dev/null
 EOF
 }
 
@@ -162,12 +162,17 @@ EOF
 
   echo "トンネルを接続し、最適化設定 (engine_silence_s=0) を適用しています..." >&2
   ensure_tunnel
-  curl -s -X POST "http://127.0.0.1:${STRATA_PORT}/config" \
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${STRATA_PORT}/config" \
     -H "Authorization: Bearer ${key}" \
     -H "Content-Type: application/json" \
-    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"vram_reserve_mib\": ${vram}}}" >/dev/null 2>&1 || true
+    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"vram_reserve_mib\": ${vram}}}" 2>/dev/null || echo "000")
 
-  echo "Strata サーバーの起動と最適化が完了しました。" >&2
+  if [ "$http_code" = "200" ]; then
+    echo "Strata サーバーの起動と最適化が完了しました。" >&2
+  else
+    echo "警告: 最適化設定 (/config) の適用に失敗しました (HTTP ${http_code})。サーバーの起動のみ完了しました。" >&2
+  fi
 }
 
 stop_server_on_wsl() {
@@ -249,8 +254,10 @@ EOF
 
   if is_port_listening; then
     echo "API Health Check:"
-    local key
-    key=$(get_api_key 2>/dev/null || echo "")
+    local key="${STRATA_API_KEY:-}"
+    if [ -z "$key" ] && [ -s "$KEY_FILE" ]; then
+      key=$(tr -d '\r\n' < "$KEY_FILE" 2>/dev/null || echo "")
+    fi
     if [ -n "$key" ]; then
       local resp
       resp=$(curl -s -m 3 -H "Authorization: Bearer $key" "http://127.0.0.1:${STRATA_PORT}/v1/models" 2>/dev/null || echo "")
