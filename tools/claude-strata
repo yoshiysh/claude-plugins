@@ -8,7 +8,8 @@
 #   tools/claude-strata --stop-server   # WSL 上で Strata サーバーを停止
 #   tools/claude-strata --stop-tunnel   # 起動中の SSH トンネルを切断
 #   tools/claude-strata --sync-key      # WSL から API キーを再取得してローカルに保存
-#   tools/claude-strata --full          # プロジェクト設定やプラグインもすべて読み込むフルモード
+#   tools/claude-strata --bare          # 初期プロンプトを最小化する軽量モード (既定: フルモード)
+#   tools/claude-strata --full          # プロジェクト設定やプラグインもすべて読み込むフルモード (既定)
 #
 # オプション (サーバー起動時 / 環境変数):
 #   --kv <FORMAT>       KV キャッシュの量子化 (既定: q4_0, 選択肢: q4_0, int8, k8v4, fp16)
@@ -20,7 +21,7 @@
 #   2. API キーを解決（STRATA_API_KEY 環境変数 -> ~/.config/strata/api_key -> WSL から自動取得）
 #   3. ポート 8080 の SSH トンネルが健全か確認（死んでいれば自動再起動）
 #   4. モデルがロード状態にあるか確認（アンロードされていれば自動でロード）
-#   5. 初期プロンプトの肥大化を防ぐ軽量化オプション（--bare --setting-sources user）を自動適用
+#   5. フルモード（スキル・プラグイン全読み込み）で起動（--bare で軽量化も可能）
 #   6. ANTHROPIC_BASE_URL (http://127.0.0.1:8080) と API_KEY を注入して claude を exec
 set -euo pipefail
 
@@ -343,6 +344,7 @@ case "$ACTION" in
     exit 0
     ;;
   restart_server)
+    stop_server_on_wsl
     start_server_on_wsl "$STRATA_KV" "$STRATA_CONTEXT" "$STRATA_VRAM_RESERVE"
     exit 0
     ;;
@@ -380,23 +382,30 @@ export ANTHROPIC_AUTH_TOKEN="$API_KEY"
 export ANTHROPIC_API_KEY="$API_KEY"
 export ANTHROPIC_MODEL="${STRATA_MODEL}"
 
+# 長大プロンプト（2万トークン超）送信時のタイムアウト防止 (既定: 30分 = 1800000ms)
+export API_TIMEOUT_MS="${API_TIMEOUT_MS:-1800000}"
+export CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS="${CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS:-1800000}"
+export CLAUDE_STREAM_IDLE_TIMEOUT_MS="${CLAUDE_STREAM_IDLE_TIMEOUT_MS:-1800000}"
+
 # claude バイナリの存在確認
 if ! command -v claude >/dev/null 2>&1; then
   echo "エラー: 'claude' コマンドが見つかりません。npm install -g @anthropic-ai/claude-code を実行してください。" >&2
   exit 1
 fi
 
-# 引数の解析（軽量化フラグの挿入判断）
-FULL_MODE=false
+# 引数の解析（既定はフルモード。--bare 指定時のみ軽量化フラグを適用）
+BARE_MODE=false
 HAS_MODEL=false
 HAS_SETTING_SOURCES=false
-HAS_BARE=false
 CLAUDE_ARGS=()
 
 for arg in "${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}"; do
   case "$arg" in
+    --bare)
+      BARE_MODE=true
+      ;;
     --full)
-      FULL_MODE=true
+      BARE_MODE=false
       ;;
     --model)
       HAS_MODEL=true
@@ -404,10 +413,6 @@ for arg in "${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}"; do
       ;;
     --setting-sources*)
       HAS_SETTING_SOURCES=true
-      CLAUDE_ARGS+=("$arg")
-      ;;
-    --bare)
-      HAS_BARE=true
       CLAUDE_ARGS+=("$arg")
       ;;
     *)
@@ -423,11 +428,9 @@ if [ "$HAS_MODEL" = false ]; then
   FINAL_ARGS+=(--model "${STRATA_MODEL}")
 fi
 
-# デフォルトで軽量化オプションを適用（--full 指定時を除く）
-if [ "$FULL_MODE" = false ]; then
-  if [ "$HAS_BARE" = false ]; then
-    FINAL_ARGS+=(--bare)
-  fi
+# --bare 明示時のみ軽量化オプションを適用
+if [ "$BARE_MODE" = true ]; then
+  FINAL_ARGS+=(--bare)
   if [ "$HAS_SETTING_SOURCES" = false ]; then
     FINAL_ARGS+=(--setting-sources user)
   fi
