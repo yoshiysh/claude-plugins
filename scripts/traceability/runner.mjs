@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +18,10 @@ export async function runTests(config, files) {
   const includeAll = help.stdout.includes('--test-coverage-include-all');
   const args = ['--test','--experimental-test-coverage','--test-reporter',fileURLToPath(new URL('./reporter.mjs',import.meta.url))];
   if (includeAll) args.push('--test-coverage-include-all');
+  if (help.stdout.includes('--test-concurrency')) {
+    const concurrency = process.env.NODE_TEST_CONCURRENCY || Math.max(2, availableParallelism());
+    args.push(`--test-concurrency=${concurrency}`);
+  }
   for (const file of config.sourceFiles) if (!config.unmeasuredSources[file]) args.push(`--test-coverage-include=${file.replaceAll('\\','/')}`);
   args.push(...files);
   const env = {...process.env};

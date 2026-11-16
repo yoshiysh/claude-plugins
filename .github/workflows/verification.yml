@@ -10,10 +10,13 @@ permissions:
   contents: read
 
 jobs:
-  formal-bp-prd-scope:
+  formal-scope:
     runs-on: ubuntu-latest
     outputs:
-      run: ${{ steps.scope.outputs.run }}
+      run: ${{ steps.scope.outputs.run_bp_prd }}
+      run_bp_prd: ${{ steps.scope.outputs.run_bp_prd }}
+      run_formal_skill: ${{ steps.scope.outputs.run_formal_skill }}
+      run_formal_z3: ${{ steps.scope.outputs.run_formal_z3 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -28,16 +31,32 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = pull_request ]; then
             git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
-            run=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
+            run_bp_prd=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
               tests/formal/bp-prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
+
+            if grep -E '^(tests/formal/formal-method-skill/|\.agents/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
+              run_formal_skill=true
+            else
+              run_formal_skill=false
+            fi
+
+            if grep -E '^(tests/formal/formal-method-requirements/|tests/formal/formal-method-skill/z3_streams\.py|docs/requirements/formal-method\.md|docs/specifications/formal-method\.md|\.agents/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
+              run_formal_z3=true
+            else
+              run_formal_z3=false
+            fi
           else
-            run=true
+            run_bp_prd=true
+            run_formal_skill=true
+            run_formal_z3=true
           fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "run_bp_prd=$run_bp_prd" >> "$GITHUB_OUTPUT"
+          echo "run_formal_skill=$run_formal_skill" >> "$GITHUB_OUTPUT"
+          echo "run_formal_z3=$run_formal_z3" >> "$GITHUB_OUTPUT"
 
   formal-bp-prd:
-    needs: formal-bp-prd-scope
-    if: needs.formal-bp-prd-scope.outputs.run == 'true'
+    needs: formal-scope
+    if: needs.formal-scope.outputs.run_bp_prd == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -64,7 +83,17 @@ jobs:
           tests/formal/bp-prd/check.sh
 
   formal-method-skill:
+    needs: formal-scope
+    if: needs.formal-scope.outputs.run_formal_skill == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: lock
+            pattern: '^lock-'
+          - target: run
+            pattern: '^run-'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
@@ -77,24 +106,27 @@ jobs:
         run: |
           curl --fail --location --retry 3 --output "$TLA2TOOLS" \
             https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
-      - name: Check formal-method design models (Run.tla, Lock.tla)
+      - name: Check formal-method design models (${{ matrix.target }})
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
           OUT_DIR: ${{ runner.temp }}/formal-method-skill-out
+          ONLY: ${{ matrix.pattern }}
         # shell を明示すると bash --noprofile --norc -eo pipefail {0} になり、check.sh の失敗が tee の成功に隠れない
         shell: bash
-        run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill.jsonl"
+        run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill-${{ matrix.target }}.jsonl"
       - name: Preserve model checking results and traces
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: formal-method-skill
+          name: formal-method-skill-${{ matrix.target }}
           path: |
-            ${{ runner.temp }}/formal-method-skill.jsonl
+            ${{ runner.temp }}/formal-method-skill-${{ matrix.target }}.jsonl
             ${{ runner.temp }}/formal-method-skill-out/
           if-no-files-found: warn
 
   formal-method-z3:
+    needs: formal-scope
+    if: needs.formal-scope.outputs.run_formal_z3 == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -118,6 +150,8 @@ jobs:
 
   verification:
     runs-on: ubuntu-latest
+    env:
+      NODE_TEST_CONCURRENCY: '4'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
