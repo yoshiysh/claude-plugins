@@ -1,0 +1,440 @@
+#!/bin/bash
+# Windows/WSL 上で稼働する Strata (MoE ローカル推論) 経由で Claude Code を起動する。
+#
+#   tools/claude-strata [claude オプション...]
+#   tools/claude-strata --status        # トンネルと Strata の稼働状態を確認
+#   tools/claude-strata --start-server  # WSL 上で Strata サーバーを起動 (未起動時のみ)
+#   tools/claude-strata --restart-server # WSL 上で Strata サーバーを再起動
+#   tools/claude-strata --stop-server   # WSL 上で Strata サーバーを停止
+#   tools/claude-strata --stop-tunnel   # 起動中の SSH トンネルを切断
+#   tools/claude-strata --sync-key      # WSL から API キーを再取得してローカルに保存
+#   tools/claude-strata --full          # プロジェクト設定やプラグインもすべて読み込むフルモード
+#
+# オプション (サーバー起動時 / 環境変数):
+#   --kv <FORMAT>       KV キャッシュの量子化 (既定: q4_0, 選択肢: q4_0, int8, k8v4, fp16)
+#   --context <SIZE>    コンテキスト長 (既定: 128k, 選択肢: 32k, 64k, 128k)
+#   --vram-reserve <MB> VRAM 予約サイズ (既定: 1152)
+#
+# 動作の流れ:
+#   1. WSL 上で Strata サーバーが動いていなければ自動起動
+#   2. API キーを解決（STRATA_API_KEY 環境変数 -> ~/.config/strata/api_key -> WSL から自動取得）
+#   3. ポート 8080 の SSH トンネルが健全か確認（死んでいれば自動再起動）
+#   4. モデルがロード状態にあるか確認（アンロードされていれば自動でロード）
+#   5. 初期プロンプトの肥大化を防ぐ軽量化オプション（--bare --setting-sources user）を自動適用
+#   6. ANTHROPIC_BASE_URL (http://127.0.0.1:8080) と API_KEY を注入して claude を exec
+set -euo pipefail
+
+STRATA_HOST="${STRATA_HOST:-winbox}"
+STRATA_PORT="${STRATA_PORT:-8080}"
+STRATA_MODEL="${STRATA_MODEL:-sonnet}"
+STRATA_MODEL_SIZE="${STRATA_MODEL_SIZE:-iq2_xs}"
+STRATA_CONTEXT="${STRATA_CONTEXT:-128k}"
+STRATA_KV="${STRATA_KV:-q4_0}"
+STRATA_VRAM_RESERVE="${STRATA_VRAM_RESERVE:-1152}"
+STRATA_ENGINE_SILENCE="${STRATA_ENGINE_SILENCE:-0}"
+
+KEY_DIR="${HOME}/.config/strata"
+KEY_FILE="${KEY_DIR}/api_key"
+
+SSH_OPTS="-o ConnectTimeout=5 -o BatchMode=yes -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes"
+
+print_usage() {
+  awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+}
+
+is_port_listening() {
+  lsof -i ":${STRATA_PORT}" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+is_tunnel_healthy() {
+  if ! is_port_listening; then
+    return 1
+  fi
+  # 実際に HTTP 疎通が通るか確認
+  curl -s -m 2 "http://127.0.0.1:${STRATA_PORT}/v1/models" >/dev/null 2>&1
+}
+
+is_server_running_on_wsl() {
+  ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<EOF >/dev/null 2>&1
+ss -tlpn 2>/dev/null | grep -qE ":${STRATA_PORT}\\b" || pgrep -f "serve\\.server" >/dev/null
+EOF
+}
+
+fetch_key_from_wsl() {
+  echo "WSL から Strata API キーを取得しています..." >&2
+  local key
+  key=$(ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<'EOF' 2>/dev/null | tr -d '\r\n'
+grep -hoE '"api_key": "[^"]+"' $HOME/.local/state/strata/launch/*.json 2>/dev/null | head -n 1 | cut -d'"' -f4
+EOF
+  )
+  if [ -z "$key" ]; then
+    echo "エラー: WSL 上の Strata 設定ファイルから API キーを取得できませんでした。" >&2
+    echo "WSL 内で Strata が起動しているか確認してください。" >&2
+    return 1
+  fi
+  mkdir -p "$KEY_DIR"
+  chmod 700 "$KEY_DIR"
+  printf '%s' "$key" > "$KEY_FILE"
+  chmod 600 "$KEY_FILE"
+  echo "API キーを保存しました: ${KEY_FILE}" >&2
+  printf '%s' "$key"
+}
+
+get_api_key() {
+  if [ -n "${STRATA_API_KEY:-}" ]; then
+    printf '%s' "$STRATA_API_KEY"
+    return 0
+  fi
+  if [ -s "$KEY_FILE" ]; then
+    cat "$KEY_FILE" | tr -d '\r\n'
+    return 0
+  fi
+  fetch_key_from_wsl
+}
+
+stop_tunnel() {
+  echo "ポート ${STRATA_PORT} の SSH トンネルを停止します..." >&2
+  pkill -f "ssh.*-L ${STRATA_PORT}:127.0.0.1:${STRATA_PORT}" || true
+  sleep 0.5
+}
+
+ensure_tunnel() {
+  # トンネルがすでに健全なら何もしない
+  if is_tunnel_healthy; then
+    return 0
+  fi
+
+  # ポートだけ開いていて疎通しないゾンビトンネルの場合は一度停止
+  if is_port_listening; then
+    echo "既存の SSH トンネルが無応答のため再起動します..." >&2
+    stop_tunnel
+  fi
+
+  echo "SSH トンネルを起動しています (${STRATA_HOST} -> 127.0.0.1:${STRATA_PORT})..." >&2
+  ssh -f -N -L "${STRATA_PORT}:127.0.0.1:${STRATA_PORT}" $SSH_OPTS "$STRATA_HOST"
+
+  # トンネルが開いて疎通するまで待機
+  local count=0
+  while ! is_tunnel_healthy; do
+    count=$((count + 1))
+    if [ "$count" -ge 12 ]; then
+      echo "エラー: SSH トンネルの確立または Strata への疎通がタイムアウトしました。" >&2
+      exit 1
+    fi
+    sleep 0.5
+  done
+}
+
+start_server_on_wsl() {
+  local kv="${1:-$STRATA_KV}"
+  local ctx="${2:-$STRATA_CONTEXT}"
+  local vram="${3:-$STRATA_VRAM_RESERVE}"
+
+  echo "WSL 上で Strata サーバーを起動します (Model: ${STRATA_MODEL_SIZE}, Context: ${ctx}, KV: ${kv}, VRAM Reserve: ${vram}MiB)..." >&2
+
+  ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<EOF
+set -e
+STRATA_CLI=\$(find \$HOME/.local/share/strata/terminal -name "strata.py" 2>/dev/null | head -n 1)
+if [ -z "\$STRATA_CLI" ]; then
+  echo "エラー: WSL 内に strata.py が見つかりません。" >&2
+  exit 1
+fi
+PYTHON=\$(dirname "\$STRATA_CLI")/python/bin/python3.12
+[ -x "\$PYTHON" ] || PYTHON=python3
+
+"\$PYTHON" "\$STRATA_CLI" launch \\
+  --model "$STRATA_MODEL_SIZE" \\
+  --context "$ctx" \\
+  --kv "$kv" \\
+  --vision cpu \\
+  --tune skip \\
+  --access lan \\
+  --port "$STRATA_PORT" \\
+  --set vram-reserve-mib="$vram" \\
+  --restart \\
+  --no-tui
+EOF
+
+  echo "API キーを同期しています..." >&2
+  fetch_key_from_wsl >/dev/null
+  local key
+  key=$(get_api_key)
+
+  echo "トンネルを接続し、最適化設定 (engine_silence_s=0) を適用しています..." >&2
+  ensure_tunnel
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${STRATA_PORT}/config" \
+    -H "Authorization: Bearer ${key}" \
+    -H "Content-Type: application/json" \
+    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"vram_reserve_mib\": ${vram}}}" 2>/dev/null || echo "000")
+
+  if [ "$http_code" = "200" ]; then
+    echo "Strata サーバーの起動と最適化が完了しました。" >&2
+  else
+    echo "警告: 最適化設定 (/config) の適用に失敗しました (HTTP ${http_code})。サーバーの起動のみ完了しました。" >&2
+  fi
+}
+
+stop_server_on_wsl() {
+  echo "WSL 上の Strata サーバーを停止します..." >&2
+  ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<'EOF'
+STRATA_CLI=$(find $HOME/.local/share/strata/terminal -name "strata.py" 2>/dev/null | head -n 1)
+if [ -n "$STRATA_CLI" ]; then
+  PYTHON=$(dirname "$STRATA_CLI")/python/bin/python3.12
+  [ -x "$PYTHON" ] || PYTHON=python3
+  "$PYTHON" "$STRATA_CLI" launch --stop 2>/dev/null || true
+fi
+pkill -f "serve\.server" 2>/dev/null || true
+pkill -f "strata --serve" 2>/dev/null || true
+EOF
+  stop_tunnel
+  echo "Strata サーバーを停止しました。" >&2
+}
+
+ensure_server_running() {
+  if ! is_server_running_on_wsl; then
+    echo "WSL 上で Strata サーバーが停止しているため、自動起動を開始します..." >&2
+    start_server_on_wsl "$STRATA_KV" "$STRATA_CONTEXT" "$STRATA_VRAM_RESERVE"
+  fi
+}
+
+ensure_model_loaded() {
+  local resp
+  resp=$(curl -s -m 3 -H "Authorization: Bearer $API_KEY" "http://127.0.0.1:${STRATA_PORT}/v1/models" 2>/dev/null || echo "")
+  if echo "$resp" | grep -q '"data": \[\]'; then
+    echo "Strata のモデルがアンロード状態のため、ロードを開始します..." >&2
+    curl -s -X POST "http://127.0.0.1:${STRATA_PORT}/load" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H "Origin: http://127.0.0.1:${STRATA_PORT}" \
+      -H "Content-Type: application/json" \
+      -d '{}' >/dev/null 2>&1
+    local count=0
+    while true; do
+      resp=$(curl -s -m 3 -H "Authorization: Bearer $API_KEY" "http://127.0.0.1:${STRATA_PORT}/v1/models" 2>/dev/null || echo "")
+      if echo "$resp" | grep -q '"status": "loaded"'; then
+        echo "モデルのロードが完了しました。" >&2
+        break
+      fi
+      count=$((count + 1))
+      if [ "$count" -ge 60 ]; then
+        echo "エラー: モデルのロードがタイムアウトしました。" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+  fi
+}
+
+show_status() {
+  echo "=== Strata Status ==="
+  echo "Target Host:  ${STRATA_HOST}"
+  echo "Target Port:  ${STRATA_PORT}"
+  echo "Active Model: ${STRATA_MODEL}"
+
+  echo -n "SSH Tunnel:   "
+  if is_tunnel_healthy; then
+    echo "アクティブ (127.0.0.1:${STRATA_PORT} 疎通確認済み)"
+  elif is_port_listening; then
+    echo "警告: ポートは開いていますが応答がありません (ゾンビ状態の可能性)"
+  else
+    echo "停止中"
+  fi
+
+  echo -n "API Key:      "
+  if [ -s "$KEY_FILE" ]; then
+    echo "設定済み (${KEY_FILE})"
+  else
+    echo "未取得 (次回起動時に自動取得されます)"
+  fi
+
+  echo "WSL Strata Process:"
+  ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<'EOF' 2>/dev/null || echo "  WSL への接続に失敗しました"
+ps aux | grep -iE 'strata|serve\.server' | grep -v grep | awk '{printf "  PID: %-7s CPU: %-5s MEM: %-5s CMD: %s\n", $2, $3, $4, $11}'
+EOF
+
+  if is_port_listening; then
+    echo "API Health Check:"
+    local key="${STRATA_API_KEY:-}"
+    if [ -z "$key" ] && [ -s "$KEY_FILE" ]; then
+      key=$(tr -d '\r\n' < "$KEY_FILE" 2>/dev/null || echo "")
+    fi
+    if [ -n "$key" ]; then
+      local resp
+      resp=$(curl -s -m 3 -H "Authorization: Bearer $key" "http://127.0.0.1:${STRATA_PORT}/v1/models" 2>/dev/null || echo "")
+      if echo "$resp" | grep -q '"status": "loaded"'; then
+        echo "  OK: $(echo "$resp" | grep -oE '"id": "[^"]+"' | head -n 1) (loaded)"
+      elif echo "$resp" | grep -q '"data": \[\]'; then
+        echo "  待機中: モデルがアンロードされています (起動時に自動ロードされます)"
+      elif [ -n "$resp" ]; then
+        echo "  OK: $(echo "$resp" | grep -oE '"id": "[^"]+"' | head -n 1)"
+      else
+        echo "  エラー: エンドポイントから応答がありません。"
+      fi
+    else
+      echo "  スキップ (API キー未取得)"
+    fi
+  fi
+}
+
+# サブコマンド・特殊フラグの初期チェック
+ACTION=""
+PASSTHROUGH_ARGS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    --status)
+      ACTION="status"
+      shift
+      ;;
+    --start-server)
+      ACTION="start_server"
+      shift
+      ;;
+    --restart-server)
+      ACTION="restart_server"
+      shift
+      ;;
+    --stop-server)
+      ACTION="stop_server"
+      shift
+      ;;
+    --stop-tunnel)
+      ACTION="stop_tunnel"
+      shift
+      ;;
+    --sync-key)
+      ACTION="sync_key"
+      shift
+      ;;
+    --kv)
+      STRATA_KV="$2"
+      shift 2
+      ;;
+    --context)
+      STRATA_CONTEXT="$2"
+      shift 2
+      ;;
+    --vram-reserve)
+      STRATA_VRAM_RESERVE="$2"
+      shift 2
+      ;;
+    *)
+      PASSTHROUGH_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+case "$ACTION" in
+  status)
+    show_status
+    exit 0
+    ;;
+  start_server)
+    if is_server_running_on_wsl; then
+      echo "Strata サーバーは既に WSL 上で稼働中です。再起動したい場合は --restart-server を使用してください。"
+    else
+      start_server_on_wsl "$STRATA_KV" "$STRATA_CONTEXT" "$STRATA_VRAM_RESERVE"
+    fi
+    exit 0
+    ;;
+  restart_server)
+    start_server_on_wsl "$STRATA_KV" "$STRATA_CONTEXT" "$STRATA_VRAM_RESERVE"
+    exit 0
+    ;;
+  stop_server)
+    stop_server_on_wsl
+    exit 0
+    ;;
+  stop_tunnel)
+    stop_tunnel
+    echo "完了しました。"
+    exit 0
+    ;;
+  sync_key)
+    fetch_key_from_wsl >/dev/null
+    echo "完了しました。"
+    exit 0
+    ;;
+esac
+
+# メイン処理 (Claude Code 起動)
+ensure_server_running
+
+API_KEY=$(get_api_key)
+if [ -z "$API_KEY" ]; then
+  echo "エラー: API キーが設定されていません。" >&2
+  exit 1
+fi
+
+ensure_tunnel
+ensure_model_loaded
+
+# 親シェルの古い設定（例: LM Studio 向けの localhost:1234 等）を完全に Strata で上書き
+export ANTHROPIC_BASE_URL="http://127.0.0.1:${STRATA_PORT}"
+export ANTHROPIC_AUTH_TOKEN="$API_KEY"
+export ANTHROPIC_API_KEY="$API_KEY"
+export ANTHROPIC_MODEL="${STRATA_MODEL}"
+
+# claude バイナリの存在確認
+if ! command -v claude >/dev/null 2>&1; then
+  echo "エラー: 'claude' コマンドが見つかりません。npm install -g @anthropic-ai/claude-code を実行してください。" >&2
+  exit 1
+fi
+
+# 引数の解析（軽量化フラグの挿入判断）
+FULL_MODE=false
+HAS_MODEL=false
+HAS_SETTING_SOURCES=false
+HAS_BARE=false
+CLAUDE_ARGS=()
+
+for arg in "${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}"; do
+  case "$arg" in
+    --full)
+      FULL_MODE=true
+      ;;
+    --model)
+      HAS_MODEL=true
+      CLAUDE_ARGS+=("$arg")
+      ;;
+    --setting-sources*)
+      HAS_SETTING_SOURCES=true
+      CLAUDE_ARGS+=("$arg")
+      ;;
+    --bare)
+      HAS_BARE=true
+      CLAUDE_ARGS+=("$arg")
+      ;;
+    *)
+      CLAUDE_ARGS+=("$arg")
+      ;;
+  esac
+done
+
+FINAL_ARGS=()
+
+# モデルの自動付与（指定がなければ sonnet）
+if [ "$HAS_MODEL" = false ]; then
+  FINAL_ARGS+=(--model "${STRATA_MODEL}")
+fi
+
+# デフォルトで軽量化オプションを適用（--full 指定時を除く）
+if [ "$FULL_MODE" = false ]; then
+  if [ "$HAS_BARE" = false ]; then
+    FINAL_ARGS+=(--bare)
+  fi
+  if [ "$HAS_SETTING_SOURCES" = false ]; then
+    FINAL_ARGS+=(--setting-sources user)
+  fi
+fi
+
+if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then
+  FINAL_ARGS+=("${CLAUDE_ARGS[@]}")
+fi
+
+exec claude "${FINAL_ARGS[@]}"
