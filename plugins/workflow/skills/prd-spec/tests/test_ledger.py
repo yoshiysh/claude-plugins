@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from doc_check_client import run_worker  # noqa: E402
 from test_doc_check_workspace import _aspect_keys, _rulings, stdout_body  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -43,12 +44,7 @@ WRITES = ("put", "del")
 
 def _run(ws, mode, *args, stdin=None):
     tx = ("--token", TOKEN) if mode in WRITES and "--token" not in args else ()
-    return subprocess.run(
-        ["node", str(DOC_CHECK), mode, *args, *tx, "--workspace", str(ws)],
-        input=None if stdin is None else json.dumps(stdin, ensure_ascii=False),
-        capture_output=True,
-        text=True,
-    )
+    return run_worker(ws, mode, list(args) + list(tx), stdin=stdin)
 
 
 def _ok(ws, mode, *args, stdin=None):
