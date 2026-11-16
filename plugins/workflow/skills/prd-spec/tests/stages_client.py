@@ -6,33 +6,25 @@ JSON リクエスト/レスポンスをやり取りする。
 
 import atexit
 import json
-import subprocess
-import sys
 from pathlib import Path
+import shutil
+import tempfile
 
-_worker_proc = None
-_worker_path = Path(__file__).resolve().parent / ".stages_worker.mjs"
+from node_worker import NodeWorker
+
+_worker = None
+_tmpdir = None
 
 
 def _cleanup():
-    global _worker_proc
-    if _worker_proc is not None:
-        try:
-            if _worker_proc.poll() is None:
-                _worker_proc.terminate()
-                try:
-                    _worker_proc.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    _worker_proc.kill()
-                    _worker_proc.wait(timeout=1.0)
-        except Exception:
-            pass
-        _worker_proc = None
-    if _worker_path.exists():
-        try:
-            _worker_path.unlink()
-        except OSError:
-            pass
+    global _worker, _tmpdir
+    w = _worker
+    _worker = None
+    if w is not None:
+        w.close()
+    if _tmpdir is not None:
+        shutil.rmtree(_tmpdir, ignore_errors=True)
+        _tmpdir = None
 
 
 atexit.register(_cleanup)
@@ -97,32 +89,17 @@ for await (const line of rl) {
 
 
 def _get_worker():
-    global _worker_proc
-    if _worker_proc is not None:
-        if _worker_proc.poll() is None:
-            return _worker_proc
-        _cleanup()
+    global _worker, _tmpdir
+    if _worker is not None and _worker.is_alive():
+        return _worker
 
-    try:
-        script = _build_worker_script()
-        _worker_path.write_text(script, encoding="utf-8")
-        proc = subprocess.Popen(
-            ["node", str(_worker_path)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-        )
-        if proc.poll() is not None:
-            _cleanup()
-            return None
-        _worker_proc = proc
-        return _worker_proc
-    except Exception:
-        _cleanup()
-        return None
+    _cleanup()
+    _tmpdir = tempfile.mkdtemp(prefix="stages_worker_")
+    worker_path = Path(_tmpdir) / "worker.mjs"
+    script = _build_worker_script()
+    worker_path.write_text(script, encoding="utf-8")
+    _worker = NodeWorker(worker_path, cleanup_callback=_cleanup)
+    return _worker
 
 
 def run_harness(spec, orig_run_fn, patch=()):
@@ -130,22 +107,8 @@ def run_harness(spec, orig_run_fn, patch=()):
         return orig_run_fn(spec, patch)
 
     worker = _get_worker()
-    if worker is None:
-        return orig_run_fn(spec, patch)
-
-    try:
-        payload = json.dumps(spec)
-        worker.stdin.write(payload + "\n")
-        worker.stdin.flush()
-        line = worker.stdout.readline()
-        if not line:
-            _cleanup()
-            return orig_run_fn(spec, patch)
-        resp = json.loads(line)
-        if not resp.get("success"):
-            _cleanup()
-            return orig_run_fn(spec, patch)
-        return resp["data"]
-    except Exception:
-        _cleanup()
-        return orig_run_fn(spec, patch)
+    resp = worker.send_and_receive(spec)
+    if not resp.get("success"):
+        err = resp.get("error", "unknown worker error")
+        raise RuntimeError(f"stages worker failed: {err}")
+    return resp["data"]

@@ -5,6 +5,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -28,6 +29,10 @@ def run_single_test(test_dir: str, filename: str, full_path: str):
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
         )
         duration = time.perf_counter() - start
+        skipped = 0
+        m = re.search(r"skipped=(\d+)", proc.stderr)
+        if m:
+            skipped = int(m.group(1))
         return {
             "full_path": full_path,
             "duration": duration,
@@ -35,6 +40,7 @@ def run_single_test(test_dir: str, filename: str, full_path: str):
             "stdout": proc.stdout,
             "stderr": proc.stderr,
             "returncode": proc.returncode,
+            "skipped": skipped,
         }
     except Exception as exc:
         duration = time.perf_counter() - start
@@ -45,6 +51,7 @@ def run_single_test(test_dir: str, filename: str, full_path: str):
             "stdout": "",
             "stderr": f"Execution error: {exc}\n",
             "returncode": -1,
+            "skipped": 0,
         }
 
 
@@ -72,6 +79,7 @@ def main():
     total_count = len(tasks)
     passed_count = 0
     failed_count = 0
+    skipped_count = 0
     start_total = time.perf_counter()
 
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as executor:
@@ -81,12 +89,15 @@ def main():
         }
         for future in as_completed(future_to_test):
             res = future.result()
+            num_skipped = res.get("skipped", 0)
+            skipped_count += num_skipped
+            skip_info = f", {num_skipped} skipped" if num_skipped > 0 else ""
             if res["success"]:
                 passed_count += 1
-                print(f"  ok   {res['full_path']} ({res['duration']:.2f}s)")
+                print(f"  ok   {res['full_path']} ({res['duration']:.2f}s{skip_info})")
             else:
                 failed_count += 1
-                print(f"  FAIL {res['full_path']} ({res['duration']:.2f}s)")
+                print(f"  FAIL {res['full_path']} ({res['duration']:.2f}s{skip_info})")
                 if res["stdout"]:
                     print(res["stdout"], end="")
                 if res["stderr"]:
@@ -96,7 +107,7 @@ def main():
     total_duration = time.perf_counter() - start_total
     print(
         f"\nRan {total_count} unittest file(s) in {total_duration:.2f}s: "
-        f"{passed_count} passed, {failed_count} failed."
+        f"{passed_count} passed, {skipped_count} skipped, {failed_count} failed."
     )
 
     if failed_count > 0:

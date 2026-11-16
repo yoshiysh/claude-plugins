@@ -640,7 +640,6 @@ def wrapped_source(patch=()):
 
 
 def _orig_run(spec, patch=()):
-    spec = {"verify_all_mark": VERIFY_ALL_MARK, "doc_check_url": (SKILL / "scripts" / "doc_check.mjs").as_uri(), **spec}
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "prd_harness.mjs"
         path.write_text(wrapped_source(patch), encoding="utf-8")
