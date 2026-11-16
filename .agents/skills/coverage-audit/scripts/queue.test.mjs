@@ -25,6 +25,7 @@ const DOC = `# 対象の文書
 const manyDoc = (n) => `# 文書\n${Array.from({ length: n }, (_, i) => `\n## 節${i}\nこの節 ${i} は本文の行として十分な長さを持っている。\n二行目も節 ${i} の主張を補う本文の行として置く。`).join('\n')}\n`
 const L1 = { id: 'L1', name: '主張と根拠', procedure: '主張ごとに根拠の文を対応づけ、根拠の無い主張を探す' }
 const L2 = { id: 'L2', name: '用語の一貫', procedure: '用語ごとに使われ方を並べ、意味の揺れを探す' }
+const L3 = { id: 'L3', name: '数の一致', procedure: '数を挙げた文ごとに、同じ数を述べる別の文と照らし、食い違いを探す' }
 
 // 利用者の観点を渡し、目標を照合済みにした台帳は計画の段を通らないので、最初の next が review になる。
 function qsetup(t, { doc = DOC, lenses = [L1], extra = [], workers = 3 } = {}) {
@@ -80,7 +81,16 @@ function claimAll(state, call, args) {
 // 枡の観点は台帳から引く（claim の出力の lens の欄には頼らない）。
 const lensOf = (state, cellId) => ledger(state).cells[cellId].lens
 const missedBy = (L, kind, id) => L.events.some((e) => e.kind === kind && (e.ref === id || String(e.text).includes(id)))
-const READ_CELL_KEYS = ['cell_id', 'lens', 'brief', 'result_path', 'submit_cmd']
+// cells[] の要素は submit_cmd を持たない。出す命令は asset ごとに 1 つ（asset.submit_cmd。--cell と --result を持たない submit）。
+const READ_CELL_KEYS = ['cell_id', 'lens', 'brief', 'result_path']
+// asset.submit_cmd の submit を in-process で流す（--cell を持たない形）。
+function batchSubmit(c) {
+  const a = cliArgvOf(c.asset.submit_cmd, 'submit')
+  assert.ok(a, `asset.submit_cmd に submit の命令がある: ${JSON.stringify(c.asset)}`)
+  return cli(...a)
+}
+function writeResult(x, obj) { mkdirSync(path.dirname(x.result_path), { recursive: true }); writeFileSync(x.result_path, JSON.stringify(obj)) }
+const resultOf = (s, cellId) => (s.results || []).find((r) => r.cell === cellId)
 
 // 別の node の process で CLI を流す（並べて流すときは Promise.all で同時に走らせる）。
 function run(argv, { shell = null } = {}) {
@@ -179,21 +189,22 @@ test('claim（読む役の待ち行列）: まだ読んでいない資産を 1 �
   assert.ok(Number.isInteger(a.start) && Number.isInteger(a.end) && a.start <= a.end)
   const L = ledger(state)
   assert.ok(L.assets[a.id], '資産の id は台帳の id')
-  // 当たる観点（purpose・layer・L1・L2）の枡を、全て 1 回で返す。
-  assert.deepEqual(c1.cells.map((x) => L.cells[x.cell_id].lens).sort(), ['L1', 'L2', 'layer', 'purpose'])
+  // 当たる観点（L1・L2）の枡を、全て 1 回で返す。
+  assert.deepEqual(c1.cells.map((x) => L.cells[x.cell_id].lens).sort(), ['L1', 'L2'])
   for (const x of c1.cells) {
-    for (const k of ['cell_id', 'brief', 'result_path', 'submit_cmd']) assert.ok(k in x, `${k} がある: ${JSON.stringify(x)}`)
+    for (const k of ['cell_id', 'brief', 'result_path']) assert.ok(k in x, `${k} がある: ${JSON.stringify(x)}`)
+    assert.ok(!('submit_cmd' in x), `cells[] の要素は submit_cmd を持たない: ${JSON.stringify(x)}`)
     assert.ok(Object.keys(x).every((k) => READ_CELL_KEYS.includes(k)), `読む役の枡の要素は ${READ_CELL_KEYS} だけ: ${Object.keys(x)}`)
     assert.ok(existsSync(x.brief), '観点の束のファイルがある')
     const lens = L.cells[x.cell_id] && L.cells[x.cell_id].lens
     assert.match(readFileSync(x.brief, 'utf8'), new RegExp(lens === 'L1' ? '根拠の無い主張を探す' : lens === 'L2' ? '意味の揺れを探す' : '.'), '束に観点の手続きがある')
     assert.ok(path.resolve(x.result_path).startsWith(state + path.sep), 'result_path は stateDir の中')
-    assert.match(x.submit_cmd, /submit/)
     const c = L.cells[x.cell_id]
     assert.ok(c, `cell_id は台帳の枡の id: ${x.cell_id}`)
     assert.equal(c.asset, a.id)
     assert.deepEqual(c.claim, { call: n.call_id, worker: w1.id })
   }
+  assert.match(a.submit_cmd, /submit/, '資産ごとに submit_cmd を 1 つ持つ')
   assert.ok(!JSON.stringify(c1).includes('主張を述べる'), '対象の本文を返さない（worker が写しを読む）')
   // 取った資産は二重に渡さない。資産が尽きたら空を返す。
   const c2 = claim(state, n.call_id, w2.id)
@@ -216,7 +227,8 @@ test('claim: 同じ状態からは同じ資産を返す（取る順が決まっ�
 })
 
 test('claim（検証の待ち行列）: 指摘のある枡を 1 つずつ取り、その枡の指摘だけを返す。他の観点の読みと指摘は返さない', (t) => {
-  const { state, d } = qsetup(t, { lenses: [L1, L2] })
+  // L3 は指摘を返さない観点（指摘の無い枡は検証の待ち行列に入らない）。
+  const { state, d } = qsetup(t, { lenses: [L1, L2, L3] })
   const { n, args } = review(state)
   const c = claim(state, n.call_id, rows(args, 'read')[0].id)
   const [q1, q2] = evidence(c.asset)
@@ -230,7 +242,7 @@ test('claim（検証の待ち行列）: 指摘のある枡を 1 つずつ取り�
   }
   let L = ledger(state)
   const byLens = Object.fromEntries(c.cells.map((x) => [L.cells[x.cell_id].lens, x.cell_id]))
-  for (const lens of ['purpose', 'layer']) {
+  for (const lens of ['L3']) {
     assert.equal(L.cells[byLens[lens]].status, 'settled')
     assert.equal(L.cells[byLens[lens]].verifier, false)
   }
@@ -363,7 +375,7 @@ test('submit の worker: 枡を取った worker（c.claim.worker）と違う wor
 })
 
 test('submit（読み）: 偽の引用は理由（problems）を返して試行に数え、claim を保つので同じ枡を出し直せる。上限まで拒否された枡は disclosed にし dropped: true を返す', (t) => {
-  const { state, d } = qsetup(t)
+  const { state, d } = qsetup(t, { lenses: [L1, L2] })
   const { n, args } = review(state)
   const w = rows(args, 'read')[0]
   const c = claim(state, n.call_id, w.id)
@@ -443,20 +455,241 @@ test('submit: 取った後に写しが書き換わったら、終了状態 2 で
   assert.equal(bytes(state), before)
 })
 
-test('submit_cmd: claim が返す命令を shell でそのまま流すと、その枡の結果を受け付ける', { skip: process.platform === 'win32' }, async (t) => {
+test('submit_cmd: asset の submit_cmd を shell でそのまま流すと、その資産の枡の結果を全て受け付ける（--cell を持たない）', { skip: process.platform === 'win32' }, async (t) => {
+  const { state } = qsetup(t, { lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const w = rows(args, 'read')[0]
+  const c = claim(state, n.call_id, w.id)
+  assert.equal(c.cells.length, 2)
+  const sa = cliArgvOf(c.asset.submit_cmd, 'submit')
+  assert.ok(sa, c.asset.submit_cmd)
+  assert.equal(sa[sa.indexOf('--worker') + 1], w.id, 'submit_cmd は取った worker の --worker を持つ')
+  assert.equal(sa[sa.indexOf('--call') + 1], n.call_id)
+  assert.ok(!sa.includes('--cell') && !sa.includes('--result'), `asset の submit_cmd は --cell も --result も持たない: ${sa}`)
+  for (const x of c.cells) writeResult(x, goodRead(c.asset))
+  const r = await run(null, { shell: c.asset.submit_cmd })
+  assert.equal(r.code, 0, JSON.stringify(r))
+  assert.deepEqual((r.results || []).map((x) => x.cell).sort(), c.cells.map((x) => x.cell_id).sort(), '取った全ての枡の結果を返す')
+  assert.ok(r.results.every((x) => x.ok === true), JSON.stringify(r))
+  assert.deepEqual(r.missing, [])
+  for (const x of c.cells) assert.equal(ledger(state).cells[x.cell_id].status, 'settled')
+})
+
+// ---------------- asset ごとの submit（--cell を持たない） ----------------
+
+test('claim（検証の待ち行列）も asset.submit_cmd を持ち、cells[] の要素は submit_cmd を持たない。命令は --cell と --result を持たず、取った worker の --worker を持つ', (t) => {
+  const { state, d } = qsetup(t, { lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const r = claim(state, n.call_id, rows(args, 'read')[0].id)
+  const [q1] = evidence(r.asset)
+  for (const x of r.cells) assert.equal(submit(state, n.call_id, x.cell_id, put(d, goodRead(r.asset, lensOf(state, x.cell_id) === 'L1' ? [finding('L1 の指摘', q1)] : []))).ok, true)
+  const vw = rows(args, 'verify')[0]
+  const v = claim(state, n.call_id, vw.id)
+  assert.ok(!v.done, JSON.stringify(v))
+  assert.ok(v.asset && typeof v.asset.submit_cmd === 'string', JSON.stringify(v.asset))
+  const sa = cliArgvOf(v.asset.submit_cmd, 'submit')
+  assert.ok(sa && !sa.includes('--cell') && !sa.includes('--result'), `${sa}`)
+  assert.equal(sa[sa.indexOf('--worker') + 1], vw.id)
+  for (const x of v.cells) assert.ok(!('submit_cmd' in x), JSON.stringify(x))
+  for (const x of r.cells) {
+    assert.deepEqual(Object.keys(x).sort(), ['brief', 'cell_id', 'lens', 'result_path'], '読む役の枡の要素は cell_id・lens・brief・result_path だけ')
+  }
+  for (const x of v.cells) assert.deepEqual(Object.keys(x).sort(), ['brief', 'cell_id', 'findings', 'lens', 'result_path'])
+})
+
+test('submit（--cell なし）: 取って出していない全ての枡のうち result_path にファイルがある枡を全て出し、枡ごとの {cell, ok, problems, dropped} の配列（results）と、ファイルの無い枡の missing（id の配列）を返す', (t) => {
+  const { state } = qsetup(t, { lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const c = claim(state, n.call_id, rows(args, 'read')[0].id)
+  assert.equal(c.cells.length, 2)
+  for (const x of c.cells) writeResult(x, goodRead(c.asset))
+  const s = batchSubmit(c)
+  assert.equal(s.code, 0, JSON.stringify(s))
+  assert.ok(Array.isArray(s.results) && Array.isArray(s.missing), JSON.stringify(s))
+  assert.deepEqual(s.results.map((r) => r.cell).sort(), c.cells.map((x) => x.cell_id).sort())
+  assert.deepEqual(s.missing, [])
+  for (const r of s.results) {
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.ok(!r.dropped, '受け付けた枡は dropped でない')
+  }
+  const L = ledger(state)
+  for (const x of c.cells) {
+    assert.equal(L.cells[x.cell_id].status, 'settled', x.cell_id)
+    assert.ok(!L.cells[x.cell_id].claim, '受け付けた枡の claim は外れる')
+  }
+})
+
+test('submit（--cell なし）: ファイルの無い枡は missing に挙げ、試行に数えず、取ったままにする。後でファイルを書いて同じ命令を流すと受け付ける', (t) => {
+  const { state } = qsetup(t, { lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const w = rows(args, 'read')[0]
+  const c = claim(state, n.call_id, w.id)
+  const [a, b] = c.cells
+  writeResult(a, goodRead(c.asset))
+  const s1 = batchSubmit(c)
+  assert.equal(s1.code, 0, JSON.stringify(s1))
+  assert.deepEqual(s1.results.map((r) => r.cell), [a.cell_id], 'ファイルのある枡だけを出す')
+  assert.equal(s1.results[0].ok, true)
+  assert.deepEqual(s1.missing, [b.cell_id])
+  let L = ledger(state)
+  assert.equal(L.cells[a.cell_id].status, 'settled')
+  assert.equal(L.cells[b.cell_id].status, 'unseen', 'missing の枡は読まれていない')
+  assert.equal(L.cells[b.cell_id].attempts, 0, 'missing は試行に数えない')
+  assert.deepEqual(L.cells[b.cell_id].claim, { call: n.call_id, worker: w.id }, '取ったままにする')
+  assert.ok(!missedBy(L, 'missing_read', b.cell_id) && !missedBy(L, 'rejected_read', b.cell_id), 'missing は出来事を残さない')
+  // 流し直しても同じ（何も出さず、試行も増えない）。
+  const s2 = batchSubmit(c)
+  assert.equal(s2.code, 0, JSON.stringify(s2))
+  assert.deepEqual(s2.results, [])
+  assert.deepEqual(s2.missing, [b.cell_id])
+  assert.equal(ledger(state).cells[b.cell_id].attempts, 0)
+  // 残りを書いて同じ命令で出す。
+  writeResult(b, goodRead(c.asset))
+  const s3 = batchSubmit(c)
+  assert.deepEqual(s3.results.map((r) => r.cell), [b.cell_id])
+  assert.equal(s3.results[0].ok, true, JSON.stringify(s3))
+  assert.deepEqual(s3.missing, [])
+  L = ledger(state)
+  assert.equal(L.cells[b.cell_id].status, 'settled')
+  assert.equal(L.cells[b.cell_id].attempts, 0)
+})
+
+test('submit（--cell なし）: 照合に落ちた枡は理由を返して試行に数え、claim を保ち、result_path のファイルを CLI が消す。直す前に流し直しても missing になり、2 回目の試行に数えない', (t) => {
+  const { state } = qsetup(t, { lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const w = rows(args, 'read')[0]
+  const c = claim(state, n.call_id, w.id)
+  const [bad, good] = c.cells
+  writeResult(bad, badRead())
+  writeResult(good, goodRead(c.asset))
+  const s1 = batchSubmit(c)
+  assert.equal(s1.code, 0, JSON.stringify(s1))
+  const rb = resultOf(s1, bad.cell_id)
+  const rg = resultOf(s1, good.cell_id)
+  assert.equal(rb.ok, false, JSON.stringify(s1))
+  assert.ok(Array.isArray(rb.problems) && rb.problems.length, '落ちた理由を返す')
+  assert.ok(!rb.dropped, '上限の前は落とさない')
+  assert.equal(rg.ok, true, '他の枡は落ちた枡に巻き込まれない')
+  assert.deepEqual(s1.missing, [])
+  let L = ledger(state)
+  assert.equal(L.cells[bad.cell_id].attempts, 1, '落ちた枡は 1 回の試行に数える')
+  assert.deepEqual(L.cells[bad.cell_id].claim, { call: n.call_id, worker: w.id }, '拒否の後も claim を保つ（出し直せる）')
+  assert.ok(missedBy(L, 'rejected_read', bad.cell_id))
+  assert.equal(L.cells[good.cell_id].status, 'settled')
+  assert.ok(!existsSync(bad.result_path), '照合に落ちた枡の result_path のファイルは CLI が消す')
+  // 直さずに流し直す: ファイルが無いので missing になり、同じ中身で 2 回目の試行に数えない。
+  const before = ledger(state)
+  const s2 = batchSubmit(c)
+  assert.equal(s2.code, 0, JSON.stringify(s2))
+  assert.deepEqual(s2.results, [], '落ちた枡は出し直されない')
+  assert.deepEqual(s2.missing, [bad.cell_id])
+  assert.equal(ledger(state).cells[bad.cell_id].attempts, 1, '試行は増えない')
+  const after = ledger(state)
+  assert.deepEqual(after.cells, before.cells, '枡は変わらない')
+  assert.deepEqual(after.events, before.events, '出来事も増えない')
+  // 直して書き直し、同じ命令を流し直すと受け付ける。
+  writeResult(bad, goodRead(c.asset))
+  const s3 = batchSubmit(c)
+  assert.deepEqual(s3.results.map((r) => [r.cell, r.ok]), [[bad.cell_id, true]], JSON.stringify(s3))
+  L = ledger(state)
+  assert.equal(L.cells[bad.cell_id].status, 'settled')
+  assert.equal(L.cells[bad.cell_id].attempts, 1)
+})
+
+test('submit（--cell なし）: 落ち続ける枡は MAX_ATTEMPTS 回目で disclosed にし、その枡の dropped を true にする（1 枡の submit と同じ数え方）', (t) => {
   const { state } = qsetup(t)
   const { n, args } = review(state)
   const c = claim(state, n.call_id, rows(args, 'read')[0].id)
   const x = c.cells[0]
-  const sa = cliArgvOf(x.submit_cmd, 'submit')
-  assert.equal(sa[sa.indexOf('--worker') + 1], rows(args, 'read')[0].id, 'submit_cmd は取った worker の --worker を持つ')
-  assert.equal(sa[sa.indexOf('--cell') + 1], x.cell_id)
-  mkdirSync(path.dirname(x.result_path), { recursive: true })
-  writeFileSync(x.result_path, JSON.stringify(goodRead(c.asset)))
-  const r = await run(null, { shell: x.submit_cmd })
-  assert.equal(r.code, 0, JSON.stringify(r))
-  assert.equal(r.ok, true, JSON.stringify(r))
-  assert.equal(ledger(state).cells[x.cell_id].status, 'settled')
+  let last = null
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    writeResult(x, badRead())
+    const s = batchSubmit(c)
+    assert.equal(s.code, 0, JSON.stringify(s))
+    last = resultOf(s, x.cell_id)
+    assert.ok(last && last.ok === false, JSON.stringify(s))
+    if (i < MAX_ATTEMPTS - 1) assert.ok(!last.dropped, `${i + 1} 回目は落とさない`)
+  }
+  assert.equal(last.dropped, true, '上限に達した拒否は dropped')
+  const L = ledger(state)
+  assert.equal(L.cells[x.cell_id].status, 'disclosed')
+  assert.equal(L.cells[x.cell_id].attempts, MAX_ATTEMPTS)
+})
+
+test('submit（--cell なし）: その worker が取った枡だけを出す。別の worker が取った枡は、結果のファイルがあっても出さず、台帳を変えない', (t) => {
+  const { state } = qsetup(t, { doc: manyDoc(3), lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const [w1, w2] = rows(args, 'read')
+  const c1 = claim(state, n.call_id, w1.id)
+  const c2 = claim(state, n.call_id, w2.id)
+  assert.notEqual(c1.asset.id, c2.asset.id)
+  for (const x of c1.cells) writeResult(x, goodRead(c1.asset))
+  for (const x of c2.cells) writeResult(x, goodRead(c2.asset))
+  const s1 = batchSubmit(c1)
+  assert.deepEqual(s1.results.map((r) => r.cell).sort(), c1.cells.map((x) => x.cell_id).sort(), '自分の枡だけ')
+  assert.deepEqual(s1.missing, [])
+  let L = ledger(state)
+  for (const x of c2.cells) {
+    assert.equal(L.cells[x.cell_id].status, 'unseen', '別の worker の枡は出されない')
+    assert.deepEqual(L.cells[x.cell_id].claim, { call: n.call_id, worker: w2.id })
+    assert.ok(existsSync(x.result_path), '別の worker の結果のファイルは消さない')
+  }
+  const s2 = batchSubmit(c2)
+  assert.deepEqual(s2.results.map((r) => r.cell).sort(), c2.cells.map((x) => x.cell_id).sort())
+  L = ledger(state)
+  for (const x of c2.cells) assert.equal(L.cells[x.cell_id].status, 'settled')
+})
+
+test('submit（--cell なし）: 既に --cell で出した枡は対象にしない（残りの枡だけを出す）。--cell と --result を持つ submit も今のまま使える', (t) => {
+  const { state, d } = qsetup(t, { lenses: [L1, L2] })
+  const { n, args } = review(state)
+  const c = claim(state, n.call_id, rows(args, 'read')[0].id)
+  const [a, b] = c.cells
+  assert.equal(submit(state, n.call_id, a.cell_id, put(d, goodRead(c.asset))).ok, true, '1 枡だけ出し直す口は残る')
+  writeResult(b, goodRead(c.asset))
+  const s = batchSubmit(c)
+  assert.equal(s.code, 0, JSON.stringify(s))
+  assert.deepEqual(s.results.map((r) => r.cell), [b.cell_id], '出した枡は results に入らない')
+  assert.deepEqual(s.missing, [], '出した枡は missing にも入らない')
+  assert.equal(ledger(state).cells[b.cell_id].status, 'settled')
+})
+
+test('submit（--cell なし・検証）: 検証役が取った枡の verdicts を asset.submit_cmd で出すと、枡は検証役を通った settled になる', (t) => {
+  const { state, d } = qsetup(t)
+  const { n, args } = review(state)
+  const r = claim(state, n.call_id, rows(args, 'read')[0].id)
+  const [q1] = evidence(r.asset)
+  for (const x of r.cells) assert.equal(submit(state, n.call_id, x.cell_id, put(d, goodRead(r.asset, [finding('L1 の指摘', q1)]))).ok, true)
+  const vw = rows(args, 'verify')[0]
+  const v = claim(state, n.call_id, vw.id)
+  const x = v.cells[0]
+  assert.equal(v.cells.length, 1)
+  writeResult(x, { verdicts: [{ index: 0, verdict: 'confirmed', reason: '本文が支える', quote: x.findings[0].quote }] })
+  const s = batchSubmit(v)
+  assert.equal(s.code, 0, JSON.stringify(s))
+  assert.deepEqual(s.results.map((q) => [q.cell, q.ok]), [[x.cell_id, true]], JSON.stringify(s))
+  assert.deepEqual(s.missing, [])
+  const L = ledger(state)
+  assert.equal(L.cells[x.cell_id].status, 'settled')
+  assert.equal(L.cells[x.cell_id].verifier, true)
+  assert.ok(!L.cells[x.cell_id].claim)
+})
+
+test('worker の prompt: 全ての枡の result_path に Write ツールで書いてから asset.submit_cmd を 1 回流す手順で、cells[].submit_cmd と shell のリダイレクトで書く案内を持たない', async (t) => {
+  const { state } = qsetup(t, { workers: 2 })
+  const log = []
+  const { stop, steps } = await drive(state, mockAgent({}, log))
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  const call = steps[0].res.call_id
+  const ws = log.filter((x) => { const a = cliArgvOf(x.prompt, 'claim'); return a && a[a.indexOf('--call') + 1] === call })
+  assert.ok(ws.length >= 2, '読む役と検証役の worker の prompt')
+  for (const x of ws) {
+    assert.match(x.prompt, /asset\.submit_cmd/, `${x.label}: asset.submit_cmd を流す手順`)
+    assert.ok(!x.prompt.includes('cells[].submit_cmd'), `${x.label}: cells[].submit_cmd は無い`)
+    assert.match(x.prompt, /Write ツール/, `${x.label}: 結果は Write ツールで書く`)
+    assert.ok(!x.prompt.includes('>|'), `${x.label}: shell のリダイレクトで書く案内を外す`)
+    assert.match(x.prompt, /ok が false/, `${x.label}: ok が false の枡だけ直して流し直す`)
+  }
 })
 
 // ---------------- 提出されなかった枡と call_seq ----------------
@@ -846,7 +1079,7 @@ test('result_path: claim は、返す path に既にあるファイルを消す�
 })
 
 test('claim の取り直し: まだ提出していない claim を持つ worker が claim すると、新しい資産を取らずに、持っている枡を同じ形で返す', (t) => {
-  const { state, d } = qsetup(t)
+  const { state, d } = qsetup(t, { lenses: [L1, L2] })
   const { n, args } = review(state)
   const w = rows(args, 'read')[0]
   const c1 = claim(state, n.call_id, w.id)

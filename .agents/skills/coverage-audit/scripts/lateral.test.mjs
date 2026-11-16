@@ -4,7 +4,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { cli, evidenceOf, groupItems, mockAgent, runWorkflow, tmp } from './test-harness.mjs'
+import { C } from './ledger-core.mjs'
+import { WF, cli, evidenceOf, groupItems, mockAgent, runWorkflow, tmp } from './test-harness.mjs'
 
 const DOC = `# 対象の文書
 
@@ -24,9 +25,9 @@ const PATTERN1 = '節ごとに主張の文を列挙し、それを支える根�
 const ROOT2 = '節の見出しと本文の主張がずれる別の書き癖'
 const PATTERN2 = '節ごとに見出しの語を列挙し、本文の主張の語と照らす（横展開の型その二）'
 
-function setup(t, extra = []) {
+function setup(t, extra = [], doc = DOC) {
   const d = tmp(t)
-  writeFileSync(path.join(d, 'doc.md'), DOC)
+  writeFileSync(path.join(d, 'doc.md'), doc)
   writeFileSync(path.join(d, 'goal.md'), '- G1: 対象の文書の見落としを観点ごとに確かめた指摘の一覧 〔request: 対象の文書を観点ごとにレビューして、確かめた指摘を返してほしい〕\n')
   writeFileSync(path.join(d, 'request.md'), '対象の文書を観点ごとにレビューして、確かめた指摘を返してほしい')
   writeFileSync(path.join(d, 'lenses.json'), JSON.stringify([{ id: 'L1', name: '主張と根拠', procedure: '主張ごとに根拠の文を対応づけ、根拠の無い主張を探す' }]))
@@ -90,7 +91,7 @@ async function driveUntil(state, agentFn, until, maxSteps = 30) {
     const rp = path.join(state, `result-${n.call_id}.json`)
     writeFileSync(rp, JSON.stringify(res))
     const g = cli('ingest', '--state', state, '--result', rp)
-    steps.push({ step: n.step, args, cycle: n.cycle, ingest: g })
+    steps.push({ step: n.step, args, res, cycle: n.cycle, ingest: g })
     if (g.code !== 0) return { stop: g, steps }
     if (until(ledger(state))) return { stop: null, steps }
   }
@@ -247,7 +248,7 @@ test('周の上限を下げた台帳: 3 周目の途中の台帳に config --max
 })
 
 // 今の形式の台帳の欄（この直しの前の init・ingest が書く欄）。直しの後も、これだけを持つ台帳を load が受け付ける。
-const LEDGER_KEYS_NOW = ['agents', 'answered', 'answers', 'assets', 'attempts', 'call_seq', 'calls', 'cells', 'config', 'constraints', 'criteria', 'cycle', 'decisions', 'dropped_lenses', 'env_attempts', 'events', 'fail_streak', 'findings', 'goal', 'group_cycles', 'groups', 'hints_read', 'lens_reviewed', 'lenses', 'pending', 'phase', 'phase_records', 'phase_start', 'plan', 'plan_defects', 'plan_problems', 'plan_rounds', 'plan_seq', 'request', 'retro_cycles', 'rev', 'roles', 'saturation', 'seeds', 'stopped', 'targets', 'verified_units', 'version']
+const LEDGER_KEYS_NOW = ['agents', 'answered', 'answers', 'assets', 'attempts', 'call_seq', 'calls', 'cells', 'config', 'constraints', 'criteria', 'cycle', 'decisions', 'dropped_lenses', 'env_attempts', 'events', 'fail_streak', 'findings', 'goal', 'group_cycles', 'groups', 'hints_read', 'lens_reviewed', 'lenses', 'link', 'pending', 'phase', 'phase_records', 'phase_start', 'plan', 'plan_defects', 'plan_problems', 'plan_rounds', 'plan_seq', 'request', 'retro_cycles', 'rev', 'roles', 'saturation', 'seeds', 'stopped', 'targets', 'verified_units', 'version']
 const GROUP_KEYS_NOW = ['id', 'cycle', 'root_cause', 'layer', 'keys', 'pattern', 'status', 'votes']
 
 const LENS_KEYS_NOW = ['id', 'name', 'procedure', 'applies_to', 'origin', 'version', 'retro']
@@ -272,4 +273,170 @@ test('台帳の形式: 3 周目の途中の、今の形式の欄だけを持つ�
   assert.equal(n.code, 0, JSON.stringify(n))
   assert.equal(n.stop, 'needs_input', JSON.stringify(n))
   assert.deepEqual(lateralIds(n), ['G2-g1'], JSON.stringify(n.lateral_groups))
+})
+
+// ---- P10: 既存の型に結ぶ群（extends）は反証しない ----
+
+// 2 周目の横展開の観点が確かめる二つ目の節に、行を 5 つ置く（2 周目の束ねが 5 件以上の指摘を受け取れるようにする）。
+const LINES2 = [1, 2, 3, 4, 5].map((n) => `二つ目の節の第${n}の主張を述べる本文の行である。`)
+const DOC5 = `# 対象の文書
+
+## 一つ目の節
+${Q1}
+二行目もこの節の主張を補う本文の行として置く。
+
+## 二つ目の節
+${LINES2.join('\n')}
+`
+const refuteLabels = (log, from = 0) => log.slice(from).map((e) => e.label).filter((l) => l.startsWith('refute-'))
+
+// 1 周目は L1 が一つ目の節に 1 件、束ね役が新しい型 g1 を返す。2 周目は lat-G1-g1 が二つ目の節の 5 行に 1 件ずつ指摘し、束ね役は second(items, state) の群を返す。
+// 2 周目の束ねの呼び出しの時点の log の長さを marks.second に残す（それより後の refute-* が 2 周目の反証役の起動）。
+function fiveFindingAgent(state, second, log = []) {
+  const marks = {}
+  const agentFn = mockAgent({
+    read: readWith((cell) => {
+      if (cell.endsWith('一つ目の節/p1|L1|p1')) return [finding('根拠が無い主張', Q1)]
+      if (cell.includes('|lat-G1-g1|')) return LINES2.map((q, i) => finding(`同じ型の根拠が無い主張その${i + 1}`, q))
+      return undefined
+    }),
+    group: (prompt) => {
+      const items = groupItems(prompt)
+      if (items[0].lens === 'L1') return { groups: [{ id: 'g1', root_cause: ROOT1, layer: '実装', keys: items.map((x) => x.key), pattern: PATTERN1, applies_to: [assetEnding(state, '二つ目の節/p1')] }], unassigned: [] }
+      marks.second = log.length
+      return second(items, state)
+    },
+  }, log)
+  return { agentFn, marks }
+}
+// 2 周目の指摘を、群の定義 defs（{ id, layer, extends?, pattern?, applies_to? }）の並びへ 1 件ずつ割り当てる（最後の群が残りを取る）。
+const splitGroups = (items, defs, state) => ({
+  groups: defs.map((d, i) => ({
+    id: d.id,
+    root_cause: `${ROOT2}（${d.id}）`,
+    layer: d.layer,
+    keys: items.filter((_, j) => (i === defs.length - 1 ? j >= i : j === i)).map((x) => x.key),
+    pattern: d.pattern ?? '',
+    applies_to: d.pattern ? [assetEnding(state, '一つ目の節/p1')] : [],
+    ...(d.extends ? { extends: d.extends } : {}),
+  })),
+  unassigned: [],
+})
+const group2Done = (L) => L.groups.some((g) => g.cycle === 2)
+
+test('P10-1: UPPER（方針・要求）は <checks> 区間が持ち、ledger-core は C から読む（自前の定義を持たない）', () => {
+  assert.deepEqual([...C.UPPER], ['方針', '要求'])
+  const src = readFileSync(WF, 'utf8')
+  const block = src.slice(src.indexOf('// <checks>'), src.indexOf('// </checks>'))
+  assert.match(block, /\bconst UPPER\b/, '<checks> 区間に UPPER を置く')
+  const core = readFileSync(path.join(path.dirname(WF), 'ledger-core.mjs'), 'utf8')
+  assert.doesNotMatch(core, /\b(const|let|var) UPPER\b/, 'ledger-core に UPPER の写しを持たない')
+  assert.match(core, /C\.UPPER/, 'ledger-core は C から UPPER を読む')
+})
+
+test('P10-2: extends を持ち層が UPPER でない群は反証役に渡さない（反証役の起動 0）。judged にも載せない', async (t) => {
+  const { state } = setup(t, [], DOC5)
+  const log = []
+  const { agentFn, marks } = fiveFindingAgent(state, (items) => extendsGroup(items), log)
+  const { steps } = await drive(state, agentFn)
+  assert.ok(marks.second, '2 周目の束ねまで進む')
+  assert.equal(refuteLabels(log, marks.second).length, 0, `extends の群は反証しない: ${JSON.stringify(refuteLabels(log, marks.second))}`)
+  const g2 = steps.filter((s) => s.step === 'group')[1]
+  assert.ok(g2, '2 周目の束ねの結果がある')
+  assert.ok(!g2.res.judged.some((j) => j.group.id === 'g1'), JSON.stringify(g2.res.judged.map((j) => j.group.id)))
+  // 1 周目の新しい型の群は今のまま 2 体で反証する。
+  assert.equal(refuteLabels(log, 0).length, 2)
+})
+
+test('P10-2: それ以外の群（上の層の extends・新しい型・型にならない群）は今のまま 2 体ずつで反証する', async (t) => {
+  const { state } = setup(t, ['--max-cycles', '4'], DOC5)
+  const log = []
+  const defs = [
+    { id: 'g1', layer: '実装', extends: 'lat-G1-g1' },
+    { id: 'g2', layer: '方針', extends: 'lat-G1-g1' },
+    { id: 'g3', layer: '要求', extends: 'lat-G1-g1' },
+    { id: 'g4', layer: '実装', pattern: PATTERN2 },
+    { id: 'g5', layer: '実装' },
+  ]
+  const { agentFn, marks } = fiveFindingAgent(state, (items, st) => splitGroups(items, defs, st), log)
+  const { steps } = await driveUntil(state, agentFn, group2Done)
+  assert.ok(marks.second, '2 周目の束ねまで進む')
+  const labels = refuteLabels(log, marks.second).sort()
+  assert.deepEqual(labels, ['refute-g2-a', 'refute-g2-b', 'refute-g3-a', 'refute-g3-b', 'refute-g4-a', 'refute-g4-b', 'refute-g5-a', 'refute-g5-b'], JSON.stringify(labels))
+  const g2 = steps.filter((s) => s.step === 'group')[1]
+  assert.deepEqual(g2.res.judged.map((j) => j.group.id).sort(), ['g2', 'g3', 'g4', 'g5'])
+})
+
+test('P10-3: 反証しなかった群の status は linked。観点も枡も作らず、status の groups に linked と extends が出る', async (t) => {
+  const { state } = setup(t, [], DOC5)
+  const { agentFn } = fiveFindingAgent(state, (items) => extendsGroup(items))
+  const { stop } = await drive(state, agentFn)
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  const L = ledger(state)
+  const g = L.groups.find((x) => x.id === 'G2-g1')
+  assert.ok(g, JSON.stringify(L.groups.map((x) => x.id)))
+  assert.equal(g.status, 'linked')
+  assert.equal(g.extends, 'lat-G1-g1')
+  assert.deepEqual(g.votes, [], '反証していないので票は無い')
+  assert.ok(!L.lenses.some((l) => l.id.startsWith('lat-G2-')), '観点を作らない')
+  assert.ok(!Object.keys(L.cells).some((id) => id.includes('|lat-G2-')), '枡を作らない')
+  const s = cli('status', '--state', state)
+  const sg = s.groups.find((x) => x.id === 'G2-g1')
+  assert.equal(sg.status, 'linked')
+  assert.equal(sg.extends, 'lat-G1-g1')
+  assert.equal(sg.lateral, false)
+  // 1 周目の新しい型の群は、反証の結果の status（kept 等）のまま。
+  assert.notEqual(s.groups.find((x) => x.id === 'G1-g1').status, 'linked')
+})
+
+test('P10-3: 反証した群（上の層の extends・新しい型・型にならない群）の status は反証の結果のまま（linked にしない）', async (t) => {
+  const { state } = setup(t, ['--max-cycles', '4'], DOC5)
+  const defs = [
+    { id: 'g1', layer: '実装', extends: 'lat-G1-g1' },
+    { id: 'g2', layer: '方針', extends: 'lat-G1-g1' },
+    { id: 'g3', layer: '実装', pattern: PATTERN2 },
+    { id: 'g4', layer: '実装' },
+  ]
+  const { agentFn } = fiveFindingAgent(state, (items, st) => splitGroups(items, defs, st))
+  await driveUntil(state, agentFn, group2Done)
+  const by = Object.fromEntries(ledger(state).groups.filter((g) => g.cycle === 2).map((g) => [g.id, g]))
+  assert.equal(by['G2-g1'].status, 'linked')
+  for (const id of ['G2-g2', 'G2-g3', 'G2-g4']) {
+    assert.equal(by[id].status, 'kept', `${id}: ${JSON.stringify(by[id])}`)
+    assert.equal(by[id].votes.length, 2, `${id}: 2 体の票を残す`)
+  }
+  assert.equal(by['G2-g2'].extends, 'lat-G1-g1', '上の層の extends の群も extends を残す')
+})
+
+test('P10-4: 上の層の extends の群は反証されなければ今のまま upper_groups で needs_input、反証されれば外れる。実装層の linked の群は止めない', async (t) => {
+  const kept = setup(t, [], DOC5)
+  const a = fiveFindingAgent(kept.state, (items) => extendsGroup(items, { layer: '方針' }))
+  const r1 = await drive(kept.state, a.agentFn)
+  assert.equal(r1.stop.stop, 'needs_input', JSON.stringify(r1.stop))
+  assert.deepEqual(r1.stop.upper_groups, ['G2-g1'], JSON.stringify(r1.stop))
+
+  const refuted = setup(t, [], DOC5)
+  const over = mockAgent({
+    read: readWith((cell) => {
+      if (cell.endsWith('一つ目の節/p1|L1|p1')) return [finding('根拠が無い主張', Q1)]
+      if (cell.includes('|lat-G1-g1|')) return LINES2.map((q, i) => finding(`同じ型の根拠が無い主張その${i + 1}`, q))
+      return undefined
+    }),
+    group: (prompt) => {
+      const items = groupItems(prompt)
+      return items[0].lens === 'L1'
+        ? { groups: [{ id: 'g1', root_cause: ROOT1, layer: '実装', keys: items.map((x) => x.key), pattern: PATTERN1, applies_to: [assetEnding(refuted.state, '二つ目の節/p1')] }], unassigned: [] }
+        : extendsGroup(items, { layer: '方針' })
+    },
+    refute: (prompt, opts) => (opts.label.startsWith('refute-g1-') && ledger(refuted.state).cycle === 2 ? { group_id: 'g1', refuted: true, reason: '原因でなく症状の言い換え' } : undefined),
+  })
+  const r2 = await drive(refuted.state, over)
+  assert.equal(r2.stop.stop, 'complete', `反証された上の層の群は止めない: ${JSON.stringify(r2.stop)}`)
+  assert.equal(ledger(refuted.state).groups.find((g) => g.id === 'G2-g1').status, 'refuted')
+
+  const impl = setup(t, [], DOC5)
+  const c = fiveFindingAgent(impl.state, (items) => extendsGroup(items))
+  const r3 = await drive(impl.state, c.agentFn)
+  assert.equal(r3.stop.stop, 'complete', JSON.stringify(r3.stop))
+  assert.deepEqual(r3.stop.upper_groups || [], [])
 })

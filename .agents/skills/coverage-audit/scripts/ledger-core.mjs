@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 const SRC = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
-return { LIMITS, RESERVED_LENSES, norm, argsSum, fenceMask, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkAppliesTo, checkGoals, checkPlan, checkUnitVerdict, unitDefects, LENS_QUESTIONS, checkLensReview, checkGroups, groupKeys, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
+return { LIMITS, norm, argsSum, fenceMask, quoteProblem, checkRead, checkVerify, settleVerdict, unitKey, unitText, checkAppliesTo, checkGoals, checkPlan, checkUnitVerdict, unitDefects, LENS_QUESTIONS, checkLensReview, checkGroups, groupKeys, UPPER, linkOnly, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
 
 export const MAX_ATTEMPTS = 2 // 同じ枡・段の欠け（読めない・照合に落ちる）の上限。run をまたいで数える
 const PLAN_ROUNDS = 2 // 欠陥を直す統合のやり直しの上限
@@ -15,15 +15,9 @@ const CHUNK_LINES = 80 // 宣言・見出しで切らない所を切る行数
 export const MAX_ASSET_LINES = 120 // 1 体が読む範囲の行数の上限。超える節は切る
 const BLOCK_LINES = 40 // 読んだ証拠の区画のおよその行数
 export const MAX_BLOCKS = 4 // 1 つの資産で引用を求める区画の数の上限
-const UPPER = ['方針', '要求']
 // workers: review の 1 回の呼び出しで、回と待ち行列（読む・検証）ごとに起動する worker の数。行の数は 2 × k × workers。
 const DEFAULT_CONFIG = { k: 1, max_cycles: 2, max_agents_total: 600, workers: 4 }
 
-// スキルが持つ観点。目的の観点（固定した目標に照らす）と、層の観点。
-const SKILL_LENSES = [
-  { id: 'purpose', name: '目的と固定した制約', procedure: 'この部分の主張ごとに、固定した目標と制約のどれに効くかを対応づけてから、効かない主張、制約と食い違う主張、目標に要るのに書かれていないことを探す。' },
-  { id: 'layer', name: '層と範囲', procedure: 'この部分の内容ごとに層（方針・要求・方式設計・詳細設計・実装）を判定してから、対象の層より上の決め直し、下の層の細部の書き過ぎ、範囲の外への広がり、上の層へ戻すべき欠陥を探す。' },
-]
 // 振り返りの観点。悪かった出来事を、網羅・正しさ・費用・層の 4 つの面から見る。
 const RETRO_LENSES = [
   { id: 'R1', name: '網羅と測れたか', procedure: 'この段で何を網羅すべきだったか（対象・観点）を先に列挙し、出来事の記録と照らす。次に、効果や欠陥を後から測れる記録（同一性・根拠・件数）が残っているかを確かめる。' },
@@ -35,7 +29,7 @@ const RETRO_LENSES = [
 export const sha = (s) => createHash('sha256').update(String(s)).digest('hex')
 // 観点の版: 名前・手続きと、当てる資産（applies_to。計画の観点だけが持つ）。持たない観点の版は名前と手続きだけで決まる。
 export const lensVersion = (l) => sha(JSON.stringify(Array.isArray(l.applies_to) ? [l.name, l.procedure, [...new Set(l.applies_to)].sort()] : [l.name, l.procedure])).slice(0, 12)
-// 観点がその資産に当たるか。applies_to を持たない観点（スキルの観点・利用者の観点・横展開の観点）は全ての資産に当たる。
+// 観点がその資産に当たるか。applies_to を持たない観点（利用者の観点・振り返りの観点・横展開の観点）は全ての資産に当たる。
 export const appliesTo = (l, assetId) => !Array.isArray(l.applies_to) || l.applies_to.includes(assetId)
 const slug = (s) => s.toLowerCase().replace(/[`*_~[\]()<>#|:"'!?,.。、（）「」]/g, '').trim().replace(/\s+/g, '-') || 'section'
 // 行の範囲（1 始まり・両端を含む）の本文と hash。資産・索引・束ねの全件で同じ式を使い、ingest が写しと照らす。
@@ -253,14 +247,15 @@ export const readGoalFiles = C.readGoalFiles
 export const goalIds = (L) => [...L.goal.items, ...L.criteria, ...L.constraints].map((c) => c.id)
 export const goalSources = (L) => C.citeSources({ request: L.request, ...(L.decisions != null ? { decisions: L.decisions } : {}) })
 
-export function newLedger({ goal, goalItems, checkedBy = null, phase = null, request, decisions = null, criteria = [], constraints, targets, lenses, config, roles, seeds }) {
+export function newLedger({ goal, goalItems, checkedBy = null, phase = null, link = null, request, decisions = null, criteria = [], constraints, targets, lenses, config, roles, seeds }) {
   const L = {
     // phase: 呼ぶ側の段（coverage-build の design・impl など）。phase_start: 今の段の始まりの周・起動数・出来事の数（上限と status の今の段はここから数える）。
     // phase_records: reframe で出ていった段の status の節（findings・groups・events）。
-    version: 1, rev: 0, cycle: 1, phase, phase_start: { cycle: 1, agents: 0, events: 0 }, phase_records: {}, goal: { text: goal, items: goalItems, checked: !!checkedBy, checked_by: checkedBy, problems: [] }, request, decisions, criteria, constraints,
+    // link: 関係する資産を結ぶ語の正規表現（文字列か null）。枠の一部で、init と reframe が置く。
+    version: 1, rev: 0, cycle: 1, phase, link, phase_start: { cycle: 1, agents: 0, events: 0 }, phase_records: {}, goal: { text: goal, items: goalItems, checked: !!checkedBy, checked_by: checkedBy, problems: [] }, request, decisions, criteria, constraints,
     config: { ...DEFAULT_CONFIG, ...config }, roles, targets, seeds: seeds || [],
     call_seq: 0, plan: null, plan_rounds: 0, plan_defects: [], plan_seq: 0, plan_problems: [], verified_units: [], lens_reviewed: [], dropped_lenses: [], answers: [], answered: [],
-    lenses: [...SKILL_LENSES.map((l) => ({ ...l, origin: 'skill' })), ...(lenses || []).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
+    lenses: [...(lenses || []).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
     attempts: {}, env_attempts: {}, fail_streak: 0,
     assets: {}, cells: {}, findings: {}, events: [], groups: [], retro_cycles: [], group_cycles: [], saturation: [],
     calls: [], agents: [], hints_read: [], pending: null,
@@ -291,28 +286,60 @@ export function startPhase(L, phase) {
 export const phaseEvents = (L) => L.events.slice(L.phase_start.events)
 
 const targetLenses = (L) => L.lenses.filter((l) => !l.retro)
+// 関係する資産（related）: 本文に現れる link の一致の語を 1 つ以上共有する、計画が除いていない他の対象の資産（同じファイルの別の資産も含む）。
+// 振り返りの資産は関係の元にも先にもしない（出来事の文は指摘の id を含む）。並びは共有する異なる語の数の多い順、同じなら資産の並びの順。
+// 行の合計が MAX_ASSET_LINES までのものを渡し（related）、入らない資産は related_not_given に並びの順で残す。link が null なら空。
+function linkWords(re, text) {
+  const out = new Set()
+  for (const m of String(text).matchAll(re)) if (m[0]) out.add(m[0])
+  return out
+}
+export function relatedAssets(L, assets, ex = excludedIds(L)) {
+  const out = new Map(assets.map((a) => [a.id, { related: [], related_not_given: [] }]))
+  if (L.link == null) return out
+  const re = new RegExp(L.link, 'g')
+  const pool = assets.filter((a) => !a.retro && !ex.has(a.id)).map((a, i) => ({ a, i, words: linkWords(re, a.text) }))
+  for (const x of pool) {
+    if (!x.words.size) continue
+    const cands = pool.filter((y) => y !== x).map((y) => ({ y, n: [...y.words].filter((w) => x.words.has(w)).length })).filter((c) => c.n > 0)
+      .sort((p, q) => q.n - p.n || p.y.i - q.y.i)
+    const r = out.get(x.a.id)
+    let lines = 0
+    for (const { y } of cands) {
+      const n = y.a.end - y.a.start + 1
+      if (lines + n <= MAX_ASSET_LINES) { r.related.push(y.a.id); lines += n } else r.related_not_given.push(y.a.id)
+    }
+  }
+  return out
+}
+// 枡の読み直しの判定に含める、渡した related の hash の組。
+const relatedSum = (L, ids) => sha(JSON.stringify((ids || []).map((id) => [id, L.assets[id] ? L.assets[id].hash : null]))).slice(0, 16)
 // 今のファイルの内容に台帳を合わせる。変わった資産・観点の枡は古い印を付けて読み直す（持ち越し）。
-// 計画が除いた資産（excluded）は applies_to より優先し、purpose・layer・横展開を含めどの観点の枡も作らない（既にある枡は gone にする）。
+// 計画が除いた資産（excluded）は applies_to より優先し、横展開を含めどの観点の枡も作らない（既にある枡は gone にする）。
 export function refresh(L, assets, { partial = false } = {}) {
   const now = new Map(assets.map((a) => [a.id, a]))
   const ex = excludedIds(L)
   const want = (l, assetId) => !ex.has(assetId) && appliesTo(l, assetId)
   const changes = { added: [], stale: [], gone: [] }
+  // 振り返りの資産を足すだけの refresh（partial）は、対象の資産の related を変えない。
+  const rel = partial ? new Map() : relatedAssets(L, assets, ex)
   for (const a of assets) {
     if (!L.assets[a.id]) changes.added.push(a.id)
-    L.assets[a.id] = { path: a.path, heading: a.heading, trail: a.trail || [], kind: a.kind, start: a.start, end: a.end, hash: a.hash, snap: a.snap, blocks: a.blocks, need: a.need, ...(a.retro ? { retro: true } : {}) }
+    const r = rel.get(a.id)
+    L.assets[a.id] = { path: a.path, heading: a.heading, trail: a.trail || [], kind: a.kind, start: a.start, end: a.end, hash: a.hash, snap: a.snap, blocks: a.blocks, need: a.need, ...(a.retro ? { retro: true } : {}), ...(r ? r : {}) }
   }
   if (!partial) for (const id of Object.keys(L.assets)) if (!now.has(id) && !L.assets[id].retro) { changes.gone.push(id); delete L.assets[id] }
   const wantLens = new Map(L.lenses.map((l) => [l.id, l]))
   for (const a of assets) {
     for (const l of a.retro ? L.lenses.filter((x) => x.retro) : targetLenses(L).filter((x) => want(x, a.id))) {
+      const rs = relatedSum(L, L.assets[a.id].related)
       for (let p = 1; p <= L.config.k; p++) {
         const id = `${a.id}|${l.id}|p${p}`
         const c = L.cells[id]
-        if (!c) { L.cells[id] = { asset: a.id, lens: l.id, pass: p, status: 'unseen', asset_hash: a.hash, lens_version: l.version, attempts: 0, problems: [], outside_notes: [] }; continue }
-        if (c.status === 'gone' || c.asset_hash !== a.hash || c.lens_version !== l.version) {
+        if (!c) { L.cells[id] = { asset: a.id, lens: l.id, pass: p, status: 'unseen', asset_hash: a.hash, related_sum: rs, lens_version: l.version, attempts: 0, problems: [], outside_notes: [] }; continue }
+        if (c.status === 'gone' || c.asset_hash !== a.hash || c.related_sum !== rs || c.lens_version !== l.version) {
           if (c.status !== 'unseen') changes.stale.push(id)
-          Object.assign(c, { status: 'unseen', asset_hash: a.hash, lens_version: l.version, attempts: 0, problems: [] })
+          Object.assign(c, { status: 'unseen', asset_hash: a.hash, related_sum: rs, lens_version: l.version, attempts: 0, problems: [] })
           delete c.read
           delete c.claim
           for (const f of Object.values(L.findings)) if (f.cell === id && f.status === 'current') f.status = 'superseded'
@@ -416,8 +443,8 @@ export function decide(L, { missingTargets = [] } = {}) {
   // ここまで来たら、この周にやることは無い。
   const answered = (id) => L.answers.some((a) => a.id === id)
   const cur = currentFindings(L)
-  const upper = cur.filter((f) => f.verdict === 'confirmed' && UPPER.includes(f.layer) && !answered(f.id))
-  const upperGroups = L.groups.filter((g) => g.status !== 'refuted' && UPPER.includes(g.layer) && !answered(g.id))
+  const upper = cur.filter((f) => f.verdict === 'confirmed' && C.UPPER.includes(f.layer) && !answered(f.id))
+  const upperGroups = L.groups.filter((g) => g.status !== 'refuted' && C.UPPER.includes(g.layer) && !answered(g.id))
   const unverifiable = cur.filter((f) => f.verdict === 'unverifiable' && !answered(f.id))
   const lateral = lateralGroups(L)
   if (!cov.cells) return stop('blocked', ['枡が 0 件（対象が空か、全て消えた）'], { cause: 'target' })
@@ -456,13 +483,13 @@ function rejectCell(L, cellId, stage, kind, problems, text) {
   return { problems, dropped: true }
 }
 // 枡の読みと、指摘への判定を確かめた結果として残す（指摘の無い読みは verdicts を持たない）。
-function settle(L, cellId, read, verdicts, stage, text) {
+function settle(L, cellId, read, verdicts, stage, texts) {
   const c = L.cells[cellId]
   const fs = read.findings || []
   for (const f of Object.values(L.findings)) if (f.cell === cellId && f.status === 'current') f.status = 'superseded'
   fs.forEach((f, i) => {
     const v = (verdicts || []).find((x) => x.index === i)
-    const verdict = C.settleVerdict(v, text)
+    const verdict = C.settleVerdict(v, texts)
     const id = findingId(cellId, f)
     L.findings[id] = { cell: cellId, cycle: L.cycle, claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer, verdict, verdict_reason: v ? v.reason : '', status: 'current' }
     if (verdict !== 'confirmed') addEvent(L, stage, verdict, `${id}: ${f.claim}（${v ? v.reason : '判定なし'}）`, id)
@@ -489,7 +516,8 @@ export function submitVerify(L, cellId, rep, asset) {
   const c = L.cells[cellId]
   const p = C.checkVerify(rep, c.read.findings.length)
   if (p.length) return rejectCell(L, cellId, stage, 'rejected_verify', p.map((x) => `検証: ${x}`), 'の検証が揃わず試行 ')
-  settle(L, cellId, c.read, rep.verdicts, stage, asset.text)
+  // 検証役の引用は、資産か、同じ枡で渡した関係する資産のどれかの本文に逐語なら効く。
+  settle(L, cellId, c.read, rep.verdicts, stage, [asset.text, ...(asset.related_texts || [])])
   return { problems: [], dropped: false }
 }
 // 取られたまま提出されなかった枡を戻す（ingest と、ingest を経ない next が使う）。読む役の枡は unseen のまま、検証の枡は読みを保ったまま claim を外し、

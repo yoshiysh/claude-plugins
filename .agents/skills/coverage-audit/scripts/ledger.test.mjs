@@ -361,8 +361,8 @@ test('正常: 目標の照合 → 全ての枡を読み確かめ → 振り返�
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.deepEqual(steps.map((s) => s.step), ['plan', 'review'])
   const L = ledger(state)
-  assert.equal(stop.coverage.cells, 6) // 2 資産 × 3 観点（purpose・layer・L1）× k=1。見出しだけの塊は資産にしない
-  assert.equal(stop.coverage.settled, 6)
+  assert.equal(stop.coverage.cells, 2) // 2 資産 × 利用者の観点 L1 × k=1。見出しだけの塊は資産にしない
+  assert.equal(stop.coverage.settled, 2)
   assert.equal(stop.coverage.settled_with_verifier, 0, '指摘の無い枡は検証役を通っていないと数える')
   assert.ok(L.goal.checked)
   assert.ok(L.agents.every((a) => a.model && a.effort && a.role))
@@ -438,10 +438,10 @@ test('欠測: 返らない枡は試行を数え、上限で開示に倒し、他
 test('不正な出力: 偽の引用の読みは受け付けず、読み直す', async (t) => {
   const { state } = setup(t)
   let n = 0
-  const { stop } = await drive(state, mockAgent({ read: (p, o) => (o.label.includes('一つ目の節/p1|purpose') && n++ < 1 ? { cell_id: o.label.slice(5).split('（')[0], evidence: ['本文に無い引用をここに書いている'], findings: [], outside_notes: [], none_reason: 'x' } : undefined) }))
+  const { stop } = await drive(state, mockAgent({ read: (p, o) => (o.label.includes('一つ目の節/p1|L1') && n++ < 1 ? { cell_id: o.label.slice(5).split('（')[0], evidence: ['本文に無い引用をここに書いている'], findings: [], outside_notes: [], none_reason: 'x' } : undefined) }))
   assert.equal(stop.stop, 'complete')
   const L = ledger(state)
-  const c = Object.entries(L.cells).find(([id]) => id.includes('一つ目の節/p1|purpose'))[1]
+  const c = Object.entries(L.cells).find(([id]) => id.includes('一つ目の節/p1|L1'))[1]
   assert.equal(c.status, 'settled')
   assert.equal(c.attempts, 1, '偽の引用は ingest が写しに照らして落とし、試行に数えて次の呼び出しで読み直す')
   assert.ok(L.events.some((e) => e.kind === 'rejected_read'))
@@ -494,7 +494,7 @@ test('全件失敗: 全ての役が欠けた呼び出しが続けば blocked で
 test('検証不能: 検証不能の指摘は消えず、完了にせず needs_input で返す', async (t) => {
   const { state } = setup(t)
   const agentFn = mockAgent({
-    read: readWith((cell) => (cell.endsWith('二つ目の節/p1|purpose|p1') ? [finding('目標に効かない', 'この節は二つ目の主張を述べる本文の行である。')] : undefined)),
+    read: readWith((cell) => (cell.endsWith('二つ目の節/p1|L1|p1') ? [finding('目標に効かない', 'この節は二つ目の主張を述べる本文の行である。')] : undefined)),
     verify: (p, o) => (o.label.startsWith('verify-unit-') ? undefined : { verdicts: [{ index: 0, verdict: 'refuted', reason: '違う', quote: '偽の引用で反証しようとしている文字列' }] }),
   })
   const { stop } = await drive(state, agentFn)
@@ -517,7 +517,7 @@ test('同じ枡の複数の指摘: 種別が同じでも引用か主張が違え
 
 test('上の層: 方針・要求が原因の欠陥はcomplete にせず needs_input で返す（直すのは呼ぶ側）', async (t) => {
   const { state } = setup(t)
-  const { stop } = await drive(state, mockAgent({ read: readWith((cell) => (cell.endsWith('一つ目の節/p1|purpose|p1') ? [finding('要求が足りない', 'この節は一つ目の主張を述べる本文の行である。', '要求')] : undefined)) }))
+  const { stop } = await drive(state, mockAgent({ read: readWith((cell) => (cell.endsWith('一つ目の節/p1|L1|p1') ? [finding('要求が足りない', 'この節は一つ目の主張を述べる本文の行である。', '要求')] : undefined)) }))
   assert.equal(stop.stop, 'needs_input')
   assert.equal(stop.upper.length, 1)
 })
@@ -531,7 +531,7 @@ test('持ち越し: 変わった節の枡だけ古い印が付いて読み直さ
   const { stop } = await drive(state, mockAgent({}, log))
   assert.equal(stop.stop, 'complete')
   const reread = log.slice(before).filter((x) => x.label.startsWith('read-')).map((x) => x.label)
-  assert.equal(reread.length, 3, '変わった 1 節 × 3 観点だけ')
+  assert.equal(reread.length, 1, '変わった 1 節 × 観点 L1 だけ')
   assert.ok(reread.every((l) => l.includes('二つ目の節')))
   rmSync(doc)
   const n = cli('next', '--state', state)
@@ -1054,7 +1054,7 @@ const splitPlan = (p) => {
   return { lenses, excluded: [], questions: [], constraint_map: constraintIdsOf(p).map((id) => ({ constraint_id: id, handled_by: ['X1'] })), source_map: src.map((s) => ({ source: s, merged_into: s.slice(-2), dropped_reason: '' })), defect_responses: [] }
 }
 
-test('applies_to: 枡は観点の数 × 資産の数でなく、当てた組の数（スキルの観点は全ての資産）', async (t) => {
+test('applies_to: 枡は観点の数 × 資産の数でなく、当てた組の数', async (t) => {
   const { state } = setupPlanned(t)
   const log = []
   const { stop } = await drive(state, mockAgent({ plan: splitPlan, integrate: splitPlan }, log))
@@ -1062,8 +1062,8 @@ test('applies_to: 枡は観点の数 × 資産の数でなく、当てた組の�
   const L = ledger(state)
   const assets = Object.keys(L.assets).filter((id) => !L.assets[id].retro)
   assert.equal(assets.length, 2)
-  // purpose・layer は 2 資産の全てに、X1・X2 は 1 資産ずつ: 2 × 2 + 1 + 1 = 6（全ての組なら 4 × 2 = 8）。
-  assert.equal(stop.coverage.cells, 6)
+  // X1・X2 は 1 資産ずつ: 1 + 1 = 2（全ての組なら 2 × 2 = 4）。
+  assert.equal(stop.coverage.cells, 2)
   const live = Object.entries(L.cells).filter(([, c]) => c.status !== 'gone').map(([id]) => id)
   assert.ok(live.includes(`${assets[0]}|X1|p1`) && live.includes(`${assets[1]}|X2|p1`))
   assert.ok(!live.includes(`${assets[1]}|X1|p1`) && !live.includes(`${assets[0]}|X2|p1`), '当てていない組の枡を作らない')
@@ -1173,18 +1173,18 @@ const excludePlan = (p) => {
   return r
 }
 
-test('excluded: 除いた資産には purpose・layer を含めどの枡も作らず、読まず、status で開示する', async (t) => {
+test('excluded: 除いた資産にはどの観点の枡も作らず、読まず、status で開示する', async (t) => {
   const { state } = setupPlanned(t)
   const log = []
   const { stop } = await drive(state, mockAgent({ plan: excludePlan, integrate: excludePlan }, log))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const L = ledger(state)
   const [a, b] = Object.keys(L.assets).filter((id) => !L.assets[id].retro)
-  // 1 資産 × 3 観点（purpose・layer・X1）× k=1。除いた資産の purpose・layer の枡も数えない。
-  assert.equal(stop.coverage.cells, 3)
+  // 1 資産 × 観点 X1 × k=1。除いた資産の枡は数えない。
+  assert.equal(stop.coverage.cells, 1)
   const live = Object.entries(L.cells).filter(([, c]) => c.status !== 'gone')
   assert.equal(live.filter(([, c]) => c.asset === b).length, 0, '除いた資産に生きた枡が無い')
-  assert.ok(live.some(([, c]) => c.asset === a && c.lens === 'purpose'))
+  assert.ok(live.some(([, c]) => c.asset === a && c.lens === 'X1'))
   assert.ok(!log.some((x) => x.label.startsWith('read-') && x.label.includes('二つ目の節')), '除いた資産は読まない')
   const st = cli('status', '--state', state)
   assert.deepEqual(st.excluded, [{ asset: b, reason: '目標に関係しない節' }], JSON.stringify(st.excluded))
@@ -1203,7 +1203,7 @@ test('excluded: 資産が excluded に移れば枡は gone になり、applies_t
   assert.equal(n.step, 'plan', JSON.stringify(n))
   const L2 = ledger(state)
   const ofB = Object.values(L2.cells).filter((c) => c.asset === b)
-  assert.ok(ofB.length && ofB.every((c) => c.status === 'gone'), `excluded を優先して purpose・layer・X2 の枡を gone にする: ${JSON.stringify(ofB.map((c) => [c.lens, c.status]))}`)
+  assert.ok(ofB.length && ofB.every((c) => c.status === 'gone'), `excluded を優先して X2 の枡を gone にする: ${JSON.stringify(ofB.map((c) => [c.lens, c.status]))}`)
   assert.ok(L2.plan_defects.some((x) => x.kind === 'static' && x.claim.includes('二つ目の節') && /excluded/.test(x.claim)), JSON.stringify(L2.plan_defects))
 })
 
@@ -1480,7 +1480,7 @@ test('checkLensReview: N1 は当てた資産ごと、N2 は他の計画の観点
     ['N1: 引用が空', n1((xs) => xs.map((x, i) => (i ? x : { ...x, quote: '' })))],
     ['N2: 他の観点の答えが欠ける', n2((xs) => xs.slice(0, 1))],
     ['N2: 計画に無い観点への答え', n2((xs) => [...xs, { lens: 'X9', answer: 'no' }])],
-    ['N2: スキルの観点（purpose）への答え', n2((xs) => [...xs, { lens: 'purpose', answer: 'no' }])],
+    ['N2: 計画の他の観点に無い id（purpose）への答え', n2((xs) => [...xs, { lens: 'purpose', answer: 'no' }])],
     ['N2: 自分自身への答え', n2((xs) => [...xs, { lens: 'X1', answer: 'no' }])],
     ['N2: 同じ観点への答えの重複', n2((xs) => [...xs, xs[1]])],
     ['N2: yes・no 以外の答え', n2((xs) => xs.map((x, i) => (i === 1 ? { ...x, answer: 'maybe' } : x)))],
@@ -1502,7 +1502,7 @@ const DOC3 = `${DOC}
 この節は三つ目の主張を述べる本文の行である。
 二行目もこの節の主張を補う本文の行として置く。
 `
-const lensPlan = (spec, handledBy = ['purpose']) => (p) => {
+const lensPlan = (spec, handledBy = ['X2']) => (p) => {
   const ids = indexIds(p)
   const lenses = Object.entries(spec).map(([id, s]) => ({ id, name: id, procedure: LENS_PROC[id], applies_to: s.at.map((i) => ids[i]), goals: goalsOf(p).filter(s.goals || (() => true)) }))
   const prev = /source_map は前の計画の観点を「P:<id>」で全て挙げる: (.*)）/.exec(p)
@@ -1554,7 +1554,7 @@ test('観点の精査: applies_to が空になった観点は計画から落ち�
   const st = cli('status', '--state', state)
   assert.ok(Array.isArray(st.dropped_lenses) && st.dropped_lenses.some((x) => JSON.stringify(x).includes('X1')), `落とした観点を開示する: ${JSON.stringify(st.dropped_lenses)}`)
   assert.ok(st.excluded.some((x) => x.asset === a && /N1/.test(x.reason)), '残らない資産は excluded に入る')
-  assert.deepEqual(L.plan_defects, [], 'X2 と purpose が受け皿のまま残るので欠陥にしない')
+  assert.deepEqual(L.plan_defects, [], '受け皿の X2 が残るので欠陥にしない')
   assert.ok(!log.some((x) => x.label.startsWith('integrate-again')))
 })
 

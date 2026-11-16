@@ -140,7 +140,7 @@ const argOf = (argv, k) => argv[argv.indexOf(`--${k}`) + 1]
 
 // 長く動く worker の偽物: prompt の claim の命令を in-process の CLI で流し、取った資産の枡ごとに、
 // 枡 1 つ分の擬似の prompt（写しの範囲・観点の束・検証では指摘）で読む役（label read-<cell_id>）か検証役（verify-<cell_id>）を呼ぶ。
-// 結果を result_path に書き、submit_cmd を in-process で流す。拒否されたら 1 回だけ呼び直して出し直す。null の枡は提出せず（欠測）、その worker はそこで終える。
+// 資産の枡の結果を全て result_path に書き、asset.submit_cmd を in-process で 1 回流す。拒否された枡は 1 回だけ呼び直して出し直す。null の枡は提出せず（欠測）、その worker はそこで終える。
 // claim が空を返したら終わる。log.claims に claim の出力、log.workers に worker の起動と終わりの位置（log の長さ）を残す。
 async function fakeWorker(raw, opts, claimArgv, self, log) {
   const claims = (log.claims = log.claims || [])
@@ -155,6 +155,7 @@ async function fakeWorker(raw, opts, claimArgv, self, log) {
     if (c.code !== 0) { notes.push(`claim が拒否された: ${c.error}`); break }
     if (c.done) break
     assets++
+    const answers = []
     for (const cell of c.cells) {
       const verify = Array.isArray(cell.findings)
       const label = `${verify ? 'verify' : 'read'}-${cell.cell_id}`
@@ -166,20 +167,33 @@ async function fakeWorker(raw, opts, claimArgv, self, log) {
 行: ${c.asset.start}-${c.asset.end}
 ${verify ? `### 指摘（index は配列の位置）\n${JSON.stringify(cell.findings.map((f, i) => ({ index: i, ...f })))}\n` : ''}`
       const one = (lab) => self(pseudo, { label: lab, phase: opts.phase, model: opts.model, effort: opts.effort, fromWorker: true })
-      let r = await one(label)
+      const r = await one(label)
       // 出さない枡が出たら、その worker はそこで終える（未提出の claim を持つ worker の claim し直しは同じ枡を返すので、続けると回り続ける）。
       if (r == null) { notes.push(`${cell.cell_id} を出さずに終えた`); quit = true; break }
-      for (let tries = 0; r != null && tries < 2; tries++) {
-        mkdirSync(path.dirname(cell.result_path), { recursive: true })
-        writeFileSync(cell.result_path, JSON.stringify(r))
-        const sa = cliArgvOf(cell.submit_cmd, 'submit')
-        if (!sa) throw new Error(`submit_cmd に submit の命令が無い: ${cell.submit_cmd}`)
-        const s = cli(...sa)
-        if (s.code !== 0) { notes.push(`submit が拒否された: ${s.error}`); break }
-        if (s.ok) { submitted++; break }
+      answers.push({ cell, label, one, r })
+    }
+    // 全ての枡の結果を result_path に書き、asset.submit_cmd を 1 回流す。落ちた枡（dropped でないもの）だけ 1 回呼び直し、書き直して同じ命令を流し直す。
+    let pending = answers
+    for (let tries = 0; pending.length && tries < 2; tries++) {
+      for (const a of pending) {
+        mkdirSync(path.dirname(a.cell.result_path), { recursive: true })
+        writeFileSync(a.cell.result_path, JSON.stringify(a.r))
+      }
+      const sa = cliArgvOf(c.asset.submit_cmd, 'submit')
+      if (!sa) throw new Error(`asset.submit_cmd に submit の命令が無い: ${c.asset.submit_cmd}`)
+      const s = cli(...sa)
+      if (s.code !== 0) { notes.push(`submit が拒否された: ${s.error}`); break }
+      const again = []
+      for (const res of s.results) {
+        const a = pending.find((x) => x.cell.cell_id === res.cell)
+        if (res.ok) { submitted++; continue }
         rejected++
-        if (s.dropped) break
-        r = await one(`${label}（出し直し）`)
+        if (!res.dropped && tries === 0 && a) again.push(a)
+      }
+      pending = []
+      for (const a of again) {
+        const r = await a.one(`${a.label}（出し直し）`)
+        if (r != null) { a.r = r; pending.push(a) }
       }
     }
   }
@@ -230,14 +244,14 @@ export function mockAgent(over = {}, log = []) {
   return self
 }
 function constraintMap(prompt) {
-  return constraintIdsOf(prompt).map((id) => ({ constraint_id: id, handled_by: ['purpose'] }))
+  return constraintIdsOf(prompt).map((id) => ({ constraint_id: id, handled_by: ['X1'] }))
 }
 
-// native の注入で Workflow source を 1 回流す。
-export async function runWorkflow(args, agentFn) {
+// native の注入で Workflow source を 1 回流す。budget は消費量の計器（spent() を持つ）で、省略は注入しない経路（runner など）。
+export async function runWorkflow(args, agentFn, { budget } = {}) {
   const parallel = (ts) => Promise.all(ts.map((t) => Promise.resolve().then(t).catch(() => null)))
   const pipeline = (items, fn) => Promise.all(items.map((x) => Promise.resolve().then(() => fn(x)).catch(() => null)))
-  return runBody(agentFn, parallel, pipeline, () => {}, () => {}, args, undefined)
+  return runBody(agentFn, parallel, pipeline, () => {}, () => {}, args, budget)
 }
 
 // next → Workflow → ingest を止まるまで回す。run で Workflow の流し方（native の注入・runner）を差し替える。

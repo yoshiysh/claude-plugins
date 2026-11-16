@@ -15,11 +15,13 @@ export const meta = {
 const LIMITS = { maxAgents: 60, concurrency: 3, timeoutMs: 12000000, agentTimeoutMs: 600000, maxOutputBytes: 4000000 }
 const QUOTE_MIN = 12
 const LAYERS = ['方針', '要求', '方式設計', '詳細設計', '実装']
+const UPPER = ['方針', '要求'] // 上の層。ここに原因がある確定指摘・群は呼び手の判断を待つ（needs_input）
 const SEVERITIES = ['HIGH', 'MEDIUM', 'LOW']
 const VERDICTS = ['confirmed', 'refuted', 'unverifiable']
 const DEFECT_ACTIONS = ['fixed', 'rejected']
-const RESERVED_LENSES = ['purpose', 'layer']
 const isStr = (s) => typeof s === 'string' && s.trim().length > 0
+// 既存の型に結ぶだけの群（extends があり層が上の層でない）。観点を作らず、判定にも使わないので反証しない。
+const linkOnly = (g) => isStr(g && g.extends) && !UPPER.includes(g && g.layer)
 const arr = (a) => (Array.isArray(a) ? a : [])
 // 値を key の順に並べた JSON にして FNV-1a を取る。args の写し違いの検出と、観点の同一性に使う。
 const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v))
@@ -53,6 +55,8 @@ function fenceMask(lines) {
   }
   return out
 }
+// 本文を引く役に渡す引用の規則の文（quoteProblem と checkRead が受け付ける引用を述べる。字数は QUOTE_MIN から作る）。quoteProblem で照らす引用を返す役の prompt だけが埋め込む。
+const QUOTE_RULE = `引用は ${QUOTE_MIN} 字以上にする。${QUOTE_MIN} 字未満の短い引用は、本文の全体か、本文の空でない 1 行の全体を引くときだけ受け付ける。見出しの行だけの引用は証拠にならない。evidence の 1 要素でも合わなければ、その提出ごと拒まれる。`
 function quoteProblem(q, text) {
   const n = norm(q)
   const body = norm(text)
@@ -114,9 +118,10 @@ function checkVerify(rep, n) {
   return p
 }
 // 確定・棄却は、検証役の引用が本文に逐語であるときだけ効く。偽の引用での棄却では指摘を消さない。
-function settleVerdict(v, text) {
+// texts は本文か本文の配列（資産と、同じ枡で渡した関係する資産の本文）。どれか 1 つに逐語なら効く。
+function settleVerdict(v, texts) {
   if (!v || !VERDICTS.includes(v.verdict)) return 'unverifiable'
-  if (v.verdict !== 'unverifiable' && quoteProblem(v.quote, text)) return 'unverifiable'
+  if (v.verdict !== 'unverifiable' && [].concat(texts).every((t) => quoteProblem(v.quote, t))) return 'unverifiable'
   return v.verdict
 }
 // 観点の同一性: 中身が変われば検証し直す。
@@ -179,14 +184,14 @@ function checkPlan(L, ctx) {
   const add = (id, what) => { if (!isStr(id)) p.push(`${what} の id が空`); else if (ids.has(id)) p.push(`id の重複: ${id}`); ids.add(id) }
   for (const l of arr(L.lenses)) {
     add(l.id, '観点')
-    if (RESERVED_LENSES.includes(l.id) || arr(ctx.givenLensIds).includes(l.id)) p.push(`観点 ${l.id} は既にある観点で、計画役は定義し直せない`)
+    if (arr(ctx.givenLensIds).includes(l.id)) p.push(`観点 ${l.id} は既にある観点で、計画役は定義し直せない`)
     if (!isStr(l.procedure)) p.push(`観点 ${l.id} の procedure が空`)
   }
   for (const q of arr(L.questions)) { add(q.id, '質問'); if (!isStr(q.why_value_judgment)) p.push(`質問 ${q.id} に価値判断の理由が無い`) }
   if (!ctx.lensesGiven && !arr(L.lenses).length) p.push('観点が 0 件')
   p.push(...checkAppliesTo(L.lenses, ctx.assetIds, L.excluded))
   if (!ctx.lensesGiven || arr(L.lenses).length) p.push(...checkGoals(L.lenses, ctx.goalItemIds, ctx.goalTexts))
-  const units = new Set([...arr(L.lenses).map((l) => l.id), ...RESERVED_LENSES, ...arr(ctx.givenLensIds)])
+  const units = new Set([...arr(L.lenses).map((l) => l.id), ...arr(ctx.givenLensIds)])
   const mapped = new Set()
   for (const m of arr(L.constraint_map)) {
     if (!arr(ctx.constraintIds).includes(m.constraint_id)) { p.push(`実在しない制約: ${m.constraint_id}`); continue }
@@ -375,6 +380,8 @@ function citeSources(sources) {
   }
   return out
 }
+// 目標の照合役に渡す引用の規則の文（citeProblem が受け付ける引用を述べる。字数は CITE_MIN から作る）。両スキルの goal_checker の prompt が埋め込む。
+const CITE_RULE = `引用は ${CITE_MIN} 字以上にする。${CITE_MIN} 字未満の短い引用は、引用元の 1 件の全体を引くときだけ受け付ける。1 件とは、依頼文の全体、依頼文の空でない 1 行、決定の記録の 1 行で、決定の記録では行頭の「- 」を除く。決定の記録の短い行は、その行の全体を引く。`
 function citeProblem(c, src) {
   const s = src[c && c.source]
   if (!s) return `引用元が ${Object.keys(src).join('・')} のどれでもない: ${c && c.source}`
@@ -450,7 +457,10 @@ async function checked(role, label, prompt, schema, check) {
   }
   return { result: r, problems: p }
 }
-const tokens = () => (typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null)
+// 消費量は、本体の始めと返す直前の 2 回の budget.spent() の読みの差。どちらかが数でなければ null。
+const spentNow = () => { const v = typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null; return typeof v === 'number' && Number.isFinite(v) ? v : null }
+const spentStart = spentNow()
+const tokens = () => { const end = spentNow(); return spentStart === null || end === null ? null : end - spentStart }
 const done = (body) => ({ stage: A.stage, call_id: A.callId, ...body, agents, tokens: tokens(), limits: LIMITS })
 
 const argProblems = []
@@ -509,6 +519,7 @@ async function planStage() {
 ## あなたの役: 目標の照合役
 束の「## 依頼文」と「## 決定の記録」から、利用者が求めている成果を全て挙げる（件数は決めない。同じ成果を重ねない）。成果ごとに、根拠の逐語の引用（quotes。source は依頼文なら request、決定の記録なら decisions）と、その成果を受け止めている目標・受け入れ基準・制約の項目の id（items）を返す。受け止めている項目が無ければ items を空にする。
 項目が依頼に無いものを足したか・範囲を狭めたか・手順かは判定しない（項目ごとの引用は script が照らし済み）。
+${CITE_RULE}
 ## 項目の id（items に使う）
 ${JSON.stringify(arr(A.goalIds))}`, GOAL_SCHEMA, (r) => checkGoalMap(r, arr(A.goalIds)))).result
   }
@@ -517,9 +528,10 @@ ${JSON.stringify(arr(A.goalIds))}`, GOAL_SCHEMA, (r) => checkGoalMap(r, arr(A.go
     const RULES = `
 ### 観点の規則
 - 観点の数・例・型枠は与えない。目標と対象の中身から切る。
-- 観点（lenses）: 対象を資産（Markdown は frontmatter と節の中の段落・箇条書き・表・コードのブロック、JS は宣言と宣言の無い所の行の塊、その他は行の塊）ごとに見るときの手続き（何を列挙し、何と照らすか）。観点 purpose（目的）と layer（層と範囲）はスキルが持ち、除いた資産（excluded）の外の全ての資産に当たるので作らない。
+- 観点（lenses）: 対象を資産（Markdown は frontmatter と節の中の段落・箇条書き・表・コードのブロック、JS は宣言と宣言の無い所の行の塊、その他は行の塊）ごとに見るときの手続き（何を列挙し、何と照らすか）。
+- 目的（固定した目標・制約に照らす）と層（方針・要求・方式設計・詳細設計・実装の層と範囲）の見方は、要る資産があるときだけ計画の観点として切る。切った観点もほかの観点と同じく applies_to と goals を持ち、観点の精査と閉じた問いを通る。手続きの例: 目的は「この部分の主張ごとに、固定した目標と制約のどれに効くかを対応づけてから、効かない主張、制約と食い違う主張、目標に要るのに書かれていないことを探す」、層は「この部分の内容ごとに層を判定してから、対象の層より上の決め直し、下の層の細部の書き過ぎ、範囲の外への広がり、上の層へ戻すべき欠陥を探す」。
 - 当てる資産（applies_to）: 観点ごとに、その観点で確かめることが目標とその資産の中身に関係する資産を、下の索引の資産の id で全て挙げる。関係の無い資産には当てない（関係の無い組を見ても見落としは減らない）。
-- 除く資産（excluded）: どの観点の確かめることも関係しない資産を、理由（reason）と共に挙げる。除いた資産は purpose・layer を含めどの観点でも読まず、除いたことを開示する。全ての資産は、どれかの観点の applies_to か excluded のどちらか一方にちょうど 1 回入れる。script が id の実在とこの被覆を照らす。
+- 除く資産（excluded）: どの観点の確かめることも関係しない資産を、理由（reason）と共に挙げる。除いた資産はどの観点でも読まず、除いたことを開示する。全ての資産は、どれかの観点の applies_to か excluded のどちらか一方にちょうど 1 回入れる。script が id の実在とこの被覆を照らす。
 - 受け持つ目標（goals）: 観点ごとに、その観点の手続きで果たされたかを確かめる目標・受け入れ基準の部分を {id, part} で挙げる。id は束の「## 目標の項目」「## 受け入れ基準」の id、part はその本文からの逐語の引用で、この観点が受け持つ部分だけを示す（複合の目標は部分ごとに別の要素にし、別の観点に分けてよい）。受け持たない目標を goals に入れない。どの目標・受け入れ基準も、どれかの観点の goals に入れる。script が id の実在・part の逐語・被覆を照らす。
 - 受け入れ基準と固定した制約の全てに、受け皿の観点を constraint_map で付ける（constraint_id に基準か制約の id）。
 - 利用者への質問（questions）: 価値判断が要り、制約で答えが出ていないものだけ。`
@@ -587,7 +599,7 @@ ${INDEX}
 観点が要るかを、下の閉じた問いだけに yes か no で答える。問いの外のこと（手続きの細部の良し悪し・観点の大きさ・目標の受け持ち）は判定しない。欠陥を自由に挙げない。作った者の説明を信じず、資産と手続きの本文に書いてあることだけで答える。
 - N1 は資産ごとに: ${LENS_QUESTIONS.N1}。下の索引の行から資産の写しと行の範囲を読み、その範囲を Read で読んで答える。yes なら列挙するものの箇所、no なら資産の中身を示す箇所を、その資産の本文から逐語で quote に引く。
 - N2 は他の観点ごとに: ${LENS_QUESTIONS.N2}。yes なら、同じものを列挙し同じものと照らすことを示す箇所を、この観点の手続きから quote_self に、相手の手続きから quote_other に逐語で引く。no なら引用は要らない。
-引用は script が照合する（N1 はその資産の本文、N2 はそれぞれの手続き）。
+引用は script が照合する（N1 はその資産の本文、N2 はそれぞれの手続き）。${QUOTE_RULE}
 ### 問い（n1・n2 に 1 つずつ返す。lens_id は ${r.unit_id}）
 ${r.applies_to.map((a) => `- N1（asset: ${a}）: ${LENS_QUESTIONS.N1}`).join('\n') || '- N1: 当てた資産が無い'}
 ${r.others.map((o) => `- N2（lens: ${o}）: ${LENS_QUESTIONS.N2}`).join('\n') || '- N2: 他の計画の観点が無いので聞かない'}
@@ -622,7 +634,7 @@ ${r.text != null ? `### 精査する観点\n${r.text}\n### 他の計画の観点
   const checks = await pipeline(toVerify, (u) => checked('unit_verifier', `verify-unit-${u.unit_id}`, `${COMMON(u.brief || A.brief)}
 ## あなたの役: 観点の検証役（観点 ${u.unit_id} だけを見る）
 下の閉じた問いだけに yes か no で答える。問いの外のこと（観点の大きさ・問いの数・層・制約との矛盾・当てる資産の当否・手続きの細部の良し悪し）は判定しない（細部は枡を読んだ結果で直す）。欠陥を自由に挙げない。作った者の説明を信じず、観点の本文に書いてあることだけで答える。
-答えごとに、観点の本文からの逐語の引用を quote に付ける（yes なら根拠の箇所、no なら足りない手続きの箇所）。script が照合する。
+答えごとに、観点の本文からの逐語の引用を quote に付ける（yes なら根拠の箇所、no なら足りない手続きの箇所）。script が照合する。${QUOTE_RULE}
 ### 問い（answers に 1 つずつ返す。Q3 は goal_index に観点の goals の位置、goal_id にその要素の id を入れる）
 - Q1: ${UNIT_QUESTIONS.Q1}
 - Q2: ${UNIT_QUESTIONS.Q2}
@@ -668,16 +680,19 @@ async function reviewStage() {
 node ${sq(cli)} claim --state ${sq(stateDir)} --call ${sq(A.callId)} --worker ${sq(w.id)}
 ### 手順
 1. 取る命令を流す。出力が done: true なら、手順を終えて返り値を返す。
-2. 出力の asset.file を、asset.start から asset.end の行の範囲だけ Read で 1 回読む（offset=asset.start, limit=asset.end - asset.start + 1。この範囲の外は読まない）。
-3. 出力の cells の枡ごとに、次を順に行う。枡ごとに、その枡の束（cells[].brief。観点の名前と手続き）を Read で読み、その観点だけで判断する。
-4. その枡の結果を JSON で cells[].result_path に書き（Write ツールか、shell なら \`>|\` で上書きして書く）、cells[].submit_cmd をそのまま Bash で流す。出力の ok が false なら、problems の理由を読んで直した結果を書き直し、submit_cmd を流し直す。dropped が true なら、その枡は諦めて次の枡へ進む。命令が終了状態 2 で拒否されたら、error を notes に書いて次の枡へ進む。
+2. 出力の asset.file を、asset.start から asset.end の行の範囲だけ Read で 1 回読む（offset=asset.start, limit=asset.end - asset.start + 1）。出力の related の要素（同じ id を含む関係する資産）も、それぞれ file の start から end の範囲だけ Read で読む。この範囲の外は読まない。
+   不在（定めが無い・使われていない）や食い違いを主張する前に、related の範囲を読んで確かめる（片側だけを見た不在の主張を避けるため）。related_not_given は行数の上限で渡さなかった資産の id で、読んでいないので、それに頼る判断（そこに有る・無いという主張）をしない。
+3. 出力の cells の枡ごとに、その枡の束（cells[].brief。観点の名前と手続き）を Read で読み、その観点だけで判断して、結果を JSON で cells[].result_path に Write ツールで書く。
+4. cells の全ての result_path に書いてから、asset.submit_cmd をそのまま Bash で 1 回流す。出力の results は枡ごとの判定で、missing は結果のファイルが無かった枡。results の ok が false の枡だけ、problems の理由を読んで直した結果を result_path に書き直し、同じ asset.submit_cmd を流し直す（落ちた枡のファイルは CLI が消すので、書き直さずに流しても missing になるだけ）。dropped が true の枡は諦める。命令が終了状態 2 で拒否されたら、error を notes に書いて 5 へ進む。
 5. その資産の枡を全て出してから 1 に戻る（出し終える前に claim を流すと、まだ出していない同じ枡が返る）。claim が done を返すまで繰り返す。claim が、出せなかった枡（submit が終了状態 2 で拒否した枡）を返し直したら、notes に書いて終える。
-前の枡の結果（読み・指摘・判定）を、次の枡に持ち込まない。枡ごとに、その枡の束と資産の本文だけから判断する。
+前の枡の結果（読み・指摘・判定）を、次の枡に持ち込まない。枡ごとに、その枡の束と、資産と related の本文だけから判断する。
+### 引用の規則（submit が照合する）
+${QUOTE_RULE}
 ${verify ? `### 結果の形（検証役）
-cells[].findings の指摘はどれも誤りかもしれないという前提で、資産の本文に当たって確かめる。指摘ごと（index は findings の位置）に confirmed（本文が主張を支える）・refuted（本文が主張を否定する）・unverifiable（本文だけでは決められない）を返す。confirmed と refuted には、決め手になった本文の逐語の引用を quote に付ける（引用が合わない判定は unverifiable として扱われる）。
+cells[].findings の指摘はどれも誤りかもしれないという前提で、資産と related の本文に当たって確かめる。指摘ごと（index は findings の位置）に confirmed（本文が主張を支える）・refuted（本文が主張を否定する）・unverifiable（本文だけでは決められない）を返す。confirmed と refuted には、決め手になった本文（資産か related のどれか）の逐語の引用を quote に付ける（引用が合わない判定は unverifiable として扱われる）。
 JSON Schema: ${JSON.stringify(VERIFY_SCHEMA)}` : `### 結果の形（読む役）
-- 資産の範囲を手続きに沿って確かめる。asset.blocks の区画（写しの行の範囲）のそれぞれから 1 つ以上、逐語の引用を evidence に挙げる（読んだ証拠。script が区画ごとに照合する）。evidence の各要素には本文の逐語の写しだけを入れ、区画名・行番号・説明・括弧を付けない（見出しの行だけは証拠にならない）。
-- 観点に当たる欠陥を、逐語の引用（quote）・重さ・原因の層（${LAYERS.join('・')}）と共に findings に返す。層は、直すべき層を選ぶ（本文の層とは限らない）。重さで絞らない。
+- 資産の範囲を手続きに沿って確かめる。asset.blocks の区画（写しの行の範囲）のそれぞれから 1 つ以上、逐語の引用を evidence に挙げる（読んだ証拠。script が区画ごとに照合する）。evidence の各要素には本文の逐語の写しだけを入れ、区画名・行番号・説明・括弧を付けない。
+- 観点に当たる欠陥を、資産の本文の逐語の引用（quote。related の本文は evidence にも quote にも使えない。指摘の場所は資産に置く）・重さ・原因の層（${LAYERS.join('・')}）と共に findings に返す。層は、直すべき層を選ぶ（本文の層とは限らない）。重さで絞らない。
 - 観点の外で気づいたことは指摘にせず outside_notes に書く。指摘が無ければ、確かめたことを none_reason に書く。
 JSON Schema: ${JSON.stringify(READ_SCHEMA)}`}
 ### 返り値
@@ -713,7 +728,8 @@ ${A.index ? `${rangeOf(A.index)}` : '（無し）'}
 ### 既にある横展開の観点（1 行 1 観点の JSON: id・型の手続き pattern・根本原因 root_cause。extends に使う）
 ${A.lateral ? `${rangeOf(A.lateral)}` : '（無し）'}`, GROUP_SCHEMA, (r) => checkGroups(r, keys, undefined, arr(A.lateralIds)))
   if (!g.result) return { status: 'blocked', reason: '束ね役が返らなかった', problems: g.problems }
-  const groups = arr(g.result.groups).slice(0, Math.floor((LIMITS.maxAgents - agents.length) / 2))
+  const toRefute = arr(g.result.groups).filter((x) => !linkOnly(x))
+  const groups = toRefute.slice(0, Math.floor((LIMITS.maxAgents - agents.length) / 2))
   const refPrompt = (gr) => `${COMMON(A.brief)}
 ## あなたの役: 反証役
 下の根本原因の主張が誤りではないかを探す。記録の事実と合わない・原因でなく症状の言い換え・固定した制約の蒸し返し、のどれかなら refuted=true。確かめられなければ refuted=false とし、理由に「確かめられない」と書く。
@@ -730,7 +746,7 @@ ${rangeOf(A.items)}`
     const n = v.filter((x) => x.refuted).length
     return { group: gr, votes: v, status: v.length < 2 ? 'unverified' : n === 2 ? 'refuted' : n === 1 ? 'split' : 'kept' }
   }))
-  return { status: 'ok', grouping: g.result, grouping_problems: g.problems, judged: judged.filter(Boolean), not_refuted: arr(g.result.groups).slice(groups.length).map((x) => x.id) }
+  return { status: 'ok', grouping: g.result, grouping_problems: g.problems, judged: judged.filter(Boolean), not_refuted: toRefute.slice(groups.length).map((x) => x.id) }
 }
 
 const body = A.stage === 'plan' ? await planStage() : A.stage === 'review' ? await reviewStage() : await groupStage()

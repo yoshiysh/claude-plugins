@@ -14,8 +14,8 @@ const WORKFLOW = path.join(HERE, 'coverage-audit.js')
 class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }
 const MULTI = ['target']
 const KNOWN = {
-  init: ['state', 'goal', 'request', 'decisions', 'criteria', 'goal-checked', 'target', 'constraints', 'lenses', 'roles', 'seeds', 'k', 'max-cycles', 'max-agents-total', 'phase'],
-  reframe: ['state', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'target', 'phase'],
+  init: ['state', 'goal', 'request', 'decisions', 'criteria', 'goal-checked', 'target', 'constraints', 'lenses', 'roles', 'seeds', 'k', 'max-cycles', 'max-agents-total', 'phase', 'link'],
+  reframe: ['state', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'target', 'phase', 'link'],
   next: ['state'], ingest: ['state', 'result'], status: ['state'], hint: ['state', 'text'], answer: ['state', 'id', 'text', 'file'], config: ['state', 'max-cycles', 'max-agents-total', 'workers'],
   claim: ['state', 'call', 'worker'], submit: ['state', 'call', 'cell', 'worker', 'result'],
 }
@@ -56,6 +56,8 @@ function load(dir) {
   if (!Array.isArray(L.lens_reviewed) || !Array.isArray(L.dropped_lenses)) throw new Fail(`台帳の形式が古い（観点の精査の記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!Number.isInteger(L.call_seq) || !Number.isInteger(L.config && L.config.workers)) throw new Fail(`台帳の形式が古い（review の待ち行列の通し番号と worker の数を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!L.phase_start || !L.phase_records || L.phase === undefined) throw new Fail(`台帳の形式が古い（段の記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (!Array.isArray(L.lenses) || L.lenses.some((l) => l.origin === 'skill' && !l.retro)) throw new Fail(`台帳の形式が古い（スキルの観点 purpose・layer を固定で持つ）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (!Object.hasOwn(L, 'link')) throw new Fail(`台帳の形式が古い（関係する資産を結ぶ link の欄を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   return L
 }
 function writeAtomic(file, text) {
@@ -146,6 +148,12 @@ function phaseOf(o) {
   if (!/^[a-z][a-z0-9_-]*$/.test(o.phase)) throw new Fail(`--phase は英小文字で始まる英小文字・数字・_・- の名前: ${o.phase}`)
   return o.phase
 }
+// 関係する資産を結ぶ語の正規表現（--link）。無ければ null。正規表現として作れなければ拒否する（台帳を作らない・変えない）。
+function linkOf(o) {
+  if (o.link === undefined) return null
+  try { new RegExp(o.link, 'g') } catch (e) { throw new Fail(`--link が正規表現として作れない: ${o.link}（${e.message}）`) }
+  return o.link
+}
 // 目標の冒頭の文・依頼文・決定の記録・基準・制約のファイルを読む（init と reframe で同じ形）。
 function frameText(o) {
   return {
@@ -163,18 +171,19 @@ function cmdInit(o) {
   const missing = targets.filter((p) => !existsSync(p))
   if (missing.length) throw new Fail('読めない対象がある（台帳は作っていない。直して init をやり直す）', { stop: 'blocked', cause: 'input', missing })
   const lenses = o.lenses ? JSON.parse(read(o.lenses)) : []
-  for (const l of lenses) if (!l.id || !l.name || !l.procedure || C.RESERVED_LENSES.includes(l.id)) throw new Fail(`観点の形が不正: ${JSON.stringify(l)}`)
+  for (const l of lenses) if (!l.id || !l.name || !l.procedure) throw new Fail(`観点の形が不正: ${JSON.stringify(l)}`)
   const roles = { ...JSON.parse(read(path.join(HERE, 'roles.json'))), ...(o.roles ? JSON.parse(read(o.roles)) : {}) }
   const config = posInts(o, [['k', 'k'], ['max-cycles', 'max_cycles'], ['max-agents-total', 'max_agents_total']])
   // 照合済みの印: coverage-build が目標を照合して渡したときだけ付く。付いていれば目標の照合（引用の照合と照合役）を流さない。
   const checkedBy = o['goal-checked'] ?? null
   if (checkedBy !== null && checkedBy !== 'coverage-build') throw new Fail(`--goal-checked は coverage-build だけ（目標を照合したスキル）: ${checkedBy}`)
   const phase = phaseOf(o)
+  const link = linkOf(o)
   const text = frameText(o)
   const g = readGoalFiles(text, { checkedBy })
   if (g.problems.length) throw new Fail('目標・基準・制約に、引用の照合を通らない項目がある（台帳は作っていない。直して init をやり直す）', { problems: g.problems })
   const L = newLedger({
-    goal: text.goal, goalItems: g.goal, checkedBy, phase, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints,
+    goal: text.goal, goalItems: g.goal, checkedBy, phase, link, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints,
     targets, lenses, config, roles, seeds: o.seeds ? JSON.parse(read(o.seeds)).map((s) => ({ ...s, path: abs(s.path) })) : [],
   })
   checkWorkers(L.config)
@@ -196,6 +205,8 @@ function cmdReframe(o) {
     if (!L.phase) throw new Fail('段の記録の無い台帳は reframe できない（--phase を付けて init からやり直す）')
     const phase = phaseOf(o)
     if (!phase) throw new Fail('--phase が要る')
+    // link は枠の一部: --link を持たない reframe は null にする。
+    const link = linkOf(o)
     const targets = (o.target || []).map((p) => path.resolve(p))
     if (!targets.length) throw new Fail('--target が要る')
     const missing = targets.filter((p) => !existsSync(p))
@@ -205,7 +216,7 @@ function cmdReframe(o) {
     if (g.problems.length) throw new Fail('目標・基準・制約に、引用の照合を通らない項目がある（台帳は変えていない）', { problems: g.problems })
     const from = L.phase
     L.phase_records[from] = phaseSection(L)
-    Object.assign(L, { goal: { ...L.goal, text: text.goal, items: g.goal, problems: [] }, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints, targets })
+    Object.assign(L, { goal: { ...L.goal, text: text.goal, items: g.goal, problems: [] }, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints, targets, link })
     startPhase(L, phase)
     save(dir, L)
     return { ok: true, state: dir, from, phase, targets: targets.length, criteria: L.criteria.length, constraints: L.constraints.length, next: 'next を流す（計画から作り直し、全ての枡を読み直す）' }
@@ -420,7 +431,7 @@ function readRef(dir, ref, what) {
 function recordCall(L, res, step, failed) {
   const ag = Array.isArray(res.agents) ? res.agents : []
   for (const a of ag) L.agents.push({ call_id: res.call_id, cycle: L.cycle, stage: step, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
-  L.calls.push({ call_id: res.call_id, cycle: L.cycle, step, agents: ag.length, failed: ag.filter((a) => !a.ok).length, tokens: res.tokens ?? null, tokens_note: res.tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'native budget.spent()' })
+  L.calls.push({ call_id: res.call_id, cycle: L.cycle, step, agents: ag.length, failed: ag.filter((a) => !a.ok).length, tokens: res.tokens ?? null, tokens_note: res.tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'この呼び出しの budget.spent() の差' })
   L.fail_streak = failed ? L.fail_streak + 1 : 0
   for (const a of ag) if (!a.ok) addEvent(L, step, 'agent_missing', `${a.label}（${a.model}/${a.effort}）が返らなかったか不正な出力だった`, a.label)
 }
@@ -590,7 +601,8 @@ function ingestGroup(L, res, args, dir) {
   let made = 0
   for (const gr of g.groups) {
     const j = judged.get(gr.id)
-    const status = j ? j.status : 'unverified'
+    // 既存の型に結ぶだけの群は反証に渡らない（linked）。Workflow が反証して返したなら、その結果に従う。
+    const status = j ? j.status : C.linkOnly(gr) ? 'linked' : 'unverified'
     const id = `G${L.cycle}-${gr.id}`
     const ext = typeof gr.extends === 'string' && gr.extends.trim() ? gr.extends : null
     const keep = cap && !ext && gr.pattern && gr.pattern.trim() ? { applies_to: [...new Set(gr.applies_to)] } : {}
@@ -639,11 +651,24 @@ function ingest(dir, o) {
 }
 
 // 今の段の status の節: 指摘・束ね・出来事。reframe で出ていく段の節は、この形のまま phase_records に写す。
+// 同じ指摘が観点の数だけ並ばないよう、判定・資産（指摘の id の最初の `|` の前）・norm した quote と claim・layer が同じ今の指摘を 1 件にまとめる。
+// layer が違えば直す層の判断が違うのでまとめない。言い換えはまとめず、束ね役の群（groups）で結ぶ。id・severity は最初の指摘のもの。
+function mergedFindings(L) {
+  const m = new Map()
+  for (const f of currentFindings(L)) {
+    const k = JSON.stringify([f.verdict, f.id.split('|')[0], C.norm(f.quote), C.norm(f.claim), f.layer])
+    if (m.has(k)) m.get(k).ids.push(f.id)
+    else m.set(k, { ...f, ids: [f.id] })
+  }
+  return [...m.values()]
+}
 function phaseSection(L) {
-  const cur = currentFindings(L)
+  const cur = mergedFindings(L)
   const by = (k) => cur.reduce((m, f) => ({ ...m, [f[k]]: (m[f[k]] || 0) + 1 }), {})
+  // 確定指摘の各件に、ids のどれかを keys に含む、反証されていない群の id を載せる。
+  const groupsOf = (ids) => L.groups.filter((g) => g.status !== 'refuted' && (g.keys || []).some((k) => ids.includes(k))).map((g) => g.id)
   return {
-    findings: { by_verdict: by('verdict'), by_layer: by('layer'), confirmed: cur.filter((f) => f.verdict === 'confirmed').map((f) => ({ id: f.id, severity: f.severity, layer: f.layer, claim: f.claim, quote: f.quote })), unverifiable: cur.filter((f) => f.verdict === 'unverifiable').map((f) => ({ id: f.id, claim: f.claim })) },
+    findings: { by_verdict: by('verdict'), by_layer: by('layer'), confirmed: cur.filter((f) => f.verdict === 'confirmed').map((f) => ({ id: f.id, ids: f.ids, severity: f.severity, layer: f.layer, claim: f.claim, quote: f.quote, groups: [...new Set(groupsOf(f.ids))] })), unverifiable: cur.filter((f) => f.verdict === 'unverifiable').map((f) => ({ id: f.id, ids: f.ids, claim: f.claim })) },
     groups: L.groups.map((g) => ({ id: g.id, status: g.status, layer: g.layer, root_cause: g.root_cause, lateral: L.lenses.some((l) => l.id === `lat-${g.id}`), ...(g.extends ? { extends: g.extends } : {}) })),
     events: phaseEvents(L).map((e) => ({ id: e.id, stage: e.stage, kind: e.kind, text: e.text })),
   }
@@ -757,6 +782,8 @@ function reviewWorker(L, o) {
 }
 const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 const CLI_PATH = fileURLToPath(import.meta.url)
+// 結果の path は待ち行列と worker ごとに分ける。claim が返し、--cell を持たない submit が同じ式で引く。
+const resultPath = (dir, call, w, id) => path.join(dir, 'results', call, w.queue, w.id, `${sha(id).slice(0, 16)}.json`)
 
 // 待ち行列から取る。読む役は、まだ読んでいない資産を 1 つと、その回の当たる観点の全ての枡。検証役は、指摘のある枡を 1 つとその枡の指摘だけ。
 // 取れるのは claim の無い枡と、試行が上限に届いていない枡だけ。本文と他の枡の指摘は返さない（worker が写しを読む）。
@@ -778,46 +805,82 @@ function cmdClaim(o) {
     }
     const assetId = picked[0][1].asset
     const a = L.assets[assetId]
-    const resDir = path.join(dir, 'results', call, w.queue, w.id)
-    mkdirSync(resDir, { recursive: true })
+    mkdirSync(path.dirname(resultPath(dir, call, w, '')), { recursive: true })
     const cells = picked.map(([id, c]) => {
       const l = L.lenses.find((x) => x.id === c.lens)
       c.claim = { call, worker: w.id }
-      const rp = path.join(resDir, `${sha(id).slice(0, 16)}.json`)
+      const rp = resultPath(dir, call, w, id)
       rmSync(rp, { force: true })
-      const cmd = [process.execPath, CLI_PATH, 'submit', '--state', dir, '--call', call, '--cell', id, '--worker', w.id, '--result', rp].map(sq).join(' ')
       return {
-        cell_id: id, lens: c.lens, brief: writeSnap(dir, `## 観点\n観点: ${l.name}\n手続き: ${l.procedure}\n`), result_path: rp, submit_cmd: cmd,
+        cell_id: id, lens: c.lens, brief: writeSnap(dir, `## 観点\n観点: ${l.name}\n手続き: ${l.procedure}\n`), result_path: rp,
         ...(w.queue === 'verify' ? { findings: c.read.findings.map((f) => ({ claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer })) } : {}),
       }
     })
+    // 出す命令は資産ごとに 1 つ（--cell と --result を持たない）。worker は枡の id を組み立てない。
+    const cmd = [process.execPath, CLI_PATH, 'submit', '--state', dir, '--call', call, '--worker', w.id].map(sq).join(' ')
     save(dir, L)
-    return { ok: true, asset: { id: assetId, path: a.path, file: a.snap, start: a.start, end: a.end, blocks: a.blocks.map(([bs, be]) => [a.start + bs, a.start + be]) }, cells }
+    // 関係する資産（同じ link の語を含む資産）の写しの範囲。読む役・検証役のどちらにも返す。行数の上限で渡さなかった資産は id だけ。
+    const related = (a.related || []).filter((id) => L.assets[id]).map((id) => { const r = L.assets[id]; return { id, file: r.snap, start: r.start, end: r.end } })
+    return { ok: true, asset: { id: assetId, path: a.path, file: a.snap, start: a.start, end: a.end, blocks: a.blocks.map(([bs, be]) => [a.start + bs, a.start + be]), submit_cmd: cmd }, related, related_not_given: a.related_not_given || [], cells }
   })
 }
 
-// 枡を 1 つ出す。照合（引用・区画・判定）は ingest の照合と同じで、落ちたら理由を返して試行に数える（上限で開示に倒し dropped）。
+// 出す。--cell があれば、その枡を 1 つ出す（1 枡だけ出し直す口）。--cell が無ければ、その worker がこの呼び出しで取って、まだ出していない全ての枡のうち、
+// result_path にファイルがある枡を出す（ファイルの無い枡は missing に挙げ、試行に数えず取ったままにする）。
+// 照合（引用・区画・判定）は ingest の照合と同じで、落ちたら理由を返して試行に数える（上限で開示に倒し dropped）。
+// --cell の無い submit は、落ちた枡の result_path のファイルを消す（直す前に流し直しても、同じ中身で次の試行に数えない）。
 // 写しの hash の食い違い・claim の無い枡・別の worker の枡は、台帳を変えずに拒否する（終了状態 2）。
+function snapText(L, c) {
+  const a = L.assets[c.asset]
+  const text = a && existsSync(a.snap) ? read(a.snap) : null
+  if (text == null || rangeHash(text, a.start, a.end) !== a.hash) throw new Fail(`写しの hash が台帳と違う（写しが書き換わった。next からやり直す）: ${a ? a.snap : c.asset}`)
+  // 検証役の引用を照らす本文に、渡した関係する資産の本文を足す（読む役の照合は資産の本文だけ）。
+  const related_texts = (a.related || []).filter((id) => L.assets[id]).map((id) => {
+    const r = L.assets[id]
+    const t = existsSync(r.snap) ? read(r.snap) : null
+    if (t == null || rangeHash(t, r.start, r.end) !== r.hash) throw new Fail(`写しの hash が台帳と違う（写しが書き換わった。next からやり直す）: ${r.snap}`)
+    return rangeText(t, r.start, r.end)
+  })
+  return { ...withBlocks({ text: rangeText(text, a.start, a.end) }), retro: !!a.retro, related_texts }
+}
+function submitCell(L, id, c, file, asset) {
+  let rep = null
+  try { rep = JSON.parse(read(file)) } catch { rep = null }
+  const r = c.status === 'seen' && c.read ? submitVerify(L, id, rep, asset) : submitRead(L, id, rep, asset)
+  L.pending.submits = (L.pending.submits || 0) + 1
+  return r
+}
 function cmdSubmit(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => {
     const L = load(dir)
     const w = reviewWorker(L, o)
-    const id = need(o, 'cell')
+    if (o.cell === undefined) {
+      if (o.result !== undefined) throw new Fail('--result は --cell と組で使う（--cell が無ければ、claim が返した result_path を CLI が引く）')
+      const call = L.pending.call_id
+      const held = Object.entries(L.cells).filter(([, c]) => c.claim && c.claim.call === call && c.claim.worker === w.id)
+      const assets = new Map()
+      for (const [, c] of held) if (!assets.has(c.asset)) assets.set(c.asset, snapText(L, c))
+      const results = []
+      const missing = []
+      for (const [id, c] of held) {
+        const file = resultPath(dir, call, w, id)
+        if (!existsSync(file)) { missing.push(id); continue }
+        const r = submitCell(L, id, c, file, assets.get(c.asset))
+        if (r.problems.length) rmSync(file, { force: true })
+        results.push({ cell: id, ok: !r.problems.length, problems: r.problems, dropped: r.dropped })
+      }
+      if (results.length) save(dir, L)
+      return { ok: true, results, missing }
+    }
+    const id = o.cell
     const c = L.cells[id]
     if (!c) throw new Fail(`台帳に無い枡: ${id}`)
     if (!c.claim) throw new Fail(`取られていない枡（claim が無い）: ${id}（claim で取った枡だけを出す。受理の後と、開示に倒した後は出し直せない）`)
     if (c.claim.worker !== w.id || c.claim.call !== L.pending.call_id) throw new Fail(`別の worker が取った枡: ${id}（取ったのは ${c.claim.worker}）`)
-    const a = L.assets[c.asset]
     const file = need(o, 'result')
     if (!existsSync(file)) throw new Fail(`結果のファイルが無い: ${file}`)
-    const text = a && existsSync(a.snap) ? read(a.snap) : null
-    if (text == null || rangeHash(text, a.start, a.end) !== a.hash) throw new Fail(`写しの hash が台帳と違う（写しが書き換わった。next からやり直す）: ${a ? a.snap : c.asset}`)
-    let rep = null
-    try { rep = JSON.parse(read(file)) } catch { rep = null }
-    const asset = { ...withBlocks({ text: rangeText(text, a.start, a.end) }), retro: !!a.retro }
-    const r = c.status === 'seen' && c.read ? submitVerify(L, id, rep, asset) : submitRead(L, id, rep, asset)
-    L.pending.submits = (L.pending.submits || 0) + 1
+    const r = submitCell(L, id, c, file, snapText(L, c))
     save(dir, L)
     return r.problems.length ? { ok: false, cell: id, problems: r.problems, dropped: r.dropped } : { ok: true, cell: id, status: L.cells[id].status }
   })
