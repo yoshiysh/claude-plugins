@@ -14,31 +14,35 @@ Windows/WSL 上で稼働する高速ローカル推論エンジン **Strata**（
 
 ## 1. CLI からの実行
 
+ネイティブ Rust バイナリ `tools/strata run`（または互換ラッパー `tools/strata-worker`）経由で実行します。起動時間は 1ms 未満です。
+
 ```bash
 # テストコード生成 (正常系・異常系・境界値を網羅)
-tools/strata-worker --role test-gen --target "path/to/target.py" --goal "Write comprehensive unit tests covering all edge cases" --output "tests/test_target.py"
+tools/strata run --role test-gen --target "path/to/target.py" --goal "Write comprehensive unit tests covering all edge cases" --output "tests/test_target.py"
 
 # 敵対的テストレビュー (甘いアサーション、モック隠蔽、Flaky 検知)
-tools/strata-worker --role test-review --target "tests/test_target.py" --context "path/to/target.py" --goal "Verify test quality and attack weaknesses"
+tools/strata run --role test-review --target "tests/test_target.py" --context "path/to/target.py" --goal "Verify test quality and attack weaknesses"
 
 # コード実装 (既存規約に沿った最小堅牢な実装)
-tools/strata-worker --role code-gen --target "path/to/file.py" --goal "Implement user authentication helper" --context "path/to/types.py" --output "path/to/file.py"
+tools/strata run --role code-gen --target "path/to/file.py" --goal "Implement user authentication helper" --context "path/to/types.py" --output "path/to/file.py"
 
 # 敵対的コードレビュー (欠陥ハンター: リーク、Off-by-one、エラー握りつぶし)
-tools/strata-worker --role code-review --target "path/to/file.py" --diff --goal "Find all critical failure modes and concurrency bugs"
+tools/strata run --role code-review --target "path/to/file.py" --diff --goal "Find all critical failure modes and concurrency bugs"
 
 # ドキュメント作成 (仕様解説)
-tools/strata-worker --role doc-gen --target "path/to/file.py" --goal "Write API reference document" --output "docs/api.md"
+tools/strata run --role doc-gen --target "path/to/file.py" --goal "Write API reference document" --output "docs/api.md"
 
 # ドキュメント監査 (言行不一致検知)
-tools/strata-worker --role doc-review --target "docs/api.md" --context "path/to/file.py" --goal "Verify consistency between doc and actual implementation"
+tools/strata run --role doc-review --target "docs/api.md" --context "path/to/file.py" --goal "Verify consistency between doc and actual implementation"
 ```
+
+※ 従来の `tools/strata-worker --role ...` も透過的に Rust 実装へ委譲されます。
 
 ---
 
 ## 2. MCP ツールとしての利用
 
-MCP クライアント（Claude Code, Antigravity, Cursor 等）から以下のツールを呼び出せます：
+MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers` 設定に `tools/strata mcp`（または `tools/strata-mcp`）を登録することで、以下のツールを呼び出せます：
 
 * **`strata_generate`**:
   * `role`: `"test-gen"`, `"code-gen"`, または `"doc-gen"`

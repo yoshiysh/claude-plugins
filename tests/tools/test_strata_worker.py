@@ -7,8 +7,8 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-WORKER_PATH = REPO_ROOT / "tools" / "strata-worker"
-MCP_PATH = REPO_ROOT / "tools" / "strata-mcp"
+WORKER_PATH = REPO_ROOT / "tools" / "strata-worker.py"
+MCP_PATH = REPO_ROOT / "tools" / "strata-mcp.py"
 
 def _load_module(name: str, path: Path):
     loader = SourceFileLoader(name, str(path))
