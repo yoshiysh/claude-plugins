@@ -1,0 +1,8 @@
+{
+    "name": "strata",
+    "version": "0.1.0",
+    "description": "Delegates code/test/doc generation and adversarial review to high-speed local Strata models via skill and MCP server.",
+    "author": {
+        "name": "yoshiysh"
+    }
+}

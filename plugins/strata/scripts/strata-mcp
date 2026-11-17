@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Pre-installed binary on PATH
+if command -v strata >/dev/null 2>&1; then
+  exec strata mcp "$@"
+fi
+
+# 2. Cached binary installed by this plugin wrapper
+CACHE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/strata"
+CACHE_BIN="${CACHE_ROOT}/bin/strata"
+if [ -x "$CACHE_BIN" ]; then
+  exec "$CACHE_BIN" mcp "$@"
+fi
+
+# 3. Local repository checkout fallback (development mode)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for ancestor in "$SCRIPT_DIR/../../.." "$SCRIPT_DIR/../../../.."; do
+  if [ -x "$ancestor/crates/strata/target/release/strata" ]; then
+    exec "$ancestor/crates/strata/target/release/strata" mcp "$@"
+  fi
+done
+
+# 4. Auto-install via cargo from upstream repository
+if command -v cargo >/dev/null 2>&1; then
+  echo "[strata] Installing strata binary via cargo..." >&2
+  mkdir -p "$CACHE_ROOT"
+  cargo install --locked --git https://github.com/yoshiysh/claude-plugins.git --bin strata --root "$CACHE_ROOT" >&2
+  exec "$CACHE_BIN" mcp "$@"
+fi
+
+echo "Error: 'strata' binary not found on PATH and 'cargo' is not available." >&2
+exit 1

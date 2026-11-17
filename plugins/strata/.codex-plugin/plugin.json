@@ -1,0 +1,19 @@
+{
+    "name": "strata",
+    "version": "0.1.0",
+    "description": "Delegates code/test/doc generation and adversarial review to high-speed local Strata models via skill and MCP server.",
+    "author": {
+        "name": "yoshiysh"
+    },
+    "interface": {
+        "displayName": "strata",
+        "shortDescription": "Delegates code/test/doc generation and adversarial review to high-speed local Strata models via skill and MCP server.",
+        "longDescription": "Delegates code/test/doc generation and adversarial review to high-speed local Strata models via skill and MCP server.",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+            "このプラグインの対応範囲と使い方を教えて"
+        ]
+    }
+}
