@@ -4,6 +4,7 @@ use std::process::Command;
 
 use strata::cli::{Cli, Commands, RunArgs};
 use strata::client::call_strata_api;
+use strata::guidelines::{collect_guidelines, resolve_workspace_root};
 use strata::mcp;
 use strata::personas::{build_user_prompt, find_persona};
 use strata::syntax::verify_syntax;
@@ -52,9 +53,26 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
         }
     }
 
+    // Collect guidelines unless disabled
+    let guidelines = if !args.no_guidelines {
+        if let Some(root) = resolve_workspace_root(args.workspace.as_deref(), args.target.as_deref()) {
+            collect_guidelines(&root, role, &args.extra_guidelines)
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     // Target formatting
     let target_formatted = format_target(args.target.as_deref());
-    let user_prompt = build_user_prompt(goal, target_formatted.as_deref(), &loaded_contexts, git_diff.as_deref());
+    let user_prompt = build_user_prompt(
+        goal,
+        target_formatted.as_deref(),
+        &loaded_contexts,
+        git_diff.as_deref(),
+        &guidelines,
+    );
 
     let api_key = resolve_api_key(args.api_key.as_deref());
     let temp = args.temperature.unwrap_or(persona.temperature);

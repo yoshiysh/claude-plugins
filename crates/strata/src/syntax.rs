@@ -25,6 +25,16 @@ pub fn verify_syntax(path: &Path) -> (bool, String) {
         .unwrap_or("")
         .to_lowercase();
 
+    if ext == "json" {
+        return match std::fs::read_to_string(path) {
+            Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(_) => (true, "Syntax check passed (serde_json)".to_string()),
+                Err(e) => (false, format!("Syntax error (json): {}", e)),
+            },
+            Err(e) => (false, format!("Failed to read JSON file: {}", e)),
+        };
+    }
+
     let (binary, args): (&str, Vec<String>) = match ext.as_str() {
         "py" | "pyw" => {
             let py = find_python();
@@ -54,18 +64,6 @@ pub fn verify_syntax(path: &Path) -> (bool, String) {
                 path.to_string_lossy().to_string(),
             ],
         ),
-        "json" => {
-            let py = find_python();
-            (
-                "python3",
-                vec![
-                    py,
-                    "-c".to_string(),
-                    "import json, sys; json.load(open(sys.argv[1]))".to_string(),
-                    path.to_string_lossy().to_string(),
-                ],
-            )
-        }
         _ => {
             return (
                 true,

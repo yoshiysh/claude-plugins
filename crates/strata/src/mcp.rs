@@ -3,6 +3,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 use crate::client::call_strata_api;
+use crate::guidelines::{collect_guidelines, resolve_workspace_root};
 use crate::personas::{build_user_prompt, find_persona};
 use crate::syntax::verify_syntax;
 use crate::utils::{clean_markdown_fences, format_target, resolve_api_key};
@@ -35,6 +36,14 @@ pub fn get_tools() -> Value {
                     "output_path": {
                         "type": "string",
                         "description": "Optional destination file path to write and syntax-verify the output."
+                    },
+                    "workspace_root": {
+                        "type": "string",
+                        "description": "Optional workspace root directory for discovering CLAUDE.md/REVIEW.md guidelines."
+                    },
+                    "use_guidelines": {
+                        "type": "boolean",
+                        "description": "Whether to auto-load repository guidelines (default: true)."
                     }
                 },
                 "required": ["role", "goal"]
@@ -66,6 +75,14 @@ pub fn get_tools() -> Value {
                     "diff": {
                         "type": "string",
                         "description": "Optional git diff or proposed code changes to review."
+                    },
+                    "workspace_root": {
+                        "type": "string",
+                        "description": "Optional workspace root directory for discovering CLAUDE.md/REVIEW.md guidelines."
+                    },
+                    "use_guidelines": {
+                        "type": "boolean",
+                        "description": "Whether to auto-load repository guidelines (default: true)."
                     }
                 },
                 "required": ["role", "goal"]
@@ -80,14 +97,35 @@ fn handle_generate(args: &Value) -> Result<String, String> {
     let target = args.get("target").and_then(|t| t.as_str());
     let context_str = args.get("context").and_then(|c| c.as_str());
     let output_path = args.get("output_path").and_then(|o| o.as_str());
+    let workspace_root = args.get("workspace_root").and_then(|w| w.as_str());
+    let use_guidelines = args
+        .get("use_guidelines")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let mut contexts = Vec::new();
     if let Some(c) = context_str {
         contexts.push(c.to_string());
     }
 
+    let guidelines = if use_guidelines {
+        if let Some(root) = resolve_workspace_root(workspace_root, target.or(output_path)) {
+            collect_guidelines(&root, role, &[])
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let target_formatted = format_target(target);
-    let user_prompt = build_user_prompt(goal, target_formatted.as_deref(), &contexts, None);
+    let user_prompt = build_user_prompt(
+        goal,
+        target_formatted.as_deref(),
+        &contexts,
+        None,
+        &guidelines,
+    );
     let persona = find_persona(role).ok_or_else(|| format!("Unknown role: {}", role))?;
 
     let api_key = resolve_api_key(None);
@@ -131,14 +169,35 @@ fn handle_review(args: &Value) -> Result<String, String> {
     let target = args.get("target").and_then(|t| t.as_str());
     let context_str = args.get("context").and_then(|c| c.as_str());
     let diff = args.get("diff").and_then(|d| d.as_str());
+    let workspace_root = args.get("workspace_root").and_then(|w| w.as_str());
+    let use_guidelines = args
+        .get("use_guidelines")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let mut contexts = Vec::new();
     if let Some(c) = context_str {
         contexts.push(c.to_string());
     }
 
+    let guidelines = if use_guidelines {
+        if let Some(root) = resolve_workspace_root(workspace_root, target) {
+            collect_guidelines(&root, role, &[])
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let target_formatted = format_target(target);
-    let user_prompt = build_user_prompt(goal, target_formatted.as_deref(), &contexts, diff);
+    let user_prompt = build_user_prompt(
+        goal,
+        target_formatted.as_deref(),
+        &contexts,
+        diff,
+        &guidelines,
+    );
     let persona = find_persona(role).ok_or_else(|| format!("Unknown role: {}", role))?;
 
     let api_key = resolve_api_key(None);

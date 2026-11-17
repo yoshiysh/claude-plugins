@@ -1,8 +1,9 @@
 use serde_json::json;
 use std::collections::HashSet;
 use std::io::Write;
-use tempfile::NamedTempFile;
+use tempfile::{tempdir, NamedTempFile};
 
+use strata::guidelines::{collect_guidelines, find_workspace_root};
 use strata::mcp::{get_tools, handle_rpc};
 use strata::personas::{build_user_prompt, PERSONAS};
 use strata::syntax::verify_syntax;
@@ -42,19 +43,54 @@ fn test_clean_markdown_fences() {
 #[test]
 fn test_build_user_prompt() {
     let contexts = vec!["Context 1 content".to_string(), "Context 2 content".to_string()];
+    let guidelines = vec![("AGENTS.md".to_string(), "Follow strict rules.".to_string())];
     let prompt = build_user_prompt(
         "Generate exhaustive tests",
         Some("src/calc.py"),
         &contexts,
         Some("+ def add(a, b): return a + b"),
+        &guidelines,
     );
 
     assert!(prompt.contains("## Goal\nGenerate exhaustive tests"));
+    assert!(prompt.contains("## Repository Guidelines & Standards"));
+    assert!(prompt.contains("### Guideline: AGENTS.md\nFollow strict rules."));
     assert!(prompt.contains("## Target\nsrc/calc.py"));
     assert!(prompt.contains("## Git Diff\n```diff\n+ def add(a, b): return a + b\n```"));
     assert!(prompt.contains("## Context & References"));
     assert!(prompt.contains("### Reference 1\nContext 1 content"));
     assert!(prompt.contains("### Reference 2\nContext 2 content"));
+}
+
+#[test]
+fn test_guidelines_collection_and_dedup() {
+    let tmp = tempdir().unwrap();
+    let root = tmp.path();
+
+    std::fs::write(root.join("AGENTS.md"), "# Agents Rule").unwrap();
+    std::fs::write(root.join("REVIEW.md"), "# Review Criteria").unwrap();
+    std::fs::create_dir_all(root.join("docs/guidelines")).unwrap();
+    std::fs::write(root.join("docs/guidelines/testing.md"), "# Testing Guide").unwrap();
+    std::fs::write(root.join("docs/guidelines/README.md"), "# Common Guide").unwrap();
+
+    // Symlink CLAUDE.md -> AGENTS.md
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("AGENTS.md"), root.join("CLAUDE.md")).unwrap();
+
+    // Subdirectory lookup for workspace root
+    let sub = root.join("src/nested");
+    std::fs::create_dir_all(&sub).unwrap();
+    assert_eq!(find_workspace_root(&sub).as_deref(), Some(root));
+
+    // test-gen should load CLAUDE.md/AGENTS.md (deduped to 1), REVIEW.md, testing.md, README.md
+    let collected = collect_guidelines(root, "test-gen", &[]);
+    let names: Vec<&str> = collected.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(names.contains(&"REVIEW.md"));
+    assert!(names.contains(&"docs/guidelines/testing.md"));
+    assert!(names.contains(&"docs/guidelines/README.md"));
+    // Deduplication check: CLAUDE.md and AGENTS.md resolve to same canonical file, so only 1 should appear
+    let agent_count = names.iter().filter(|&&n| n == "CLAUDE.md" || n == "AGENTS.md").count();
+    assert_eq!(agent_count, 1);
 }
 
 #[test]

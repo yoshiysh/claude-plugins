@@ -1,12 +1,11 @@
 ---
 name: strata-worker
-description: "Delegates code/test/documentation generation and ruthless adversarial review to the high-speed local Strata worker (Qwen MoE via WSL). Use test-gen for comprehensive tests, test-review for catching mock abuse, code-gen for minimal robust implementations, code-review for bug hunting, doc-gen for specs, and doc-review for semantic consistency."
+description: "Delegates code/test/documentation generation and ruthless adversarial review to the high-speed Strata worker. Use test-gen for comprehensive tests, test-review for catching mock abuse, code-gen for minimal robust implementations, code-review for bug hunting, doc-gen for specs, and doc-review for semantic consistency."
 ---
 
 # Strata Worker
 
-Windows/WSL 上で稼働する高速ローカル推論エンジン **Strata**（`http://127.0.0.1:8080/v1`）へ、
-特化型ワーカーとしてタスクをオフロード（委譲）します。
+高速推論エンジン **Strata**（`http://127.0.0.1:8080/v1` または `STRATA_BASE_URL`）へ、特化型ワーカーとしてタスクをオフロード（委譲）します。
 
 生成役と敵対的検証役を明確に分離し、1 回完結型のプロンプト（数千トークン）で高速に実行します。
 
@@ -50,21 +49,38 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `target`: 対象ファイルまたはシンボル名
   * `context`: 型定義、参考ファイル、契約
   * `output_path`: 保存先パス（指定時は自動で構文検査を実施）
+  * `workspace_root`: 規約検出用のルートディレクトリ（任意）
+  * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
 * **`strata_review`**:
   * `role`: `"test-review"`, `"code-review"`, または `"doc-review"`
   * `goal`: 検証基準・重点監査項目（必須）
   * `target`: 対象ファイルまたはコンポーネント
   * `context`: 仕様書・参考実装
   * `diff`: git diff 文字列
+  * `workspace_root`: 規約検出用のルートディレクトリ（任意）
+  * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
 
 ---
 
-## 3. 設定と前提
+## 3. リポジトリ規約・レビュー観点の自動注入
 
-* **Strata サーバーの起動**:
-  ```bash
-  tools/claude-strata --start-server
-  ```
+既定では、ワークスペースルート（Git ルート等）から以下の規約ファイルを自動検出してプロンプトに注入します（シンボリックリンクは重複排除）：
+
+* **全ロール共通（生成・レビュー双方）**: `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`
+  * 実装役（`*-gen`）にも `REVIEW.md` を事前に渡すことで、レビュー基準から外れないコード・テスト・文書を生成します。
+* **ロール別追加ガイドライン**:
+  * `code-*`: `docs/guidelines/README.md`, `docs/guidelines/javascript.md`
+  * `test-*`: `docs/guidelines/testing.md`, `docs/guidelines/README.md`
+  * `doc-*`: `docs/guidelines/documentation.md`, `docs/guidelines/README.md`
+
+CLI では `--no-guidelines` で自動注入を無効化、`--guidelines <path>` で追加ファイルを指定、`--workspace <dir>` で探索起点を明示指定できます。
+
+---
+
+## 4. 設定と前提
+
+* **Strata API エンドポイント**:
+  * 指定された OpenAI 互換エンドポイント（既定: `http://127.0.0.1:8080/v1`）が稼働・到達可能であること。
 * **環境変数（任意）**:
   * `STRATA_BASE_URL`: 既定は `http://127.0.0.1:8080/v1`
   * `STRATA_API_KEY`: 既定は `~/.config/strata/api_key` から自動読込

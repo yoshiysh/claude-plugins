@@ -49,6 +49,18 @@ pub struct RunArgs {
     #[arg(long)]
     pub no_syntax_check: bool,
 
+    /// Skip automatic loading of repository guidelines (CLAUDE.md, AGENTS.md, REVIEW.md, etc.)
+    #[arg(long)]
+    pub no_guidelines: bool,
+
+    /// Additional guideline file paths to include (can be repeated)
+    #[arg(long = "guidelines")]
+    pub extra_guidelines: Vec<String>,
+
+    /// Workspace root directory for discovering repository guidelines
+    #[arg(long)]
+    pub workspace: Option<String>,
+
     /// Strata API base URL
     #[arg(long, default_value = "http://127.0.0.1:8080/v1")]
     pub api_base: String,

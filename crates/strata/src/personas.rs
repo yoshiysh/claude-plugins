@@ -120,9 +120,17 @@ pub fn build_user_prompt(
     target: Option<&str>,
     contexts: &[String],
     diff: Option<&str>,
+    guidelines: &[(String, String)],
 ) -> String {
     let mut sections = Vec::new();
     sections.push(format!("## Goal\n{}\n", goal));
+
+    if !guidelines.is_empty() {
+        sections.push("## Repository Guidelines & Standards".to_string());
+        for (name, content) in guidelines {
+            sections.push(format!("### Guideline: {}\n{}\n", name, content));
+        }
+    }
 
     if let Some(t) = target {
         sections.push(format!("## Target\n{}\n", t));
