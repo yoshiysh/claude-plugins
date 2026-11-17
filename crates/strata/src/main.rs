@@ -85,6 +85,7 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
         &user_prompt,
         temp,
         args.max_tokens,
+        args.reasoning_effort.as_deref(),
     )?;
 
     let final_output = if !persona.is_review {

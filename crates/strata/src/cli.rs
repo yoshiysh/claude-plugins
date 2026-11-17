@@ -80,6 +80,10 @@ pub struct RunArgs {
     /// Sampling temperature (default: role-dependent)
     #[arg(long)]
     pub temperature: Option<f32>,
+
+    /// Reasoning effort level for thinking models (low, medium, high)
+    #[arg(long, value_parser = ["low", "medium", "high"])]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

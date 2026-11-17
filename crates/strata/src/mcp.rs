@@ -48,6 +48,11 @@ pub fn get_tools() -> Value {
                     "max_tokens": {
                         "type": "integer",
                         "description": "Maximum output tokens (default: 4096)."
+                    },
+                    "reasoning_effort": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                        "description": "Optional reasoning effort level for thinking models (low, medium, high)."
                     }
                 },
                 "required": ["role", "goal"]
@@ -91,6 +96,11 @@ pub fn get_tools() -> Value {
                     "max_tokens": {
                         "type": "integer",
                         "description": "Maximum output tokens (default: 4096)."
+                    },
+                    "reasoning_effort": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                        "description": "Optional reasoning effort level for thinking models (low, medium, high)."
                     }
                 },
                 "required": ["role", "goal"]
@@ -114,6 +124,7 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         .get("max_tokens")
         .and_then(|v| v.as_u64())
         .unwrap_or(4096) as u32;
+    let reasoning_effort = args.get("reasoning_effort").and_then(|v| v.as_str());
 
     let mut contexts = Vec::new();
     if let Some(c) = context_str {
@@ -152,6 +163,7 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         &user_prompt,
         persona.temperature,
         max_tokens,
+        reasoning_effort,
     )?;
 
     let clean_output = clean_markdown_fences(&raw_output);
@@ -190,6 +202,7 @@ fn handle_review(args: &Value) -> Result<String, String> {
         .get("max_tokens")
         .and_then(|v| v.as_u64())
         .unwrap_or(4096) as u32;
+    let reasoning_effort = args.get("reasoning_effort").and_then(|v| v.as_str());
 
     let mut contexts = Vec::new();
     if let Some(c) = context_str {
@@ -228,6 +241,7 @@ fn handle_review(args: &Value) -> Result<String, String> {
         &user_prompt,
         persona.temperature,
         max_tokens,
+        reasoning_effort,
     )?;
 
     Ok(raw_output.trim().to_string())

@@ -36,6 +36,7 @@ tools/strata run --role doc-review --target "docs/api.md" --context "path/to/fil
 ```
 
 ※ 従来の `tools/strata-worker --role ...` も透過的に Rust 実装へ委譲されます。
+※ `--reasoning-effort <low|medium|high>` でタスク難易度に応じて思考量を動的に調整できます。
 
 ---
 
@@ -52,6 +53,7 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `workspace_root`: 規約検出用のルートディレクトリ（任意）
   * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
+  * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
 * **`strata_review`**:
   * `role`: `"test-review"`, `"code-review"`, または `"doc-review"`
   * `goal`: 検証基準・重点監査項目（必須）
@@ -61,6 +63,7 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `workspace_root`: 規約検出用のルートディレクトリ（任意）
   * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
+  * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
 
 ---
 

@@ -89,13 +89,14 @@ pub fn call_strata_api(
     user_prompt: &str,
     temperature: f32,
     max_tokens: u32,
+    reasoning_effort: Option<&str>,
 ) -> Result<String, String> {
     ensure_model_loaded(api_base, api_key);
 
     let clean_base = api_base.trim_end_matches('/');
     let url = format!("{}/chat/completions", clean_base);
 
-    let payload = json!({
+    let mut payload = json!({
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -105,6 +106,10 @@ pub fn call_strata_api(
         "max_tokens": max_tokens,
         "stream": true,
     });
+
+    if let Some(effort) = reasoning_effort {
+        payload["reasoning_effort"] = json!(effort);
+    }
 
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(30))
