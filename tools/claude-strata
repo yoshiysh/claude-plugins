@@ -33,6 +33,13 @@ STRATA_CONTEXT="${STRATA_CONTEXT:-128k}"
 STRATA_KV="${STRATA_KV:-q4_0}"
 STRATA_VRAM_RESERVE="${STRATA_VRAM_RESERVE:-1152}"
 STRATA_ENGINE_SILENCE="${STRATA_ENGINE_SILENCE:-0}"
+STRATA_DRAFTING="${STRATA_DRAFTING:-mtp}"
+STRATA_CONV_CACHE="${STRATA_CONV_CACHE:-2048}"
+STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
+STRATA_COLD_OVERLAP="${STRATA_COLD_OVERLAP:-0}"
+STRATA_VISION="${STRATA_VISION:-cpu}"
+STRATA_TUNE="${STRATA_TUNE:-skip}"
+STRATA_RETUNE="${STRATA_RETUNE:-0}"
 
 KEY_DIR="${HOME}/.config/strata"
 KEY_FILE="${KEY_DIR}/api_key"
@@ -131,7 +138,12 @@ start_server_on_wsl() {
   local ctx="${2:-$STRATA_CONTEXT}"
   local vram="${3:-$STRATA_VRAM_RESERVE}"
 
-  echo "WSL 上で Strata サーバーを起動します (Model: ${STRATA_MODEL_SIZE}, Context: ${ctx}, KV: ${kv}, VRAM Reserve: ${vram}MiB)..." >&2
+  local retune_flag=""
+  if [ "${STRATA_RETUNE}" = "1" ]; then
+    retune_flag="--retune"
+  fi
+
+  echo "WSL 上で Strata サーバーを起動します (Model: ${STRATA_MODEL_SIZE}, Context: ${ctx}, KV: ${kv}, VRAM Reserve: ${vram}MiB, Drafting: ${STRATA_DRAFTING}, ConvCache: ${STRATA_CONV_CACHE}MiB, AdaptOverlap: ${STRATA_ADAPT_OVERLAP})..." >&2
 
   ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<EOF
 set -e
@@ -147,11 +159,16 @@ PYTHON=\$(dirname "\$STRATA_CLI")/python/bin/python3.12
   --model "$STRATA_MODEL_SIZE" \\
   --context "$ctx" \\
   --kv "$kv" \\
-  --vision cpu \\
-  --tune skip \\
+  --vision "$STRATA_VISION" \\
+  --drafting "$STRATA_DRAFTING" \\
+  --tune "$STRATA_TUNE" \\
+  $retune_flag \\
   --access lan \\
   --port "$STRATA_PORT" \\
   --set vram-reserve-mib="$vram" \\
+  --set conversation-cache-mib="$STRATA_CONV_CACHE" \\
+  --set STRATA_ADAPT_OVERLAP="$STRATA_ADAPT_OVERLAP" \\
+  --set STRATA_COLD_OVERLAP="$STRATA_COLD_OVERLAP" \\
   --restart \\
   --no-tui
 EOF
@@ -322,6 +339,26 @@ while [ $# -gt 0 ]; do
     --vram-reserve)
       STRATA_VRAM_RESERVE="$2"
       shift 2
+      ;;
+    --vision)
+      STRATA_VISION="$2"
+      shift 2
+      ;;
+    --tune)
+      STRATA_TUNE="$2"
+      shift 2
+      ;;
+    --drafting)
+      STRATA_DRAFTING="$2"
+      shift 2
+      ;;
+    --conv-cache)
+      STRATA_CONV_CACHE="$2"
+      shift 2
+      ;;
+    --retune)
+      STRATA_RETUNE="1"
+      shift
       ;;
     *)
       PASSTHROUGH_ARGS+=("$1")
