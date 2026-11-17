@@ -10,6 +10,25 @@ expected_jar=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 actual_jar=$(shasum -a 256 "$jar" | cut -d ' ' -f 1)
 [ "$actual_jar" = "$expected_jar" ] || { echo "Unexpected TLC jar SHA-256: $actual_jar" >&2; exit 1; }
 only=${ONLY:-}   # 空でなければ、id がこの拡張正規表現に合うケースだけを回す
+shard=${SHARD:-} # 空でなければ、k/N（例: 1/4）で全ケースを通し番号で N 分割した k 番目だけを回す
+shard_k=
+shard_n=
+if [ -n "$shard" ]; then
+  case "$shard" in
+    */*)
+      shard_k=${shard%/*}
+      shard_n=${shard#*/}
+      ;;
+    *)
+      echo "SHARD must be in format k/N (e.g. 1/4): $shard" >&2
+      exit 1
+      ;;
+  esac
+  case "$shard_k" in ''|*[!0-9]*) echo "SHARD index must be integer: $shard_k" >&2; exit 1;; esac
+  case "$shard_n" in ''|*[!0-9]*) echo "SHARD total must be integer: $shard_n" >&2; exit 1;; esac
+  [ "$shard_n" -ge 1 ] || { echo "SHARD total must be >= 1" >&2; exit 1; }
+  [ "$shard_k" -ge 1 ] && [ "$shard_k" -le "$shard_n" ] || { echo "SHARD index must be between 1 and $shard_n" >&2; exit 1; }
+fi
 
 out=${OUT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/formal-method-skill-out.XXXXXX")}
 mkdir -p "$out"
@@ -46,7 +65,7 @@ dependent_skipped still_waiting_unknown save_fail status_fail'
   echo '===='
 } > RunW.tla
 
-failures=0 total=0
+failures=0 total=0 case_index=0
 json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
 
 # run_case id module kind props expect consts spec
@@ -55,6 +74,10 @@ json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')";
 #   consts: cfg の CONSTANTS の本文（改行区切り）
 run_case() {
   id=$1 module=$2 kind=$3 props=$4 expect=$5 consts=$6 spec=${7:-Spec}
+  case_index=$((case_index + 1))
+  if [ -n "$shard_k" ]; then
+    if [ "$(( (case_index - 1) % shard_n + 1 ))" -ne "$shard_k" ]; then return; fi
+  fi
   if [ -n "$only" ] && ! printf '%s' "$id" | grep -Eq "$only"; then return; fi
   total=$((total + 1))
   temporal=no
@@ -204,3 +227,4 @@ rmut unreadable_returns_new OneResult "$eread"
 
 printf '{"summary":true,"total":%d,"mismatched":%d,"out_dir":%s}\n' "$total" "$failures" "$(json_str "$out")"
 [ "$failures" -eq 0 ] || { echo "$failures case(s) did not match" >&2; exit 1; }
+[ "$total" -gt 0 ] || { echo "No cases executed" >&2; exit 1; }

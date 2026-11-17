@@ -1,4 +1,4 @@
-import { existsSync, promises as fs, readFileSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, promises as fs, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,16 @@ export const MIN_LAUNCHES = (() => {
 })();
 const COMMAND = /node '([^']+)' (\S+) <<'(BP_[0-9a-f]{8})'\n(.*)\n\3/g;
 
-const TMP_BASE = process.platform === 'linux' && existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+function isWritable(dir) {
+  try {
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const TMP_BASE = process.platform === 'linux' && !process.env.TMPDIR && isWritable('/dev/shm') ? '/dev/shm' : os.tmpdir();
 
 export async function tmp(t, prefix) {
   const dir = realpathSync(await fs.mkdtemp(path.join(TMP_BASE, prefix)));

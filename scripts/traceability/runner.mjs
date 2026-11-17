@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,15 +12,18 @@ function collect(command, args, options) {
     child.on('close',(code,signal) => resolve({code,signal,stdout,stderr}));
   });
 }
-export async function runTests(config, files) {
-  const help = await collect(process.execPath,['--help'],{});
-  const includeAll = help.stdout.includes('--test-coverage-include-all');
+export function buildTestArgs(helpText, env = process.env) {
+  const includeAll = helpText.includes('--test-coverage-include-all');
   const args = ['--test','--experimental-test-coverage','--test-reporter',fileURLToPath(new URL('./reporter.mjs',import.meta.url))];
   if (includeAll) args.push('--test-coverage-include-all');
-  if (help.stdout.includes('--test-concurrency')) {
-    const concurrency = process.env.NODE_TEST_CONCURRENCY || Math.max(2, availableParallelism());
-    args.push(`--test-concurrency=${concurrency}`);
+  if (helpText.includes('--test-concurrency') && env.NODE_TEST_CONCURRENCY) {
+    args.push(`--test-concurrency=${env.NODE_TEST_CONCURRENCY}`);
   }
+  return { args, includeAll };
+}
+export async function runTests(config, files) {
+  const help = await collect(process.execPath,['--help'],{});
+  const { args, includeAll } = buildTestArgs(help.stdout, process.env);
   for (const file of config.sourceFiles) if (!config.unmeasuredSources[file]) args.push(`--test-coverage-include=${file.replaceAll('\\','/')}`);
   args.push(...files);
   const env = {...process.env};
