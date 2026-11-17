@@ -10,10 +10,12 @@ permissions:
   contents: read
 
 jobs:
-  formal-bp-prd-scope:
+  formal-scope:
     runs-on: ubuntu-latest
     outputs:
-      run: ${{ steps.scope.outputs.run }}
+      run_bp_prd: ${{ steps.scope.outputs.run_bp_prd }}
+      run_formal_skill: ${{ steps.scope.outputs.run_formal_skill }}
+      run_formal_z3: ${{ steps.scope.outputs.run_formal_z3 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -28,16 +30,32 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = pull_request ]; then
             git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
-            run=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
+            run_bp_prd=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
               tests/formal/bp-prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
+
+            if grep -E '^(tests/formal/formal-method-skill/|\.agents/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
+              run_formal_skill=true
+            else
+              run_formal_skill=false
+            fi
+
+            if grep -E '^(tests/formal/formal-method-requirements/|tests/formal/formal-method-skill/z3_streams\.py|docs/requirements/formal-method\.md|docs/specifications/formal-method\.md|\.agents/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
+              run_formal_z3=true
+            else
+              run_formal_z3=false
+            fi
           else
-            run=true
+            run_bp_prd=true
+            run_formal_skill=true
+            run_formal_z3=true
           fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "run_bp_prd=$run_bp_prd" >> "$GITHUB_OUTPUT"
+          echo "run_formal_skill=$run_formal_skill" >> "$GITHUB_OUTPUT"
+          echo "run_formal_z3=$run_formal_z3" >> "$GITHUB_OUTPUT"
 
   formal-bp-prd:
-    needs: formal-bp-prd-scope
-    if: needs.formal-bp-prd-scope.outputs.run == 'true'
+    needs: formal-scope
+    if: needs.formal-scope.outputs.run_bp_prd == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -48,7 +66,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: '1.99.0'
+      - name: Cache TLC jar
+        id: cache-tlc
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/tla2tools.jar
+          key: tla2tools-v1.7.4
       - name: Download pinned TLC
+        if: steps.cache-tlc.outputs.cache-hit != 'true'
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
         run: |
@@ -64,48 +89,77 @@ jobs:
           tests/formal/bp-prd/check.sh
 
   formal-method-skill:
+    needs: formal-scope
+    if: needs.formal-scope.outputs.run_formal_skill == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with:
           distribution: temurin
           java-version: '11'
+      - name: Cache TLC jar
+        id: cache-tlc
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/tla2tools.jar
+          key: tla2tools-v1.7.4
       - name: Download pinned TLC
+        if: steps.cache-tlc.outputs.cache-hit != 'true'
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
         run: |
           curl --fail --location --retry 3 --output "$TLA2TOOLS" \
             https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
-      - name: Check formal-method design models (Run.tla, Lock.tla)
+      - name: Check formal-method design models (shard ${{ matrix.shard }}/4)
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
           OUT_DIR: ${{ runner.temp }}/formal-method-skill-out
+          SHARD: ${{ matrix.shard }}/4
         # shell を明示すると bash --noprofile --norc -eo pipefail {0} になり、check.sh の失敗が tee の成功に隠れない
         shell: bash
-        run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill.jsonl"
+        run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill-${{ matrix.shard }}.jsonl"
       - name: Preserve model checking results and traces
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: formal-method-skill
+          name: formal-method-skill-${{ matrix.shard }}
           path: |
-            ${{ runner.temp }}/formal-method-skill.jsonl
+            ${{ runner.temp }}/formal-method-skill-${{ matrix.shard }}.jsonl
             ${{ runner.temp }}/formal-method-skill-out/
           if-no-files-found: warn
 
   formal-method-z3:
+    needs: formal-scope
+    if: needs.formal-scope.outputs.run_formal_z3 == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Cache Z3 zip
+        id: cache-z3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/z3.zip
+          key: z3-5.3.3-x64-glibc-2.39-d56f60b06f432f33
       - name: Download pinned Z3
+        if: steps.cache-z3.outputs.cache-hit != 'true'
         env:
           Z3_ZIP: ${{ runner.temp }}/z3.zip
         run: |
           curl --fail --location --retry 3 --output "$Z3_ZIP" \
             https://github.com/Z3Prover/z3/releases/download/z3-5.3.3/z3-5.3.3-x64-glibc-2.39.zip
+      - name: Verify and unpack Z3
+        env:
+          Z3_ZIP: ${{ runner.temp }}/z3.zip
+        run: |
           echo "d56f60b06f432f33de5810f7f1a384a339131f361e2d54d08ea83eea14326880  $Z3_ZIP" | sha256sum -c -
-          unzip -q "$Z3_ZIP" -d "$RUNNER_TEMP/z3"
+          unzip -q -o "$Z3_ZIP" -d "$RUNNER_TEMP/z3"
+      - name: Locate Z3
+        run: |
           z3=$(find "$RUNNER_TEMP/z3" -path '*/bin/z3' -type f | head -1)
           [ -n "$z3" ] || { echo 'z3 executable not found in the archive' >&2; exit 1; }
           echo "Z3=$z3" >> "$GITHUB_ENV"
@@ -118,6 +172,8 @@ jobs:
 
   verification:
     runs-on: ubuntu-latest
+    env:
+      NODE_TEST_CONCURRENCY: '4'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1

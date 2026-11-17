@@ -29,6 +29,7 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
   - 期待と違うケースが 1 つでもあれば exit 1。`finding`・`limit` の反例も期待と違うものとして数える。設計か性質のどちらを直すかを依頼者が決めるまで、緑にしない。
   - 反例の trace は `OUT_DIR`（既定は一時の領域。消さない）に残す。
   - `ONLY` に拡張正規表現を渡すと、id が合うケースだけを回す。
+  - `SHARD` に `k/N`（例: `1/4`）を渡すと、全ケースを通し番号で N 分割した k 番目のシャードだけを回す（CI の並列実行用）。
 - CI では `verification.yml` の `formal-method-skill` job が走らせ、JSON と trace を artifact に残す。`z3_streams.py` は `formal-method-z3` job が Linux の Z3 で走らせる。
 
 ## Lock.tla
