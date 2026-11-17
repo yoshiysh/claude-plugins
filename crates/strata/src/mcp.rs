@@ -44,6 +44,10 @@ pub fn get_tools() -> Value {
                     "use_guidelines": {
                         "type": "boolean",
                         "description": "Whether to auto-load repository guidelines (default: true)."
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum output tokens (default: 4096)."
                     }
                 },
                 "required": ["role", "goal"]
@@ -83,6 +87,10 @@ pub fn get_tools() -> Value {
                     "use_guidelines": {
                         "type": "boolean",
                         "description": "Whether to auto-load repository guidelines (default: true)."
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum output tokens (default: 4096)."
                     }
                 },
                 "required": ["role", "goal"]
@@ -102,6 +110,10 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         .get("use_guidelines")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+    let max_tokens = args
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(4096) as u32;
 
     let mut contexts = Vec::new();
     if let Some(c) = context_str {
@@ -139,7 +151,7 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         persona.system_prompt,
         &user_prompt,
         persona.temperature,
-        4096,
+        max_tokens,
     )?;
 
     let clean_output = clean_markdown_fences(&raw_output);
@@ -174,6 +186,10 @@ fn handle_review(args: &Value) -> Result<String, String> {
         .get("use_guidelines")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+    let max_tokens = args
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(4096) as u32;
 
     let mut contexts = Vec::new();
     if let Some(c) = context_str {
@@ -211,7 +227,7 @@ fn handle_review(args: &Value) -> Result<String, String> {
         persona.system_prompt,
         &user_prompt,
         persona.temperature,
-        4096,
+        max_tokens,
     )?;
 
     Ok(raw_output.trim().to_string())

@@ -51,6 +51,7 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `output_path`: 保存先パス（指定時は自動で構文検査を実施）
   * `workspace_root`: 規約検出用のルートディレクトリ（任意）
   * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
+  * `max_tokens`: 最大出力トークン数（既定 `4096`）
 * **`strata_review`**:
   * `role`: `"test-review"`, `"code-review"`, または `"doc-review"`
   * `goal`: 検証基準・重点監査項目（必須）
@@ -59,6 +60,7 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `diff`: git diff 文字列
   * `workspace_root`: 規約検出用のルートディレクトリ（任意）
   * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
+  * `max_tokens`: 最大出力トークン数（既定 `4096`）
 
 ---
 

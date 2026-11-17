@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::io::{BufRead, BufReader};
 use std::time::Duration;
 
 pub fn ensure_model_loaded(api_base: &str, api_key: &str) {
@@ -33,7 +34,7 @@ pub fn ensure_model_loaded(api_base: &str, api_key: &str) {
     let load_endpoint = format!("{}/load", base_host);
 
     let mut load_req = ureq::post(&load_endpoint)
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(180))
         .set("Origin", base_host)
         .set("Content-Type", "application/json");
 
@@ -102,12 +103,18 @@ pub fn call_strata_api(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "stream": true,
     });
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(600))
+        .build();
 
     let mut retries = 0;
     let resp = loop {
-        let mut req = ureq::post(&url)
-            .timeout(Duration::from_secs(1800))
+        let mut req = agent
+            .post(&url)
             .set("Content-Type", "application/json");
 
         if !api_key.is_empty() {
@@ -123,47 +130,102 @@ pub fn call_strata_api(
             }
             Err(e) => {
                 return Err(format!(
-                    "Failed to connect to Strata at {}: {}\nEnsure the Strata server is running (e.g. tools/claude-strata --start-server).",
+                    "Failed to connect to Strata at {}: {}\nEnsure the Strata server is running and reachable.",
                     url, e
                 ));
             }
         }
     };
 
-    let res_json: Value = resp
-        .into_json()
-        .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
+    let reader = BufReader::new(resp.into_reader());
+    read_sse_stream(reader)
+}
 
-    let choices = res_json
-        .get("choices")
-        .and_then(|c| c.as_array())
-        .ok_or_else(|| "Strata returned empty or invalid choices".to_string())?;
+pub fn read_sse_stream<R: std::io::Read>(reader: BufReader<R>) -> Result<String, String> {
+    let mut content_buf = String::new();
+    let mut reasoning_buf = String::new();
+    let mut keepalive_count: usize = 0;
+    let mut data_count: usize = 0;
+    let mut received_done = false;
 
-    if choices.is_empty() {
-        return Err("Strata returned empty choices array".to_string());
+    for line_res in reader.lines() {
+        let line = line_res.map_err(|e| format!("Stream read error: {}", e))?;
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with(':') {
+            keepalive_count += 1;
+            continue;
+        }
+
+        if let Some(data_str) = trimmed.strip_prefix("data:") {
+            let data_str = data_str.trim();
+            if data_str == "[DONE]" {
+                received_done = true;
+                break;
+            }
+            data_count += 1;
+            if let Ok(chunk) = serde_json::from_str::<Value>(data_str) {
+                if let Some(err_obj) = chunk.get("error") {
+                    return Err(format!("Strata API error chunk: {}", err_obj));
+                }
+                if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
+                    if let Some(first) = choices.first() {
+                        if let Some(delta) = first.get("delta") {
+                            if let Some(c) = delta.get("content").and_then(|v| v.as_str()) {
+                                content_buf.push_str(c);
+                            }
+                            if let Some(r) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
+                                reasoning_buf.push_str(r);
+                            }
+                        } else if let Some(msg) = first.get("message") {
+                            if let Some(c) = msg.get("content").and_then(|v| v.as_str()) {
+                                content_buf.push_str(c);
+                            }
+                            if let Some(r) = msg.get("reasoning_content").and_then(|v| v.as_str()) {
+                                reasoning_buf.push_str(r);
+                            }
+                        }
+                    }
+                }
+            }
+        } else if trimmed.starts_with('{') {
+            data_count += 1;
+            // Fallback for non-streaming JSON response
+            if let Ok(res_json) = serde_json::from_str::<Value>(trimmed) {
+                if let Some(err_obj) = res_json.get("error") {
+                    return Err(format!("Strata API error: {}", err_obj));
+                }
+                if let Some(choices) = res_json.get("choices").and_then(|c| c.as_array()) {
+                    if let Some(first) = choices.first() {
+                        if let Some(msg) = first.get("message") {
+                            if let Some(c) = msg.get("content").and_then(|v| v.as_str()) {
+                                content_buf.push_str(c);
+                            }
+                            if let Some(r) = msg.get("reasoning_content").and_then(|v| v.as_str()) {
+                                reasoning_buf.push_str(r);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    let message = choices[0]
-        .get("message")
-        .ok_or_else(|| "Missing message object in choice".to_string())?;
-
-    let content = message
-        .get("content")
-        .and_then(|c| c.as_str())
-        .unwrap_or("")
-        .trim();
-
-    let reasoning = message
-        .get("reasoning_content")
-        .and_then(|r| r.as_str())
-        .unwrap_or("")
-        .trim();
-
-    if !content.is_empty() {
-        Ok(content.to_string())
-    } else if !reasoning.is_empty() {
-        Ok(reasoning.to_string())
+    let content_trimmed = content_buf.trim();
+    if !content_trimmed.is_empty() {
+        Ok(content_trimmed.to_string())
     } else {
-        Ok(String::new())
+        let reasoning_trimmed = reasoning_buf.trim();
+        if !reasoning_trimmed.is_empty() {
+            Ok(reasoning_trimmed.to_string())
+        } else {
+            Err(format!(
+                "Strata returned empty response stream (keepalives={}, data_chunks={}, done={})",
+                keepalive_count, data_count, received_done
+            ))
+        }
     }
 }

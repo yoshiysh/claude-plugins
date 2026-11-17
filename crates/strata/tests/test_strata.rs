@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use tempfile::{tempdir, NamedTempFile};
 
+use strata::client::read_sse_stream;
 use strata::guidelines::{collect_guidelines, find_workspace_root};
 use strata::mcp::{get_tools, handle_rpc};
 use strata::personas::{build_user_prompt, PERSONAS};
@@ -155,4 +156,32 @@ fn test_mcp_initialize_and_tools_list() {
     // 3. get_tools schema check
     let direct_tools = get_tools();
     assert!(direct_tools.as_array().unwrap().len() >= 2);
+}
+
+#[test]
+fn test_read_sse_stream() {
+    use std::io::BufReader;
+
+    let sse_data = r#"data: {"choices":[{"delta":{"role":"assistant","content":""}}]}
+
+: keep-alive
+
+data: {"choices":[{"delta":{"reasoning_content":"Thinking..."}}]}
+
+data: {"choices":[{"delta":{"content":"Hello "}}]}
+
+data: {"choices":[{"delta":{"content":"World!"}}]}
+
+data: [DONE]
+"#;
+    let res = read_sse_stream(BufReader::new(sse_data.as_bytes())).unwrap();
+    assert_eq!(res, "Hello World!");
+
+    let reasoning_only = r#": keep-alive
+data: {"choices":[{"delta":{"reasoning_content":"Only "}}]}
+data: {"choices":[{"delta":{"reasoning_content":"reasoning"}}]}
+data: [DONE]
+"#;
+    let res2 = read_sse_stream(BufReader::new(reasoning_only.as_bytes())).unwrap();
+    assert_eq!(res2, "Only reasoning");
 }
