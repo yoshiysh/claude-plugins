@@ -33,6 +33,7 @@ STRATA_CONTEXT="${STRATA_CONTEXT:-128k}"
 STRATA_KV="${STRATA_KV:-q4_0}"
 STRATA_VRAM_RESERVE="${STRATA_VRAM_RESERVE:-1152}"
 STRATA_ENGINE_SILENCE="${STRATA_ENGINE_SILENCE:-0}"
+STRATA_IDLE_UNLOAD="${STRATA_IDLE_UNLOAD:-0}"
 STRATA_DRAFTING="${STRATA_DRAFTING:-mtp}"
 STRATA_CONV_CACHE="${STRATA_CONV_CACHE:-2048}"
 STRATA_ADAPT_OVERLAP="${STRATA_ADAPT_OVERLAP:-1}"
@@ -178,13 +179,13 @@ EOF
   local key
   key=$(get_api_key)
 
-  echo "トンネルを接続し、最適化設定 (engine_silence_s=0) を適用しています..." >&2
+  echo "トンネルを接続し、最適化設定 (engine_silence_s=${STRATA_ENGINE_SILENCE}, idle_unload_s=${STRATA_IDLE_UNLOAD}) を適用しています..." >&2
   ensure_tunnel
   local http_code
   http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${STRATA_PORT}/config" \
     -H "Authorization: Bearer ${key}" \
     -H "Content-Type: application/json" \
-    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"vram_reserve_mib\": ${vram}}}" 2>/dev/null || echo "000")
+    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"idle_unload_s\": ${STRATA_IDLE_UNLOAD}, \"vram_reserve_mib\": ${vram}}}" 2>/dev/null || echo "000")
 
   if [ "$http_code" = "200" ]; then
     echo "Strata サーバーの起動と最適化が完了しました。" >&2
@@ -359,6 +360,10 @@ while [ $# -gt 0 ]; do
     --retune)
       STRATA_RETUNE="1"
       shift
+      ;;
+    --idle-unload)
+      STRATA_IDLE_UNLOAD="$2"
+      shift 2
       ;;
     *)
       PASSTHROUGH_ARGS+=("$1")
