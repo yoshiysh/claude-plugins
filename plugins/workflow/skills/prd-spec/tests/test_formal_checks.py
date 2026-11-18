@@ -42,12 +42,13 @@ def _node(src: str, spec) -> object:
     return json.loads(out.stdout)
 
 
-def _structural(docs, flow="__absent__"):
-    """doc_check.mjs の structuralFindings（文面付き）で検査する。"""
+def _structural(docs, flow="__absent__", writes_spec=None):
+    """doc_check.mjs の structuralFindings（文面付き）で検査する。writes_spec が None なら docs から導く既定に任せる。"""
     src = f"import {{ structuralFindings }} from {json.dumps(DOC_CHECK.as_uri())}\n" + (
-        "function main(spec) { return 'flow' in spec ? structuralFindings(spec.docs, spec.flow) : structuralFindings(spec.docs) }"
+        "function main(spec) { const ws = spec.writesSpec === null ? undefined : spec.writesSpec\n"
+        "  return 'flow' in spec ? structuralFindings(spec.docs, spec.flow, ws) : structuralFindings(spec.docs, undefined, ws) }"
     )
-    spec = {"docs": docs}
+    spec = {"docs": docs, "writesSpec": writes_spec}
     if flow != "__absent__":
         spec["flow"] = flow
     return _node(src, spec)
@@ -117,6 +118,60 @@ class FlowClosure(unittest.TestCase):
         self.assertEqual(f["document"], "specifications/flow")
         res = _structural([_doc("本文", flow_refs=refs + [{"item_id": "SP-FLOW-004", "ref": "F-004"}])], FLOW_OK)
         self.assertEqual(_ids(res, "ST-FLOW-"), [])
+
+    # F-002 だけに要求文書が当たり、F-004 の隣は F-002 だけ。今までは隣を持つ要求文書へ振っていた。
+    REQ_REFS = [{"item_id": "PR-FLOW-001", "ref": "F-001"}, {"item_id": "PR-FLOW-002", "ref": "F-002"},
+                {"item_id": "PR-FLOW-003", "ref": "F-003"}]
+
+    def _req(self):
+        return _doc("本文", key="requirements/flow", kind="requirements", flow_refs=self.REQ_REFS)
+
+    def _unattached(self, res):
+        return [(f["id"], f["document"]) for f in res["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-")]
+
+    def test_仕様書を書くランでは隣が要求文書に当たっていても仕様書へ振る(self):
+        res = _structural([self._req(), _doc("本文")], FLOW_OK)
+        self.assertEqual(self._unattached(res), [("ST-FLOW-UNATTACHED-F-004", "specifications/flow")])
+
+    def test_仕様書を書くランで振り先の仕様書がまだ無ければ未検査に宣言する(self):
+        res = _structural([self._req()], FLOW_OK, writes_spec=True)
+        self.assertEqual(self._unattached(res), [])
+        nc = [n for n in res["not_checked"] if n["id"] == "ST-NOTCHECKED-FLOW-UNATTACHED"]
+        self.assertEqual(len(nc), 1)
+        self.assertIn("F-004", nc[0]["issue"])
+
+    def test_仕様書を書くランでも固定の仕様書には振らない(self):
+        res = _structural([self._req(), _doc("本文", fixed=True)], FLOW_OK, writes_spec=True)
+        self.assertEqual(self._unattached(res), [])
+        self.assertIn("ST-NOTCHECKED-FLOW-UNATTACHED", [n["id"] for n in res["not_checked"]])
+
+    def test_要求文書だけのランは今までどおり隣の要求文書へ振る(self):
+        for docs in ([self._req()], [self._req(), _doc("本文", fixed=True)]):
+            res = _structural(docs, FLOW_OK)
+            self.assertEqual(self._unattached(res), [("ST-FLOW-UNATTACHED-F-004", "requirements/flow")])
+            self.assertNotIn("ST-NOTCHECKED-FLOW-UNATTACHED", [n["id"] for n in res["not_checked"]])
+
+    def test_既定は書く文書から決め_固定の仕様書しか無ければ要求文書だけのラン(self):
+        # 既定（writes_spec を渡さない）は固定でない文書のキーから決める。固定の仕様書は書かないので、仕様書を書くランにしない。
+        res = _structural([self._req(), _doc("本文", fixed=True)], FLOW_OK)
+        self.assertEqual(self._unattached(res), [("ST-FLOW-UNATTACHED-F-004", "requirements/flow")])
+
+    def test_読めない仕様書は書く文書として振り先になる(self):
+        # runChecks の exists: false は「まだ無い・読めない」文書で、書く対象から外れない。
+        with tempfile.TemporaryDirectory() as d:
+            req = Path(d) / "requirements-flow.md"
+            req.write_text("本文\n")
+            inp = {"documents": [{**{k: v for k, v in self._req().items() if k != "markdown"}, "path": str(req)},
+                                 {**{k: v for k, v in _doc("").items() if k != "markdown"}, "path": str(Path(d) / "missing.md")}],
+                   "flow": FLOW_OK}
+            f = Path(d) / "input.json"
+            f.write_text(json.dumps(inp, ensure_ascii=False))
+            out = subprocess.run(["node", str(DOC_CHECK), str(f)], capture_output=True, text=True, check=True)
+        structural = json.loads(out.stdout)["structural"]
+        src = f"import {{ expandStructural }} from {json.dumps(DOC_CHECK.as_uri())}\nfunction main(spec) {{ return expandStructural(spec) }}"
+        res = _node(src, structural)
+        self.assertEqual(self._unattached(res), [("ST-FLOW-UNATTACHED-F-004", "specifications/flow")])
+        self.assertIn("ST-NOTCHECKED-BODY-specifications/flow", [n["id"] for n in res["not_checked"]])
 
     def test_実在しない要素への当てはめを拾う(self):
         res = _structural([_doc("本文", flow_refs=[{"item_id": "SP-FLOW-001", "ref": "F-777"}])], FLOW_OK)

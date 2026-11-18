@@ -319,6 +319,83 @@ class DocChecks(_Workspace):
         _ok(self.ws, "doc")
         self.assertFalse(any(i.startswith("ST-REF-UNDEFINED-") for i in _findings(self.ws)))
 
+    def test_仕様書がまだ無い時点の要求文書の_lint_は流れの要素を要求文書に振らない(self):
+        # 要求文書の writer は仕様書のファイルができる前に lint する。仕様書を書くランかは plan.json で決まる。
+        (self.ws / "specifications-auth.md").unlink()
+        (self.ws / "specifications-auth.meta.json").unlink()
+        _ok(self.ws, "doc", "--doc", "requirements/auth")
+        body = json.loads((self.ws / "checks" / "doc.requirements__auth.json").read_text())
+        self.assertFalse([f["id"] for f in body["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-")])
+        nc = [n for n in body["not_checked"] if n["id"] == "ST-NOTCHECKED-FLOW-UNATTACHED"]
+        self.assertEqual(len(nc), 1)
+        for el in ("F-001", "F-003", "F-004", "F-005"):
+            self.assertIn(el, nc[0]["issue"])
+
+    def test_要求文書だけのランは流れの要素を要求文書に振る(self):
+        (self.ws / "specifications-auth.md").unlink()
+        (self.ws / "specifications-auth.meta.json").unlink()
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["targets"] = ["requirements"]
+        plan["docs"] = [d for d in plan["docs"] if d["key"].startswith("requirements/")]
+        plan["units"] = [{"id": "U-1", "docs": ["requirements/auth"], "depends_on": []}]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+        _ok(self.ws, "doc", "--doc", "requirements/auth")
+        body = json.loads((self.ws / "checks" / "doc.requirements__auth.json").read_text())
+        got = sorted(f["id"] for f in body["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-"))
+        self.assertEqual(got, [f"ST-FLOW-UNATTACHED-{el}" for el in ("F-001", "F-003", "F-004", "F-005")])
+        self.assertNotIn("ST-NOTCHECKED-FLOW-UNATTACHED", [n["id"] for n in body["not_checked"]])
+
+    def _plan(self, docs, units):
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["docs"], plan["units"] = docs, units
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+
+    def _unattached(self):
+        _ok(self.ws, "doc", "--doc", "requirements/auth")
+        body = json.loads((self.ws / "checks" / "doc.requirements__auth.json").read_text())
+        return (sorted(f["id"] for f in body["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-")),
+                [n["id"] for n in body["not_checked"]])
+
+    def test_仕様書を書くランかはplanのunitsで決まりdocsの欄では決まらない(self):
+        # prd-spec.js の state.units も plan.json の units から入る。docs の欄で決めると、flow-framer への指示と振り先の材料が分かれる。
+        (self.ws / "specifications-auth.md").unlink()
+        (self.ws / "specifications-auth.meta.json").unlink()
+        req = {"key": "requirements/auth", "concern": "認証と承認", "covers": [], "fixed": False}
+        spec = {"key": "specifications/auth", "concern": "認証と承認", "covers": ["requirements/auth"]}
+        prd_only = [f"ST-FLOW-UNATTACHED-{el}" for el in ("F-001", "F-003", "F-004", "F-005")]
+        for name, docs, unit_docs, routed in (
+            ("固定の仕様書だけ", [req, {**spec, "fixed": True}], ["requirements/auth"], True),
+            ("docs にある固定でない仕様書が units に無い", [req, {**spec, "fixed": False}], ["requirements/auth"], True),
+            ("units にある仕様書が docs に無い", [req], ["requirements/auth", "specifications/auth"], False),
+        ):
+            with self.subTest(name):
+                self._plan(docs, [{"id": "U-1", "docs": unit_docs, "depends_on": []}])
+                got, nc = self._unattached()
+                self.assertEqual(got, prd_only if routed else [])
+                self.assertEqual("ST-NOTCHECKED-FLOW-UNATTACHED" in nc, not routed)
+                self.assertEqual(_ok(self.ws, "plan")["units"], [{"id": "U-1", "docs": unit_docs, "depends_on": []}], "doc_check plan の stdout は plan.json の units をそのまま出す")
+
+    def test_planが無ければdocは止まる(self):
+        # 仕様書を書くランかを disk の文書で補うと、仕様書がまだ無い時点の lint が要求文書だけのランに化ける。
+        (self.ws / "plan.json").unlink()
+        r = _run(self.ws, "doc")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("plan.json", r.stderr)
+
+    def test_planのunitsが無いか形が違えばdocは止まる(self):
+        # 欠けた units を空の単位として読むと、仕様書を書くランが黙って要求文書だけのランになる。
+        for name, units in (("無い", None), ("空", []), ("docs が空", [{"id": "U-1", "docs": [], "depends_on": []}]),
+                            ("depends_on が無い", [{"id": "U-1", "docs": ["requirements/auth"]}])):
+            with self.subTest(name):
+                plan = json.loads((self.ws / "plan.json").read_text())
+                plan.pop("units", None)
+                if units is not None:
+                    plan["units"] = units
+                (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+                r = _run(self.ws, "doc")
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("units", r.stderr)
+
     def test_meta_が無ければ根拠は未検査として返す(self):
         (self.ws / "specifications-auth.meta.json").unlink()
         _ok(self.ws, "doc")
@@ -1121,11 +1198,16 @@ class CarriedTbd(_Workspace):
             saved(key).with_suffix(".tbd.json").unlink(missing_ok=True)
         return repo, out
 
+    def _intake(self, ws):
+        """段 1 の intake が plan.json を書く（reset は W を S0 の直後に戻すので plan.json を消す）。"""
+        shutil.copy(self.ws / "plan.json", ws / "plan.json")
+
     def _next_ws(self, repo, docs):
         """次の run の S0: 既存文書を place で W に置く（隣に写しがあればそれも置かれる）。"""
         ws = Path(self._tmp.name) / "W2"
         ws.mkdir()
         shutil.copy(self.ws / "input.md", ws / "input.md")
+        self._intake(ws)
         for kind, topic in docs:
             _ok(ws, "place", "--doc", f"{kind}/{topic}", "--source", str(repo / "docs" / kind / f"{topic}.md"))
         return ws
@@ -1190,10 +1272,10 @@ class CarriedTbd(_Workspace):
         self.assertIn("specifications-old.tbd.json", reset["removed"], "残さない文書の写しは消す")
         self.assertFalse((ws / "specifications-auth.meta.json").exists(), "写しの無い文書の meta は今までどおり消す")
         self.assertTrue((ws / "requirements-auth.tbd.json").exists(), "写しは S0 の置いたものなので残す")
+        self._intake(ws)
         after = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
         no_evidence = lambda o: [f for f in json.loads((ws / o["path"]).read_text())["findings"] if "NO-EVIDENCE" in f["id"]]
         self.assertEqual((no_evidence(after), after["blocking"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
-        shutil.copy(self.ws / "plan.json", ws / "plan.json")
         self.assertEqual(_ok(ws, "tree-digest")["stray"]["count"], 0)
 
     def test_写しの形が違えばresetは何も消さない(self):
@@ -1229,6 +1311,7 @@ class CarriedTbd(_Workspace):
         repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
         ws = self._next_ws(repo, [("requirements", "auth")])
         _ok(ws, "reset", "--keep", "requirements/auth")
+        self._intake(ws)
         _ok(ws, "del", "--ledger", "meta", "--doc", "requirements/auth", "--collection", "tbd", "--ids", "TBD-RAUTH-001")
         _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-002")
         self.assertTrue(any("NO-EVIDENCE" in f for f in _findings(ws)), "写しの無い文書と同じく、trace の無い項目を根拠なしとして数える")

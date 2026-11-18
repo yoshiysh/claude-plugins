@@ -161,8 +161,8 @@
 }
 ```
 
-- `layer` は、プロダクトが何を達成するか（要求）か、それをどう実現するか（手段）か。writer は `手段` の決定を
-  要求文書に書かない。
+- `layer` は decisions と resolutions で同じ欄であり、intake も resolver も `references/prd-and-spec.md` にある §11.4 の判定テストで
+  値を選ぶ（ここに定義を置くと、依頼者が述べた手段の扱いが決定の出所で分かれる）。writer は `手段` の決定を要求文書に書かない。
 - `targets` は doc_check の `conflicts` が「同じ target を持つ決定どうし」「target が流れの要素の id か label と
   一致する決定と要素」の組を列挙するのに使う。名前が揃わないと組が見つからず、矛盾が初稿まで残る。
 - `kind` は「## 不変条件の kind」が正。
@@ -339,11 +339,12 @@
 ```
 
 返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が prd-spec.js の
-`MAX_CHECK_REWORK` を上限に差し戻し、直らなければ段 1 で止まる。段 2 の flow-framer が実行した `plan` の `content_sha256` と違えば、
+`MAX_CHECK_REWORK` を上限に差し戻し、直らなければ段 1 で止まる。stdout の `units` は plan.json の `units` の写しで、script の writer の
+単位はここからだけ入る（形が違えば差し戻す）。段 2 の flow-framer が実行した `plan` の `content_sha256`・`covers`・`units` のどれかが違えば、
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
-{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"covers\":{\"specifications/auth\":[\"requirements/auth\"]}}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
+{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"covers\":{\"specifications/auth\":[\"requirements/auth\"]},\"units\":[{\"id\":\"U-1\",\"docs\":[\"requirements/auth\"],\"depends_on\":[]}]}" }
 ```
 
 ## flow.json の形
@@ -688,7 +689,7 @@ shunt が使えない環境では全文を読む。範囲を絞った監査（�
 |---|---|---|
 | implementer | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
 | grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
-| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、要求・決定・流れと照らした仕様書の観点の不足（`references/prd-and-spec.md` §11.7）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
 | doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
 doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。
@@ -862,5 +863,6 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典（case の出典を含む）、判断の判定表の欠け・重なり・宣言外の値（`ST-FLOW-DT-`）と表の欠落・枝との食い違い、全枝が同じ行き先で下流が値を使わない判断（`ST-FLOW-SAME-NEXT-`）、経緯の印（`ST-FLOW-HISTORY-`）、項目が当たっていない要素、実在しない要素への当て。裁定で閉じた未決だけを出典に持つ要素は指摘ではなく stdout の `open_only` に出し、script が settle で直させる |
 
 `not_checked` は失格ではなく「材料が無くて実行できなかった検査」である。`ST-NOTCHECKED-TRACE-<文書>` は meta が
-無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いことを示す。「指摘 0 件」と混同させない
+無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いこと、`ST-NOTCHECKED-FLOW-UNATTACHED` は
+仕様書を書くランで項目の当たっていない要素の振り先の仕様書がまだ無いことを示す。「指摘 0 件」と混同させない
 ため、別の配列で返る。

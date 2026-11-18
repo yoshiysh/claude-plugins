@@ -401,6 +401,10 @@ const FINDING_TEXT = {
     id: 'ST-NOTCHECKED-FLOW',
     issue: '工程の流れ（flow）が渡されていないため、各工程に項目が当たっているかを検査していない。「指摘 0 件」ではなく「未検査」である。',
   }),
+  NC_FLOW_UNATTACHED: (ids) => ({
+    id: 'ST-NOTCHECKED-FLOW-UNATTACHED',
+    issue: `仕様書を書くランで、流れの要素 ${ids.join('・')} に項目が当たっていないが、書く仕様書が検査した文書の中にまだ無いため指摘していない（要求文書には振らない）。「指摘 0 件」ではなく「未検査」である。`,
+  }),
   NC_DTABLE: (key, label, n) => ({
     id: `ST-NOTCHECKED-DTABLE-${key}-${label}`,
     issue: `${key} の判定表「${label}」は条件の組み合わせが ${n} 通りあり、網羅の検査を実行していない。「指摘 0 件」ではなく「未検査」である。`,
@@ -859,7 +863,7 @@ function tableFindings(conds, rows, hasElse) {
 
 // flow が undefined（入力に flow キーが無い）なら flow の検査を行わない。null は「渡されるはずが
 // 無かった」ではなく「無い」の申告なので未検査として返す。
-function formalCompact(docs, flow) {
+function formalCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(docs))) {
   const out = []
   const notChecked = []
   for (const d of docs) {
@@ -892,8 +896,10 @@ function formalCompact(docs, flow) {
     }
     // 当たっていない要素は、隣の要素に項目を当てている文書へ返す（その工程の関心事を持っている
     // 可能性が最も高い）。隣にも無ければ最初の非固定の仕様書、無ければ最初の非固定の文書へ返す。
-    const editable = docs.filter((d) => !d.fixed)
+    // 仕様書を書くランでは仕様書にだけ返す: 要求文書へ返すと内部の工程・異常系の分岐が要求になる（prd-and-spec.md §11）。
+    const editable = docs.filter((d) => !d.fixed && (!writesSpec || d.kind === 'specifications'))
     const fallback = (editable.find((d) => d.kind === 'specifications') || editable[0] || {}).key
+    const unowned = []
     const neighbours = new Map(elements.map((el) => [el.id, new Set()]))
     for (const el of elements) {
       const targets = [...(Array.isArray(el.next) ? el.next : []), ...(Array.isArray(el.branches) ? el.branches.map((b) => b && b.next) : [])]
@@ -908,15 +914,36 @@ function formalCompact(docs, flow) {
       const near = [...neighbours.get(el.id)].flatMap((n) => [...(attachedBy.get(n) || [])])
       const owner = editable.map((d) => d.key).find((k) => near.includes(k)) || fallback
       if (owner) out.push({ c: 'FLOW_UNATTACHED', d: owner, a: [el.id, String(el.label || '')] })
+      else if (writesSpec) unowned.push(el.id)
     }
+    if (unowned.length) notChecked.push({ c: 'NC_FLOW_UNATTACHED', a: [unowned] })
   }
   return { findings: out, not_checked: notChecked }
+}
+
+// writesSpecOf: 「仕様書を書くラン」の述語。run では plan.json の units（planUnitDocs）に当てる。prd-spec.js の writesSpec はこの写しで、
+// 同じ units（doc_check plan の stdout から入る state.units）に当てるので、flow-framer への指示と振り先が同じ材料で決まる。
+function writesSpecOf(keys) {
+  return keys.some((k) => String(k).startsWith('specifications/'))
+}
+const writtenKeys = (docs) => docs.filter((d) => !d.fixed).map((d) => d.key)
+// units の欠けや形の崩れを空の単位として読むと、仕様書を書くランが黙って要求文書だけのランになる。
+function unitsFault(plan) {
+  const units = plan && plan.units
+  const strs = (v) => Array.isArray(v) && v.every((k) => typeof k === 'string')
+  const ok = Array.isArray(units) && units.length > 0 && units.every((u) => u && typeof u === 'object' && typeof u.id === 'string' && strs(u.docs) && u.docs.length > 0 && strs(u.depends_on))
+  return ok ? null : 'plan.json の units が無いか、形（id・空でない docs・depends_on）を満たしません'
+}
+function planUnitDocs(plan) {
+  const fault = unitsFault(plan)
+  if (fault) throw new Error(fault)
+  return plan.units.flatMap((u) => u.docs)
 }
 
 // 構造検査の正本はこのファイルだけである。Workflow script は複製を持たず、agent にこの CLI を実行させる。
 // not_checked は「材料が無くて実行できなかった検査」で、失格ではない。これを返さないと、片側の文書が対象外のランで
 // 「検査して 0 件」と「そもそも検査していない」が区別できず、後者が合格として提示される。
-function structuralCompact(docs, flow) {
+function structuralCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(docs))) {
   const out = []
   const notChecked = []
   const reqDocs = docs.filter((d) => d.kind === 'requirements')
@@ -1218,7 +1245,7 @@ function structuralCompact(docs, flow) {
 
   // (9) 状態 × イベント表・判定表・工程の流れ（flow）の閉包。文書内の整合と閉包の欠陥であり、
   //     依頼者に聞く論点ではない（writer が表と項目を直せば閉じる）。
-  const formal = formalCompact(docs, flow)
+  const formal = formalCompact(docs, flow, writesSpec)
   out.push(...formal.findings)
   notChecked.push(...formal.not_checked)
 
@@ -1277,8 +1304,8 @@ function stampStdout(value) {
 
 // structuralFindings: 文面付きの形で返す版（tests と、文面を直接見たい呼び出し側のため）。
 // CLI の出力は structuralCompact の短い形で、文面は受け取った側が expandStructural で組み立てる。
-function structuralFindings(docs, flow) {
-  return expandStructural(structuralCompact(docs, flow))
+function structuralFindings(docs, flow, writesSpec) {
+  return expandStructural(structuralCompact(docs, flow, writesSpec))
 }
 
 function headingIndex(md) {
@@ -3746,9 +3773,10 @@ function wsPlan(ws) {
   const body = expandWorkspace({ findings: groupCompact(out), not_checked: [] })
   const digest = digestOf(body)
   // content_sha256: intake の後で plan.json が書き換えられていないかを、script が次の段の stdout と照合する。
-  // covers: 仕様文書ごとの実現する要求文書。script は plan.json を読めないので、仕様書だけを書く run の判定（prd-spec.js の specOnly）にここから渡す。
+  // covers・units: script は plan.json を読めないので、ここから渡す。covers は仕様書だけを書く run の判定（prd-spec.js の specOnly）に、
+  // units は書く文書の正本として state.units に入る（intake の申告で別に受けると、wsDoc の writesSpecOf と材料が分かれる）。
   const covers = Object.fromEntries(listOf(plan, 'docs').filter((d) => d && String(d.key).startsWith('specifications/')).map((d) => [String(d.key), Array.isArray(d.covers) ? d.covers.map(String) : []]))
-  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))), covers }
+  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))), covers, units: listOf(plan, 'units') }
 }
 
 // doc: 開いている TBD は --open-tbd
@@ -3760,13 +3788,15 @@ function wsDoc(ws, opts) {
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
   const selected = selectDocs(wsDocs.map((d) => d.key), opts.doc)
   const plan = readJsonFile(path.join(ws, 'plan.json'))
+  if (plan === null) throw new Error('plan.json がありません')
   const coversOf = new Map(listOf(plan, 'docs').filter((p) => p && p.key).map((p) => [p.key, Array.isArray(p.covers) ? p.covers : []]))
   const docs = deriveDocs(wsDocs).map((d) => ({ ...d, covers: coversOf.get(d.key) || [] }))
   const openTbd = opts.openTbd
     ? { source: 'args', ids: [...new Set(opts.openTbd)].sort() }
     : { source: 'meta', ids: [...new Set(docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))].sort() }
   const flow = readLedger(ws, 'flow')
-  const structural = structuralCompact(docs, flow)
+  // disk の文書では決めない: 要求文書の writer の lint は仕様書のファイルがまだ無い時点でも走る。
+  const structural = structuralCompact(docs, flow, writesSpecOf(planUnitDocs(plan)))
   const open = new Set(openTbd.ids)
   const kept = structural.findings
     .map((g) => (g.c === 'UNDECLARED_TBD' ? { ...g, a: g.a.filter((a) => !open.has(a[0])) } : g))

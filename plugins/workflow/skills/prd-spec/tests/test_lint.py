@@ -164,6 +164,7 @@ class TrialEvidence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             (ws / "requirements-cleanup-branches.md").write_text(fixed)
+            (ws / "plan.json").write_text(json.dumps({"units": [{"id": "U-1", "docs": ["requirements/cleanup-branches"], "depends_on": []}]}))
             self.assertEqual(_ok(ws, "doc", "--lint")["lint"], 0)
             (ws / "requirements-cleanup-branches.md").write_text(broken)
             plain = _ok(ws, "doc")
