@@ -53,6 +53,10 @@ pub struct RunArgs {
     #[arg(long)]
     pub no_guidelines: bool,
 
+    /// Skip automatic JSON minification and Map-Reduce context distillation
+    #[arg(long)]
+    pub no_optimize: bool,
+
     /// Additional guideline file paths to include (can be repeated)
     #[arg(long = "guidelines")]
     pub extra_guidelines: Vec<String>,

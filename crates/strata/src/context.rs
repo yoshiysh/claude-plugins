@@ -1,0 +1,520 @@
+use serde_json::Value;
+
+use crate::client::call_strata_api;
+use crate::personas::{build_user_prompt, Persona};
+
+pub const DEFAULT_MAX_CONTEXT_TOKENS: usize = 1200;
+pub const DEFAULT_CHUNK_TOKENS: usize = 1050;
+
+const DISTILL_SYSTEM_PROMPT: &str = r#"You are a high-precision context distiller.
+Extract ONLY the facts, types, function signatures, constraints, configuration values, and potential failure modes from the provided chunk that are strictly relevant to the Goal.
+Rules:
+1. Output a dense, concise Markdown bullet list (max 15 bullets).
+2. Preserve exact symbol names, file paths, numbers, and error conditions.
+3. Omit boilerplate, formatting commentary, and conversational filler."#;
+
+const REDUCE_SYSTEM_PROMPT: &str = r#"You are a specification synthesizer.
+Merge and deduplicate the provided distilled notes into a single, ultra-compact specification memo relevant to the Goal.
+Rules:
+1. Keep exact symbol names, file paths, constraints, and error conditions.
+2. Eliminate redundancy while preserving every distinct technical fact.
+3. Output ONLY a concise Markdown bullet list."#;
+
+/// Estimate token count (~4 ASCII bytes per token, 1 char per token for non-ASCII).
+pub fn estimate_tokens(text: &str) -> usize {
+    let mut ascii_bytes = 0usize;
+    let mut non_ascii_chars = 0usize;
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            ascii_bytes += 1;
+        } else {
+            non_ascii_chars += 1;
+        }
+    }
+    ascii_bytes.div_ceil(4) + non_ascii_chars
+}
+
+/// Automatically minify JSON content (either full-text JSON or fenced JSON blocks inside Markdown)
+/// without altering semantics. Invalid JSON is left untouched.
+pub fn minify_json_in_text(input: &str) -> String {
+    let trimmed = input.trim();
+    if (trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+    {
+        if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+            if let Ok(min) = serde_json::to_string(&val) {
+                return min;
+            }
+        }
+    }
+
+    let lines: Vec<&str> = input.lines().collect();
+    let mut out = Vec::with_capacity(lines.len());
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed_line = line.trim();
+        let prev_is_json_file = i > 0 && lines[i - 1].trim().ends_with(".json");
+
+        if trimmed_line.starts_with("```json")
+            || (trimmed_line == "```" && prev_is_json_file)
+        {
+            let fence_header = line;
+            let mut j = i + 1;
+            let mut block_lines = Vec::new();
+            let mut closed = false;
+
+            while j < lines.len() {
+                if lines[j].trim().starts_with("```") {
+                    closed = true;
+                    break;
+                }
+                block_lines.push(lines[j]);
+                j += 1;
+            }
+
+            if closed {
+                let inner = block_lines.join("\n");
+                let inner_trimmed = inner.trim();
+                if let Ok(val) = serde_json::from_str::<Value>(inner_trimmed) {
+                    if let Ok(min) = serde_json::to_string(&val) {
+                        out.push(fence_header.to_string());
+                        out.push(min);
+                        out.push(lines[j].to_string());
+                        i = j + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        out.push(line.to_string());
+        i += 1;
+    }
+
+    out.join("\n")
+}
+
+fn is_top_level_definition(line: &str) -> bool {
+    if line.starts_with(' ') || line.starts_with('\t') {
+        return false;
+    }
+    const PREFIXES: &[&str] = &[
+        "fn ",
+        "pub fn ",
+        "pub(crate) fn ",
+        "async fn ",
+        "pub async fn ",
+        "struct ",
+        "pub struct ",
+        "enum ",
+        "pub enum ",
+        "impl ",
+        "impl<",
+        "trait ",
+        "pub trait ",
+        "mod ",
+        "pub mod ",
+        "def ",
+        "async def ",
+        "class ",
+        "function ",
+        "async function ",
+        "export function ",
+        "export async function ",
+        "export class ",
+        "export const ",
+    ];
+    PREFIXES.iter().any(|p| line.starts_with(p))
+}
+
+fn is_leading_doc_or_attr(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("///")
+        || t.starts_with("//!")
+        || t.starts_with("#[")
+        || t.starts_with('@')
+        || t.starts_with("/**")
+        || t.starts_with("* ")
+        || t == "*/"
+}
+
+/// Group text into semantic blocks (files, diffs, markdown sections, top-level definitions)
+/// so chunking avoids cutting functions or sections in half.
+pub fn split_into_semantic_blocks(text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current_lines: Vec<String> = Vec::new();
+    let mut in_fence = false;
+
+    for raw_line in text.lines() {
+        let trimmed = raw_line.trim();
+        let is_fence_toggle = trimmed.starts_with("```");
+
+        let is_section_boundary = trimmed.starts_with("File: ")
+            || trimmed.starts_with("diff --git ")
+            || (!in_fence
+                && (trimmed.starts_with("## ") || trimmed.starts_with("### ")));
+
+        let is_def_boundary = is_top_level_definition(raw_line);
+
+        if !current_lines.is_empty() && (is_section_boundary || is_def_boundary) {
+            // Keep leading doc comments / attributes attached to the definition that follows
+            let mut trailing_docs = Vec::new();
+            if is_def_boundary {
+                while let Some(last) = current_lines.last() {
+                    if is_leading_doc_or_attr(last) {
+                        trailing_docs.push(current_lines.pop().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+                trailing_docs.reverse();
+            }
+
+            let block_text = current_lines.join("\n");
+            if !block_text.trim().is_empty() {
+                blocks.push(block_text);
+            }
+            current_lines = trailing_docs;
+        }
+
+        current_lines.push(raw_line.to_string());
+        if is_fence_toggle {
+            in_fence = !in_fence;
+        }
+    }
+
+    let tail = current_lines.join("\n");
+    if !tail.trim().is_empty() {
+        blocks.push(tail);
+    }
+
+    blocks
+}
+
+fn split_oversized_block(block: &str, budget: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_tokens = 0usize;
+
+    for line in block.lines() {
+        let line_tokens = estimate_tokens(line) + 1;
+
+        if line_tokens > budget {
+            if !current.trim().is_empty() {
+                chunks.push(current.trim_end().to_string());
+                current.clear();
+                current_tokens = 0;
+            }
+            let mut sub = String::new();
+            let mut sub_ascii = 0usize;
+            let mut sub_non_ascii = 0usize;
+            for ch in line.chars() {
+                let next_ascii = sub_ascii + usize::from(ch.is_ascii());
+                let next_non_ascii = sub_non_ascii + usize::from(!ch.is_ascii());
+                let next_tokens = next_ascii.div_ceil(4) + next_non_ascii;
+                if !sub.is_empty() && next_tokens > budget {
+                    chunks.push(sub);
+                    sub = String::new();
+                    sub_ascii = 0;
+                    sub_non_ascii = 0;
+                }
+                sub.push(ch);
+                if ch.is_ascii() {
+                    sub_ascii += 1;
+                } else {
+                    sub_non_ascii += 1;
+                }
+            }
+            if !sub.trim().is_empty() {
+                chunks.push(sub);
+            }
+            continue;
+        }
+
+        if current_tokens + line_tokens > budget && !current.is_empty() {
+            chunks.push(current.trim_end().to_string());
+            current.clear();
+            current_tokens = 0;
+        }
+
+        current.push_str(line);
+        current.push('\n');
+        current_tokens += line_tokens;
+    }
+
+    if !current.trim().is_empty() {
+        chunks.push(current.trim_end().to_string());
+    }
+    chunks
+}
+
+/// Split text into chunks where each chunk's estimated token count is <= `max_tokens`.
+/// Prioritizes semantic boundaries (files, sections, functions/structs) to avoid splitting logic mid-body.
+pub fn split_into_chunks(text: &str, max_tokens: usize) -> Vec<String> {
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    let budget = max_tokens.max(64);
+    let blocks = split_into_semantic_blocks(text);
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_tokens = 0usize;
+
+    for block in blocks {
+        let block_tokens = estimate_tokens(&block) + 1;
+
+        if block_tokens > budget {
+            if !current.trim().is_empty() {
+                chunks.push(current.trim_end().to_string());
+                current.clear();
+                current_tokens = 0;
+            }
+            chunks.extend(split_oversized_block(&block, budget));
+            continue;
+        }
+
+        if current_tokens + block_tokens > budget && !current.is_empty() {
+            chunks.push(current.trim_end().to_string());
+            current.clear();
+            current_tokens = 0;
+        }
+
+        if !current.is_empty() {
+            current.push('\n');
+        }
+        current.push_str(&block);
+        current_tokens += block_tokens;
+    }
+
+    if !current.trim().is_empty() {
+        chunks.push(current.trim_end().to_string());
+    }
+
+    chunks
+}
+
+/// Truncate text safely on UTF-8 char boundaries so its estimated tokens <= `max_tokens`.
+fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
+    if estimate_tokens(text) <= max_tokens {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    for line in text.lines() {
+        if estimate_tokens(&out) + estimate_tokens(line) + 1 > max_tokens {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if out.is_empty() {
+        for ch in text.chars() {
+            if estimate_tokens(&out) + 1 >= max_tokens {
+                break;
+            }
+            out.push(ch);
+        }
+    }
+    out.trim_end().to_string()
+}
+
+/// Run Map-Reduce distillation if the minified context exceeds `max_tokens`.
+pub fn distill_context_with<F>(
+    goal: &str,
+    raw_context: &str,
+    max_tokens: usize,
+    chunk_tokens: usize,
+    mut call_fn: F,
+) -> Result<(String, bool), String>
+where
+    F: FnMut(&str, &str) -> Result<String, String>,
+{
+    let minified = minify_json_in_text(raw_context);
+    let est = estimate_tokens(&minified);
+
+    if est <= max_tokens {
+        return Ok((minified, false));
+    }
+
+    let chunks = split_into_chunks(&minified, chunk_tokens);
+    let total = chunks.len();
+    eprintln!(
+        "[Strata Optimizer] Context (~{} tokens) exceeds {} tokens; running Map-Reduce across {} chunks (<= {} tokens/chunk)...",
+        est, max_tokens, total, chunk_tokens
+    );
+
+    // Map phase: distill each chunk serially
+    let mut notes = Vec::with_capacity(total);
+    for (idx, chunk) in chunks.into_iter().enumerate() {
+        let map_prompt = format!(
+            "## Goal\n{}\n\n## Chunk {}/{}\n{}",
+            goal,
+            idx + 1,
+            total,
+            chunk
+        );
+        let note = call_fn(DISTILL_SYSTEM_PROMPT, &map_prompt)?;
+        notes.push(format!("### Distilled Part {}/{}\n{}", idx + 1, total, note.trim()));
+    }
+
+    let mut combined = notes.join("\n\n");
+
+    // Reduce phase: recursively merge notes if combined output still exceeds max_tokens
+    for round in 0..2 {
+        if estimate_tokens(&combined) <= max_tokens {
+            break;
+        }
+        let reduce_chunks = split_into_chunks(&combined, chunk_tokens);
+        if reduce_chunks.len() <= 1 && round > 0 {
+            break;
+        }
+        eprintln!(
+            "[Strata Optimizer] Reduce round {}: compressing {} note groups...",
+            round + 1,
+            reduce_chunks.len()
+        );
+        let mut reduced_parts = Vec::with_capacity(reduce_chunks.len());
+        for (idx, r_chunk) in reduce_chunks.iter().enumerate() {
+            let reduce_prompt = format!(
+                "## Goal\n{}\n\n## Notes Group {}/{}\n{}",
+                goal,
+                idx + 1,
+                reduce_chunks.len(),
+                r_chunk
+            );
+            let merged = call_fn(REDUCE_SYSTEM_PROMPT, &reduce_prompt)?;
+            reduced_parts.push(merged.trim().to_string());
+        }
+        combined = reduced_parts.join("\n\n");
+    }
+
+    if estimate_tokens(&combined) > max_tokens {
+        combined = truncate_to_tokens(&combined, max_tokens);
+    }
+
+    Ok((combined, true))
+}
+
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(default)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn execute_optimized(
+    api_base: &str,
+    api_key: &str,
+    model: &str,
+    persona: &Persona,
+    goal: &str,
+    target: Option<&str>,
+    contexts: &[String],
+    diff: Option<&str>,
+    guidelines: &[(String, String)],
+    temperature: f32,
+    max_tokens: u32,
+    reasoning_effort: Option<&str>,
+    optimize: bool,
+) -> Result<String, String> {
+    // Step 1: Minify any JSON inside target, contexts, diff
+    let min_target = target.map(minify_json_in_text);
+    let min_contexts: Vec<String> = contexts.iter().map(|c| minify_json_in_text(c)).collect();
+    let min_diff = diff.map(minify_json_in_text);
+
+    let max_ctx_tokens = env_usize("STRATA_MAX_CONTEXT_TOKENS", DEFAULT_MAX_CONTEXT_TOKENS);
+    let chunk_tokens = env_usize("STRATA_CHUNK_TOKENS", DEFAULT_CHUNK_TOKENS);
+
+    if !optimize {
+        let user_prompt = build_user_prompt(
+            goal,
+            min_target.as_deref(),
+            &min_contexts,
+            min_diff.as_deref(),
+            guidelines,
+        );
+        return call_strata_api(
+            api_base,
+            api_key,
+            model,
+            persona.system_prompt,
+            &user_prompt,
+            temperature,
+            max_tokens,
+            reasoning_effort,
+        );
+    }
+
+    // Build full context payload (excluding goal) to measure whether Map-Reduce is needed
+    let mut raw_sections = Vec::new();
+    if !guidelines.is_empty() {
+        raw_sections.push("## Repository Guidelines & Standards".to_string());
+        for (name, content) in guidelines {
+            raw_sections.push(format!("### Guideline: {}\n{}", name, content));
+        }
+    }
+    if let Some(t) = min_target.as_deref() {
+        raw_sections.push(format!("## Target\n{}", t));
+    }
+    if let Some(d) = min_diff.as_deref() {
+        raw_sections.push(format!("## Git Diff\n```diff\n{}\n```", d));
+    }
+    if !min_contexts.is_empty() {
+        raw_sections.push("## Context & References".to_string());
+        for (idx, ctx) in min_contexts.iter().enumerate() {
+            raw_sections.push(format!("### Reference {}\n{}", idx + 1, ctx));
+        }
+    }
+
+    let combined_raw = raw_sections.join("\n\n");
+    let goal_tokens = estimate_tokens(goal);
+    let context_budget = max_ctx_tokens.saturating_sub(goal_tokens).max(300);
+
+    let (distilled, was_distilled) = distill_context_with(
+        goal,
+        &combined_raw,
+        context_budget,
+        chunk_tokens,
+        |sys_prompt, usr_prompt| {
+            call_strata_api(
+                api_base,
+                api_key,
+                model,
+                sys_prompt,
+                usr_prompt,
+                0.1,
+                384,
+                Some("low"),
+            )
+        },
+    )?;
+
+    let final_user_prompt = if was_distilled {
+        format!(
+            "## Goal\n{}\n\n## Distilled Context & Specifications\n{}\n",
+            goal, distilled
+        )
+    } else {
+        build_user_prompt(
+            goal,
+            min_target.as_deref(),
+            &min_contexts,
+            min_diff.as_deref(),
+            guidelines,
+        )
+    };
+
+    call_strata_api(
+        api_base,
+        api_key,
+        model,
+        persona.system_prompt,
+        &final_user_prompt,
+        temperature,
+        max_tokens,
+        reasoning_effort,
+    )
+}

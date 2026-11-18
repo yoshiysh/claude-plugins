@@ -2,9 +2,9 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
-use crate::client::call_strata_api;
+use crate::context::execute_optimized;
 use crate::guidelines::{collect_guidelines, resolve_workspace_root};
-use crate::personas::{build_user_prompt, find_persona};
+use crate::personas::find_persona;
 use crate::syntax::verify_syntax;
 use crate::utils::{clean_markdown_fences, format_target, resolve_api_key};
 
@@ -142,28 +142,26 @@ fn handle_generate(args: &Value) -> Result<String, String> {
     };
 
     let target_formatted = format_target(target);
-    let user_prompt = build_user_prompt(
-        goal,
-        target_formatted.as_deref(),
-        &contexts,
-        None,
-        &guidelines,
-    );
     let persona = find_persona(role).ok_or_else(|| format!("Unknown role: {}", role))?;
 
     let api_key = resolve_api_key(None);
     let api_base = std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
     let model = std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
 
-    let raw_output = call_strata_api(
+    let raw_output = execute_optimized(
         &api_base,
         &api_key,
         &model,
-        persona.system_prompt,
-        &user_prompt,
+        persona,
+        goal,
+        target_formatted.as_deref(),
+        &contexts,
+        None,
+        &guidelines,
         persona.temperature,
         max_tokens,
         reasoning_effort,
+        true,
     )?;
 
     let clean_output = clean_markdown_fences(&raw_output);
@@ -220,28 +218,26 @@ fn handle_review(args: &Value) -> Result<String, String> {
     };
 
     let target_formatted = format_target(target);
-    let user_prompt = build_user_prompt(
-        goal,
-        target_formatted.as_deref(),
-        &contexts,
-        diff,
-        &guidelines,
-    );
     let persona = find_persona(role).ok_or_else(|| format!("Unknown role: {}", role))?;
 
     let api_key = resolve_api_key(None);
     let api_base = std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
     let model = std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
 
-    let raw_output = call_strata_api(
+    let raw_output = execute_optimized(
         &api_base,
         &api_key,
         &model,
-        persona.system_prompt,
-        &user_prompt,
+        persona,
+        goal,
+        target_formatted.as_deref(),
+        &contexts,
+        diff,
+        &guidelines,
         persona.temperature,
         max_tokens,
         reasoning_effort,
+        true,
     )?;
 
     Ok(raw_output.trim().to_string())
