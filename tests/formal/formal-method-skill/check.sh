@@ -3,14 +3,77 @@
 # 1 ケースごとに JSON を 1 行、標準出力に出し、最後に集計の行を出す。
 # 期待と違うケースが 1 つでもあれば exit 1。反例の trace は OUT_DIR（既定は一時の領域）に残す。
 set -eu
+self=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 jar=${TLA2TOOLS:?Set TLA2TOOLS to the pinned tla2tools.jar}
 JAVA=${JAVA:-java}
 expected_jar=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 actual_jar=$(shasum -a 256 "$jar" | cut -d ' ' -f 1)
 [ "$actual_jar" = "$expected_jar" ] || { echo "Unexpected TLC jar SHA-256: $actual_jar" >&2; exit 1; }
+
+json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+
+run_one_case() {
+  work=$1 out=$2 id=$3
+  meta="$work/cases/$id.meta"
+  {
+    read -r module
+    read -r kind
+    read -r props
+    read -r expect
+    read -r temporal
+    read -r spec
+  } < "$meta"
+  consts=$(cat "$work/cases/$id.consts")
+  case_work="$work/run/$id"
+  mkdir -p "$case_work/tmp"
+  cp "$work"/*.tla "$work/cases/$id.cfg" "$case_work/"
+  workers=${TLC_WORKERS:-1}
+  set +e
+  (cd "$case_work" && "$JAVA" -Djava.io.tmpdir="$case_work/tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers "$workers" -metadir "$case_work/$id.states" -config "$id.cfg" "$module") > "$case_work/$id.out" 2>&1
+  code=$?
+  set -e
+  gen=$(sed -n 's/^\([0-9,]*\) states generated.*/\1/p' "$case_work/$id.out" | tail -1 | tr -d ,)
+  dist=$(sed -n 's/.* \([0-9,]*\) distinct states found.*/\1/p' "$case_work/$id.out" | tail -1 | tr -d ,)
+  violated=
+  if grep -q 'Error: Parsing\|Semantic errors\|Error: Evaluating\|is not completely specified\|TLC threw' "$case_work/$id.out"; then
+    observed=error
+  elif [ "$code" -eq 0 ] && grep -qF 'Model checking completed. No error has been found.' "$case_work/$id.out"; then
+    observed=pass
+  else
+    violated=$(sed -n 's/^Error: Invariant \([A-Za-z0-9_]*\) is violated.*/\1/p' "$case_work/$id.out" | head -1)
+    if [ -z "$violated" ] && grep -q 'Temporal properties were violated' "$case_work/$id.out"; then violated=temporal; fi
+    if [ -z "$violated" ] && grep -q 'Error: Action property' "$case_work/$id.out"; then
+      violated=$(sed -n 's/^Error: Action property \([A-Za-z0-9_]*\).*/\1/p' "$case_work/$id.out" | head -1)
+    fi
+    if [ -n "$violated" ]; then observed=violation; else observed=error; fi
+  fi
+  match=no
+  if [ "$expect" = pass ] && [ "$observed" = pass ]; then match=yes; fi
+  if [ "$expect" = violation ] && [ "$observed" = violation ]; then
+    if [ "$temporal" = yes ] || [ "$violated" = "$props" ]; then match=yes; fi
+  fi
+  trace=null
+  if [ "$observed" != pass ]; then cp "$case_work/$id.out" "$out/$id.out"; trace=$(json_str "$out/$id.out"); fi
+  printf '{"id":%s,"module":%s,"kind":%s,"properties":%s,"expect":%s,"observed":%s,"violated":%s,"match":%s,"exit":%d,"states_generated":%s,"distinct_states":%s,"config":%s,"trace":%s}\n' \
+    "$(json_str "$id")" "$(json_str "$module")" "$(json_str "$kind")" "$(json_str "$props")" "$(json_str "$expect")" \
+    "$(json_str "$observed")" "$(json_str "${violated:-}")" "$( [ "$match" = yes ] && echo true || echo false)" "$code" \
+    "${gen:-null}" "${dist:-null}" "$(json_str "$(printf '%s' "$consts" | tr '\n' ' ')")" "$trace" > "$work/results/$id.json"
+  echo "$match" > "$work/results/$id.match"
+  rm -rf "$case_work/$id.states" "$case_work/tmp"
+}
+
+if [ "${1:-}" = "__one" ]; then
+  shift
+  run_one_case "$1" "$2" "$3"
+  exit 0
+fi
+
 only=${ONLY:-}   # 空でなければ、id がこの拡張正規表現に合うケースだけを回す
 shard=${SHARD:-} # 空でなければ、k/N（例: 1/4）で全ケースを通し番号で N 分割した k 番目だけを回す
+jobs=${TLC_JOBS-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+case "$jobs" in ''|*[!0-9]*) jobs=4;; esac
+[ "$jobs" -ge 1 ] || jobs=4
 shard_k=
 shard_n=
 if [ -n "$shard" ]; then
@@ -42,6 +105,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 cp "$base/Run.tla" "$base/Lock.tla" "$work/"
+mkdir -p "$work/cases" "$work/results" "$work/run"
+: > "$work/cases.list"
 cd "$work"
 
 # 到達の証人の印は、性質の名前として拡張のモジュールに置く（TLC の cfg は引数を取れないため）。
@@ -66,7 +131,6 @@ dependent_skipped still_waiting_unknown save_fail status_fail'
 } > RunW.tla
 
 failures=0 total=0 case_index=0
-json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
 
 # run_case id module kind props expect consts spec
 #   kind: baseline | witness | mutation | finding | limit
@@ -86,39 +150,10 @@ run_case() {
     printf 'CONSTANTS\n%s\n' "$consts"
     printf 'SPECIFICATION %s\nCHECK_DEADLOCK FALSE\n' "$spec"
     if [ "$temporal" = yes ]; then printf 'PROPERTIES %s\n' "$props"; else printf 'INVARIANTS %s\n' "$props"; fi
-  } > "$id.cfg"
-  set +e
-  "$JAVA" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers auto -metadir "$id.states" -config "$id.cfg" "$module" > "$id.out" 2>&1
-  code=$?
-  set -e
-  gen=$(sed -n 's/^\([0-9,]*\) states generated.*/\1/p' "$id.out" | tail -1 | tr -d ,)
-  dist=$(sed -n 's/.* \([0-9,]*\) distinct states found.*/\1/p' "$id.out" | tail -1 | tr -d ,)
-  violated=
-  if grep -q 'Error: Parsing\|Semantic errors\|Error: Evaluating\|is not completely specified\|TLC threw' "$id.out"; then
-    observed=error
-  elif [ "$code" -eq 0 ] && grep -qF 'Model checking completed. No error has been found.' "$id.out"; then
-    observed=pass
-  else
-    violated=$(sed -n 's/^Error: Invariant \([A-Za-z0-9_]*\) is violated.*/\1/p' "$id.out" | head -1)
-    if [ -z "$violated" ] && grep -q 'Temporal properties were violated' "$id.out"; then violated=temporal; fi
-    if [ -z "$violated" ] && grep -q 'Error: Action property' "$id.out"; then
-      violated=$(sed -n 's/^Error: Action property \([A-Za-z0-9_]*\).*/\1/p' "$id.out" | head -1)
-    fi
-    if [ -n "$violated" ]; then observed=violation; else observed=error; fi
-  fi
-  match=no
-  if [ "$expect" = pass ] && [ "$observed" = pass ]; then match=yes; fi
-  if [ "$expect" = violation ] && [ "$observed" = violation ]; then
-    if [ "$temporal" = yes ] || [ "$violated" = "$props" ]; then match=yes; fi
-  fi
-  trace=null
-  if [ "$observed" != pass ]; then cp "$id.out" "$out/$id.out"; trace=$(json_str "$out/$id.out"); fi
-  printf '{"id":%s,"module":%s,"kind":%s,"properties":%s,"expect":%s,"observed":%s,"violated":%s,"match":%s,"exit":%d,"states_generated":%s,"distinct_states":%s,"config":%s,"trace":%s}\n' \
-    "$(json_str "$id")" "$(json_str "$module")" "$(json_str "$kind")" "$(json_str "$props")" "$(json_str "$expect")" \
-    "$(json_str "$observed")" "$(json_str "${violated:-}")" "$( [ "$match" = yes ] && echo true || echo false)" "$code" \
-    "${gen:-null}" "${dist:-null}" "$(json_str "$(printf '%s' "$consts" | tr '\n' ' ')")" "$trace"
-  [ "$match" = yes ] || failures=$((failures + 1))
-  rm -rf "$id.states"
+  } > "$work/cases/$id.cfg"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$module" "$kind" "$props" "$expect" "$temporal" "$spec" > "$work/cases/$id.meta"
+  printf '%s' "$consts" > "$work/cases/$id.consts"
+  printf '%s\n' "$id" >> "$work/cases.list"
 }
 
 # ---------------- Lock.tla ----------------
@@ -224,6 +259,16 @@ rmut stale_on_unknown WaitReturnsOnlyOnChange
 rmut busy_daemon_to_salvage BusyFollowsRole
 rmut busy_salvage_to_wait BusyFollowsRole
 rmut unreadable_returns_new OneResult "$eread"
+
+if [ -s "$work/cases.list" ]; then
+  xargs -n 1 -P "$jobs" sh "$self" __one "$work" "$out" < "$work/cases.list"
+  while IFS= read -r id || [ -n "$id" ]; do
+    [ -f "$work/results/$id.json" ] && cat "$work/results/$id.json"
+    if [ ! -f "$work/results/$id.match" ] || [ "$(cat "$work/results/$id.match")" != yes ]; then
+      failures=$((failures + 1))
+    fi
+  done < "$work/cases.list"
+fi
 
 printf '{"summary":true,"total":%d,"mismatched":%d,"out_dir":%s}\n' "$total" "$failures" "$(json_str "$out")"
 [ "$failures" -eq 0 ] || { echo "$failures case(s) did not match" >&2; exit 1; }

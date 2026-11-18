@@ -28,7 +28,7 @@ REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 
 NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
-.PHONY: test portability references check runtime-deps traceability traceability-complete
+.PHONY: test test-static-and-python test-node-traceability test-node-other portability references check runtime-deps traceability traceability-complete
 
 # Pinned runtime dependencies are installed before discovery executes Node tests.
 $(RUNTIME_STAMP): $(RUNTIME_DIR)/package-lock.json
@@ -37,22 +37,30 @@ $(RUNTIME_STAMP): $(RUNTIME_DIR)/package-lock.json
 
 runtime-deps: $(RUNTIME_STAMP)
 
-# 合否ゲート。1 つでも失敗したら止まる。
-test: runtime-deps references
+test-static-and-python: runtime-deps references
 	@set -e; for s in $(SKILLS); do \
 		echo "── $$s"; \
 		$(PYTHON) $(VALIDATOR) $(SKILLS_DIR)/$$s --verbose; \
 	done
 	@echo "── unittest"
 	@$(PYTHON) scripts/parallel_unittest.py $(TEST_DIRS)
-	@if [ -n "$(NODE_TEST_FILES)" ]; then \
-		echo "── Node tests"; \
-		$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT) -- $(NODE_TEST_FILES); \
-	fi
 	@set -e; for e in $(EVAL_RUNNERS); do \
 		echo "── eval preflight $$e"; \
 		$(NODE) $$e; \
 	done
+
+test-node-traceability: runtime-deps
+	@echo "── Node tests (traceability)"
+	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
+
+test-node-other: runtime-deps
+	@if [ -n "$(NODE_TEST_FILES)" ]; then \
+		echo "── Node tests (other)"; \
+		$(NODE) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
+	fi
+
+# 合否ゲート。1 つでも失敗したら止まる。
+test: test-static-and-python test-node-traceability test-node-other
 
 traceability: runtime-deps
 	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
