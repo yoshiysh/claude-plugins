@@ -494,8 +494,8 @@ const REJECT_CASES = [
   ['results の task の集合に余分な task がある', 'set_extra', 'extractor', {}],
   ['受け箱が timed_out: true（返り値は期限内に書いてある）', 'timed_out', 'extractor', {}],
   ['受け箱が timed_out: true（モデル化の段の batch）', 'timed_out', 'model-author', {}],
-  ['期限の後に受け箱を公開する（返り値は期限内に書いてある）', 'late', 'extractor', { time_limit_seconds: 24 }],
-  ['期限までに受け箱を公開しない', 'no_submit', 'extractor', { time_limit_seconds: 24 }],
+  ['期限の後に受け箱を公開する（返り値は期限内に書いてある）', 'late', 'extractor', { time_limit_seconds: 12 }],
+  ['期限までに受け箱を公開しない', 'no_submit', 'extractor', { time_limit_seconds: 12 }],
   ['受け箱が timed_out: true（反例の原因の分類役の batch）', 'timed_out', 'cause-analyst', {}, { properties: [P('P1', 3, { query: { result: 'sat' } })] }],
   ['受け箱を読めない（権限 000）', 'inbox_unreadable', 'extractor', {}],
   ['受け箱が JSON でない', 'inbox_not_json', 'extractor', {}],
@@ -1901,9 +1901,9 @@ test('artifact-formats 意味の確認 担当の返り値 SP-FORMALMETHOD-012: �
   assert.ok(result.stop_report.reasons.some((x) => x.code === '保存の失敗'), JSON.stringify(result.stop_report.reasons));
 });
 test('artifact-formats 担当の返り値 SP-FORMALMETHOD-010・011: 時間の上限で確認の段より前に止まった run でも、全ての反例に原因（原因未確認・classified_by cli・grounds が空でない）があり、checker cli の意味の確認は無い', async (t) => {
-  // P1 はすぐ反例、P2 は検査に使える期限（上限 60 秒・残す時間 15 秒で、開始から約 45 秒）より長く眠り、実行の段で時間の上限に達する
+  // P1 はすぐ反例、P2 は検査に使える期限（上限 12 秒・残す時間 3 秒で、開始から約 9 秒）より長く眠り、実行の段で時間の上限に達する
   const scenario = { toolTimeLimit: 300, properties: [P('P1', 2, { query: { result: 'sat' } }), P('P2', 3, { query: { result: 'unsat', sleepMs: 200000 } })] };
-  const { result, harness } = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 60 }), scenario });
+  const { result, harness } = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 12 }), scenario });
   const why = timeLimitDiag(result, harness);
   assert.deepEqual(resultInvariants(result), []);
   assert.ok(result.stop_report.reasons.some((x) => x.code === '時間の上限'), why);
@@ -1971,10 +1971,10 @@ test('artifact-formats 確認 SP-FORMALMETHOD-012: z3 が (error …) を返す 
   assert.equal(detConf(result, 'output_format')?.result, '成り立つ');
 });
 test('artifact-formats 確認 SP-FORMALMETHOD-012: 時間の上限で止めた実行だけの run では、output_format は 成り立つ', async (t) => {
-  // 上限 60 秒（検査に使える期限は開始から約 45 秒）。全ての実行が期限より長く眠る
+  // 上限 12 秒（検査に使える期限は開始から約 9 秒）。全ての実行が期限より長く眠る
   const sleep = { sleepMs: 200000 };
   const scenario = { toolTimeLimit: 300, properties: [P('P1', 2, { query: { result: 'unsat', ...sleep }, sanity: { result: 'sat', ...sleep }, mutation: { result: 'sat', ...sleep } })] };
-  const { result, harness } = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 60 }), scenario });
+  const { result, harness } = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 12 }), scenario });
   const why = timeLimitDiag(result, harness);
   assert.deepEqual(resultInvariants(result), []);
   const ends = [...result.checks.map((x) => x.end), ...result.confirmations.deterministic.filter((x) => x.end).map((x) => x.end)].filter((e) => e.started);

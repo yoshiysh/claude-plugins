@@ -28,7 +28,7 @@ run_one_case() {
   case_work="$work/run/$id"
   mkdir -p "$case_work/tmp"
   cp "$work"/*.tla "$work/cases/$id.cfg" "$case_work/"
-  workers=${4:-${TLC_WORKERS:-1}}
+  workers=${4:-${TLC_WORKERS:-auto}}
   set +e
   (cd "$case_work" && "$JAVA" -Djava.io.tmpdir="$case_work/tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers "$workers" -metadir "$case_work/$id.states" -config "$id.cfg" "$module") > "$case_work/$id.out" 2>&1
   code=$?
@@ -132,7 +132,32 @@ dependent_skipped still_waiting_unknown save_fail status_fail'
   echo '===='
 } > RunW.tla
 
-failures=0 total=0 giant_index=0 heavy_index=0 light_index=0
+failures=0 total=0 case_seq=0
+: > "$work/all.tsv"
+
+case_weight() {
+  case "$1" in
+    lock-baseline) echo 108123 ;;
+    run-witness-NeverCompleted) echo 74618 ;;
+    run-baseline) echo 60720 ;;
+    run-witness-NeverStoppedCex) echo 34014 ;;
+    run-mut-complete_before_publish) echo 26242 ;;
+    run-mut-ignore_save_failure) echo 21105 ;;
+    run-termination) echo 17326 ;;
+    run-witness-NeverStoppedUndetected) echo 16024 ;;
+    run-baseline-4stages) echo 15631 ;;
+    lock-baseline-status-unreadable) echo 9257 ;;
+    run-mut-complete_ignores_confirmation) echo 8127 ;;
+    lock-termination|lock-termination-determinable) echo 4239 ;;
+    run-witness-NeverStoppedDeadline) echo 3426 ;;
+    run-baseline-unreadable) echo 2978 ;;
+    run-witness-NeverStoppedQuestion) echo 2943 ;;
+    run-witness-independent_after_cex) echo 1814 ;;
+    run-termination-unreadable) echo 1127 ;;
+    run-save-failure-reaches) echo 1007 ;;
+    *) echo 100 ;;
+  esac
+}
 
 # run_case id module kind props expect consts spec
 #   kind: baseline | witness | mutation | finding | limit
@@ -140,42 +165,8 @@ failures=0 total=0 giant_index=0 heavy_index=0 light_index=0
 #   consts: cfg の CONSTANTS の本文（改行区切り）
 run_case() {
   id=$1 module=$2 kind=$3 props=$4 expect=$5 consts=$6 spec=${7:-Spec}
-  tier=light
-  case "$id" in
-    lock-baseline|run-baseline|run-witness-NeverCompleted) tier=giant ;;
-    run-mut-ignore_save_failure|run-mut-complete_ignores_confirmation|run-witness-NeverStopped*) tier=heavy ;;
-  esac
-  if [ "$tier" = light ] && { [ "$kind" = baseline ] || [ "$spec" = FairSpec ]; }; then
-    tier=heavy
-  fi
-  if [ -n "$shard_k" ]; then
-    if [ "$shard_n" -ge 5 ]; then
-      case "$tier" in
-        giant)
-          giant_index=$((giant_index + 1))
-          [ "$(( (giant_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
-          ;;
-        heavy)
-          heavy_index=$((heavy_index + 1))
-          [ "$(( (heavy_index - 1) % (shard_n - 3) + 4 ))" -eq "$shard_k" ] || return 0
-          ;;
-        light)
-          light_index=$((light_index + 1))
-          [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
-          ;;
-      esac
-    else
-      if [ "$tier" = light ]; then
-        light_index=$((light_index + 1))
-        [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
-      else
-        heavy_index=$((heavy_index + 1))
-        [ "$(( (heavy_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
-      fi
-    fi
-  fi
   if [ -n "$only" ] && ! printf '%s' "$id" | grep -Eq "$only"; then return 0; fi
-  total=$((total + 1))
+  case_seq=$((case_seq + 1))
   temporal=no
   [ "$spec" = FairSpec ] && temporal=yes   # 公平性つきの仕様では、性質を時相の性質（PROPERTIES）として回す
   {
@@ -185,12 +176,7 @@ run_case() {
   } > "$work/cases/$id.cfg"
   printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$module" "$kind" "$props" "$expect" "$temporal" "$spec" > "$work/cases/$id.meta"
   printf '%s' "$consts" > "$work/cases/$id.consts"
-  printf '%s\n' "$id" >> "$work/cases.list"
-  if [ "$tier" = light ]; then
-    printf '%s\n' "$id" >> "$work/light.list"
-  else
-    printf '%s\n' "$id" >> "$work/heavy.list"
-  fi
+  printf '%d\t%d\t%s\n' "$case_seq" "$(case_weight "$id")" "$id" >> "$work/all.tsv"
 }
 
 # ---------------- Lock.tla ----------------
@@ -297,18 +283,40 @@ rmut busy_daemon_to_salvage BusyFollowsRole
 rmut busy_salvage_to_wait BusyFollowsRole
 rmut unreadable_returns_new OneResult "$eread"
 
-if [ -s "$work/heavy.list" ]; then
-  while IFS= read -r id || [ -n "$id" ]; do
-    run_one_case "$work" "$out" "$id" "${TLC_HEAVY_WORKERS:-auto}"
-  done < "$work/heavy.list"
-fi
-
-if [ -s "$work/light.list" ]; then
-  xargs -n 1 -P "$jobs" sh "$self" __one "$work" "$out" < "$work/light.list"
+if [ -s "$work/all.tsv" ]; then
+  if [ -n "$shard_k" ]; then
+    awk -v k="$shard_k" -v n="$shard_n" '
+      { seq[NR] = $1; w[NR] = $2; id[NR] = $3; count = NR }
+      END {
+        for (i = 1; i <= count; i++) order[i] = i;
+        for (i = 1; i <= count; i++) {
+          for (j = i + 1; j <= count; j++) {
+            if (w[order[j]] > w[order[i]] || (w[order[j]] == w[order[i]] && seq[order[j]] < seq[order[i]])) {
+              tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+            }
+          }
+        }
+        for (b = 1; b <= n; b++) load[b] = 0;
+        for (i = 1; i <= count; i++) {
+          idx = order[i];
+          best = 1;
+          for (b = 2; b <= n; b++) {
+            if (load[b] < load[best]) best = b;
+          }
+          load[best] += w[idx];
+          if (best == k) print id[idx];
+        }
+      }
+    ' "$work/all.tsv" > "$work/cases.list"
+  else
+    cut -f 3 "$work/all.tsv" > "$work/cases.list"
+  fi
 fi
 
 if [ -s "$work/cases.list" ]; then
+  total=$(wc -l < "$work/cases.list" | tr -d ' ')
   while IFS= read -r id || [ -n "$id" ]; do
+    run_one_case "$work" "$out" "$id" "${TLC_WORKERS:-auto}"
     [ -f "$work/results/$id.json" ] && cat "$work/results/$id.json"
     if [ ! -f "$work/results/$id.match" ] || [ "$(cat "$work/results/$id.match")" != yes ]; then
       failures=$((failures + 1))
