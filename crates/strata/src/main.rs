@@ -3,10 +3,10 @@ use std::path::Path;
 use std::process::Command;
 
 use strata::cli::{Cli, Commands, RunArgs};
-use strata::client::call_strata_api;
+use strata::context::execute_optimized;
 use strata::guidelines::{collect_guidelines, resolve_workspace_root};
 use strata::mcp;
-use strata::personas::{build_user_prompt, find_persona};
+use strata::personas::find_persona;
 use strata::syntax::verify_syntax;
 use strata::utils::{clean_markdown_fences, format_target, resolve_api_key};
 
@@ -66,26 +66,23 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
 
     // Target formatting
     let target_formatted = format_target(args.target.as_deref());
-    let user_prompt = build_user_prompt(
+    let api_key = resolve_api_key(args.api_key.as_deref());
+    let temp = args.temperature.unwrap_or(persona.temperature);
+
+    let raw_output = execute_optimized(
+        &args.api_base,
+        &api_key,
+        &args.model,
+        persona,
         goal,
         target_formatted.as_deref(),
         &loaded_contexts,
         git_diff.as_deref(),
         &guidelines,
-    );
-
-    let api_key = resolve_api_key(args.api_key.as_deref());
-    let temp = args.temperature.unwrap_or(persona.temperature);
-
-    let raw_output = call_strata_api(
-        &args.api_base,
-        &api_key,
-        &args.model,
-        persona.system_prompt,
-        &user_prompt,
         temp,
         args.max_tokens,
         args.reasoning_effort.as_deref(),
+        !args.no_optimize,
     )?;
 
     let final_output = if !persona.is_review {
