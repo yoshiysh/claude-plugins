@@ -7,7 +7,7 @@ description: "Delegates code/test/documentation generation and ruthless adversar
 
 高速推論エンジン **Strata**（`http://127.0.0.1:8080/v1` または `STRATA_BASE_URL`）へ、特化型ワーカーとしてタスクをオフロード（委譲）します。
 
-生成役と敵対的検証役を明確に分離し、1 回完結型のプロンプト（数千トークン）で高速に実行します。
+生成役と敵対的検証役を明確に分離し、コンテキストの自動最適化（JSON 自動 minify・閾値超過時のセマンティック Map-Reduce 蒸留）により安全かつ高速に実行します。
 
 ---
 
@@ -23,6 +23,7 @@ description: "Delegates code/test/documentation generation and ruthless adversar
   * `output_path`: 保存先パス（指定時は自動で構文検査を実施）
   * `workspace_root`: 規約検出用のルートディレクトリ（任意）
   * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
+  * `optimize`: JSON 自動 minify および閾値超過時の Map-Reduce 蒸留を行うか（既定 `true`）
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
   * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
 * **`strata_review`**:
@@ -33,6 +34,7 @@ description: "Delegates code/test/documentation generation and ruthless adversar
   * `diff`: git diff 文字列
   * `workspace_root`: 規約検出用のルートディレクトリ（任意）
   * `use_guidelines`: リポジトリ規約の自動注入を行うか（既定 `true`）
+  * `optimize`: JSON 自動 minify および閾値超過時の Map-Reduce 蒸留を行うか（既定 `true`）
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
   * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
 
@@ -47,9 +49,9 @@ description: "Delegates code/test/documentation generation and ruthless adversar
 
 ---
 
-## 2. リポジトリ規約・レビュー観点の自動注入
+## 2. リポジトリ規約・レビュー観点の自動注入とコンテキスト最適化
 
-既定（`use_guidelines: true`）では、`workspace_root`（未指定時はワークスペースルート）から以下の規約ファイルを自動検出してプロンプトに注入します（シンボリックリンクは重複排除）：
+既定（`use_guidelines: true`）では、`workspace_root`（未指定時はワークスペースルート）から以下の規約ファイルを自動検出してプロンプトに組み込みます（シンボリックリンクは重複排除）。なお、合計トークン数が予算（既定 `1,200 tokens`、環境変数 `STRATA_MAX_CONTEXT_TOKENS` で変更可）を超える場合は、`target` / `diff` の原文を優先して残しつつガイドライン側を先に Map-Reduce 蒸留し、ユーザー入力自体が超過する場合はセマンティック境界で分割・蒸留してから実行します（`optimize: false` / `--no-optimize` で無効化可）：
 
 * **全ロール共通（生成・レビュー双方）**: `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`
   * 実装役（`*-gen`）にも `REVIEW.md` を事前に渡すことで、レビュー基準から外れないコード・テスト・文書を生成します。

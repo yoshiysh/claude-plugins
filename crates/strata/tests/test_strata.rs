@@ -5,7 +5,8 @@ use tempfile::{tempdir, NamedTempFile};
 
 use strata::client::read_sse_stream;
 use strata::context::{
-    distill_context_with, estimate_tokens, minify_json_in_text, split_into_chunks,
+    distill_context_with, estimate_tokens, minify_json_in_text, prepare_optimized_prompt_with,
+    split_into_chunks,
 };
 use strata::guidelines::{collect_guidelines, find_workspace_root};
 use strata::mcp::{get_tools, handle_rpc};
@@ -246,8 +247,8 @@ fn test_split_into_chunks() {
         assert!(estimate_tokens(c) <= 200, "chunk exceeded budget: {}", estimate_tokens(c));
     }
 
-    // Oversized single line (e.g. minified JSON)
-    let single_line = "a".repeat(1500);
+    // Oversized single line (e.g. minified JSON) with mixed ASCII & Japanese
+    let single_line = "abあいう".repeat(300);
     let single_chunks = split_into_chunks(&single_line, 200);
     assert!(single_chunks.len() >= 2);
     for c in &single_chunks {
@@ -299,4 +300,70 @@ fn test_map_reduce_distillation_mock() {
     assert!(did_distill_big);
     assert!(map_calls >= 2);
     assert!(estimate_tokens(&res_big) <= 300);
+}
+
+#[test]
+fn test_prepare_optimized_prompt_bypass_and_guidelines() {
+    let pretty_json = "{\n  \"k\": \"v\"\n}";
+    let guidelines = vec![("REVIEW.md".to_string(), "Rule line.\n".repeat(400))];
+
+    // 1. optimize = false: must NOT minify JSON or run distillation
+    let mut calls = 0usize;
+    let bypassed = prepare_optimized_prompt_with(
+        "Check JSON",
+        Some(pretty_json),
+        &[],
+        None,
+        &guidelines,
+        300,
+        200,
+        false,
+        |_sys, _usr| {
+            calls += 1;
+            Ok("distilled".to_string())
+        },
+    )
+    .unwrap();
+    assert_eq!(calls, 0);
+    assert!(bypassed.contains("{\n  \"k\": \"v\"\n}"));
+
+    // 2. optimize = true with small target + huge guidelines:
+    // target must remain verbatim (minified), while only guidelines get distilled
+    let mut distilled_calls = 0usize;
+    let prompt = prepare_optimized_prompt_with(
+        "Check target",
+        Some("fn target_fn() { return 42; }"),
+        &[],
+        Some("+ let x = 1;"),
+        &guidelines,
+        300,
+        150,
+        true,
+        |_sys, usr| {
+            distilled_calls += 1;
+            assert!(!usr.contains("fn target_fn"), "target should not be fed to distiller");
+            Ok("- short guideline summary".to_string())
+        },
+    )
+    .unwrap();
+    assert!(distilled_calls >= 1);
+    assert!(prompt.contains("fn target_fn() { return 42; }"));
+    assert!(prompt.contains("+ let x = 1;"));
+    assert!(prompt.contains("Distilled Guidelines"));
+}
+
+#[test]
+fn test_truncation_notice() {
+    let big_ctx = "line with lots of words and details.\n".repeat(120);
+    let (res, did_distill) = distill_context_with(
+        "Goal",
+        &big_ctx,
+        120,
+        100,
+        |_sys, _usr| Ok("A very verbose distilled bullet that refuses to shrink. ".repeat(15)),
+    )
+    .unwrap();
+    assert!(did_distill);
+    assert!(res.contains("[TRUNCATED:"));
+    assert!(estimate_tokens(&res) <= 120);
 }

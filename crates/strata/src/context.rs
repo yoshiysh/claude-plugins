@@ -20,6 +20,11 @@ Rules:
 2. Eliminate redundancy while preserving every distinct technical fact.
 3. Output ONLY a concise Markdown bullet list."#;
 
+#[inline]
+pub fn tokens_from_counts(ascii_bytes: usize, non_ascii_chars: usize) -> usize {
+    ascii_bytes.div_ceil(4) + non_ascii_chars
+}
+
 /// Estimate token count (~4 ASCII bytes per token, 1 char per token for non-ASCII).
 pub fn estimate_tokens(text: &str) -> usize {
     let mut ascii_bytes = 0usize;
@@ -31,7 +36,7 @@ pub fn estimate_tokens(text: &str) -> usize {
             non_ascii_chars += 1;
         }
     }
-    ascii_bytes.div_ceil(4) + non_ascii_chars
+    tokens_from_counts(ascii_bytes, non_ascii_chars)
 }
 
 /// Automatically minify JSON content (either full-text JSON or fenced JSON blocks inside Markdown)
@@ -213,7 +218,7 @@ fn split_oversized_block(block: &str, budget: usize) -> Vec<String> {
             for ch in line.chars() {
                 let next_ascii = sub_ascii + usize::from(ch.is_ascii());
                 let next_non_ascii = sub_non_ascii + usize::from(!ch.is_ascii());
-                let next_tokens = next_ascii.div_ceil(4) + next_non_ascii;
+                let next_tokens = tokens_from_counts(next_ascii, next_non_ascii);
                 if !sub.is_empty() && next_tokens > budget {
                     chunks.push(sub);
                     sub = String::new();
@@ -390,7 +395,15 @@ where
     }
 
     if estimate_tokens(&combined) > max_tokens {
-        combined = truncate_to_tokens(&combined, max_tokens);
+        let before = estimate_tokens(&combined);
+        let notice = "\n\n[TRUNCATED: distilled context exceeded token budget and trailing notes were omitted]";
+        let notice_tokens = estimate_tokens(notice);
+        let kept = truncate_to_tokens(&combined, max_tokens.saturating_sub(notice_tokens));
+        eprintln!(
+            "[Strata Optimizer] WARNING: distilled output (~{} tokens) exceeded budget ({} tokens) and was truncated.",
+            before, max_tokens
+        );
+        combined = format!("{}{}", kept, notice);
     }
 
     Ok((combined, true))
@@ -402,6 +415,136 @@ fn env_usize(name: &str, default: usize) -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&v| v > 0)
         .unwrap_or(default)
+}
+
+/// Prepare final prompt with JSON minification and Map-Reduce distillation.
+/// Preserves raw `target`, `contexts`, and `diff` verbatim whenever they fit within `max_ctx_tokens`,
+/// distilling oversized `guidelines` separately so small targets are never degraded.
+pub fn prepare_optimized_prompt_with<F>(
+    goal: &str,
+    target: Option<&str>,
+    contexts: &[String],
+    diff: Option<&str>,
+    guidelines: &[(String, String)],
+    max_ctx_tokens: usize,
+    chunk_tokens: usize,
+    optimize: bool,
+    mut call_fn: F,
+) -> Result<String, String>
+where
+    F: FnMut(&str, &str) -> Result<String, String>,
+{
+    if !optimize {
+        return Ok(build_user_prompt(goal, target, contexts, diff, guidelines));
+    }
+
+    let min_target = target.map(minify_json_in_text);
+    let min_contexts: Vec<String> = contexts.iter().map(|c| minify_json_in_text(c)).collect();
+    let min_diff = diff.map(minify_json_in_text);
+
+    // Measure the exact prompt that build_user_prompt would send
+    let full_prompt = build_user_prompt(
+        goal,
+        min_target.as_deref(),
+        &min_contexts,
+        min_diff.as_deref(),
+        guidelines,
+    );
+    if estimate_tokens(&full_prompt) <= max_ctx_tokens {
+        return Ok(full_prompt);
+    }
+
+    // Check if user inputs (goal + target + contexts + diff) fit without guidelines
+    let user_only_prompt = build_user_prompt(
+        goal,
+        min_target.as_deref(),
+        &min_contexts,
+        min_diff.as_deref(),
+        &[],
+    );
+    let user_only_tokens = estimate_tokens(&user_only_prompt);
+
+    if user_only_tokens <= max_ctx_tokens {
+        // Keep target/contexts/diff verbatim; compress guidelines into remaining budget
+        let remaining_budget = max_ctx_tokens.saturating_sub(user_only_tokens);
+        if remaining_budget < 120 || guidelines.is_empty() {
+            if !guidelines.is_empty() {
+                eprintln!(
+                    "[Strata Optimizer] Skipping guidelines (~{} tokens remaining < 120) to preserve verbatim target/diff.",
+                    remaining_budget
+                );
+            }
+            return Ok(user_only_prompt);
+        }
+
+        let raw_guidelines: String = guidelines
+            .iter()
+            .map(|(name, content)| format!("### Guideline: {}\n{}", name, content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let (distilled_guide, _) = distill_context_with(
+            goal,
+            &raw_guidelines,
+            remaining_budget,
+            chunk_tokens,
+            &mut call_fn,
+        )?;
+        let guide_pair = vec![("Distilled Guidelines".to_string(), distilled_guide)];
+        return Ok(build_user_prompt(
+            goal,
+            min_target.as_deref(),
+            &min_contexts,
+            min_diff.as_deref(),
+            &guide_pair,
+        ));
+    }
+
+    // Both or user inputs exceed max_ctx_tokens: reserve a small budget for guidelines if present
+    let goal_tokens = estimate_tokens(goal) + 16;
+    let guide_reserve = if guidelines.is_empty() { 0 } else { 200.min(max_ctx_tokens / 4) };
+    let user_budget = max_ctx_tokens.saturating_sub(goal_tokens + guide_reserve).max(250);
+
+    // Build user context body using build_user_prompt (with empty goal) to stay 100% consistent
+    let raw_user_body = build_user_prompt(
+        "",
+        min_target.as_deref(),
+        &min_contexts,
+        min_diff.as_deref(),
+        &[],
+    );
+    let (distilled_user, _) = distill_context_with(
+        goal,
+        &raw_user_body,
+        user_budget,
+        chunk_tokens,
+        &mut call_fn,
+    )?;
+
+    let distilled_guidelines = if !guidelines.is_empty() && guide_reserve >= 100 {
+        let raw_guidelines: String = guidelines
+            .iter()
+            .map(|(name, content)| format!("### Guideline: {}\n{}", name, content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let (dg, _) = distill_context_with(
+            goal,
+            &raw_guidelines,
+            guide_reserve,
+            chunk_tokens,
+            &mut call_fn,
+        )?;
+        vec![("Distilled Guidelines".to_string(), dg)]
+    } else {
+        Vec::new()
+    };
+
+    Ok(build_user_prompt(
+        goal,
+        None,
+        &[distilled_user],
+        None,
+        &distilled_guidelines,
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -420,64 +563,18 @@ pub fn execute_optimized(
     reasoning_effort: Option<&str>,
     optimize: bool,
 ) -> Result<String, String> {
-    // Step 1: Minify any JSON inside target, contexts, diff
-    let min_target = target.map(minify_json_in_text);
-    let min_contexts: Vec<String> = contexts.iter().map(|c| minify_json_in_text(c)).collect();
-    let min_diff = diff.map(minify_json_in_text);
-
     let max_ctx_tokens = env_usize("STRATA_MAX_CONTEXT_TOKENS", DEFAULT_MAX_CONTEXT_TOKENS);
     let chunk_tokens = env_usize("STRATA_CHUNK_TOKENS", DEFAULT_CHUNK_TOKENS);
 
-    if !optimize {
-        let user_prompt = build_user_prompt(
-            goal,
-            min_target.as_deref(),
-            &min_contexts,
-            min_diff.as_deref(),
-            guidelines,
-        );
-        return call_strata_api(
-            api_base,
-            api_key,
-            model,
-            persona.system_prompt,
-            &user_prompt,
-            temperature,
-            max_tokens,
-            reasoning_effort,
-        );
-    }
-
-    // Build full context payload (excluding goal) to measure whether Map-Reduce is needed
-    let mut raw_sections = Vec::new();
-    if !guidelines.is_empty() {
-        raw_sections.push("## Repository Guidelines & Standards".to_string());
-        for (name, content) in guidelines {
-            raw_sections.push(format!("### Guideline: {}\n{}", name, content));
-        }
-    }
-    if let Some(t) = min_target.as_deref() {
-        raw_sections.push(format!("## Target\n{}", t));
-    }
-    if let Some(d) = min_diff.as_deref() {
-        raw_sections.push(format!("## Git Diff\n```diff\n{}\n```", d));
-    }
-    if !min_contexts.is_empty() {
-        raw_sections.push("## Context & References".to_string());
-        for (idx, ctx) in min_contexts.iter().enumerate() {
-            raw_sections.push(format!("### Reference {}\n{}", idx + 1, ctx));
-        }
-    }
-
-    let combined_raw = raw_sections.join("\n\n");
-    let goal_tokens = estimate_tokens(goal);
-    let context_budget = max_ctx_tokens.saturating_sub(goal_tokens).max(300);
-
-    let (distilled, was_distilled) = distill_context_with(
+    let final_user_prompt = prepare_optimized_prompt_with(
         goal,
-        &combined_raw,
-        context_budget,
+        target,
+        contexts,
+        diff,
+        guidelines,
+        max_ctx_tokens,
         chunk_tokens,
+        optimize,
         |sys_prompt, usr_prompt| {
             call_strata_api(
                 api_base,
@@ -491,21 +588,6 @@ pub fn execute_optimized(
             )
         },
     )?;
-
-    let final_user_prompt = if was_distilled {
-        format!(
-            "## Goal\n{}\n\n## Distilled Context & Specifications\n{}\n",
-            goal, distilled
-        )
-    } else {
-        build_user_prompt(
-            goal,
-            min_target.as_deref(),
-            &min_contexts,
-            min_diff.as_deref(),
-            guidelines,
-        )
-    };
 
     call_strata_api(
         api_base,

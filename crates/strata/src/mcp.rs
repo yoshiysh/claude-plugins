@@ -45,6 +45,10 @@ pub fn get_tools() -> Value {
                         "type": "boolean",
                         "description": "Whether to auto-load repository guidelines (default: true)."
                     },
+                    "optimize": {
+                        "type": "boolean",
+                        "description": "Whether to auto-minify JSON and run Map-Reduce context distillation when exceeding budget (default: true)."
+                    },
                     "max_tokens": {
                         "type": "integer",
                         "description": "Maximum output tokens (default: 4096)."
@@ -93,6 +97,10 @@ pub fn get_tools() -> Value {
                         "type": "boolean",
                         "description": "Whether to auto-load repository guidelines (default: true)."
                     },
+                    "optimize": {
+                        "type": "boolean",
+                        "description": "Whether to auto-minify JSON and run Map-Reduce context distillation when exceeding budget (default: true)."
+                    },
                     "max_tokens": {
                         "type": "integer",
                         "description": "Maximum output tokens (default: 4096)."
@@ -118,6 +126,10 @@ fn handle_generate(args: &Value) -> Result<String, String> {
     let workspace_root = args.get("workspace_root").and_then(|w| w.as_str());
     let use_guidelines = args
         .get("use_guidelines")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let optimize = args
+        .get("optimize")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
     let max_tokens = args
@@ -161,7 +173,7 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         persona.temperature,
         max_tokens,
         reasoning_effort,
-        true,
+        optimize,
     )?;
 
     let clean_output = clean_markdown_fences(&raw_output);
@@ -194,6 +206,10 @@ fn handle_review(args: &Value) -> Result<String, String> {
     let workspace_root = args.get("workspace_root").and_then(|w| w.as_str());
     let use_guidelines = args
         .get("use_guidelines")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let optimize = args
+        .get("optimize")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
     let max_tokens = args
@@ -237,7 +253,7 @@ fn handle_review(args: &Value) -> Result<String, String> {
         persona.temperature,
         max_tokens,
         reasoning_effort,
-        true,
+        optimize,
     )?;
 
     Ok(raw_output.trim().to_string())
