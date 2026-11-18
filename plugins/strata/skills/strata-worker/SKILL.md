@@ -77,3 +77,5 @@ description: "Delegates code/test/documentation generation and ruthless adversar
   * `STRATA_BASE_URL`: 既定は `http://127.0.0.1:8080/v1`
   * `STRATA_API_KEY`: 既定は `~/.config/strata/api_key` から自動読込
   * `STRATA_MODEL`: 既定は `qwen3.8-flash-next-iq2_xs`
+  * `STRATA_PREFLIGHT`: リクエスト前の高速プリフライト（`<0.1s` API 疎通確認、`0` で無効化、既定は有効）
+  * `STRATA_PREFLIGHT_WARMUP`: `1` で `Loaded` 時も毎回 1-token ウォームアップを実行（既定は `Unloaded` 時のみ）

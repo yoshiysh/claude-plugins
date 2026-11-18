@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use strata::cli::{Cli, Commands, RunArgs};
-use strata::context::execute_optimized;
+use strata::context::execute_optimized_with_preflight;
 use strata::diagnose::{run_diagnose, run_health, DiagnoseOptions, HealthOptions};
 use strata::guidelines::{collect_guidelines, resolve_workspace_root};
 use strata::mcp;
@@ -70,7 +70,7 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
     let api_key = resolve_api_key(args.api_key.as_deref());
     let temp = args.temperature.unwrap_or(persona.temperature);
 
-    let raw_output = execute_optimized(
+    let raw_output = execute_optimized_with_preflight(
         &args.api_base,
         &api_key,
         &args.model,
@@ -84,6 +84,7 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
         args.max_tokens,
         args.reasoning_effort.as_deref(),
         !args.no_optimize,
+        !args.no_preflight,
     )?;
 
     let final_output = if !persona.is_review {

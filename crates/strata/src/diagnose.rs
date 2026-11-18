@@ -158,12 +158,18 @@ fn collect_host_snapshot(host: &str) -> Result<String, String> {
             .spawn()
             .map_err(|e| format!("Failed to spawn local bash: {}", e))?;
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(COLLECT_SCRIPT.as_bytes());
+            stdin
+                .write_all(COLLECT_SCRIPT.as_bytes())
+                .map_err(|e| format!("Failed to write diagnostic script to local bash: {}", e))?;
         }
         let out = child
             .wait_with_output()
             .map_err(|e| format!("Failed to wait for local bash: {}", e))?;
         return Ok(String::from_utf8_lossy(&out.stdout).to_string());
+    }
+
+    if host.is_empty() || host.starts_with('-') || host.chars().any(|c| c.is_whitespace()) {
+        return Err(format!("Invalid SSH host name: {:?}", host));
     }
 
     let mut child = Command::new("ssh")
@@ -176,6 +182,7 @@ fn collect_host_snapshot(host: &str) -> Result<String, String> {
             "IgnoreUnknown=WarnWeakCrypto",
             "-o",
             "WarnWeakCrypto=no",
+            "--",
             host,
             "wsl bash -s",
         ])
@@ -185,17 +192,24 @@ fn collect_host_snapshot(host: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("Failed to spawn ssh to {}: {}", host, e))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(COLLECT_SCRIPT.as_bytes());
-    }
+    let write_err = if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(COLLECT_SCRIPT.as_bytes()).err()
+    } else {
+        None
+    };
     let out = child
         .wait_with_output()
         .map_err(|e| format!("Failed to read ssh diagnostics from {}: {}", host, e))?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    if stdout.trim().is_empty() && !out.status.success() {
+    if stdout.trim().is_empty() && (!out.status.success() || write_err.is_some()) {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(format!("SSH diagnostic collection failed: {}", stderr));
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else {
+            write_err.map(|e| e.to_string()).unwrap_or_default()
+        };
+        return Err(format!("SSH diagnostic collection failed: {}", detail));
     }
     Ok(stdout)
 }
@@ -675,4 +689,75 @@ pub fn run_health(opts: &HealthOptions) -> Result<(HealthReport, String, i32), S
     };
 
     Ok((report, text, exit_code))
+}
+
+pub fn preflight_intercept_with<FHealth, FWarmup>(
+    force_warmup: bool,
+    mut check_health_fn: FHealth,
+    mut warmup_fn: FWarmup,
+) -> Result<bool, String>
+where
+    FHealth: FnMut() -> (ApiHealth, Option<i64>, Option<i64>),
+    FWarmup: FnMut() -> Result<(), String>,
+{
+    let (api_health, engine_silence_s, idle_unload_s) = check_health_fn();
+    let (status, warnings, next_action) =
+        evaluate_health(&api_health, engine_silence_s, idle_unload_s);
+
+    if status == HealthStatus::Unhealthy {
+        let hint = next_action.unwrap_or_else(|| "tools/claude-strata --diagnose".to_string());
+        return Err(format!(
+            "Preflight health check failed: {}. Run: {}",
+            warnings.join("; "),
+            hint
+        ));
+    }
+
+    for w in &warnings {
+        eprintln!("[Strata Preflight] Warning: {}", w);
+    }
+
+    let is_unloaded = matches!(api_health, ApiHealth::Unloaded);
+    if is_unloaded || force_warmup {
+        eprintln!("[Strata Preflight] Running 1-token warmup before request...");
+        let start = Instant::now();
+        warmup_fn()?;
+        eprintln!(
+            "[Strata Preflight] Warmup completed in {} ms.",
+            start.elapsed().as_millis()
+        );
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+/// Automatically intercepts every request with a fast (<0.1s) API health check.
+/// Runs a 1-token warmup only when the model is unloaded or STRATA_PREFLIGHT_WARMUP=1 is set.
+pub fn preflight_intercept(api_base: &str, api_key: &str, model: &str) -> Result<(), String> {
+    if std::env::var("STRATA_PREFLIGHT").ok().as_deref() == Some("0") {
+        return Ok(());
+    }
+
+    let force_warmup = std::env::var("STRATA_PREFLIGHT_WARMUP").ok().as_deref() == Some("1");
+
+    preflight_intercept_with(
+        force_warmup,
+        || check_api_health(api_base, api_key),
+        || {
+            call_strata_api(
+                api_base,
+                api_key,
+                model,
+                "Reply with OK.",
+                "ping",
+                0.0,
+                1,
+                Some("low"),
+            )
+            .map(|_| ())
+        },
+    )?;
+
+    Ok(())
 }

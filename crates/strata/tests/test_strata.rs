@@ -8,7 +8,9 @@ use strata::context::{
     distill_context_with, estimate_tokens, minify_json_in_text, prepare_optimized_prompt_with,
     split_into_chunks,
 };
-use strata::diagnose::{analyze_diagnostics, evaluate_health, ApiHealth, HealthStatus};
+use strata::diagnose::{
+    analyze_diagnostics, evaluate_health, preflight_intercept_with, ApiHealth, HealthStatus,
+};
 use strata::guidelines::{collect_guidelines, find_workspace_root};
 use strata::mcp::{get_tools, handle_rpc};
 use strata::personas::{build_user_prompt, PERSONAS};
@@ -439,4 +441,63 @@ fn test_evaluate_health_states() {
 
     let (status, _, _) = evaluate_health(&ApiHealth::AuthError, None, None);
     assert_eq!(status, HealthStatus::Unhealthy);
+}
+
+#[test]
+fn test_preflight_intercept_behavior() {
+    // 1. Unreachable fails fast without calling warmup
+    let mut warmup_called = false;
+    let err = preflight_intercept_with(
+        false,
+        || (ApiHealth::Unreachable("conn refused".to_string()), None, None),
+        || {
+            warmup_called = true;
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert!(!warmup_called);
+    assert!(err.contains("Preflight health check failed"));
+
+    // 2. Loaded skips warmup by default (<0.1s fast path)
+    let mut warmup_called = false;
+    let ran_warmup = preflight_intercept_with(
+        false,
+        || (ApiHealth::Loaded("qwen3.8".to_string()), Some(0), Some(0)),
+        || {
+            warmup_called = true;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(!ran_warmup);
+    assert!(!warmup_called);
+
+    // 3. Loaded + force_warmup triggers warmup
+    let mut warmup_called = false;
+    let ran_warmup = preflight_intercept_with(
+        true,
+        || (ApiHealth::Loaded("qwen3.8".to_string()), Some(0), Some(0)),
+        || {
+            warmup_called = true;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(ran_warmup);
+    assert!(warmup_called);
+
+    // 4. Unloaded triggers warmup automatically
+    let mut warmup_called = false;
+    let ran_warmup = preflight_intercept_with(
+        false,
+        || (ApiHealth::Unloaded, Some(0), Some(0)),
+        || {
+            warmup_called = true;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(ran_warmup);
+    assert!(warmup_called);
 }

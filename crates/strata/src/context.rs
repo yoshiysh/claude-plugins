@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::client::call_strata_api;
+use crate::diagnose::preflight_intercept;
 use crate::personas::{build_user_prompt, Persona};
 
 pub const DEFAULT_MAX_CONTEXT_TOKENS: usize = 1200;
@@ -563,8 +564,47 @@ pub fn execute_optimized(
     reasoning_effort: Option<&str>,
     optimize: bool,
 ) -> Result<String, String> {
+    execute_optimized_with_preflight(
+        api_base,
+        api_key,
+        model,
+        persona,
+        goal,
+        target,
+        contexts,
+        diff,
+        guidelines,
+        temperature,
+        max_tokens,
+        reasoning_effort,
+        optimize,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn execute_optimized_with_preflight(
+    api_base: &str,
+    api_key: &str,
+    model: &str,
+    persona: &Persona,
+    goal: &str,
+    target: Option<&str>,
+    contexts: &[String],
+    diff: Option<&str>,
+    guidelines: &[(String, String)],
+    temperature: f32,
+    max_tokens: u32,
+    reasoning_effort: Option<&str>,
+    optimize: bool,
+    run_preflight: bool,
+) -> Result<String, String> {
     let max_ctx_tokens = env_usize("STRATA_MAX_CONTEXT_TOKENS", DEFAULT_MAX_CONTEXT_TOKENS);
     let chunk_tokens = env_usize("STRATA_CHUNK_TOKENS", DEFAULT_CHUNK_TOKENS);
+
+    if run_preflight {
+        preflight_intercept(api_base, api_key, model)?;
+    }
 
     let final_user_prompt = prepare_optimized_prompt_with(
         goal,

@@ -61,6 +61,10 @@ pub struct RunArgs {
     #[arg(long)]
     pub no_optimize: bool,
 
+    /// Skip automatic preflight health check and idle warmup before request
+    #[arg(long)]
+    pub no_preflight: bool,
+
     /// Additional guideline file paths to include (can be repeated)
     #[arg(long = "guidelines")]
     pub extra_guidelines: Vec<String>,
