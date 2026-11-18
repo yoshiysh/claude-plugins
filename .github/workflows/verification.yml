@@ -217,10 +217,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     env:
       NODE_TEST_CONCURRENCY: '4'
-      NODE_TEST_SHARD: ${{ matrix.shard }}/4
+      NODE_TEST_SHARD: ${{ matrix.shard }}/5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
@@ -231,7 +231,7 @@ jobs:
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
-      - name: Verify other Node tests (shard ${{ matrix.shard }}/4)
+      - name: Verify other Node tests (shard ${{ matrix.shard }}/5)
         run: make test-node-other
 
   verification:

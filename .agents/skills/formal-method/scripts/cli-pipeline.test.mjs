@@ -1,7 +1,7 @@
 // 結合: start から terminal まで、担当の harness と PATH の偽の z3 で通し、結果と記録を観測する。
 // 担当の harness は test-fixtures/agent-harness.mjs（受け取った task が契約の形に合わなければ、その違反で失敗する）。
 // 正本: SP-FORMALMETHOD-003〜015、artifact-formats.md「結果」「検査の終わり方」、cli-contract.md「Z3 の adapter」。
-import test, { after } from 'node:test';
+import test, { after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -78,6 +78,7 @@ function assertRecordsConsistent(status, result, harness = null) {
 }
 
 // ---- 正準の 完了 のシナリオ（1 ファイル・1 目標・1 性質・1 検査・1 sanity・1 変異） ----
+describe('cli-pipeline', { concurrency: 4 }, () => {
 let canonical;
 const canonicalRun = async () => {
   if (!canonical) canonical = runScenario(null, {});
@@ -2107,4 +2108,5 @@ test('artifact-formats goals の property_id: 目標の性質の id の誤りが
   assert.ok(paths.unverified.some((u) => u.target === '完了' && u.reason === '目標の性質が無い'), JSON.stringify(paths.unverified));
   assert.equal(result.status, '停止');
   assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
+});
 });

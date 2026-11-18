@@ -28,7 +28,7 @@ run_one_case() {
   case_work="$work/run/$id"
   mkdir -p "$case_work/tmp"
   cp "$work"/*.tla "$work/cases/$id.cfg" "$case_work/"
-  workers=${TLC_WORKERS:-1}
+  workers=${4:-${TLC_WORKERS:-1}}
   set +e
   (cd "$case_work" && "$JAVA" -Djava.io.tmpdir="$case_work/tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers "$workers" -metadir "$case_work/$id.states" -config "$id.cfg" "$module") > "$case_work/$id.out" 2>&1
   code=$?
@@ -65,7 +65,7 @@ run_one_case() {
 
 if [ "${1:-}" = "__one" ]; then
   shift
-  run_one_case "$1" "$2" "$3"
+  run_one_case "$1" "$2" "$3" "${4:-}"
   exit 0
 fi
 
@@ -107,6 +107,8 @@ trap 'exit 143' TERM
 cp "$base/Run.tla" "$base/Lock.tla" "$work/"
 mkdir -p "$work/cases" "$work/results" "$work/run"
 : > "$work/cases.list"
+: > "$work/heavy.list"
+: > "$work/light.list"
 cd "$work"
 
 # 到達の証人の印は、性質の名前として拡張のモジュールに置く（TLC の cfg は引数を取れないため）。
@@ -130,7 +132,7 @@ dependent_skipped still_waiting_unknown save_fail status_fail'
   echo '===='
 } > RunW.tla
 
-failures=0 total=0 case_index=0
+failures=0 total=0 heavy_index=0 light_index=0
 
 # run_case id module kind props expect consts spec
 #   kind: baseline | witness | mutation | finding | limit
@@ -138,9 +140,16 @@ failures=0 total=0 case_index=0
 #   consts: cfg の CONSTANTS の本文（改行区切り）
 run_case() {
   id=$1 module=$2 kind=$3 props=$4 expect=$5 consts=$6 spec=${7:-Spec}
-  case_index=$((case_index + 1))
+  is_heavy=no
+  if [ "$kind" = baseline ] || [ "$spec" = FairSpec ]; then is_heavy=yes; fi
   if [ -n "$shard_k" ]; then
-    if [ "$(( (case_index - 1) % shard_n + 1 ))" -ne "$shard_k" ]; then return; fi
+    if [ "$is_heavy" = yes ]; then
+      heavy_index=$((heavy_index + 1))
+      if [ "$(( (heavy_index - 1) % shard_n + 1 ))" -ne "$shard_k" ]; then return; fi
+    else
+      light_index=$((light_index + 1))
+      if [ "$(( (light_index - 1) % shard_n + 1 ))" -ne "$shard_k" ]; then return; fi
+    fi
   fi
   if [ -n "$only" ] && ! printf '%s' "$id" | grep -Eq "$only"; then return; fi
   total=$((total + 1))
@@ -154,6 +163,11 @@ run_case() {
   printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$module" "$kind" "$props" "$expect" "$temporal" "$spec" > "$work/cases/$id.meta"
   printf '%s' "$consts" > "$work/cases/$id.consts"
   printf '%s\n' "$id" >> "$work/cases.list"
+  if [ "$is_heavy" = yes ]; then
+    printf '%s\n' "$id" >> "$work/heavy.list"
+  else
+    printf '%s\n' "$id" >> "$work/light.list"
+  fi
 }
 
 # ---------------- Lock.tla ----------------
@@ -260,8 +274,17 @@ rmut busy_daemon_to_salvage BusyFollowsRole
 rmut busy_salvage_to_wait BusyFollowsRole
 rmut unreadable_returns_new OneResult "$eread"
 
+if [ -s "$work/heavy.list" ]; then
+  while IFS= read -r id || [ -n "$id" ]; do
+    run_one_case "$work" "$out" "$id" "${TLC_HEAVY_WORKERS:-auto}"
+  done < "$work/heavy.list"
+fi
+
+if [ -s "$work/light.list" ]; then
+  xargs -n 1 -P "$jobs" sh "$self" __one "$work" "$out" < "$work/light.list"
+fi
+
 if [ -s "$work/cases.list" ]; then
-  xargs -n 1 -P "$jobs" sh "$self" __one "$work" "$out" < "$work/cases.list"
   while IFS= read -r id || [ -n "$id" ]; do
     [ -f "$work/results/$id.json" ] && cat "$work/results/$id.json"
     if [ ! -f "$work/results/$id.match" ] || [ "$(cat "$work/results/$id.match")" != yes ]; then
