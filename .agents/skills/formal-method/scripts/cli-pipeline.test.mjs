@@ -961,7 +961,10 @@ test('SP-FORMALMETHOD-009 AC-07: 部分の成功だけで全体を検証済み�
 // ---- AC-10: 時間の上限が小さい依頼 ----
 test('SP-FORMALMETHOD-010・015 AC-10: 時間の上限 1 秒の依頼は受け付け、期限の過ぎた担当・道具を出さず、時間の上限 で停止する', async (t) => {
   const started = Date.now();
-  const out = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: 1 }) });
+  const out = await runScenario(t, {
+    request: canonicalRequest({ time_limit_seconds: 1 }),
+    scenario: { properties: [P('P1', 2, { query: { result: 'unsat', sleepMs: 1500 } })] },
+  });
   const r = out.result;
   assert.equal(r.status, '停止');
   assert.ok(!r.stop_report.reasons.some((x) => x.request_code === 'time_limit_invalid'));
