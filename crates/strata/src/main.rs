@@ -4,6 +4,7 @@ use std::process::Command;
 
 use strata::cli::{Cli, Commands, RunArgs};
 use strata::context::execute_optimized;
+use strata::diagnose::{run_diagnose, run_health, DiagnoseOptions, HealthOptions};
 use strata::guidelines::{collect_guidelines, resolve_workspace_root};
 use strata::mcp;
 use strata::personas::find_persona;
@@ -167,6 +168,48 @@ fn main() {
             if let Err(e) = mcp::run_mcp_server() {
                 eprintln!("Strata MCP Server error: {}", e);
                 std::process::exit(1);
+            }
+        }
+        Some(Commands::Diagnose(diag_args)) => {
+            let api_key = resolve_api_key(diag_args.api_key.as_deref());
+            let opts = DiagnoseOptions {
+                api_base: &diag_args.api_base,
+                api_key: &api_key,
+                model: &diag_args.model,
+                host: &diag_args.host,
+                include_logs: !diag_args.no_logs,
+                ai_analyze: diag_args.ai,
+                json_output: diag_args.json,
+            };
+            match run_diagnose(&opts) {
+                Ok(report) => println!("{}", report),
+                Err(e) => {
+                    eprintln!("Diagnose error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(Commands::Health(health_args)) => {
+            let api_key = resolve_api_key(health_args.api_key.as_deref());
+            let opts = HealthOptions {
+                api_base: &health_args.api_base,
+                api_key: &api_key,
+                model: &health_args.model,
+                warmup: health_args.warmup,
+                strict: health_args.strict,
+                json_output: health_args.json,
+            };
+            match run_health(&opts) {
+                Ok((_report, text, exit_code)) => {
+                    println!("{}", text);
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Health check error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         None => {

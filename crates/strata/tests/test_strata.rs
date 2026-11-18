@@ -8,6 +8,7 @@ use strata::context::{
     distill_context_with, estimate_tokens, minify_json_in_text, prepare_optimized_prompt_with,
     split_into_chunks,
 };
+use strata::diagnose::{analyze_diagnostics, evaluate_health, ApiHealth, HealthStatus};
 use strata::guidelines::{collect_guidelines, find_workspace_root};
 use strata::mcp::{get_tools, handle_rpc};
 use strata::personas::{build_user_prompt, PERSONAS};
@@ -154,7 +155,14 @@ fn test_mcp_initialize_and_tools_list() {
         .iter()
         .filter_map(|t| t["name"].as_str())
         .collect();
-    let expected_tools: HashSet<&str> = ["strata_generate", "strata_review"].into_iter().collect();
+    let expected_tools: HashSet<&str> = [
+        "strata_generate",
+        "strata_review",
+        "strata_diagnose",
+        "strata_health",
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(tool_names, expected_tools);
 
     // 3. get_tools schema check
@@ -366,4 +374,69 @@ fn test_truncation_notice() {
     assert!(did_distill);
     assert!(res.contains("[TRUNCATED:"));
     assert!(estimate_tokens(&res) <= 120);
+}
+
+#[test]
+fn test_diagnose_log_patterns() {
+    let simulated_snapshot = "\
+===SERVER_LOG===
+INFO engine started
+ERROR the engine said nothing for 318 s
+ERROR exit code -9
+===DMESG===
+[1234.5] Out of memory: Killed process 42 (llama-server)
+[1235.0] vm.drop_caches: 1
+===SYSCTL_LSBLK_LINGER===
+sdd 1
+Linger=no
+";
+    let (findings, _status, _summary, _raw) = analyze_diagnostics(
+        &ApiHealth::Unreachable("connection refused".to_string()),
+        Some(300),
+        Some(600),
+        simulated_snapshot,
+    );
+    let codes: HashSet<&str> = findings.iter().map(|f| f.code.as_str()).collect();
+    assert!(codes.contains("API_UNREACHABLE"));
+    assert!(codes.contains("ENGINE_SILENCE_OR_SIGKILL"));
+    assert!(codes.contains("OOM_KILLER"));
+    assert!(codes.contains("WSL_DROP_CACHES"));
+    assert!(codes.contains("HDD_MISDETECTION_ROTA"));
+    assert!(codes.contains("WSL_LINGER_DISABLED"));
+    assert!(codes.contains("CONFIG_SILENCE_TIMEOUT_ACTIVE"));
+    assert!(codes.contains("CONFIG_IDLE_UNLOAD_ACTIVE"));
+}
+
+#[test]
+fn test_evaluate_health_states() {
+    let (status, warnings, next) = evaluate_health(
+        &ApiHealth::Loaded("qwen3.8".to_string()),
+        Some(0),
+        Some(0),
+    );
+    assert_eq!(status, HealthStatus::Healthy);
+    assert!(warnings.is_empty());
+    assert!(next.is_none());
+
+    let (status, warnings, _) = evaluate_health(&ApiHealth::Unloaded, Some(0), Some(0));
+    assert_eq!(status, HealthStatus::Degraded);
+    assert!(!warnings.is_empty());
+
+    let (status, warnings, _) = evaluate_health(
+        &ApiHealth::Loaded("qwen3.8".to_string()),
+        Some(300),
+        Some(0),
+    );
+    assert_eq!(status, HealthStatus::Degraded);
+    assert!(warnings.iter().any(|w| w.contains("engine_silence_s=300")));
+
+    let (status, _, _) = evaluate_health(
+        &ApiHealth::Unreachable("conn refused".to_string()),
+        None,
+        None,
+    );
+    assert_eq!(status, HealthStatus::Unhealthy);
+
+    let (status, _, _) = evaluate_health(&ApiHealth::AuthError, None, None);
+    assert_eq!(status, HealthStatus::Unhealthy);
 }

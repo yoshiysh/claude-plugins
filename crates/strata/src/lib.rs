@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod client;
 pub mod context;
+pub mod diagnose;
 pub mod guidelines;
 pub mod mcp;
 pub mod personas;

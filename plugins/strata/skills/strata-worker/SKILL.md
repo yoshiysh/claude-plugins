@@ -37,6 +37,13 @@ description: "Delegates code/test/documentation generation and ruthless adversar
   * `optimize`: JSON 自動 minify および閾値超過時の Map-Reduce 蒸留を行うか（既定 `true`）
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
   * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
+* **`strata_health`**: リクエスト前の高速プリフライトチェック（事前確認用）
+  * `warmup`: 最小 1-token 推論を 1 回実行し、コールドキャッシュ有無・実測レイテンシを確認するか（既定 `false`）
+  * `strict`: `Degraded` 状態（モデル未ロード・非 0 タイムアウト設定）もエラー扱いにするか（既定 `false`）
+* **`strata_diagnose`**: 停止・エラー・遅延時のログ・WSL2 状態調査（障害調査用）
+  * `host`: 診断対象 SSH ホスト名（既定 `winbox` / ローカルは `"local"`）
+  * `include_logs`: サーバー・エンジンログ抜粋を含めるか（既定 `true`）
+  * `ai_analyze`: モデル稼働中なら AI によるログ深掘りも追加するか（既定 `false`）
 
 ### 用途別の使い分け
 

@@ -3,6 +3,8 @@
 #
 #   tools/claude-strata [claude オプション...]
 #   tools/claude-strata --status        # トンネルと Strata の稼働状態を確認
+#   tools/claude-strata --health        # 高速プリフライトチェック (--warmup, --strict, --json 可)
+#   tools/claude-strata --diagnose      # ログ・WSL2 状態を含めた自己診断 (--ai, --json, --no-logs 可)
 #   tools/claude-strata --start-server  # WSL 上で Strata サーバーを起動 (未起動時のみ)
 #   tools/claude-strata --restart-server # WSL 上で Strata サーバーを再起動
 #   tools/claude-strata --stop-server   # WSL 上で Strata サーバーを停止
@@ -298,6 +300,7 @@ EOF
 # サブコマンド・特殊フラグの初期チェック
 ACTION=""
 PASSTHROUGH_ARGS=()
+SUBCOMMAND_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -307,6 +310,18 @@ while [ $# -gt 0 ]; do
       ;;
     --status)
       ACTION="status"
+      shift
+      ;;
+    --diagnose)
+      ACTION="diagnose"
+      shift
+      ;;
+    --health)
+      ACTION="health"
+      shift
+      ;;
+    --warmup|--strict|--json|--ai|--no-logs)
+      SUBCOMMAND_ARGS+=("$1")
       shift
       ;;
     --start-server)
@@ -376,6 +391,14 @@ case "$ACTION" in
   status)
     show_status
     exit 0
+    ;;
+  diagnose)
+    STRATA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/strata"
+    exec "$STRATA_BIN" diagnose --host "$STRATA_HOST" --api-base "http://127.0.0.1:${STRATA_PORT}/v1" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
+    ;;
+  health)
+    STRATA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/strata"
+    exec "$STRATA_BIN" health --api-base "http://127.0.0.1:${STRATA_PORT}/v1" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
     ;;
   start_server)
     if is_server_running_on_wsl; then

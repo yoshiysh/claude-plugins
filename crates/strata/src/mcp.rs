@@ -3,6 +3,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 use crate::context::execute_optimized;
+use crate::diagnose::{run_diagnose, run_health, DiagnoseOptions, HealthOptions};
 use crate::guidelines::{collect_guidelines, resolve_workspace_root};
 use crate::personas::find_persona;
 use crate::syntax::verify_syntax;
@@ -112,6 +113,44 @@ pub fn get_tools() -> Value {
                     }
                 },
                 "required": ["role", "goal"]
+            }
+        },
+        {
+            "name": "strata_diagnose",
+            "description": "Self-diagnose Strata API health, SSH tunnel, engine/server logs, OOM/SIGKILL causes, and WSL2 settings (ROTA, swappiness, Linger). Works even when Strata itself is stopped or unreachable.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "SSH host running Strata WSL2 (default: STRATA_HOST env or 'winbox'; use 'local' for current host)."
+                    },
+                    "include_logs": {
+                        "type": "boolean",
+                        "description": "Include recent server/engine log tails (default: true)."
+                    },
+                    "ai_analyze": {
+                        "type": "boolean",
+                        "description": "Also run AI log analysis if Strata model is currently loaded (default: false)."
+                    }
+                }
+            }
+        },
+        {
+            "name": "strata_health",
+            "description": "Fast preflight health check (<0.1s) verifying Strata API reachability, model load status, and timeout settings before sending requests. Set warmup=true to run a minimal 1-token inference and measure latency.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "warmup": {
+                        "type": "boolean",
+                        "description": "Run a minimal 1-token inference to verify warm cache and measure latency (default: false)."
+                    },
+                    "strict": {
+                        "type": "boolean",
+                        "description": "Treat degraded state (unloaded model or non-zero timeout settings) as an error (default: false)."
+                    }
+                }
             }
         }
     ])
@@ -259,6 +298,72 @@ fn handle_review(args: &Value) -> Result<String, String> {
     Ok(raw_output.trim().to_string())
 }
 
+fn handle_diagnose(args: &Value) -> Result<String, String> {
+    let default_host = std::env::var("STRATA_HOST").unwrap_or_else(|_| "winbox".to_string());
+    let host = args
+        .get("host")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&default_host);
+    let include_logs = args
+        .get("include_logs")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let ai_analyze = args
+        .get("ai_analyze")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let api_key = resolve_api_key(None);
+    let api_base =
+        std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
+    let model = std::env::var("STRATA_MODEL")
+        .unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
+
+    let opts = DiagnoseOptions {
+        api_base: &api_base,
+        api_key: &api_key,
+        model: &model,
+        host,
+        include_logs,
+        ai_analyze,
+        json_output: false,
+    };
+
+    run_diagnose(&opts)
+}
+
+fn handle_health(args: &Value) -> Result<String, String> {
+    let warmup = args
+        .get("warmup")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let strict = args
+        .get("strict")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let api_key = resolve_api_key(None);
+    let api_base =
+        std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
+    let model = std::env::var("STRATA_MODEL")
+        .unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
+
+    let opts = HealthOptions {
+        api_base: &api_base,
+        api_key: &api_key,
+        model: &model,
+        warmup,
+        strict,
+        json_output: false,
+    };
+
+    let (_report, text, exit_code) = run_health(&opts)?;
+    if exit_code != 0 {
+        return Err(text);
+    }
+    Ok(text)
+}
+
 pub fn handle_rpc(request: &Value) -> Option<Value> {
     let req_id = request.get("id").cloned();
     let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
@@ -299,6 +404,8 @@ pub fn handle_rpc(request: &Value) -> Option<Value> {
             let result = match tool_name {
                 "strata_generate" => handle_generate(&arguments),
                 "strata_review" => handle_review(&arguments),
+                "strata_diagnose" => handle_diagnose(&arguments),
+                "strata_health" => handle_health(&arguments),
                 _ => {
                     return Some(json!({
                         "jsonrpc": "2.0",
