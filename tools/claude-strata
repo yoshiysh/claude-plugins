@@ -3,9 +3,12 @@
 #
 #   tools/claude-strata [claude オプション...]
 #   tools/claude-strata --status        # トンネルと Strata の稼働状態を確認
+#   tools/claude-strata --health        # 高速プリフライトチェック (--warmup, --strict, --json 可)
+#   tools/claude-strata --diagnose      # ログ・WSL2 状態を含めた自己診断 (--ai, --json, --no-logs 可)
 #   tools/claude-strata --start-server  # WSL 上で Strata サーバーを起動 (未起動時のみ)
 #   tools/claude-strata --restart-server # WSL 上で Strata サーバーを再起動
 #   tools/claude-strata --stop-server   # WSL 上で Strata サーバーを停止
+#   tools/claude-strata --start-tunnel  # SSH トンネルを再接続
 #   tools/claude-strata --stop-tunnel   # 起動中の SSH トンネルを切断
 #   tools/claude-strata --sync-key      # WSL から API キーを再取得してローカルに保存
 #   tools/claude-strata --bare          # 初期プロンプトを最小化する軽量モード (既定: フルモード)
@@ -31,7 +34,7 @@ STRATA_MODEL="${STRATA_MODEL:-sonnet}"
 STRATA_MODEL_SIZE="${STRATA_MODEL_SIZE:-iq2_xs}"
 STRATA_CONTEXT="${STRATA_CONTEXT:-128k}"
 STRATA_KV="${STRATA_KV:-q4_0}"
-STRATA_VRAM_RESERVE="${STRATA_VRAM_RESERVE:-1152}"
+STRATA_VRAM_RESERVE="${STRATA_VRAM_RESERVE:-1216}"
 STRATA_ENGINE_SILENCE="${STRATA_ENGINE_SILENCE:-0}"
 STRATA_IDLE_UNLOAD="${STRATA_IDLE_UNLOAD:-0}"
 STRATA_DRAFTING="${STRATA_DRAFTING:-mtp}"
@@ -181,13 +184,43 @@ EOF
 
   echo "トンネルを接続し、最適化設定 (engine_silence_s=${STRATA_ENGINE_SILENCE}, idle_unload_s=${STRATA_IDLE_UNLOAD}) を適用しています..." >&2
   ensure_tunnel
-  local http_code
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${STRATA_PORT}/config" \
+  local cfg_resp http_code body
+  cfg_resp=$(curl -s -w "\n%{http_code}" -X POST "http://127.0.0.1:${STRATA_PORT}/config" \
     -H "Authorization: Bearer ${key}" \
     -H "Content-Type: application/json" \
-    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"idle_unload_s\": ${STRATA_IDLE_UNLOAD}, \"vram_reserve_mib\": ${vram}}}" 2>/dev/null || echo "000")
+    -d "{\"set\": {\"engine_silence_s\": ${STRATA_ENGINE_SILENCE}, \"idle_unload_s\": ${STRATA_IDLE_UNLOAD}, \"vram_reserve_mib\": ${vram}}}" 2>/dev/null || printf '\n000')
+  http_code=$(printf '%s' "$cfg_resp" | tail -n 1)
+  body=$(printf '%s' "$cfg_resp" | sed '$d')
 
   if [ "$http_code" = "200" ]; then
+    # POST /config は次回起動から有効なため、changed が非空なら serve.server を更新済み config で再起動する
+    if printf '%s' "$body" | grep -qE '"changed"[[:space:]]*:[[:space:]]*\[[^]]+\]'; then
+      echo "変更された設定 (${STRATA_ENGINE_SILENCE}s / ${STRATA_IDLE_UNLOAD}s) を親サーバープロセスへ反映するため再起動します..." >&2
+      ssh $SSH_OPTS "$STRATA_HOST" "wsl --exec bash -s" <<EOF
+set -e
+STRATA_CLI=\$(find \$HOME/.local/share/strata/terminal -name "strata.py" 2>/dev/null | head -n 1)
+DIR=\$(dirname "\$STRATA_CLI")
+PYTHON="\$DIR/python/bin/python3.12"
+[ -x "\$PYTHON" ] || PYTHON=python3
+CFG_FILE="\$HOME/.local/state/strata/launch/${STRATA_MODEL_SIZE}-${ctx}.json"
+LOG_FILE="\$HOME/.local/state/strata/runtime/launch-${STRATA_MODEL_SIZE}-${ctx}.server.log"
+"\$PYTHON" "\$STRATA_CLI" launch --stop >/dev/null 2>&1 || true
+pkill -f "serve\\.server" 2>/dev/null || true
+pkill -f "strata --serve" 2>/dev/null || true
+sleep 2
+cd "\$DIR"
+setsid -f "\$PYTHON" -m serve.server --engine strata --config "\$CFG_FILE" --host 0.0.0.0 --port "$STRATA_PORT" --parallel 1 --shutdown-timeout 30.0 >>"\$LOG_FILE" 2>&1 </dev/null
+for i in \$(seq 1 30); do
+  if ss -tlpn 2>/dev/null | grep -qE ":${STRATA_PORT}\\b"; then
+    break
+  fi
+  sleep 1
+done
+EOF
+      stop_tunnel
+      ensure_tunnel
+      API_KEY="$key" ensure_model_loaded
+    fi
     echo "Strata サーバーの起動と最適化が完了しました。" >&2
   else
     echo "警告: 最適化設定 (/config) の適用に失敗しました (HTTP ${http_code})。サーバーの起動のみ完了しました。" >&2
@@ -298,6 +331,7 @@ EOF
 # サブコマンド・特殊フラグの初期チェック
 ACTION=""
 PASSTHROUGH_ARGS=()
+SUBCOMMAND_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -307,6 +341,18 @@ while [ $# -gt 0 ]; do
       ;;
     --status)
       ACTION="status"
+      shift
+      ;;
+    --diagnose)
+      ACTION="diagnose"
+      shift
+      ;;
+    --health)
+      ACTION="health"
+      shift
+      ;;
+    --warmup|--strict|--json|--ai|--no-logs)
+      SUBCOMMAND_ARGS+=("$1")
       shift
       ;;
     --start-server)
@@ -319,6 +365,10 @@ while [ $# -gt 0 ]; do
       ;;
     --stop-server)
       ACTION="stop_server"
+      shift
+      ;;
+    --start-tunnel)
+      ACTION="start_tunnel"
       shift
       ;;
     --stop-tunnel)
@@ -377,6 +427,14 @@ case "$ACTION" in
     show_status
     exit 0
     ;;
+  diagnose)
+    STRATA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/strata"
+    exec "$STRATA_BIN" diagnose --host "$STRATA_HOST" --api-base "http://127.0.0.1:${STRATA_PORT}/v1" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
+    ;;
+  health)
+    STRATA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/strata"
+    exec "$STRATA_BIN" health --api-base "http://127.0.0.1:${STRATA_PORT}/v1" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
+    ;;
   start_server)
     if is_server_running_on_wsl; then
       echo "Strata サーバーは既に WSL 上で稼働中です。再起動したい場合は --restart-server を使用してください。"
@@ -392,6 +450,11 @@ case "$ACTION" in
     ;;
   stop_server)
     stop_server_on_wsl
+    exit 0
+    ;;
+  start_tunnel)
+    ensure_tunnel
+    echo "SSH トンネルの接続を確認しました。"
     exit 0
     ;;
   stop_tunnel)

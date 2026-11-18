@@ -37,6 +37,8 @@ description: "Delegates code/test/documentation generation and ruthless adversar
   * `optimize`: JSON 自動 minify および閾値超過時の Map-Reduce 蒸留を行うか（既定 `true`）
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
   * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
+* **`strata_health`**: リクエスト前の事前確認用。API 疎通・モデルロード状態・タイムアウト設定を検査します（`warmup: true` で 1-token 実測レイテンシも計測。未ロード時は自動ロードに数十秒かかります）。引数定義と既定値は MCP `tools/list` の `inputSchema` を参照してください。
+* **`strata_diagnose`**: 停止・エラー・遅延時の障害調査用。API ヘルスと対象ホストのサーバー/エンジンログ・WSL2 設定を収集して原因を特定します（Strata 本体が停止中でも動作）。引数定義と既定値（`host` は環境変数 `STRATA_HOST` 優先・未設定時 `winbox` など）は MCP `tools/list` の `inputSchema` を参照してください。
 
 ### 用途別の使い分け
 
@@ -70,3 +72,6 @@ description: "Delegates code/test/documentation generation and ruthless adversar
   * `STRATA_BASE_URL`: 既定は `http://127.0.0.1:8080/v1`
   * `STRATA_API_KEY`: 既定は `~/.config/strata/api_key` から自動読込
   * `STRATA_MODEL`: 既定は `qwen3.8-flash-next-iq2_xs`
+  * `STRATA_HOST`: `strata_diagnose` / `strata diagnose` の対象 SSH ホスト名（既定 `winbox`、ローカルは `"local"`）
+  * `STRATA_PREFLIGHT`: リクエスト前の高速プリフライト（`<0.1s` API 疎通確認、`0` で無効化、既定は有効）
+  * `STRATA_PREFLIGHT_WARMUP`: `1` で `Loaded` 時も毎回 1-token ウォームアップを実行（既定は `Unloaded` 時のみ）

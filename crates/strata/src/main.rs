@@ -3,7 +3,8 @@ use std::path::Path;
 use std::process::Command;
 
 use strata::cli::{Cli, Commands, RunArgs};
-use strata::context::execute_optimized;
+use strata::context::execute_optimized_with_preflight;
+use strata::diagnose::{run_diagnose, run_health, DiagnoseOptions, HealthOptions};
 use strata::guidelines::{collect_guidelines, resolve_workspace_root};
 use strata::mcp;
 use strata::personas::find_persona;
@@ -69,7 +70,7 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
     let api_key = resolve_api_key(args.api_key.as_deref());
     let temp = args.temperature.unwrap_or(persona.temperature);
 
-    let raw_output = execute_optimized(
+    let raw_output = execute_optimized_with_preflight(
         &args.api_base,
         &api_key,
         &args.model,
@@ -83,6 +84,7 @@ fn run_worker(args: RunArgs) -> Result<(), String> {
         args.max_tokens,
         args.reasoning_effort.as_deref(),
         !args.no_optimize,
+        !args.no_preflight,
     )?;
 
     let final_output = if !persona.is_review {
@@ -169,6 +171,48 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some(Commands::Diagnose(diag_args)) => {
+            let api_key = resolve_api_key(diag_args.api_key.as_deref());
+            let opts = DiagnoseOptions {
+                api_base: &diag_args.api_base,
+                api_key: &api_key,
+                model: &diag_args.model,
+                host: &diag_args.host,
+                include_logs: !diag_args.no_logs,
+                ai_analyze: diag_args.ai,
+                json_output: diag_args.json,
+            };
+            match run_diagnose(&opts) {
+                Ok(report) => println!("{}", report),
+                Err(e) => {
+                    eprintln!("Diagnose error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(Commands::Health(health_args)) => {
+            let api_key = resolve_api_key(health_args.api_key.as_deref());
+            let opts = HealthOptions {
+                api_base: &health_args.api_base,
+                api_key: &api_key,
+                model: &health_args.model,
+                warmup: health_args.warmup,
+                strict: health_args.strict,
+                json_output: health_args.json,
+            };
+            match run_health(&opts) {
+                Ok((_report, text, exit_code)) => {
+                    println!("{}", text);
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Health check error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         None => {
             if let Some(run_args) = cli.direct_run {
                 if run_args.role.is_some() || run_args.goal.is_some() {
@@ -179,7 +223,7 @@ fn main() {
                     return;
                 }
             }
-            eprintln!("Usage: strata <COMMAND> [OPTIONS]\n\nCommands:\n  run   Execute worker persona\n  mcp   Start stdio MCP server\n\nRun 'strata --help' for details.");
+            eprintln!("Usage: strata <COMMAND> [OPTIONS]\n\nCommands:\n  run       Execute worker persona\n  mcp       Start stdio MCP server\n  diagnose  Self-diagnose Strata API health, logs, and WSL2 configuration\n  health    Fast preflight health check\n\nRun 'strata --help' for details.");
             std::process::exit(1);
         }
     }

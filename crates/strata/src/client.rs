@@ -2,35 +2,70 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
 
-pub fn ensure_model_loaded(api_base: &str, api_key: &str) {
+pub fn base_host_from_api_base(api_base: &str) -> &str {
+    let clean_base = api_base.trim_end_matches('/');
+    clean_base.split("/v1").next().unwrap_or(clean_base)
+}
+
+/// Returns the loaded model id only when `data[].status.value == "loaded"`.
+pub fn parse_loaded_model_id(val: &Value) -> Option<String> {
+    let data = val.get("data").and_then(|d| d.as_array())?;
+    data.iter().find_map(|m| {
+        let is_loaded = m
+            .get("status")
+            .and_then(|s| s.get("value"))
+            .and_then(|v| v.as_str())
+            == Some("loaded");
+        if is_loaded {
+            Some(
+                m.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+            )
+        } else {
+            None
+        }
+    })
+}
+
+pub fn query_models_endpoint(
+    agent: &ureq::Agent,
+    api_base: &str,
+    api_key: &str,
+) -> Result<Option<String>, (Option<u16>, String)> {
     let clean_base = api_base.trim_end_matches('/');
     let models_url = format!("{}/models", clean_base);
+    let mut req = agent.get(&models_url);
+    if !api_key.is_empty() {
+        req = req.set("Authorization", &format!("Bearer {}", api_key));
+    }
+    match req.call() {
+        Ok(resp) => match resp.into_json::<Value>() {
+            Ok(val) => Ok(parse_loaded_model_id(&val)),
+            Err(e) => Err((None, format!("Invalid JSON from /models: {}", e))),
+        },
+        Err(ureq::Error::Status(code, _)) => {
+            Err((Some(code), format!("HTTP {} from /models", code)))
+        }
+        Err(e) => Err((None, e.to_string())),
+    }
+}
+
+pub fn ensure_model_loaded(api_base: &str, api_key: &str) {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(3))
+        .timeout_read(Duration::from_secs(5))
+        .build();
 
     // 1. Check if model is already loaded
-    let mut check_req = ureq::get(&models_url).timeout(Duration::from_secs(5));
-    if !api_key.is_empty() {
-        check_req = check_req.set("Authorization", &format!("Bearer {}", api_key));
-    }
-
-    if let Ok(resp) = check_req.call() {
-        if let Ok(val) = resp.into_json::<Value>() {
-            if let Some(data) = val.get("data").and_then(|d| d.as_array()) {
-                let is_loaded = data.iter().any(|m| {
-                    m.get("status")
-                        .and_then(|s| s.get("value"))
-                        .and_then(|v| v.as_str())
-                        == Some("loaded")
-                });
-                if is_loaded {
-                    return;
-                }
-            }
-        }
+    if let Ok(Some(_)) = query_models_endpoint(&agent, api_base, api_key) {
+        return;
     }
 
     // 2. Trigger /load
     eprintln!("[Strata Worker] Model is unloaded; sending /load request...");
-    let base_host = clean_base.split("/v1").next().unwrap_or(clean_base);
+    let base_host = base_host_from_api_base(api_base);
     let load_endpoint = format!("{}/load", base_host);
 
     let mut load_req = ureq::post(&load_endpoint)
@@ -55,26 +90,9 @@ pub fn ensure_model_loaded(api_base: &str, api_key: &str) {
     // 3. Poll for model load status
     for _ in 0..30 {
         std::thread::sleep(Duration::from_secs(2));
-        let mut poll_req = ureq::get(&models_url).timeout(Duration::from_secs(5));
-        if !api_key.is_empty() {
-            poll_req = poll_req.set("Authorization", &format!("Bearer {}", api_key));
-        }
-
-        if let Ok(resp) = poll_req.call() {
-            if let Ok(val) = resp.into_json::<Value>() {
-                if let Some(data) = val.get("data").and_then(|d| d.as_array()) {
-                    let is_loaded = data.iter().any(|m| {
-                        m.get("status")
-                            .and_then(|s| s.get("value"))
-                            .and_then(|v| v.as_str())
-                            == Some("loaded")
-                    });
-                    if is_loaded {
-                        eprintln!("[Strata Worker] Model successfully loaded.");
-                        return;
-                    }
-                }
-            }
+        if let Ok(Some(_)) = query_models_endpoint(&agent, api_base, api_key) {
+            eprintln!("[Strata Worker] Model successfully loaded.");
+            return;
         }
     }
 
