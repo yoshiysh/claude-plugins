@@ -141,13 +141,15 @@ failures=0 total=0 giant_index=0 heavy_index=0 light_index=0
 run_case() {
   id=$1 module=$2 kind=$3 props=$4 expect=$5 consts=$6 spec=${7:-Spec}
   tier=light
-  if [ "$id" = lock-baseline ] || [ "$id" = run-baseline ]; then
-    tier=giant
-  elif [ "$kind" = baseline ] || [ "$spec" = FairSpec ]; then
+  case "$id" in
+    lock-baseline|run-baseline|run-witness-NeverCompleted) tier=giant ;;
+    run-mut-ignore_save_failure|run-mut-complete_ignores_confirmation|run-witness-NeverStopped*) tier=heavy ;;
+  esac
+  if [ "$tier" = light ] && { [ "$kind" = baseline ] || [ "$spec" = FairSpec ]; }; then
     tier=heavy
   fi
   if [ -n "$shard_k" ]; then
-    if [ "$shard_n" -ge 4 ]; then
+    if [ "$shard_n" -ge 5 ]; then
       case "$tier" in
         giant)
           giant_index=$((giant_index + 1))
@@ -155,7 +157,7 @@ run_case() {
           ;;
         heavy)
           heavy_index=$((heavy_index + 1))
-          [ "$(( (heavy_index - 1) % (shard_n - 2) + 3 ))" -eq "$shard_k" ] || return 0
+          [ "$(( (heavy_index - 1) % (shard_n - 3) + 4 ))" -eq "$shard_k" ] || return 0
           ;;
         light)
           light_index=$((light_index + 1))
