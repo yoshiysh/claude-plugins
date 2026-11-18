@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INSPECT_SCRIPT, MIN_LAUNCHES, SCRIPT, assetIds, candidateOf, createArgs, firstUnforcedKind, defaults, inspectArgs, inspectDefaults, runAuthor, runInspect, setup, setupInspect, updateArgs, variant, viewOf, viewpointOf, writePayload,
@@ -78,6 +78,7 @@ async function firstItemExtra(t, fn) {
   throw new Error(`${fn}: 上限を 40 上げても最初の項目を始めない`);
 }
 
+describe('bp-launch-reserve', { concurrency: 4 }, () => {
 for (const fn of ['create', 'update', 'review', 'audit']) {
   test(`SP-BPRUN-020・SP-BPRUN-021・SP-BPCONFORMANCE-022: 試行を使い切った項目の後で停止の運搬役が応答を失っても、同時実行 1・2・3 のどれでも起動数が上限を超えず停止の記録が残り、予約分を除くと上限を超え、予約分を 1 減らすと停止の記録が残らない（予約分の大きさ 2）［${fn}］`, async (t) => {
     const edge = await firstItemExtra(t, fn);
@@ -172,3 +173,4 @@ for (const fn of ['review', 'audit']) {
     assert.ok(over.calls > exact - 1, `予約分を 1 減らした script が上限 ${exact - 1} を超えない（${over.calls} 体）`);
   });
 }
+});

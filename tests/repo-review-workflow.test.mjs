@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -150,6 +150,7 @@ async function runWorkflow(t, args, b) {
 
 const labels = (b, prefix) => b.calls.filter((c) => c.options.label.startsWith(prefix)).map((c) => c.options.label)
 
+describe('repo-review-workflow', { concurrency: 4 }, () => {
 test('正常: 1 段目で確定しなかった主張だけが残りの観点に回り、全観点が棄却した主張は refuted になる', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
@@ -675,4 +676,5 @@ test('準正常: 検証役の未読票は成功にせず、残る独立2票の�
       assert.ok(b.calls.filter((c) => c.options.label.startsWith('verify2:')).every((c) => c.prompt.includes('返答の参照と範囲:')))
     })
   }
+})
 })

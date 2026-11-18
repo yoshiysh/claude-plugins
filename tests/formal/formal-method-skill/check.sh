@@ -132,7 +132,7 @@ dependent_skipped still_waiting_unknown save_fail status_fail'
   echo '===='
 } > RunW.tla
 
-failures=0 total=0 heavy_index=0 light_index=0
+failures=0 total=0 giant_index=0 heavy_index=0 light_index=0
 
 # run_case id module kind props expect consts spec
 #   kind: baseline | witness | mutation | finding | limit
@@ -140,15 +140,36 @@ failures=0 total=0 heavy_index=0 light_index=0
 #   consts: cfg の CONSTANTS の本文（改行区切り）
 run_case() {
   id=$1 module=$2 kind=$3 props=$4 expect=$5 consts=$6 spec=${7:-Spec}
-  is_heavy=no
-  if [ "$kind" = baseline ] || [ "$spec" = FairSpec ]; then is_heavy=yes; fi
+  tier=light
+  if [ "$id" = lock-baseline ] || [ "$id" = run-baseline ]; then
+    tier=giant
+  elif [ "$kind" = baseline ] || [ "$spec" = FairSpec ]; then
+    tier=heavy
+  fi
   if [ -n "$shard_k" ]; then
-    if [ "$is_heavy" = yes ]; then
-      heavy_index=$((heavy_index + 1))
-      if [ "$(( (heavy_index - 1) % shard_n + 1 ))" -ne "$shard_k" ]; then return; fi
+    if [ "$shard_n" -ge 4 ]; then
+      case "$tier" in
+        giant)
+          giant_index=$((giant_index + 1))
+          [ "$(( (giant_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+          ;;
+        heavy)
+          heavy_index=$((heavy_index + 1))
+          [ "$(( (heavy_index - 1) % (shard_n - 2) + 3 ))" -eq "$shard_k" ] || return
+          ;;
+        light)
+          light_index=$((light_index + 1))
+          [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+          ;;
+      esac
     else
-      light_index=$((light_index + 1))
-      if [ "$(( (light_index - 1) % shard_n + 1 ))" -ne "$shard_k" ]; then return; fi
+      if [ "$tier" = light ]; then
+        light_index=$((light_index + 1))
+        [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+      else
+        heavy_index=$((heavy_index + 1))
+        [ "$(( (heavy_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+      fi
     fi
   fi
   if [ -n "$only" ] && ! printf '%s' "$id" | grep -Eq "$only"; then return; fi
@@ -163,10 +184,10 @@ run_case() {
   printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$module" "$kind" "$props" "$expect" "$temporal" "$spec" > "$work/cases/$id.meta"
   printf '%s' "$consts" > "$work/cases/$id.consts"
   printf '%s\n' "$id" >> "$work/cases.list"
-  if [ "$is_heavy" = yes ]; then
-    printf '%s\n' "$id" >> "$work/heavy.list"
-  else
+  if [ "$tier" = light ]; then
     printf '%s\n' "$id" >> "$work/light.list"
+  else
+    printf '%s\n' "$id" >> "$work/heavy.list"
   fi
 }
 

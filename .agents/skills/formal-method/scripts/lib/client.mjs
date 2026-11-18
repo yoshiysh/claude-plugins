@@ -1,14 +1,34 @@
 // client のコマンド（cli-contract.md「コマンド」「受け箱」「生死の判定」）。client は lock を取らず、state.json を書かない。
 // submit が書くのは受け箱だけ、wait と salvage の規則 1〜3 は何も書かない。
-import { linkSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
+import { linkSync, lstatSync, mkdirSync, unlinkSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { randomHex } from './canonical.mjs';
 import { WAIT_LIMIT_MS, WAIT_POLL_MS } from './schemas.mjs';
 import { writeTempFile, fsyncDir } from './storage.mjs';
 import { holderLiveness, readStatus } from './store.mjs';
 
-const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 const present = (p) => { try { lstatSync(p); return true; } catch { return false; } };
+
+function waitForChange(runDir, ms) {
+  return new Promise((resolve) => {
+    let watcher = null;
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { watcher?.close(); } catch { /* ignore */ }
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    try {
+      watcher = watch(runDir, { persistent: false }, (_event, filename) => {
+        if (!filename || filename === 'status.json' || filename === 'run.lock') done();
+      });
+      watcher.on('error', () => { /* fallback to timer */ });
+    } catch { /* fallback to timer */ }
+  });
+}
 
 // 受け箱の公開: inbox/.tmp-<nonce> に書いて fsync し、inbox/<batch_id>.json へ link で公開し、一時ファイルを消す。
 export function submit(input) {
@@ -33,11 +53,11 @@ export function submit(input) {
   }
 }
 
-// wait: terminal ならすぐ返す。seq が増えるか保持者が終わるまで、WAIT_LIMIT_MS を上限に WAIT_POLL_MS の間隔で待つ。
-export async function wait(input) {
+// wait: terminal ならすぐ返す。seq が増えるか保持者が終わるまで、WAIT_LIMIT_MS を上限に待つ（fs.watch + WAIT_POLL_MS フォールバック）。
+export async function wait(input, { now = () => Number(process.hrtime.bigint() / 1000000n), waitChange = waitForChange } = {}) {
   const runDir = input.run_dir;
-  const started = process.hrtime.bigint();
-  const waitedMs = () => Number((process.hrtime.bigint() - started) / 1000000n);
+  const started = now();
+  const waitedMs = () => now() - started;
   for (;;) {
     const s = readStatus(runDir);
     if (s && (s.action === 'terminal' || s.seq > input.status_seq)) return { ok: true, status: s };
@@ -49,6 +69,6 @@ export async function wait(input) {
     }
     const left = WAIT_LIMIT_MS - waitedMs();
     if (left <= 0) return { ok: true, outcome: 'still_waiting', status_seq: input.status_seq, liveness };
-    await sleep(Math.min(WAIT_POLL_MS, left));
+    await waitChange(runDir, Math.min(WAIT_POLL_MS, left));
   }
 }

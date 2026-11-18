@@ -42,9 +42,6 @@ test('partitionFiles と assignShards: traceability 対象を除外し、重複�
   const flat = shards.flat().sort();
   assert.deepEqual(flat, [...untraced].sort());
 
-  const waitLimitShard = shards.find((s) => s.includes('.agents/skills/formal-method/scripts/cli-wait-limit.test.mjs'));
-  assert.deepEqual(waitLimitShard, ['.agents/skills/formal-method/scripts/cli-wait-limit.test.mjs']);
-
   const tracedNorm = new Set(config.testFiles.map((f) => normalizeRepoPath(config.root, f)));
   for (const f of flat) {
     assert.equal(tracedNorm.has(normalizeRepoPath(config.root, f)), false);

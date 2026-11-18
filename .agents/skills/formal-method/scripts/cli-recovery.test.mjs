@@ -1,6 +1,6 @@
 // 結合: 実際の process を止める・殺す・保存先を書込み不可にする（AC-10・13・19、verification-plan「実装を相手にした並行テスト」）。
 // 正本: cli-contract.md「salvage の手順」「結果と台帳の保存の失敗」「Z3 の adapter」、SP-FORMALMETHOD-010・014・015。
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -41,6 +41,7 @@ async function killedWhileWaitingForAgents(t) {
   return { ws, env, status, dir: status.run_dir };
 }
 
+describe('cli-recovery', { concurrency: 4 }, () => {
 test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock を握ったまま殺すと、wait は E_STALE、submit は受け箱の外を書かず、state.json は最後の内容のまま', async (t) => {
   const { ws, env, status, dir } = await killedWhileWaitingForAgents(t);
   const stateBefore = existsSync(join(dir, 'state.json')) ? readFileSync(join(dir, 'state.json')) : null;
@@ -464,4 +465,5 @@ test('cli-contract 仮の結果と正の結果: 結果の公開に失敗した R
   assert.equal(r2.provisional, false);
   assert.ok(!r2.records.unsaved.some((u) => u.kind === 'result'));
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), r2);
+});
 });

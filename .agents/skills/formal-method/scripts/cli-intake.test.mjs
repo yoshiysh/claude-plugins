@@ -1,6 +1,6 @@
 // 結合: 担当を起動せずに終わるケース。コマンドの入力の誤り、保存先の能力、依頼の秘密値、受け付けない依頼（AC-15）。
 // 正本: cli-contract.md「誤りと終了コード」「起動の手順」「run の領域の配置」、artifact-formats.md「依頼」、SP-FORMALMETHOD-001・014。
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,6 +35,7 @@ const CONTRACT_CASES = [
   ['salvage の標準入力が JSON でない', ['salvage'], 'null x'],
   ['submit の標準入力が JSON でない', ['submit'], '[1,'],
 ];
+describe('cli-intake', { concurrency: 4 }, () => {
 for (const [name, args, stdin] of CONTRACT_CASES) {
   test(`cli-contract 誤りと終了コード E_CONTRACT: ${name} は終了コード 2 で、何も書かない`, async (t) => {
     const ws = makeWorkspace();
@@ -317,4 +318,5 @@ test('SP-FORMALMETHOD-013 AC-12: 受付で止めた結果でも、CI の有無�
   const ci = await drive(ws, { goals: baseRequest().goals }, { env: cliEnv({ ci: true }) });
   assert.equal(local.result.performance.location, 'ローカル');
   assert.equal(ci.result.performance.location, 'CI');
+});
 });

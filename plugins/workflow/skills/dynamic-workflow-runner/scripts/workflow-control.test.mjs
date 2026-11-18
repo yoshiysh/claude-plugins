@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, readdir
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT = fileURLToPath(new URL("./workflow-control.mjs", import.meta.url));
@@ -93,6 +93,7 @@ function invokeBridgeAsync(args) {
   });
 }
 
+describe("workflow-control", { concurrency: 4 }, () => {
 test("documents the mode-specific workflow-call init argument", () => {
   const result = invoke([], 1);
   assert.equal(result.code, "invalid_arguments");
@@ -2988,4 +2989,5 @@ test("detects producer, final-review, and return-schema drift after completion",
   finalizeSingleTaskRun(schema);
   writeJson(schemaPath, { type: "number" });
   assert.equal(invokeBridge(["materialize", "--call", schemaCall, "--run-dir", schema.runDir, "--output", join(schema.runDir, "workflow-return.json")], 1).code, "run_invalid");
+});
 });

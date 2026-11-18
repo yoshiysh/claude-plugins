@@ -12,10 +12,9 @@ import { loadConfig } from './traceability/specs.mjs';
 // Estimated durations (seconds) used for LPT shard balancing.
 // Exact values are not required; ordering heavy files first prevents long-tail shards.
 const KNOWN_WEIGHTS = new Map([
-  ['.agents/skills/formal-method/scripts/cli-wait-limit.test.mjs', 210],
-  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 200],
   ['.agents/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 65],
-  ['.agents/skills/formal-method/scripts/cli-recovery.test.mjs', 65],
+  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 65],
+  ['.agents/skills/formal-method/scripts/cli-recovery.test.mjs', 45],
   ['.agents/skills/formal-method/scripts/cli-scope.test.mjs', 40],
   ['.agents/skills/repo-implement/scripts/implement-cli.test.mjs', 30],
   ['tests/repo-implement-workflow.test.mjs', 25],

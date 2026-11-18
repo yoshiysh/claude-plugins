@@ -1,7 +1,7 @@
 // 結合: 対象の集まり（AC-15・SP-FORMALMETHOD-001・004）。受け付けた依頼の範囲を結果の verified_scope と request.json で観測する。
 // 担当は抽出役で進めない（cannot_proceed）ので、run は洗い出しの段で止まる。集まりは受付の段で決まるので、それで足りる。
 // 正本: artifact-formats.md「共通の型」の対象・テキストかどうか・版と指紋、「依頼」の開いている object。
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +28,7 @@ async function runPrepared(t, files, prepare, request, ws0 = null) {
 }
 const req = (location, over = {}) => ({ targets: [{ id: 'T1', location, ...over }], goals: [{ id: 'G1', text: 'R1 が成り立つ' }] });
 
+describe('cli-scope', { concurrency: 4 }, () => {
 test('SP-FORMALMETHOD-001 AC-15: 作業ツリーの根を対象に 2 回続けて run すると、2 回目の集まりに .formal-method/ が入らず、指紋が同じで、除いたものは unread に載り exclude に入らない', async (t) => {
   const files = { 'spec.md': '# 対象\nR1: x は 0 以上。\n', 'docs/a.md': 'a\n' };
   const first = await runScenario(t, { files, request: req('.'), scenario: stop });
@@ -165,5 +166,6 @@ test('SP-FORMALMETHOD-001 AC-15: revision を添えた依頼は、git の作業�
 test('SP-FORMALMETHOD-001 AC-15 境界: 時間の上限 1 秒（最小の値）は受け付ける', async (t) => {
   const { result } = await runScenario(t, { request: { ...req('target'), time_limit_seconds: 1 }, scenario: stop });
   assert.ok(!result.stop_report.reasons.some((r) => r.request_code === 'time_limit_invalid'));
+});
 });
 
