@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -107,6 +107,7 @@ const CASES = [
 
 const STOP_OPS = ['stop', 'outcome'];
 
+describe('bp-stop-resend', { concurrency: 4 }, () => {
 for (const c of CASES) {
   test(`SP-BPRUN-027・SP-BPRUN-034・SP-BPAUTHORING-015・SP-BPRUN-038: 停止の前の書き込みの運搬役と停止の運搬役のそれぞれが要求の各位置まで実行して 1 回だけ応答を失っても、失わない run と同じ状態と返り値になり、停止の記録の起動数は停止の運搬役の送り直しを除いた起動数になる（${c.name}）`, async (t) => {
     const base = await c.run(t, null);
@@ -337,4 +338,5 @@ test('SP-BPRUN-027: 段の記録が 1 つも無いまま停止の記録も書け
   };
   const { result } = await runInspect(t, { env: s.env, args: inspectArgs('review', s.target), scenario: { carrier } });
   assert.match(result.reason, /^停止の記録を書けなかった（段の記録は無い。停止の運搬役。止めようとした停止: blocked: /);
+});
 });

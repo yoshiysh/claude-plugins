@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -170,6 +170,7 @@ function ticketArgs(fx, approved, patch = {}) {
   return { skillDir: SKILL_DIR, state: fx.state, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum, ticket, ticketSum: fnvSum(ticket) }
 }
 
+describe('repo-implement-workflow', { concurrency: 4 }, () => {
 test('計画: planner と plan-reviewer が通した計画を、必須 check を足し sum をつけて approved で返す', async (t) => {
   const fx = fixture(t)
   const b = backend({ planner: () => draft(fx), planReviewer: () => planReview(fx) })
@@ -702,4 +703,5 @@ test('初めての公開の操作が 2 つの Workflow script を移せる（SKI
     const skill = readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8')
     for (const name of [PLAN_NAME, RUN_NAME]) assert.match(skill, new RegExp(`name: "[a-z][a-z0-9-]*:${name}"`))
   }
+})
 })

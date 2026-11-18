@@ -1,6 +1,6 @@
 // 結合: 実際の process を止める・殺す・保存先を書込み不可にする（AC-10・13・19、verification-plan「実装を相手にした並行テスト」）。
 // 正本: cli-contract.md「salvage の手順」「結果と台帳の保存の失敗」「Z3 の adapter」、SP-FORMALMETHOD-010・014・015。
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -41,6 +41,7 @@ async function killedWhileWaitingForAgents(t) {
   return { ws, env, status, dir: status.run_dir };
 }
 
+describe('cli-recovery', { concurrency: 4 }, () => {
 test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock を握ったまま殺すと、wait は E_STALE、submit は受け箱の外を書かず、state.json は最後の内容のまま', async (t) => {
   const { ws, env, status, dir } = await killedWhileWaitingForAgents(t);
   const stateBefore = existsSync(join(dir, 'state.json')) ? readFileSync(join(dir, 'state.json')) : null;
@@ -196,9 +197,9 @@ test('SP-FORMALMETHOD-010 AC-10 demonstration: 互いに依存しない性質を
 });
 
 test('SP-FORMALMETHOD-010 AC-10: 依頼元の時間の上限に達すると、実行中の検査（確認用を含む）を止め、始めていない検査を始めず、完了と未完了の範囲を示す', { timeout: 400000 }, async (t) => {
-  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 150/4 秒) = 37.5 秒）なので、担当が返る時間を残す
-  const limit = 150;
-  const props = [P('P1', 2, { query: { result: 'unsat', sleepMs: 280000 } }), P('P2', 3, { sanity: { result: 'sat', sleepMs: 280000 } })];
+  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 12/4 秒) = 3 秒）なので、担当が返る時間を残す
+  const limit = 12;
+  const props = [P('P1', 2, { query: { result: 'unsat', sleepMs: 20000 } }), P('P2', 3, { sanity: { result: 'sat', sleepMs: 20000 } })];
   const started = Date.now();
   const out = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: limit }), scenario: { toolTimeLimit: 300, properties: props } });
   const r = out.result;
@@ -221,13 +222,13 @@ test('SP-FORMALMETHOD-010 AC-10: 依頼元の時間の上限に達すると、�
 });
 
 test('cli-contract 答えの後の停止 AC-10: -model の実行で答えの行の後にモデルを読む間に依頼元の期限が来ると、group を止めるが検査は答えで判定され stopped_by null。実行中の契約の検査は kind contract で stop_report に出る', { timeout: 400000 }, async (t) => {
-  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 150/4 秒) = 37.5 秒）なので、担当が返る時間を残す
-  const limit = 150;
+  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 12/4 秒) = 3 秒）なので、担当が返る時間を残す
+  const limit = 12;
   const scenario = {
     stateMachine: SM2, toolTimeLimit: 300,
-    // 性質の検査は sat を返した後、モデルの残りを 280 秒遅らせる。部分の契約の検査は答えの前に 280 秒遅らせる
-    properties: [{ ...SM2_PROPS[0], query: { result: 'sat', 'model-sleep-ms': 280000 } }],
-    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1'], contract: { 'sleep-ms': 280000 } }),
+    // 性質の検査は sat を返した後、モデルの残りを 20 秒遅らせる。部分の契約の検査は答えの前に 20 秒遅らせる
+    properties: [{ ...SM2_PROPS[0], query: { result: 'sat', 'model-sleep-ms': 20000 } }],
+    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1'], contract: { 'sleep-ms': 20000 } }),
   };
   const out = await runScenario(t, { request: canonicalRequest({ time_limit_seconds: limit }), scenario });
   const r = out.result;
@@ -464,4 +465,5 @@ test('cli-contract 仮の結果と正の結果: 結果の公開に失敗した R
   assert.equal(r2.provisional, false);
   assert.ok(!r2.records.unsaved.some((u) => u.kind === 'result'));
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), r2);
+});
 });

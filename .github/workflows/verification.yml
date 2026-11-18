@@ -95,7 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
@@ -115,11 +115,11 @@ jobs:
         run: |
           curl --fail --location --retry 3 --output "$TLA2TOOLS" \
             https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
-      - name: Check formal-method design models (shard ${{ matrix.shard }}/4)
+      - name: Check formal-method design models (shard ${{ matrix.shard }}/8)
         env:
           TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
           OUT_DIR: ${{ runner.temp }}/formal-method-skill-out
-          SHARD: ${{ matrix.shard }}/4
+          SHARD: ${{ matrix.shard }}/8
         # shell を明示すると bash --noprofile --norc -eo pipefail {0} になり、check.sh の失敗が tee の成功に隠れない
         shell: bash
         run: sh tests/formal/formal-method-skill/check.sh | tee "$RUNNER_TEMP/formal-method-skill-${{ matrix.shard }}.jsonl"
@@ -170,7 +170,22 @@ jobs:
         if: always()
         run: python3 -I tests/formal/formal-method-skill/z3_streams.py
 
-  verification:
+  verify-static-and-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.12.0'
+      - name: Cache runtime node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
+          key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
+      - name: Verify static checks, Python unittests, eval preflight, and portability
+        run: make test-static-and-python portability
+
+  verify-node-traceability:
     runs-on: ubuntu-latest
     env:
       NODE_TEST_CONCURRENCY: '4'
@@ -179,8 +194,13 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '26.12.0'
-      - name: Verify repository
-        run: make check
+      - name: Cache runtime node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
+          key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
+      - name: Verify traceability Node tests
+        run: make test-node-traceability
       - name: Preserve verification reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -191,3 +211,41 @@ jobs:
             .artifacts/verification/coverage.json
             .artifacts/verification/report.md
           if-no-files-found: warn
+
+  verify-node-other:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+    env:
+      NODE_TEST_CONCURRENCY: '4'
+      NODE_TEST_SHARD: ${{ matrix.shard }}/5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.12.0'
+      - name: Cache runtime node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
+          key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
+      - name: Verify other Node tests (shard ${{ matrix.shard }}/5)
+        run: make test-node-other
+
+  verification:
+    needs: [verify-static-and-python, verify-node-traceability, verify-node-other]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all verification jobs succeeded
+        env:
+          STATIC_RESULT: ${{ needs.verify-static-and-python.result }}
+          TRACE_RESULT: ${{ needs.verify-node-traceability.result }}
+          OTHER_RESULT: ${{ needs.verify-node-other.result }}
+        run: |
+          if [ "$STATIC_RESULT" != "success" ] || [ "$TRACE_RESULT" != "success" ] || [ "$OTHER_RESULT" != "success" ]; then
+            echo "Verification failed: static=$STATIC_RESULT traceability=$TRACE_RESULT other=$OTHER_RESULT" >&2
+            exit 1
+          fi

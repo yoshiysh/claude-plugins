@@ -1,6 +1,6 @@
 // 結合: client（wait・salvage・submit）の規則を、作った run の領域と実際の process の生死で確かめる。
 // 正本: cli-contract.md「コマンド」「受け箱」「生死の判定」「salvage の手順」「誤りと終了コード」。
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +28,7 @@ async function fixture(t, { holder = 'dead' } = {}) {
 }
 
 // ---- wait ----
+describe('cli-client', { concurrency: 4 }, () => {
 test('cli-contract wait 生死の判定: 保持者が終わり status.json が terminal でなければ E_STALE で、何も書かない', async (t) => {
   const { ws, dir, id } = await fixture(t, { holder: 'dead' });
   writeStatus(dir, statusOf(dir, { seq: 1, daemon: id }));
@@ -274,5 +275,6 @@ test('cli-contract 受け箱 準正常: 並行に 2 つの submit を呼んで�
   const content = JSON.parse(readFileSync(join(dir, 'inbox', 'b1.json'), 'utf8'));
   assert.ok(['/a.json', '/b.json'].includes(content.workflow_output_path), '書き終えた内容だけが見える');
   assert.deepEqual(readdirSync(join(dir, 'inbox')), ['b1.json']);
+});
 });
 

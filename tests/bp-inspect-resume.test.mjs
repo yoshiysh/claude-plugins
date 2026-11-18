@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -18,6 +18,7 @@ function itemsOf(view, stage) {
 }
 
 // 再開した run の前に止める段ごとの作り方。どれも停止の種類によらず、止まった段から続く（SP-BPINSPECTION-030 の表）。
+describe('bp-inspect-resume', { concurrency: 4 }, () => {
 for (const fn of FNS) {
   test(`SP-BPINSPECTION-030・SP-BPINSPECTION-029・SP-BPRUN-015: 照らす先を読めずに BLOCKED になった run を、照らす先を直して再開すると、照らす先の決定の段をやり直して全ての段を最初から進む${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
@@ -252,3 +253,4 @@ for (const fn of FNS) {
     }
   });
 }
+});

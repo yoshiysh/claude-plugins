@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -150,6 +150,7 @@ const ref = (c) => ({ statePath: c.state_path, stateSum: c.state_sum })
 const fixThread = (i) => (i.kind === 'thread' ? 'fix' : 'decline')
 const accept = (fx, c, classify = () => 'decline') => cli(fx, 'triage-result', { ...ref(c), triage: triageOf(c, classify) })
 
+describe('address-cli', { concurrency: 4 }, () => {
 test('collect は全ページを取り、既定の除外を名前だけ残して stateDir に書き、分類へ進む', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
@@ -501,6 +502,7 @@ test('collect・recheck は gh の argv にコメントの本文を入れない'
   accept(fx, c)
   cli(fx, 'recheck', { ...ref(c), fixCommit: null })
   for (const call of fx.gh.calls) assert.ok(call.args.every((a) => !a.includes('rm -rf')), call.args.join(' '))
+})
 })
 
 test('defaultIo の gh と git は argv をそのまま実行ファイルに渡し、shell を通らない', (t) => {

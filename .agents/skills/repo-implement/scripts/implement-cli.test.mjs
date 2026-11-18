@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -117,6 +117,7 @@ const confirmed = (patch = {}) => ({
   votes: [{ vote: 'confirmed' }], ...patch,
 })
 
+describe('implement-cli', { concurrency: 4 }, () => {
 test('start: 開始時の変更を preservedPaths として内容・XY・index の entry つきで記録し、削除は HEAD の blob で記録する', (t) => {
   const fx = fixture(t)
   write(fx.repo, 'keep.md', 'edited\n')
@@ -698,4 +699,5 @@ test('main: 使い方の誤りは exit 2、拒否は exit 1 で、本物の CLI 
     assert.equal(out.ok, true)
     assert.equal(out.state_path, path.join(dir, 'repo-implement-state.json'))
   })
+})
 })

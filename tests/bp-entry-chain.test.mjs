@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -88,6 +88,7 @@ async function createChain(t, functions, { scenarios = [], instructions } = {}) 
   return { ...s, plugin, ...out };
 }
 
+describe('bp-entry-chain', { concurrency: 4 }, () => {
 test('SP-BPENTRY-009・SP-BPENTRY-006・SP-BPENTRY-022・SP-BPENTRY-023: create → review で、review の対象スキルのディレクトリが create の返り値の作ったスキルのディレクトリになり、自分の plugin の workflow script が一覧に入り、解決できない callsite が行番号とともに外したものとして返り値に載る', async (t) => {
   const c = await createChain(t, ['create', 'review']);
   if (!c) return;
@@ -419,4 +420,5 @@ test('SP-BPENTRY-008・SP-BPENTRY-021・SP-BPRUN-032: chain-report は完了以�
   assert.equal(hf.ok, false);
   const ok = await report({ functions: ['review', 'update'], runs: [{ state: done.runs[0].state }], hostFailure: 'boom', target });
   assert.equal(ok.ok, true, ok.reason);
+});
 });

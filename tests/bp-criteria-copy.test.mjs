@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { promises as fs, existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
@@ -68,6 +68,7 @@ async function editConformanceTbd(root, extra, { candidate = false } = {}) {
   }
 }
 
+describe('bp-criteria-copy', { concurrency: 4 }, () => {
 test('SP-BPRUN-036: 配布する判定基準の写しが正本と一致し、閉包の全てを持つ（make test の合否）', () => {
   const found = check(ROOT);
   assert.deepEqual(found, [], `判定基準の写しが正本と食い違う。node tools/sync-bp-criteria.mjs で写し直す:\n${found.map((p) => `${p.kind} ${p.path}`).join('\n')}`);
@@ -350,4 +351,5 @@ test('SP-BPRUN-036: 2 本の script の読み替えの文が、docs/ 以外の�
     assert.ok(m, file);
     assert.deepEqual(m[1].split('・').sort(), listedRepoPaths().sort(), file);
   }
+});
 });
