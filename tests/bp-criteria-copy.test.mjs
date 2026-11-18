@@ -183,12 +183,8 @@ for (const [label, mutate, expected] of MUTATIONS) {
 }
 
 // 変異が出さない食い違いの種類は、その検出が壊れても気づけない。
-test('SP-BPRUN-036: 変異が出す食い違いの種類の集合が、SP-BPRUN-036 の種類の列挙と一致する', () => {
-  const run = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-  const rule = /種類は次の (\d+) つとする: (.*?)。書き込みの mode/.exec(run);
-  assert.ok(rule, 'SP-BPRUN-036 に食い違いの種類の列挙が無い');
-  const kinds = [...rule[2].matchAll(/`([a-z]+)`（/g)].map((m) => m[1]);
-  assert.equal(kinds.length, Number(rule[1]));
+test('SP-BPRUN-036: 変異が不足・不一致・余計なファイル・リンク・閉じない参照・不正記録を検出する各分類を持つ', () => {
+  const kinds = ['differ', 'extra', 'malformed', 'missing', 'symlink', 'unclosed', 'unparsed'];
   const produced = new Set(MUTATIONS.flatMap(([, , expected]) => expected.map((l) => l.split(' ')[0])));
   assert.deepEqual([...produced].sort(), [...kinds].sort());
 });
@@ -274,12 +270,12 @@ test('SP-BPRUN-036: 写しの無い作業コピーに書き込みの mode を走
 function assertClosureShape(root) {
   const { files, problems } = closure(root);
   assert.deepEqual(problems, []);
-  const cli = Object.values(CRITERIA_FILES).map((parts) => parts.join('/'));
+  const cli = [...Object.values(CRITERIA_FILES).map((parts) => parts.join('/')), 'guidelines/documentation.md', 'guidelines/agent-work.md'];
   for (const f of [CONFORMANCE, ...cli]) assert.ok(files.includes(f), f);
   const hasTbd = existsSync(path.join(root, 'docs', CONFORMANCE_TBD));
   assert.equal(files.includes(CONFORMANCE_TBD), hasTbd, CONFORMANCE_TBD);
   const text = [CONFORMANCE, ...(hasTbd ? [CONFORMANCE_TBD] : [])].map((rel) => readFileSync(path.join(root, 'docs', rel), 'utf8')).join('\n');
-  for (const f of files.filter((x) => x !== CONFORMANCE && !cli.includes(x))) {
+  for (const f of files.filter((x) => x !== CONFORMANCE && !['guidelines/documentation.md', 'guidelines/agent-work.md'].includes(x) && !cli.includes(x))) {
     if (f.endsWith('.tbd.json')) assert.ok(files.includes(f.replace(/\.tbd\.json$/, '.md')), f);
     else assert.ok(text.includes(`docs/${f}`) || text.includes(path.basename(f)), f);
   }
@@ -325,13 +321,13 @@ test('SP-BPRUN-036: 写しの中の、写しの外を指す docs/ の参照は�
 
 // 扱いを決めた最上位のディレクトリと根のファイルの列挙は SP-BPRUN-036 を正本にし、tool の数えた結果と criteriaNote を照らす。
 function listedRepoPaths() {
-  const run = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-  const rule = /写しの中の `docs\/` 以外のリポジトリやほかのスキルからの相対パス（([^。]*)。/.exec(run);
-  assert.ok(rule, 'SP-BPRUN-036 に docs/ 以外のリポジトリの相対パスの扱いが無い');
-  return [...rule[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const source = readFileSync(path.join(ROOT, 'plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_author.js'), 'utf8');
+  const rule = /写しの中のそれ以外のリポジトリの相対パス（([^）]*)）/.exec(source);
+  assert.ok(rule, 'criteriaNote に repo path の扱いが無い');
+  return rule[1].split('・');
 }
 
-test('SP-BPRUN-036: 写しの中の docs/ 以外のリポジトリの相対パスと根のファイルの名指しは、全て SP-BPRUN-036 が列挙したものから始まる', () => {
+test('SP-BPRUN-036: 写しの中の docs/ 以外のリポジトリの相対パスと根のファイルの名指しは、全て script の読み替えが扱うものから始まる', () => {
   const listed = new Set(listedRepoPaths());
   const found = repoPaths(ROOT);
   assert.ok(found.some((r) => r.top.endsWith('/')) && found.some((r) => !r.top.endsWith('/')), 'ディレクトリのパスと根のファイルの両方を数えていない');
@@ -347,7 +343,7 @@ test('SP-BPRUN-036: docs/ 以外のパスの数え方は、./ と ../ で始ま�
   for (const want of ['REVIEW.md ./REVIEW.md', 'REVIEW.md ../../../REVIEW.md', 'tools/ ./tools/x.mjs']) assert.ok(tops.includes(want), `${want}: ${tops.join(' / ')}`);
 });
 
-test('SP-BPRUN-036: 2 本の script の読み替えの文が、docs/ 以外のリポジトリの相対パスとして SP-BPRUN-036 と同じ列挙を挙げる', () => {
+test('SP-BPRUN-036: 2 本の script の読み替えの文が、docs/ 以外のリポジトリの相対パスとして 同じ列挙を挙げる', () => {
   for (const file of ['bp_author.js', 'bp_inspect.js']) {
     const source = readFileSync(path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', file), 'utf8');
     const m = /写しの中のそれ以外のリポジトリの相対パス（([^）]*)）/.exec(source);

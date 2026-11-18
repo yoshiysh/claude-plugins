@@ -313,7 +313,7 @@ const WRITE_OPS = [
 ];
 
 for (const [name, build] of WRITE_OPS) {
-  test(`SP-BPRUN-031: ${name} が SP-BPRUN-006・SP-BPRUN-017 に反する書き込みを拒否し、理由を出力する`, async (t) => {
+  test(`SP-BPRUN-029: ${name} が SP-BPRUN-006・SP-BPRUN-017 に反する書き込みを拒否し、理由を出力する`, async (t) => {
     const ctx = context(t);
     if (!ctx) return;
     const root = await skillDir(t);
@@ -331,7 +331,7 @@ for (const [name, build] of WRITE_OPS) {
   });
 }
 
-test('SP-BPRUN-031: 食い違う書き込みを各操作が拒否する（段の列挙・結果・停止）', async (t) => {
+test('SP-BPRUN-029: 食い違う書き込みを各操作が拒否する（段の列挙・結果・停止）', async (t) => {
   const { ctx, req } = await startReview(t);
   if (!ctx) return;
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ a: 1 }] });
@@ -490,7 +490,7 @@ test('SP-BPRUN-009・SP-BPRUN-011: 通った後に書き直したファイルと
   await rejects(run.files(ctx, { ...req, entries: [{ path: f('a.md'), action: 'write' }] }), CODES.input);
 });
 
-test('SP-BPRUN-031: 同じ key の開始の送り直しは状態も run も増やさない', async (t) => {
+test('SP-BPRUN-003: 同じ key の開始の送り直しは状態も run も増やさない', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
@@ -530,7 +530,7 @@ test('SP-BPRUN-018: list は読めない状態を理由つきで飛ばして宣�
   assert.deepEqual(listed.unreadable.map((u) => u.state), [other.state]);
 });
 
-test('SP-BPRUN-031: key の記録が無い状態を指すときは理由つきの E_CONFLICT で、一時ファイルを残さない', async (t) => {
+test('SP-BPRUN-003: key の記録が無い状態を指すときは理由つきの E_CONFLICT で、一時ファイルを残さない', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
@@ -617,7 +617,7 @@ test('SP-BPRUN-011・SP-BPRUN-016・SP-BPFINDINGS-002 @recovery:stop-excludes-sy
   assert.equal(buildView(await logOf(ctx, s.state)).runs.length, 1);
 });
 
-test('SP-BPRUN-031: 停止の送り直しを照らす要求の値は、正規化した要求の sha256 である', async (t) => {
+test('SP-BPRUN-006: 停止の送り直しを照らす要求の値は、正規化した要求の sha256 である', async (t) => {
   const { ctx, req } = await startReview(t);
   if (!ctx) return;
   const out = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
@@ -675,7 +675,7 @@ test('SP-BPRUN-028: ifNoResult を付けた試行の失敗は、結果のある�
   assert.equal(counted.attempts, 1);
 });
 
-test('SP-BPRUN-011・SP-BPRUN-031: 停止の cause は BLOCKED にだけ verifiers を付けられ、記録に残る', async (t) => {
+test('SP-BPRUN-011・SP-BPRUN-006: 停止の cause は BLOCKED にだけ verifiers を付けられ、記録に残る', async (t) => {
   const { ctx, req } = await startReview(t);
   if (!ctx) return;
   await rejects(run.stop(ctx, { ...req, kind: 'complete', pending: [], launches: 1, cause: 'verifiers' }), CODES.input);
@@ -726,7 +726,7 @@ test('SP-BPRUN-017: 停止を書いた後の run への受理していない書�
   await rejects(ledger.ledgerRetake(ctx, { ...ureq }), CODES.staleRun);
 });
 
-test('SP-BPRUN-031・SP-BPRUN-032・SP-BPRUN-018: stop-draft の操作は、停止の記録が無くても、stop が停止の記録に書く段と同じ段と、outcome の writtenFiles と同じ形の書いたファイルの一覧を返す', async (t) => {
+test('SP-BPRUN-018・SP-BPRUN-032・SP-BPRUN-018: stop-draft の操作は、停止の記録が無くても、stop が停止の記録に書く段と同じ段と、outcome の writtenFiles と同じ形の書いたファイルの一覧を返す', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const { outcome } = await import('./ops-author.mjs');

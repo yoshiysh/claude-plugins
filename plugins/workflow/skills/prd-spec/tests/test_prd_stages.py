@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prd_script import PRD_PATH as PRD  # noqa: E402
 from test_prd_pure import WORKFLOW_IO, contract_values, value  # noqa: E402
 from test_ledger import _exported  # noqa: E402
+import stages_client  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 
@@ -641,13 +642,17 @@ def wrapped_source(patch=()):
     )
 
 
-def run(spec, patch=()):
-    spec = {"verify_all_mark": VERIFY_ALL_MARK, "doc_check_url": (SKILL / "scripts" / "doc_check.mjs").as_uri(), **spec}
+def _orig_run(spec, patch=()):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "prd_harness.mjs"
         path.write_text(wrapped_source(patch), encoding="utf-8")
         out = subprocess.run(["node", str(path), json.dumps(spec)], capture_output=True, text=True, check=True)
-    got = json.loads(out.stdout)
+    return json.loads(out.stdout)
+
+
+def run(spec, patch=()):
+    spec = {"verify_all_mark": VERIFY_ALL_MARK, "doc_check_url": (SKILL / "scripts" / "doc_check.mjs").as_uri(), **spec}
+    got = stages_client.run_harness(spec, _orig_run, patch=patch)
     assert not got["stubErrors"], got["stubErrors"]
     _note_at_reads(got["atReads"])
     return got

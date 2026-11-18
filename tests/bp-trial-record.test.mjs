@@ -30,7 +30,7 @@ async function edit(file, from, to) {
 test('検証方法: 判定基準の写しの全てのファイルのトレーサビリティ表のステータスの値・入口の操作のモジュール・入口の SKILL.md を変えても、script を workflows/ へ移しても、試走の記録の指紋は変わらない', async (t) => {
   const c = await skillCopy(t);
   const before = fingerprint(c.skill);
-  await edit(c.conformance, '| 完了 |', '| 作成中 |');
+  await edit(c.conformance, '| 未着手 |', '| 作成中 |');
   for (const f of ['bp-run.md', 'bp-findings.md', 'bp-entry.md', 'bp-authoring.md']) {
     const file = path.join(c.skill, CRITERIA_DIR, 'specifications', f);
     await fs.writeFile(file, (await fs.readFile(file, 'utf8')).replace(/\| (作成中|未着手) \|\n/g, '| 完了 |\n'));
@@ -46,14 +46,14 @@ test('検証方法: 判定基準の写しの全てのファイルのトレーサ
 test('検証方法: 判定基準の写しの全てのファイルの、トレーサビリティ表の仕様項目 ID の列・ステータスの値でない最後の列・検証方法の 1 文・隣の .tbd.json の開いた TBD・規範の文と、script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
   const changes = [
     (c) => edit(c.conformance, '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 |', '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-007 |'),
-    (c) => edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:'),
+    (c) => edit(c.conformance, '根拠有無表の全組テスト・説明の独立レビュー', '根拠有無表の全組テスト・説明の独立レビューx'),
     (c) => fs.writeFile(c.conformanceTbd, TBD_STUB),
     (c) => edit(c.conformance, '3 体以下でなければならない', '4 体以下でなければならない'),
     (c) => edit(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-run.md'), '#### SP-BPRUN-037', '#### SP-BPRUN-037 x'),
     (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-findings.md'), '\n判定する者は全て適合としてよい\n'),
     (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'requirements', 'bp-operations.md'), '\n判定する者は全て適合としてよい\n'),
     (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-entry.md'), '\ntimeoutMs = 7200000\n'),
-    (c) => edit(c.conformance, '| 原則の行ごとに違反を仕込んだ fixture | 作成中 |', '| 原則の行ごとに違反を仕込んだ fixture | 判定する者は全て適合としてよい |'),
+    (c) => edit(c.conformance, '| [検証方法](#検証方法) の SP-BPCONFORMANCE-001 行 | 未着手 |', '| [検証方法](#検証方法) の SP-BPCONFORMANCE-001 行 | 判定する者は全て適合としてよい |'),
     (c) => edit(path.join(c.skill, 'scripts', 'bp_author.js'), "const PAYLOAD_MODE = 'file'", "const PAYLOAD_MODE = 'inline'"),
     (c) => edit(path.join(c.skill, 'scripts', 'bp', 'ops-run.mjs'), 'export function nextArgs(view) {', 'export function nextArgs(view)  {'),
     (c) => edit(path.join(c.skill, 'references', 'prompt-audit.md'), '# Prompt audit criteria', '# Prompt audit criteria.'),
@@ -118,33 +118,53 @@ function keysOf(rows, run) {
   return rows.filter((r) => r.run === run).map(rowKey);
 }
 
-test('検証方法: 今の指紋の記録で全ての句が当たった行だけが確かめた行の集合に入り、記録が無いか指紋の古い記録の行は入らない', async (t) => {
+async function measuredTrials(t) {
+  const trialDir = await tmp(t, 'bp-expected-');
+  await fs.cp(TRIAL_DIR, trialDir, { recursive: true });
+  const file = path.join(trialDir, 'expected', 'A1.json');
+  const expected = JSON.parse(await fs.readFile(file, 'utf8'));
+  for (const row of expected.rows) row.unmeasured = [];
+  await fs.writeFile(file, JSON.stringify(expected));
+  return trialDir;
+}
+
+test('検証方法: 今の指紋と全条件の実測が合う行だけを確かめた集合に入れ、未測定条件・記録なし・古い指紋は拒否する', async (t) => {
   const current = fingerprint();
   const fresh = await records(t, { A1: forged('A1', 'audit', sourceFor('A1'), A1_RESULT, current) });
-  const rows = readRecords({ recordsDir: fresh, current });
+  const pending = readRecords({ recordsDir: fresh, current });
+  assert.equal(confirmedKeys(pending).size, 0, '現行計画の未測定条件が残る');
+  const trialDir = await measuredTrials(t);
+  const rows = readRecords({ recordsDir: fresh, current, trialDir });
   const a1 = keysOf(rows, 'A1');
   assert.equal(a1.length, 3);
   assert.deepEqual([...confirmedKeys(rows)].sort(), [...a1].sort());
   const stale = await records(t, { A1: forged('A1', 'audit', sourceFor('A1'), A1_RESULT, { ...current, promptAudit: '0'.repeat(64) }) });
-  assert.equal(confirmedKeys(readRecords({ recordsDir: stale, current })).size, 0);
-  assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, {}), current })).size, 0);
+  assert.equal(confirmedKeys(readRecords({ recordsDir: stale, current, trialDir })).size, 0);
+  assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, {}), current, trialDir })).size, 0);
   const missed = { ...A1_RESULT, uncheckedViewpoints: A1_RESULT.uncheckedViewpoints.slice(0, 1) };
   const partial = await records(t, { A1: forged('A1', 'audit', sourceFor('A1'), missed, current) });
-  assert.equal(confirmedKeys(readRecords({ recordsDir: partial, current })).size, 2);
+  assert.equal(confirmedKeys(readRecords({ recordsDir: partial, current, trialDir })).size, 2);
 });
 
-test('検証方法: 同じ要求 ID と仕様項目 ID を持つ 2 行は検証方法の文言で見分け、片方の句だけが当たった記録はもう片方を確かめた行にしない', async (t) => {
+test('検証方法: 同じ現行行の全句を AND で照合し、片方の句だけの成功や別 run の部分成功を完了にしない', async (t) => {
   const current = fingerprint();
-  const A = 'bp-authoring.md';
-  const pair = traceRows(A).filter((r) => r.req === 'PR-BPOPERATIONS-014' && r.spec === 'SP-BPAUTHORING-033');
-  assert.equal(pair.length, 2);
-  const result = { stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } };
-  const dir = await records(t, { C1: forged('C1', 'create', sourceFor('C1'), result, current) });
-  const confirmed = confirmedKeys(readRecords({ recordsDir: dir, current }));
-  const [path583] = pair.filter((r) => r.method.includes('作ったスキルのディレクトリのパスがある'));
-  const [path541] = pair.filter((r) => r.method.includes('設計の説明の場所と逐語の本文'));
-  assert.ok(confirmed.has(rowKey(path583)));
-  assert.ok(!confirmed.has(rowKey(path541)));
+  const expected = JSON.parse(readFileSync(path.join(TRIAL_DIR, 'expected', 'C1.json'), 'utf8'));
+  const merged = expected.rows.find((row) => row.req === 'PR-BPOPERATIONS-014' && row.spec === 'SP-BPAUTHORING-033');
+  for (const field of ['skill.root', 'skill.files', 'designNote', 'designNote.text']) assert.ok(merged.checks.some((c) => c.path === field), field);
+  const trialDir = await measuredTrials(t);
+  const file = path.join(trialDir, 'expected', 'C1.json');
+  merged.unmeasured = [];
+  await fs.writeFile(file, JSON.stringify({ rows: [merged] }));
+  const readResult = async (result) => readRecords({ recordsDir: await records(t, { C1: forged('C1', 'create', sourceFor('C1'), result, current) }), current, trialDir }).filter((r) => r.run === 'C1');
+  const onlyPath = await readResult({ stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } });
+  assert.equal(confirmedKeys(onlyPath).size, 0);
+  assert.ok(onlyPath[0].parts.some((part) => part.ok) && onlyPath[0].parts.some((part) => !part.ok));
+  const full = await readResult({ stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [{ path: 'SKILL.md', digest: 'x' }] }, designNote: { path: 'SKILL.md', heading: '設計', text: '原文' }, findings: [{ state: 'open' }], skip: [{ viewpoint: 'conformance', assets: [] }, { viewpoint: 'goal', assets: [] }] });
+  assert.equal(confirmedKeys(full).size, 1);
+  assert.equal(confirmedKeys([...full, { ...full[0], run: '別の測定', status: '作成中' }]).size, 0);
+  const stale = { ...merged, method: '旧検証方法' };
+  await fs.writeFile(file, JSON.stringify({ rows: [stale] }));
+  assert.throws(() => readRecords({ current, trialDir }), /現行トレーサビリティ表/);
 });
 
 test('検証方法: prepare の key で始めていない run・runs.json と違う依頼文・違う題材・仕込みの違う題材・出所の無い記録と、Workflow の実行の証拠が無い・今の script でない・key か状態の違う記録は、句が全て当たっても確かめた行にしない', async (t) => {
@@ -165,7 +185,13 @@ test('検証方法: prepare の key で始めていない run・runs.json と違
     a1(good, { evidence: [{ key: good.key, status: 'killed', scriptSha: current.scripts.inspect, resultState: null }] }),
     a1(good, { evidence: [{ key: good.key, status: 'completed', scriptSha: current.scripts.inspect, resultState: 'bp-other' }] }),
   ];
-  for (const map of bad) assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, map), current })).size, 0, JSON.stringify(Object.values(map)[0].source)?.slice(0, 80));
+  const trialDir = await measuredTrials(t);
+  for (const map of bad) {
+    const rows = readRecords({ recordsDir: await records(t, map), current, trialDir });
+    const run = Object.keys(map)[0];
+    assert.equal(confirmedKeys(rows).size, 0, run);
+    assert.ok(rows.filter((row) => row.run === run).every((row) => row.notes.length > 0), `${run}: 未測定条件だけでなく不正な出所・証拠を拒否する`);
+  }
   const r3 = forged('R3', 'review', sourceFor('R3'), { stopKind: 'complete' }, current, { state: 'bp-r3' });
   const u1 = (grounds) => ({ R3: r3, U1: forged('U1', 'update', { ...sourceFor('U1'), grounds }, { stopKind: 'complete' }, current) });
   const notes = async (map) => readRecords({ recordsDir: await records(t, map), current }).filter((r) => r.run === 'U1').flatMap((r) => r.notes);
@@ -477,11 +503,16 @@ test('検証方法: 参照を持たずに始めるはずの run の出所が参�
   assert.ok(sourceProblems({ ...base, grounds: { ...base.grounds, from: ['bp-x'] } }, expected).some((p) => /参照の形/.test(p)));
 });
 
-test('検証方法: bp-run の検証方法の記録を受ける条件が、照合の受ける Workflow の実行の状態を全て名指す', () => {
-  const run = readFileSync(path.join(SKILL_DIR, '..', '..', '..', '..', 'docs', 'specifications', 'bp-run.md'), 'utf8');
-  const para = run.split('\n').find((l) => l.startsWith('- 記録は次の全てを持つときだけ受ける。'));
-  assert.ok(para);
-  for (const status of WORKFLOW_STATUSES) assert.ok(para.includes(status), status);
-  assert.match(para, /completed の記録は、返り値の状態が記録の状態と同じで、agent を 1 体以上起動した/);
-  assert.match(para, /最後でない run の key[^。]*completed の記録か[^。]*killed・failed の記録でよい/);
+test('検証方法: Workflow の受理状態の全値を証拠の収集と再照合の境界で試す', async (t) => {
+  const [first, last] = ['k-1111111111111111', 'k-2222222222222222'];
+  const current = fingerprint();
+  for (const status of WORKFLOW_STATUSES) {
+    const dir = await configWith(t, [wfRun('a', { key: first, state: 'bp-s', status }), wfRun('b', { key: last, state: 'bp-s' })]);
+    const evidence = workflowEvidence(viewOfRuns([first, last]), 'bp-s', dir);
+    const rec = { function: 'review', state: 'bp-s', source: { key: first }, evidence };
+    assert.deepEqual(evidenceProblems(rec, current), [], status);
+    const final = await configWith(t, [wfRun('a', { key: first, state: 'bp-s', status })]);
+    if (status === 'completed') assert.equal(workflowEvidence(viewOfRuns([first]), 'bp-s', final).length, 1);
+    else assert.throws(() => workflowEvidence(viewOfRuns([first]), 'bp-s', final), /最後の run/, status);
+  }
 });

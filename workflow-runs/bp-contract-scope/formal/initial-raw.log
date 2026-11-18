@@ -1,0 +1,260 @@
+all-source.consistency expected=sat
+sat
+g1.normal.specified expected=sat
+sat
+((f0 Review)
+ (f1 Create)
+ (ask false)
+ (firstA true)
+ (exec0 true)
+ (exec1 true)
+ (complete true))
+g1.normal.inferred expected=sat
+sat
+((ask false)
+ (firstA true)
+ (exec1 true)
+ (complete true))
+g1.normal.unordered expected=sat
+sat
+((ask true)
+ (exec0 false)
+ (exec1 false))
+g1.normal.conflict expected=sat
+sat
+((ask true)
+ (exec0 false)
+ (exec1 false))
+g1.normal.nomatch expected=sat
+sat
+((exec0 false)
+ (exec1 false)
+ (complete false))
+g1.forbidden.successor expected=unsat
+unsat
+g1.mutant.successor expected=sat
+sat
+((stop0 true)
+ (done0 false)
+ (exec1 true)
+ (complete false))
+g2.normal.formal-failure expected=sat
+sat
+((formalFail true)
+ (stop0 true)
+ (complete false)
+ (rewriteSame false)
+ (verified false))
+g2.normal.nonformal-rewrite expected=sat
+sat
+((rewriteSame true)
+ (verified true)
+ (generatorContext 0)
+ (verifierContext 1)
+ (complete true))
+g2.normal.input-missing expected=sat
+sat
+((stop0 true)
+ (needsInput true)
+ (resultField true)
+ (resultHasMaterial false)
+ (remainingField true)
+ (remainingHasMaterial false))
+g2.normal.save-failure expected=sat
+sat
+((stop0 true)
+ (complete false)
+ (stageReported true)
+ (reasonReported true))
+g2.normal.review-other-stop expected=sat
+sat
+((stop0 true)
+ (stageReported true)
+ (reasonReported true))
+g2.forbidden.continue-formal expected=unsat
+unsat
+g2.forbidden.save-complete expected=unsat
+unsat
+g2.forbidden.unverified-complete expected=unsat
+unsat
+g2.mutant.continue-formal expected=sat
+sat
+((f0 Create)
+ (f1 Review)
+ (formalFail true)
+ (stop0 false)
+ (done0 true)
+ (exec1 true))
+g3.normal.mechanical-review expected=sat
+sat
+((changed false)
+ (includeFinding true)
+ (refutedIndependent false)
+ (status Open)
+ (d051Conform true)
+ (enumerationRiskDisclosed true))
+g3.normal.prior-ground-new-finding expected=sat
+sat
+((priorFindingInput true)
+ (priorAsGround true)
+ (inheritedState false)
+ (reportPriorStatus false)
+ (newFindingRun 1)
+ (reportNewStatus true)
+ (status Resolved))
+g3.normal.audit-refutation expected=sat
+sat
+((includeFinding true)
+ (status Open)
+ (refutedIndependent true))
+g3.forbidden.audit-exception expected=unsat
+unsat
+g3.forbidden.review-resolved expected=unsat
+unsat
+g3.forbidden.prior-tracking expected=unsat
+unsat
+g3.forbidden.missing-reason expected=unsat
+unsat
+g3.mutant.review-resolved expected=sat
+sat
+((f0 Review)
+ (includeFinding true)
+ (changed false)
+ (status Resolved))
+g4.normal.unread-list expected=sat
+sat
+((ccMatched false)
+ (ccUnknownRole0 true)
+ (ccUnknownRole1 true)
+ (verified true)
+ (unknownOnlyFailure false)
+ (complete true))
+g4.normal.list-match-known-bad expected=sat
+sat
+((ccMatched true)
+ (ccUnknownRole0 false)
+ (knownBad true)
+ (verified false)
+ (complete false))
+g4.normal.codex-separate expected=sat
+sat
+((codexUnknown true)
+ (codexUnknownSeparate true)
+ (unknownRiskDisclosed true))
+g4.forbidden.known-bad-pass expected=unsat
+unsat
+g4.forbidden.matched-unknown expected=unsat
+unsat
+g4.mutant.known-bad-pass expected=sat
+sat
+((ccMatched false)
+ (ccUnknownRole0 true)
+ (knownBad true)
+ (verified true))
+g5.normal.limit-and-resume expected=sat
+sat
+((calls0 2)
+ (returned0 1)
+ (pending0 2)
+ (pendingRank0 2)
+ (pendingRetained true)
+ (stop0 true)
+ (nextRun 1)
+ (resumeItem 2))
+g5.normal.native expected=sat
+sat
+((capProvided false)
+ (fixedItemCap false)
+ (fixedCallCap false)
+ (calls0 3))
+g5.forbidden.over-budget expected=unsat
+unsat
+g5.forbidden.wrong-resume expected=unsat
+unsat
+g5.forbidden.native-fixed-cap expected=unsat
+unsat
+g5.mutant.over-budget expected=sat
+sat
+((host Codex)
+ (budget 1)
+ (calls0 2)
+ (returned0 1))
+g6.normal.identity-and-record expected=sat
+sat
+((assetLedger false)
+ (recordLedger true)
+ (canonical0 true)
+ (canonical1 false)
+ (reference1 true)
+ (evidencePresent1 true)
+ (writtenFileRetained true))
+g6.forbidden.two-canonicals expected=unsat
+unsat
+g6.forbidden.delete-saved expected=unsat
+unsat
+g6.forbidden.write-outside expected=unsat
+unsat
+g6.mutant.delete-saved expected=sat
+sat
+((evidenceSaved0 true)
+ (deleteInstructed false)
+ (evidencePresent1 false))
+g7.normal.partial-update expected=sat
+sat
+((tested0 true)
+ (preserved0 true)
+ (tested1 false)
+ (preserved1 false)
+ (uncheckedDisclosed true))
+g7.normal.no-audit-baseline expected=sat
+sat
+((auditBaselineExists false)
+ (auditExecuted false)
+ (stop0 true)
+ (stageReported true)
+ (reasonReported true))
+g7.normal.no-spec expected=sat
+sat
+((specExists0 false)
+ (inspected0 false)
+ (uncheckedDisclosed true))
+g7.forbidden.unseen-preserved expected=unsat
+unsat
+g7.forbidden.audit-no-baseline expected=unsat
+unsat
+g7.forbidden.unlinked-clean expected=unsat
+unsat
+g7.mutant.unseen-preserved expected=sat
+sat
+((tested1 false)
+ (preserved1 true)
+ (uncheckedDisclosed true))
+g8.normal.independent-complete expected=sat
+sat
+((generatorContext 0)
+ (verifierContext 1)
+ (verified true)
+ (complete true)
+ (hasModel true)
+ (hasEffort true))
+g8.normal.goal-boundary expected=sat
+sat
+((stop0 true)
+ (resultField true)
+ (resultHasMaterial true)
+ (remainingField true)
+ (remainingHasMaterial true))
+g8.normal.native-time expected=sat
+sat
+((timeLimit 5)
+ (timeEnforced false)
+ (timeUnenforceableDisclosed true))
+g8.forbidden.same-context expected=unsat
+unsat
+g8.forbidden.codex-time-only expected=unsat
+unsat
+g8.mutant.same-context expected=sat
+sat
+((verified true)
+ (generatorContext 0)
+ (verifierContext 0))

@@ -180,7 +180,7 @@ for (const fn of FNS) {
       const rows = lines.slice(2).filter((_, i, all) => all.slice(0, i + 1).every((l) => l.startsWith('|')));
       return rows.flatMap((l) => [...l.split('|')[2].matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]));
     };
-    // ok・op・sum は CLI の応答の予約欄（SP-BPRUN-031）で、返り値の項目ではない。
+    // ok・op・sum は CLI の応答の予約欄（SP-BPRUN-006）で、返り値の項目ではない。
     const common = new Set(['ok', 'op', 'sum', ...spelled(docs('bp-run.md'), '| 項目 | 綴り | 返すとき |')]);
     const stopped = spelled(docs('bp-inspection.md'), '| 項目 | 綴り | 中身（完了以外） |');
     assert.deepEqual(stopped, [RESULT_KEYS.stoppedStage]);
@@ -283,8 +283,8 @@ for (const fn of FNS) {
     assert.equal(calls.filter((c) => c.role === 'extract').length, 3);
     assert.equal(calls.filter((c) => c.role === 'applicability').length, fn === 'review' ? 3 : 0);
     const first = calls.indexOf(verifiers(calls)[0]);
-    // 最初の項目の前の起動の数は、最小の起動数から最初の項目の 15 と予約分（SP-BPRUN-021 の表の R）を引いたもの。
-    const reserve = Number(/\| `R`（予約分） \| (\d+) \|/.exec(readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8').slice(readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8').indexOf('review・audit の段ごとの最悪の回数')))[1]);
+    // 停止の前の書き込みと停止の運搬役を1回ずつ予約する。
+    const reserve = 2;
     assert.equal(first, MIN_LAUNCHES[fn] - 15 - reserve);
     assert.equal(calls.slice(first, -1).length, 15);
     assert.equal(new Set(verifiers(calls).map((c) => itemOfPrompt(c.prompt))).size, 1);
@@ -543,8 +543,10 @@ test('SP-BPINSPECTION-014・SP-BPINSPECTION-024: audit の結果に確度・decl
 test('SP-BPINSPECTION-024: 未検査の観点が空の review でも結果に項目がある', async (t) => {
   const s = await setupInspect(t);
   if (!s) return;
-  // 強いられた未検査の出所（PR-BPDESIGNEDSKILL-014 と、PR-BPDESIGNEDSKILL-010 が当たる権限の表の最後の行）を写しのトレーサビリティ表から外す。
-  await editFile(path.join(s.criteriaDir, 'specifications', 'bp-conformance.md'), (x) => x.split('\n').filter((l) => !/^\| PR-BPDESIGNEDSKILL-01[04] \|/.test(l)).join('\n'));
+  // このケースの基準では、選んだ行に強いられた未検査の2つの単位を適用しない。
+  await editFile(path.join(s.criteriaDir, 'specifications/bp-conformance.md'), (text) => text
+    .replace('・010・019・020', '・010・020')
+    .split('\n').map((line) => line.startsWith('| 固定パイプライン型 | 無 | 無 |') ? line.replace('・014', '') : line).join('\n'));
   const { result } = await runInspect(t, { env: s.env, args: inspectArgs('review', s.target) });
   assert.equal(result.stopKind, 'complete', result.reason);
   assert.deepEqual(result.uncheckedViewpoints, []);
@@ -621,7 +623,7 @@ for (const fn of FNS) {
       };
       const { result } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier } });
       assert.equal(result.stopKind, 'blocked');
-      assert.match(result.reason, new RegExp(`段「観点ごとの検証」の CLI が結果の書き込みを拒否した: verdicts: ${code}`));
+      assert.match(result.reason, new RegExp(`段「検証」の CLI が結果の書き込みを拒否した: verdicts: ${code}`));
     }
   });
 

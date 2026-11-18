@@ -109,7 +109,7 @@ test('SP-BPAUTHORING-004: 写しが最初の run でだけ作られ、写しの�
   assert.equal((await create.w('snapshot', {})).code, 'E_INPUT');
 });
 
-test('SP-BPAUTHORING-036: 反復の番号だけが違う同じ段の項目が別の項目になり、新しい反復で前の回の結果を引き継がない', async (t) => {
+test('SP-BPRUN-038: 反復の番号だけが違う同じ段の項目が別の項目になり、新しい反復で前の回の結果を引き継がない', async (t) => {
   const c = await begin(t);
   if (!c) return;
   const one = await c.w('stage-start', { stage: 'verify', round: 1, keys: [{ viewpoint: 'conformance' }] });

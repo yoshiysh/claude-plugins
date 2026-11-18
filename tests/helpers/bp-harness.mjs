@@ -1,4 +1,4 @@
-import { promises as fs, readFileSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, promises as fs, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,15 +17,26 @@ const CLI_PATH = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
 // 最小の起動数は SP-BPRUN-021 に書き戻した値を正本にし、テストは仕様から読む（script の定数との一致は bp-spelling が照らす）。
 export const MIN_LAUNCHES = (() => {
   const text = readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-  const m = /create の最小の起動数は (\d+)、update は (\d+) とする/.exec(text);
-  const n = /review の最小の起動数は (\d+)、audit は (\d+) とする/.exec(text);
-  if (!m || !n) throw new Error('SP-BPRUN-021 に最小の起動数が無い');
-  return Object.freeze({ create: Number(m[1]), update: Number(m[2]), review: Number(n[1]), audit: Number(n[2]) });
+  const section = text.slice(text.indexOf('#### SP-BPRUN-021'), text.indexOf('#### SP-BPRUN-022'));
+  const entries = ['create', 'update', 'review', 'audit'].map((fn) => [fn, Number(new RegExp(`${fn} が (\\d+)`).exec(section)?.[1])]);
+  if (entries.some(([, value]) => !Number.isInteger(value) || value <= 0)) throw new Error('SP-BPRUN-021 に最小の起動数が無い');
+  return Object.freeze(Object.fromEntries(entries));
 })();
 const COMMAND = /node '([^']+)' (\S+) <<'(BP_[0-9a-f]{8})'\n(.*)\n\3/g;
 
+function isWritable(dir) {
+  try {
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const TMP_BASE = process.platform === 'linux' && !process.env.TMPDIR && isWritable('/dev/shm') ? '/dev/shm' : os.tmpdir();
+
 export async function tmp(t, prefix) {
-  const dir = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
+  const dir = realpathSync(await fs.mkdtemp(path.join(TMP_BASE, prefix)));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }

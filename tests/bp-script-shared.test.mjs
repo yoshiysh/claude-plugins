@@ -56,7 +56,7 @@ function declarations(file) {
 const AUTHOR = declarations('bp_author.js');
 const INSPECT = declarations('bp_inspect.js');
 
-test('SP-BPRUN-031: 2 本の script に同じ名前で現れる最上位の関数・定数は、許可したものを除き字面（空白を正規化）が同じ', () => {
+test('SP-BPRUN-006: 2 本の script に同じ名前で現れる最上位の関数・定数は、許可したものを除き字面（空白を正規化）が同じ', () => {
   for (const name of SHARED) {
     assert.ok(AUTHOR.has(name) && INSPECT.has(name), `共通の部品が片方に無い: ${name}`);
   }

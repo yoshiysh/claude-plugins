@@ -10,6 +10,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const SKILL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 const DOCS = 'docs';
 const ROOT_DOC = 'specifications/bp-conformance.md';
+// 文書規約が委譲するコードコメントと変更経緯の規則を配布先でも読めるようにする。
+// agent-work は参照先の節のためにファイルごと写し、他の全節を BP の判定基準へ追加しない。
+const REQUIRED_CRITERIA = ['guidelines/documentation.md', 'guidelines/agent-work.md'];
 
 const DOCS_PATH = /(?<![\w./-])docs\/[\w./*-]*/g;
 // URL の中の docs/ は外部のページで、リポジトリの文書ではない。URL を先に除き、前置きの字で見分けない（見分けると「正本:docs/…」を落とす）。
@@ -23,12 +26,10 @@ const BARE_NAME = /(?<![\w./-])((?:bp-[\w-]+|skill-design-patterns)\.md)/g;
 // 写しの中に残る、写しの外を指す docs/ の参照。ここに無い参照が写しに現れると、配布先で開けない基準を指すことになる。
 export const OUTSIDE_COPY = Object.freeze([
   { file: 'specifications/bp-run.md', token: 'docs/', reason: '正本の置き場そのものを指す散文で、判定基準の文書を指さない' },
-  { file: 'specifications/bp-run.md', token: 'docs/X', reason: '写しの中の docs/ の読み替えの規則の変数で、文書を指さない' },
   { file: 'requirements/bp-operations.md', token: 'docs/specifications/bp-*.md', reason: 'bp の仕様書の全体を指す glob で、展開した先は全て写しにある' },
   { file: 'design/skill-design-patterns.md', token: 'docs/', reason: '未決事項の検索範囲を述べる散文で、置き場そのものを指し、判定基準の文書を指さない' },
   { file: 'design/skill-design-patterns.md', token: 'docs/specifications', reason: '未決事項の検索範囲を述べる散文で、仕様書の置き場そのものを指す。具体的な文書の名指しは全て写しの中に解ける' },
   { file: 'design/skill-design-patterns.md', token: 'docs/guidelines/testing.md', reason: 'make test の運用手順を持つ文書の名指しで、bp-conformance が直接に参照しないので写す文書の集合（bp-run の「検証方法」）に入らない' },
-  { file: 'specifications/bp-run.md', token: 'docs/guidelines/documentation.md', reason: 'SP-BPRUN-043 の未実装の仕様項目が名指す文書で、実装追従前のため除外' },
 ]);
 
 const EXIT = Object.freeze({ ok: 0, mismatch: 1, usage: 2 });
@@ -101,14 +102,15 @@ function body(file) {
   return carryShapeOk(data) ? data.tbd.flatMap((t) => [t.text, ...(t.candidates ?? [])]).join('\n') : null;
 }
 
-// SP-BPRUN-036 は「bp-conformance が docs/ のパスで参照する全ての文書」なので、直接の参照で閉じる（推移的に辿らない）。
+// 明示された必須基準と、文書規約の必要な規範依存に、bp-conformance の直接の参照を加える。
+// 運用案内・出典の参照は OUTSIDE_COPY で用途を分類し、無差別に推移的なコピーを増やさない。
 // TBD の text も bp-conformance の一部なので、隣の .tbd.json の参照も同じに数える。
 export function closure(root = REPO_ROOT) {
   const files = docsFiles(root);
   const present = new Set(files);
   const names = nameIndex(files);
   const problems = [];
-  const set = new Set([ROOT_DOC, ...Object.values(CRITERIA_FILES).map((parts) => parts.join('/'))]);
+  const set = new Set([ROOT_DOC, ...REQUIRED_CRITERIA, ...Object.values(CRITERIA_FILES).map((parts) => parts.join('/'))]);
   for (const from of [ROOT_DOC, carryPathOf(ROOT_DOC)]) {
     if (from !== ROOT_DOC && !present.has(from)) continue;
     const text = body(path.join(root, DOCS, from));

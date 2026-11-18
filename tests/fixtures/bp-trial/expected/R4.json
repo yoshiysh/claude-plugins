@@ -4,7 +4,7 @@
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-024",
       "spec": "SP-BPINSPECTION-007",
-      "method": "fixture（同時実行の定数を 4 にした対象スキルの review で、フローの観点の指摘が出ず、仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになることを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-007 行",
       "checks": [
         {
           "clause": "fixture（",
@@ -34,6 +34,12 @@
             "kind": "SP-BPCONFORMANCE-027",
             "path": "scripts/trace.js"
           }
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-007 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     }

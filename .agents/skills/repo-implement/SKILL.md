@@ -95,7 +95,7 @@ planner は影響する path・守る性質・手順・追加の check と、変
 
 ## 受け入れと開始時の check
 
-1. **受け入れ**: `implementation` を付けずに `inventory` を流す。CLI は、計画の段で作業ツリーが変わっていないこと、plan の path が symlink を通らず（通ると書き込みが plan の外の実体の path に現れるか repo の外へ出る）ignore されないこと、plan の check が許可リストに収まり必須の check を含むこと（正本は `scripts/implement-core.mjs` の `MAKE_TARGETS`・`NODE_TEST_SUFFIX`・`REQUIRED_CHECKS`）を確かめ、`admitted: true` のときだけ plan を記録する。`false` なら `problems` を示して止まる（許可リストに無い check が要るなら、利用者に手で実行するか見送るかを確かめる）。実装の回の前なら、計画し直した plan を受け入れ直せる。出力の `baseline_needed` が true なら（plan が変わって開始時の check の記録が消えたか、まだ取っていない）次の 2 を流す。false なら記録が残っているので流さない。
+1. **受け入れ**: `implementation` を付けずに `inventory` を流す。CLI は plan を今の作業ツリーと check の許可リストに照らし、`admitted: true` のときだけ plan を記録する（照らす項目は `problems[].cause` の名前で、正本は `scripts/implement-cli.mjs` の `inventory` と `scripts/implement-core.mjs` の `inventoryProblems`）。`false` なら `problems` の `cause` と `message` を示して止まる（`check_not_allowed` で、許可リストに無い check が要るなら、利用者に手で実行するか見送るかを確かめる）。実装の回の前なら、計画し直した plan を受け入れ直せる。出力の `baseline_needed` が true なら（plan が変わって開始時の check の記録が消えたか、まだ取っていない）次の 2 を流す。false なら記録が残っているので流さない。
 
    ```bash
    node [SKILL_DIR]/scripts/implement-cli.mjs inventory <<'JSON'
@@ -135,7 +135,7 @@ Workflow({
 })
 ```
 
-**どの status でも**、返り値をそのまま `implementation` に入れて `inventory` を流す（受け入れと同じ入力に `"implementation": <返り値>`）。CLI は券の round を閉じて記録し、開始時の HEAD からの実際の変更を plan の path・touched_paths の和（repo 相対の正規形でない申告も、round を閉じる原因として記録する）・preservedPaths の不変と照らし、index（stage した内容）が開始時から動いていないこと（commit は index を取り込むので、照らしていない内容が入り得る）と、申告と作業ツリーの動きが合うか（実装したと返したのに何も変わっていない、失敗したのに変わった）を照らす。`passed: false` なら「止まるとき」に従う（plan の外の変更や申告漏れを司令塔が戻さない。戻すのは破壊的な操作で、利用者が決める）。通らなかった round の後は、CLI が check・レビュー・次の回を受け付けない。
+**どの status でも**、返り値をそのまま `implementation` に入れて `inventory` を流す（受け入れと同じ入力に `"implementation": <返り値>`）。CLI は券の round を閉じて記録し、開始時からの実際の変更と index を plan・implementer の申告・preservedPaths に照らす（照らす項目は `problems[].cause` の名前で、正本は `scripts/implement-core.mjs` の `inventoryProblems`・`roundEffectProblems`）。`passed: false` なら `problems` の `cause` と `message` を示して「止まるとき」に従う（plan の外の変更や申告漏れを司令塔が戻さない。戻すのは破壊的な操作で、利用者が決める）。通らなかった round の後は、CLI が check・レビュー・次の回を受け付けない。
 
 | status | 司令塔の処理 |
 | --- | --- |
@@ -161,7 +161,7 @@ node [SKILL_DIR]/scripts/implement-cli.mjs record-review <<'JSON'
 JSON
 ```
 
-CLI は、返り値の `sum`（repo-review の Workflow が本文に付ける）、mode・SHA・対象・除外・生成物・preserved を repo-review の計画のファイルと開始時の記録に照らし、completed なら観点ごとの coverage が計画の reviewers と一致して pin が崩れていないこと、対象・除外・生成物の和が今の変更の集合と一致し、計画のファイルの内容の digest が今の内容と一致することを確かめてから記録する（レビューの範囲を狭めた・返り値から指摘を落とした・前の回の結果を出し直した、は拒否される）。記録は 1 回に 1 つで、やり直せるのは前の記録が `review_incomplete` のときだけ（回数の上限は `scripts/implement-core.mjs` の `MAX_REVIEW_RETRIES`。前の確定指摘と未検証は残る）。
+CLI は返り値を repo-review の計画のファイル・開始時の記録・今の変更に照らしてから記録し、合わなければ `ok: false` で拒否して `reason` に合わない項目を返す（照らす項目の正本は `scripts/implement-core.mjs` の `reviewProblems`）。レビューの範囲を狭めた・返り値から指摘を落とした・前の回の結果を出し直した返り値は、この照合で拒否される。記録は 1 回に 1 つで、やり直せるのは前の記録が `review_incomplete` のときだけ（回数の上限は `scripts/implement-core.mjs` の `MAX_REVIEW_RETRIES`。前の確定指摘と未検証は残る）。
 
 repo-review が「レビューの対象が 0 件」（変更が除外・生成物だけ）で Workflow を呼ばずに終えたときは、記録するレビューが無く `verify` は通らない。レビューを経ていない変更として「止まるとき」に従う。
 
@@ -190,7 +190,7 @@ JSON
 
 ## 最終照合と報告
 
-受け入れと同じ入力で `verify` を流す。CLI は記録だけを使い、HEAD が開始時のまま、run が abandon で終わっておらず、開いた回が無く、最後の回が実装を終えて inventory を通り、承認済みの計画の変更が作業ツリーにあり、実際の変更が plan と touched_paths の和に収まり、preservedPaths が変わらず、最後の回の後の check が全て成功し、最後のレビューが確定指摘も未検証も無く通り、今の snapshot が最後に check とレビューを通した時点と一致することを照らす。`passed: true` のときだけ完了として報告する。
+受け入れと同じ入力で `verify` を流す。CLI は check もレビューも流し直さず、記録と今の作業ツリーに照らして、最後の回の実装・check・レビューが通り、作業ツリーが最後に check とレビューを通した時点のままかを確かめる（照らす項目は `problems[].cause` の名前で、正本は `scripts/implement-core.mjs` の `verifyProblems`）。`passed: true` のときだけ完了として報告する。
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 

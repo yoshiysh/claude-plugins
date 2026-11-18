@@ -492,7 +492,7 @@ test('SP-BPFINDINGS-015: 反証役が結果を返さなかった候補は、open
   assert.equal((await viewOf(ctx, req.state)).findings.size, 0);
 });
 
-test('SP-BPFINDINGS-015・SP-BPRUN-031: 未反証の記録は要求の attempt で書き、試行の失敗と同じ規則で、打ち切った後の同じ番号は受け、先の番号と打ち切った後の新しい番号は E_CONFLICT にする', async (t) => {
+test('SP-BPFINDINGS-015・SP-BPRUN-029: 未反証の記録は要求の attempt で書き、試行の失敗と同じ規則で、打ち切った後の同じ番号は受け、先の番号と打ち切った後の新しい番号は E_CONFLICT にする', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
   const a = assets[0].id;
@@ -548,7 +548,7 @@ test('SP-BPFINDINGS-012: 同じ担当を 2 体が見て同じ鍵の候補を返�
   assert.equal(keys.length, 1);
 });
 
-test('SP-BPRUN-031: 台帳の書き込みの操作が SP-BPRUN-017 に反する書き込みを拒否し、状態が変わらない', async (t) => {
+test('SP-BPRUN-029: 台帳の書き込みの操作が SP-BPRUN-017 に反する書き込みを拒否し、状態が変わらない', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
   const a = assets[0].id;
@@ -618,7 +618,7 @@ test('SP-BPFINDINGS-020: 指摘の資産が消えていない照合の項目を�
   await rejects(ledger.vanishMatch(ctx, { ...req, item: items[0], choice: 'none' }), CODES.conflict);
 });
 
-test('SP-BPRUN-031: stages の要素が {stage, round} でなければ E_INPUT', async (t) => {
+test('SP-BPRUN-038: stages の要素が {stage, round} でなければ E_INPUT', async (t) => {
   const { ctx, req } = await setup(t);
   if (!ctx) return;
   await rejects(ledger.refutationItems(ctx, { ...req, stages: [null] }), CODES.input);

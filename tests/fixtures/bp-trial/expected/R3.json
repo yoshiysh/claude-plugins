@@ -4,7 +4,7 @@
       "file": "bp-inspection.md",
       "req": "PR-BPOPERATIONS-024",
       "spec": "SP-BPINSPECTION-025",
-      "method": "fixture（無視される設定の一覧の記述を消した写しで、PR-BPDESIGNEDSKILL-014 の単位が SP-BPCONFORMANCE-019 を理由に未検査の観点に載ることを確認）",
+      "method": "[検証方法](#検証方法) の SP-BPINSPECTION-025 行",
       "checks": [
         {
           "clause": "fixture（",
@@ -27,13 +27,19 @@
           },
           "min": 1
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPINSPECTION-025 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
       "file": "bp-conformance.md",
-      "req": "PR-BPDESIGNEDSKILL-003",
+      "req": "PR-BPDESIGNEDSKILL-001",
       "spec": "SP-BPCONFORMANCE-007",
-      "method": "fixture（ターンごとの指揮で script を持つもの）で不適合を照合",
+      "method": "[検証方法](#検証方法) の SP-BPCONFORMANCE-007 行",
       "checks": [
         {
           "clause": "fixture（",
@@ -53,6 +59,12 @@
             "kind": "SP-BPCONFORMANCE-007"
           },
           "min": 1
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-007 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     }

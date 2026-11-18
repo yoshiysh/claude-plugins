@@ -14,6 +14,7 @@ Claude Code / Codex 向けの汎用スキル集。marketplace plugin として�
 | `performance` | エージェント作業のトークン使用量の opt-in 計測と、品質を維持した改善候補の提示 |
 | `claim-gate` | 不在・網羅型の断定に裏付けか手段スコープが無ければ排出前に差し戻す Stop hook（opt-in・既定 off） |
 | `shunt` | 大きなファイルの読み込みとボイラープレート生成を Gemini worker へ委譲してトークンを節約する（`CLAUDE_PLUGINS_GEMINI_API_KEY` が必要） |
+| `strata` | 高速ローカル推論エンジン Strata へ生成（code/test/doc）と敵対的レビューを MCP 経由で委譲 |
 
 各 plugin の詳細は `plugins/<plugin>/README.md`。
 
@@ -25,6 +26,17 @@ claude plugin install <plugin>@yoshiysh-claude-plugins
 ```
 
 Claude Code のセッション内なら `/plugin install <plugin>@yoshiysh-claude-plugins`。
+
+Codex CLI では marketplace を追加し、必要な plugin を個別に install する。Codex は plugin の依存を自動で install しないため、使う plugin の `.claude-plugin/plugin.json` にある `dependencies` も確認して追加する（例: `notion` は `research` に依存する）。
+
+```bash
+codex plugin marketplace add yoshiysh/claude-plugins
+codex plugin add notion@yoshiysh-claude-plugins
+jq -r '.dependencies[]?' plugins/notion/.claude-plugin/plugin.json
+codex plugin add research@yoshiysh-claude-plugins
+```
+
+他の plugin を使う場合は、同様に `.claude-plugin/plugin.json` の `dependencies` を `jq -r '.dependencies[]?' plugins/<plugin>/.claude-plugin/plugin.json` で調べ、各依存を `codex plugin add <dependency>@yoshiysh-claude-plugins` で追加する。
 
 ## License
 

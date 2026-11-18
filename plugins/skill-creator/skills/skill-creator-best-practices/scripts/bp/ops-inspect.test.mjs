@@ -70,7 +70,7 @@ function judged(assets, extra = {}) {
   return { judgements: assets.map((a) => ({ asset: a.id, judgement: 'ok' })), candidates: [], unchecked: [], ...extra };
 }
 
-test('SP-BPINSPECTION-004・SP-BPRUN-031: review の照らす先の決定が、観点ごとの照らす先のパスと指紋を状態に書き、読めた観点を run の観点の集合にし、判定基準の写しの置き場を返す', async (t) => {
+test('SP-BPINSPECTION-004: review の照らす先の決定が、観点ごとの照らす先のパスと指紋を状態に書き、読めた観点を run の観点の集合にし、判定基準の写しの置き場を返す', async (t) => {
   const { ctx, req, targets } = await begin(t, 'review');
   if (!ctx) return;
   assert.equal(targets.blocked, null);
@@ -215,7 +215,7 @@ test('SP-BPINSPECTION-005・SP-BPCONFORMANCE-003: 「性能・容量」の章の
 
 test('SP-BPINSPECTION-005: review の適用の判定が「性能・容量」の章の無い写しで落とすのは、読める章のどれにも属さない仕様項目だけで、見出しの無い仕様項目と読める章（エラー処理と異常系など）の仕様項目は E_INTERNAL で止まる', async (t) => {
   const renamed = (s) => s.replace('## 性能・容量（対象スキルに課す確定値）', '## 容量');
-  const traced = (sp) => (s) => s.replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 |', `| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010, ${sp} |`);
+  const traced = (sp) => (s) => s.replace('どの形にも当たる SP-BPCONFORMANCE-010', `どの形にも当たる SP-BPCONFORMANCE-010・${sp.slice(-3)}`);
   const conformance = path.join('specifications', 'bp-conformance.md');
   const inRenamed = await edited(t, conformance, (s) => traced('SP-BPCONFORMANCE-027')(renamed(s)));
   const rows = applicabilityRows(inRenamed, { tolerateNoCapacity: true });
@@ -263,7 +263,8 @@ test('SP-BPINSPECTION-025: 未検査の観点の 5 つの場合を観点・範�
 // PR-BPDESIGNEDSKILL-014 が強いられた未検査になる写し（fixture は反復型の 1 行だけを持つ）。
 async function forcedCriteria(t) {
   return edited(t, path.join('specifications', 'bp-conformance.md'), (s) => s
-    .replace('PR-BPDESIGNEDSKILL-001 はどの行でも当たる。', 'PR-BPDESIGNEDSKILL-001・014 はどの行でも当たる。')
+    .replace('どの形にも当たる SP-BPCONFORMANCE-010', 'どの形にも当たる SP-BPCONFORMANCE-010・019')
+    .replace('#### SP-BPCONFORMANCE-001 判定基準の正本', '#### SP-BPCONFORMANCE-019 Claude Code の制限\n本文。\n\n#### SP-BPCONFORMANCE-001 判定基準の正本')
     .replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |', '| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 | fixture | 未着手 |\n| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-001 | fixture | 未着手 |'));
 }
 
@@ -301,13 +302,13 @@ test('SP-BPINSPECTION-025・SP-BPINSPECTION-007: 適用の判定で強いられ�
   await run.stageStart(ctx, { ...req, stage: 'applicability', keys: [] });
   const out = await inspect.applicability(ctx, { ...req, n: 1, result: answers(assets[0].id, ['はい', 'いいえ', 'はい', '問いに到達しない'], '無', '有') });
   assert.equal(out.shape, '固定集合の反復型');
-  assert.deepEqual(out.forced, ['SP-BPCONFORMANCE-001']);
+  assert.deepEqual(out.forced, ['SP-BPCONFORMANCE-019']);
   const { items, assignment } = await verifyItems(ctx, req, ['flow']);
-  const cand = { judgements: assets.map((a, i) => ({ asset: a.id, judgement: i === 0 ? 'candidate' : 'ok' })), candidates: [{ asset: assets[0].id, viewpoint: 'flow', kind: 'SP-BPCONFORMANCE-001', quote: 'L1', content: 'c', fix: 'f' }], unchecked: [] };
+  const cand = { judgements: assets.map((a, i) => ({ asset: a.id, judgement: i === 0 ? 'candidate' : 'ok' })), candidates: [{ asset: assets[0].id, viewpoint: 'flow', kind: 'SP-BPCONFORMANCE-019', quote: 'L1', content: 'c', fix: 'f' }], unchecked: [] };
   await rejects(ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: cand }), CODES.result);
-  await ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: judged(assets, { unchecked: [{ viewpoint: 'flow', scope: 'unit', value: 'SP-BPCONFORMANCE-001', reason: '検証役の理由' }] }) });
+  await ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: judged(assets, { unchecked: [{ viewpoint: 'flow', scope: 'unit', value: 'SP-BPCONFORMANCE-019', reason: '検証役の理由' }] }) });
   const list = uncheckedViewpoints(await viewOf(ctx, req.state)).filter((u) => u.viewpoint === 'flow');
-  assert.deepEqual(list.map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-001', 'SP-BPCONFORMANCE-019']]);
+  assert.deepEqual(list.map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-019', 'SP-BPCONFORMANCE-019']]);
 });
 
 test('SP-BPINSPECTION-007: review のフローの観点の閉集合から除く単位の表の単位を除き、create・update の適合の観点の閉集合には残す', async (t) => {
@@ -369,7 +370,7 @@ test('SP-BPINSPECTION-027: 照らす先を読めない理由は欠けたファ�
   assert.deepEqual(targets.blocked.paths, [design]);
 });
 
-test('SP-BPRUN-038・SP-BPRUN-031: 項目の鍵が担当 ID を持つとき、状態に無い担当の鍵の列挙を E_UNKNOWN_ID、別の担当の結果を E_CONFLICT で拒否する', async (t) => {
+test('SP-BPRUN-038・SP-BPRUN-029: 項目の鍵が担当 ID を持つとき、状態に無い担当の鍵の列挙を E_UNKNOWN_ID、別の担当の結果を E_CONFLICT で拒否する', async (t) => {
   const { ctx, req, assets } = await withLedger(t, 'review');
   if (!ctx) return;
   await rejects(run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ viewpoint: 'flow', assignment: 'Sassign9' }] }), CODES.unknownId);

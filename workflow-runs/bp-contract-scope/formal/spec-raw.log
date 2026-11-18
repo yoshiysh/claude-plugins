@@ -1,0 +1,453 @@
+all-spec.consistency expected=sat
+sat
+doc.normal.empty expected=sat
+sat
+((headingCount 1)
+ (rowCount 0)
+ (docResult Conform)
+ (semanticBad true)
+ (enumerationIncomplete true)
+ (coverageRiskFields 2)
+ (coverageRiskCount 1))
+doc.normal.fenced-or-outside expected=sat
+sat
+((headingCount 1)
+ (fence1 true)
+ (scope2 false)
+ (rowCount 1)
+ (cells0 2)
+ (docResult Conform))
+doc.normal.multiple expected=sat
+sat
+((headingCount 2)
+ (docResult Nonconform))
+doc.normal.unreadable expected=sat
+sat
+((docResult Unchecked))
+doc.bridge.reqD051 expected=unsat
+unsat
+doc.forbidden.empty-reason expected=unsat
+unsat
+doc.forbidden.no-separator expected=unsat
+unsat
+doc.mutant.empty-reason expected=sat
+sat
+((rowCount 1)
+ (cells0 2)
+ (decision0Nonempty true)
+ (reason0Nonempty false)
+ (docResult Conform))
+host.normal.claude-forced expected=sat
+sat
+((ccListRead false)
+ (ccResult ForcedUnchecked)
+ (ccCheckedCount 0)
+ (ccUnknownCount 2)
+ (codexUnknownCount 2)
+ (authorVerdict Passed)
+ (hostRiskFields 4)
+ (coverageRiskFields 2))
+host.normal.known-bad expected=sat
+sat
+((ccKnownBad true)
+ (ccResult Conform)
+ (authorVerdict Failed)
+ (ccCheckedCount 2)
+ (ccUnknownCount 0))
+host.normal.codex-residual-only expected=sat
+sat
+((codexUnknownCount 2)
+ (codexUnitUnchecked false)
+ (authorVerdict Passed))
+host.normal.codex-required-unit expected=sat
+sat
+((codexUnknownCount 2)
+ (codexUnitUnchecked true)
+ (ccResult ForcedUnchecked)
+ (authorVerdict Failed))
+host.bridge.D046 expected=unsat
+unsat
+host.bridge.disclosure expected=unsat
+unsat
+host.forbidden.codex-unit-auto-exception expected=unsat
+unsat
+host.mutant.known-bad-pass expected=sat
+sat
+((ccKnownBad true)
+ (ccResult Conform)
+ (authorVerdict Passed))
+entry.normal.repeat-occurrences expected=sat
+sat
+((occurrence0 0)
+ (occurrence1 1)
+ (f0 Review)
+ (f1 Review)
+ (run0Returned true)
+ (stop0 Complete)
+ (run1Started true))
+entry.normal.inferred-reverse expected=sat
+sat
+((occurrence0 1)
+ (occurrence1 0)
+ (f0 Review)
+ (f1 Update)
+ (ask false)
+ (run1Started true))
+entry.normal.grounds-zero-callee expected=sat
+sat
+((f0 Review)
+ (f1 Update)
+ (run0Returned true)
+ (stop0 Complete)
+ (run1Started true)
+ (groundsCount 0)
+ (stop1 NeedsInput)
+ (calleeCreatedState false))
+entry.normal.ambiguous expected=sat
+sat
+((ask true)
+ (run0Started false))
+entry.normal.later-create expected=sat
+sat
+((f0 Review)
+ (f1 Create)
+ (ask true)
+ (run0Started false))
+entry.bridge.O038-stop expected=unsat
+unsat
+entry.forbidden.bad-result-shape expected=unsat
+unsat
+entry.mutant.stop-then-successor expected=sat
+sat
+((run0Started true)
+ (run0Returned false)
+ (stop0 Blocked)
+ (run1Started true))
+state.normal.duplicate-stop expected=sat
+sat
+((writeAccepted true)
+ (operationExecuted false)
+ (recordsBefore 0)
+ (recordsAfter 0)
+ (currentCauseBefore 6)
+ (currentCauseAfter 6))
+state.normal.old-write expected=sat
+sat
+((writeAccepted false)
+ (operationExecuted false)
+ (recordsBefore 0)
+ (recordsAfter 0)
+ (currentCauseBefore 6)
+ (currentCauseAfter 6))
+state.normal.current-stopped-write expected=sat
+sat
+((writeAccepted false)
+ (operationExecuted false)
+ (recordsBefore 0)
+ (recordsAfter 0))
+state.normal.unreadable-catalog expected=sat
+sat
+((catalogListsResumable false)
+ (catalogUnreadIdDisclosed true)
+ (catalogUnreadReasonDisclosed true))
+state.forbidden.rejected-side-effect expected=unsat
+unsat
+state.forbidden.old-write-stops-current expected=unsat
+unsat
+state.mutant.rejected-side-effect expected=sat
+sat
+((writeAccepted false)
+ (operationExecuted false)
+ (recordsBefore 0)
+ (recordsAfter 1))
+resume.normal.saved-result-and-unsaved-call expected=sat
+sat
+((newRunIssued true)
+ (previousRun 0)
+ (resumedRun 1)
+ (pending0 false)
+ (pending1 true)
+ (pending2 false)
+ (resumeChoice 1)
+ (chosenRank 0))
+resume.bridge.unsaved-call-pending expected=unsat
+unsat
+resume.forbidden.completed-new-run expected=unsat
+unsat
+resume.forbidden.reprocess-result expected=unsat
+unsat
+resume.mutant.completed-new-run expected=sat
+sat
+((stateComplete true)
+ (previousRun 0)
+ (resumedRun 1)
+ (newRunIssued true))
+resume.mutant.drop-unsaved-call expected=sat
+sat
+((launched1 true)
+ (result1 false)
+ (cut1 false)
+ (discarded1 false)
+ (pending1 false))
+limit.normal.Create.new.before expected=sat
+sat
+((publicMin 31)
+ (isResume false)
+ (cap 30)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent false)
+ (nextArgsPresent false))
+limit.normal.Create.new.at expected=sat
+sat
+((publicMin 31)
+ (isResume false)
+ (cap 31)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Create.resume.before expected=sat
+sat
+((publicMin 31)
+ (isResume true)
+ (cap 30)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent true)
+ (nextArgsPresent true))
+limit.normal.Create.resume.at expected=sat
+sat
+((publicMin 31)
+ (isResume true)
+ (cap 31)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Update.new.before expected=sat
+sat
+((publicMin 32)
+ (isResume false)
+ (cap 31)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent false)
+ (nextArgsPresent false))
+limit.normal.Update.new.at expected=sat
+sat
+((publicMin 32)
+ (isResume false)
+ (cap 32)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Update.resume.before expected=sat
+sat
+((publicMin 32)
+ (isResume true)
+ (cap 31)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent true)
+ (nextArgsPresent true))
+limit.normal.Update.resume.at expected=sat
+sat
+((publicMin 32)
+ (isResume true)
+ (cap 32)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Review.new.before expected=sat
+sat
+((publicMin 33)
+ (isResume false)
+ (cap 32)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent false)
+ (nextArgsPresent false))
+limit.normal.Review.new.at expected=sat
+sat
+((publicMin 33)
+ (isResume false)
+ (cap 33)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Review.resume.before expected=sat
+sat
+((publicMin 33)
+ (isResume true)
+ (cap 32)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent true)
+ (nextArgsPresent true))
+limit.normal.Review.resume.at expected=sat
+sat
+((publicMin 33)
+ (isResume true)
+ (cap 33)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Audit.new.before expected=sat
+sat
+((publicMin 28)
+ (isResume false)
+ (cap 27)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent false)
+ (nextArgsPresent false))
+limit.normal.Audit.new.at expected=sat
+sat
+((publicMin 28)
+ (isResume false)
+ (cap 28)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.Audit.resume.before expected=sat
+sat
+((publicMin 28)
+ (isResume true)
+ (cap 27)
+ (preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (stateIdPresent true)
+ (nextArgsPresent true))
+limit.normal.Audit.resume.at expected=sat
+sat
+((publicMin 28)
+ (isResume true)
+ (cap 28)
+ (preReject false)
+ (agentCalls 1)
+ (stateCreated true))
+limit.normal.invalid-with-state expected=sat
+sat
+((preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (nextArgsPresent true))
+limit.normal.invalid-no-state expected=sat
+sat
+((preReject true)
+ (stop0 Blocked)
+ (agentCalls 0)
+ (stateCreated false)
+ (stateChangedBeforeLaunch false)
+ (nextArgsPresent false))
+limit.forbidden.pre-reject-agent expected=unsat
+unsat
+limit.forbidden.pre-reject-state expected=unsat
+unsat
+limit.mutant.pre-reject-agent expected=sat
+sat
+((publicMin 32)
+ (cap 0)
+ (capInteger false)
+ (preReject true)
+ (agentCalls 1))
+reserve.normal.shared-two-items expected=sat
+sat
+((cap 32)
+ (agentCalls 20)
+ (activeRemaining 0)
+ (candidateCost0 5)
+ (candidateCost1 5)
+ (stopReserve 2)
+ (projectedCalls 32))
+reserve.bridge.reqBudget expected=unsat
+unsat
+reserve.forbidden.double-book expected=unsat
+unsat
+reserve.mutant.double-book expected=sat
+sat
+((cap 31)
+ (agentCalls 20)
+ (candidateCost0 5)
+ (candidateCost1 5)
+ (stopReserve 2)
+ (projectedCalls 32))
+finish.normal.zero-properties expected=sat
+sat
+((propertyCount 0)
+ (formalPass true)
+ (formalCause None)
+ (authorVerdict Passed)
+ (targetVersion 0)
+ (formalVersion 0)
+ (formalSaved true)
+ (stop0 Complete))
+finish.normal.nonformal-unconfirmed expected=sat
+sat
+((propertyCount 1)
+ (nonformalUnconfirmed true)
+ (formalPass true)
+ (formalCause None)
+ (stop0 Complete))
+finish.normal.unextracted expected=sat
+sat
+((formalPass false)
+ (formalCause FormalUnrunnable)
+ (stop0 Blocked)
+ (rewriteSameRun false))
+finish.normal.failed-plus-unrunnable expected=sat
+sat
+((formalPass false)
+ (formalCause FormalFailed)
+ (stop0 Blocked)
+ (rewriteSameRun false))
+finish.normal.save-failure expected=sat
+sat
+((saveFailed true)
+ (formalPass true)
+ (formalCause None)
+ (stop0 Blocked)
+ (evidenceBefore true)
+ (evidenceAfter true))
+finish.bridge.complete expected=unsat
+unsat
+finish.bridge.save-failure expected=unsat
+unsat
+finish.forbidden.version-mismatch expected=unsat
+unsat
+finish.forbidden.save-as-normal-limit expected=unsat
+unsat
+finish.mutant.version-mismatch expected=sat
+sat
+((f0 Update)
+ (stop0 Complete)
+ (authorVerdict Passed)
+ (formalPass true)
+ (formalSaved true)
+ (targetVersion 0)
+ (formalVersion 1))

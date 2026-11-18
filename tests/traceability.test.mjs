@@ -8,7 +8,7 @@ import path from 'node:path';
 import { normalize, evaluate, failedTests } from '../scripts/traceability/core.mjs';
 import { acquireLock, releaseLock, io } from '../scripts/traceability/lock.mjs';
 import { validatePlans, loadConfig, readSpecs } from '../scripts/traceability/specs.mjs';
-import { runTests, coverageReport } from '../scripts/traceability/runner.mjs';
+import { runTests, coverageReport, buildTestArgs } from '../scripts/traceability/runner.mjs';
 import { specIds } from '../tools/lib/bp-docs.mjs';
 import { testTitles } from './helpers/bp-docs.mjs';
 
@@ -569,4 +569,28 @@ test('lock acquisition retries a vanished lock, treats EPERM as alive, rethrows 
   await assert.rejects(acquireLock(lock,busy),new RegExp(`stale-lock recovery did not finish in \\d+ attempts \\(.*\\.reclaim-[0-9a-f]+ held by PID ${process.pid} on`));
   assert.equal(await readFile(lock,'utf8'),`${DEAD} ${hostname()} dead\n`);
   assert.deepEqual(await leftovers(lock),[]);
+});
+
+test('buildTestArgs includes --test-concurrency only when supported and NODE_TEST_CONCURRENCY is set', () => {
+  const withConcurrency = 'Options:\n  --test-concurrency=n\n  --test-coverage-include-all';
+  const withoutConcurrency = 'Options:\n  --test-coverage-include-all';
+
+  // 1. 環境変数が設定されている場合
+  const res1 = buildTestArgs(withConcurrency, { NODE_TEST_CONCURRENCY: '4' });
+  assert.equal(res1.includeAll, true);
+  assert.ok(res1.args.includes('--test-concurrency=4'));
+  assert.ok(res1.args.includes('--test-coverage-include-all'));
+
+  // 2. 環境変数が未設定の場合（Node の既定に任せるためフラグは渡さない）
+  const res2 = buildTestArgs(withConcurrency, {});
+  assert.equal(res2.includeAll, true);
+  assert.ok(!res2.args.some(arg => arg.startsWith('--test-concurrency')));
+
+  // 3. 環境変数が空文字の場合
+  const res3 = buildTestArgs(withConcurrency, { NODE_TEST_CONCURRENCY: '' });
+  assert.ok(!res3.args.some(arg => arg.startsWith('--test-concurrency')));
+
+  // 4. --test-concurrency がサポートされていない場合
+  const res4 = buildTestArgs(withoutConcurrency, { NODE_TEST_CONCURRENCY: '4' });
+  assert.ok(!res4.args.some(arg => arg.startsWith('--test-concurrency')));
 });

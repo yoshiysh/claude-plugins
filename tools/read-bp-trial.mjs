@@ -9,7 +9,7 @@ import { applicability, forcedReason, forcedSources } from '../plugins/skill-cre
 import {
   EVAL_FUNCTION, EXPECTED_FILE, RECORDS_DIR, RUNS_FILE, TRIAL_DIR, applyInjections, belongs, evidenceProblems, expectedSource, fingerprint, injectUnits, readRuns, sameFingerprint, sourceProblems,
 } from './bp-trial.mjs';
-import { TRACE_STATUS, traceRows as sharedTraceRows } from './lib/bp-docs.mjs';
+import { TRACE_STATUS, traceRows as sharedTraceRows, verifiedTraceRows } from './lib/bp-docs.mjs';
 
 export { EXPECTED_FILE, belongs, injectUnits };
 
@@ -143,13 +143,17 @@ export function read({ baseline, injected, expected }) {
 
 const SPECS = path.join(REPO_ROOT, 'docs', 'specifications');
 
-// 同じ要求 ID と仕様項目 ID の行が 1 つの表に 2 つあるので、検証方法の列の文言まで含めて行を見分ける。
+// 記録は現行のトレーサビリティ行と検証方法への参照に結び付ける。
 export function rowKey(r) {
   return `${r.file}|${r.req}|${r.spec}|${r.method}`;
 }
 
 export function traceRows(file, specsDir = SPECS) {
   return sharedTraceRows(file, specsDir);
+}
+
+function canonicalTraceRows(file, specsDir) {
+  return verifiedTraceRows(readFileSync(path.join(specsDir, file), 'utf8')).map((row) => ({ file, ...row }));
 }
 
 function at(obj, p) {
@@ -259,7 +263,7 @@ function recordProblems(name, rec, current, runs, records) {
   return sourceProblems(rec.source, expectedSource(name, runs, def.from ? records[def.from].state : null)).map((p) => `${name}: ${p}`);
 }
 
-// 行ごとの判定。記録が無い・古い・崩れた run の行と、測れない句を持つ行は作成中にする。同じ行を 2 つの run が測るときは、どちらかの完了で足りる。
+// 記録が無い・古い・崩れた run と、測れない句を持つ行は作成中にする。
 export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FILE), current, specsDir = SPECS, trialDir = TRIAL_DIR } = {}) {
   const now = (def) => current ?? fingerprint(undefined, { entry: def.function === EVAL_FUNCTION });
   const records = loadRecords(recordsDir);
@@ -276,16 +280,20 @@ export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FIL
     for (const file of def.expected) {
       const exp = json(path.join(trialDir, file));
       if (exp.injections) {
-        const methods = new Map(traceRows('bp-conformance.md', specsDir).map((t) => [`${t.req}|${t.spec}`, t.method]));
+        const traces = canonicalTraceRows('bp-conformance.md', specsDir);
         for (const row of exp.rows) {
+          const trace = traces.filter((t) => t.req === row.req && t.spec === row.spec);
+          if (trace.length !== 1) throw new Error(`正解表の行が現行トレーサビリティ表で一意でない: ${row.req} ${row.spec}`);
           const r = injected?.rows.find((x) => x.req === row.req && x.spec === row.spec);
           const status = problems.length === 0 && r ? r.status : TRACE_STATUS.inProgress;
           const notes = problems.length ? problems : r ? [...(injected.valid ? [] : injected.broken), ...r.parts.map((p) => `${p.sp}: ${p.ok === null ? '測らない' : p.ok ? '当たり' : '外れ'}`), ...injected.accompanied.map((f) => `${ACCOMPANIED_NOTE}${f}`)] : ['読めない'];
-          out.push({ file: 'bp-conformance.md', req: row.req, spec: row.spec, method: methods.get(`${row.req}|${row.spec}`) ?? null, run: name, status, notes });
+          out.push({ file: 'bp-conformance.md', req: row.req, spec: row.spec, method: trace[0].method, run: name, status, notes });
         }
         continue;
       }
       for (const row of exp.rows) {
+        const trace = canonicalTraceRows(row.file, specsDir).filter((t) => rowKey(t) === rowKey(row));
+        if (trace.length !== 1) throw new Error(`正解表の行が現行トレーサビリティ表で一意でない: ${rowKey(row)}`);
         const parts = problems.length ? [] : row.checks.map((c) => ({ clause: c.clause, by: c.by, ok: evaluate(c, rec.result, { injected }) }));
         const unmeasured = row.unmeasured ?? [];
         const ok = problems.length === 0 && parts.every((p) => p.ok) && unmeasured.length === 0;
@@ -297,7 +305,12 @@ export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FIL
 }
 
 export function confirmedKeys(rows) {
-  return new Set(rows.filter((r) => r.status === TRACE_STATUS.done).map(rowKey));
+  const groups = new Map();
+  for (const row of rows) {
+    const key = rowKey(row);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return new Set([...groups].filter(([, group]) => group.every((row) => row.status === TRACE_STATUS.done)).map(([key]) => key));
 }
 
 export function renderRecords(rows) {

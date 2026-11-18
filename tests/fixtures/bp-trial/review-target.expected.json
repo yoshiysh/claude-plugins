@@ -302,48 +302,112 @@
           "test": "tests/bp-units-real-docs.test.mjs",
           "id": "SP-BPCONFORMANCE-006"
         }
+      ],
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-006 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
       ]
     },
     {
-      "req": "PR-BPDESIGNEDSKILL-004",
+      "req": "PR-BPDESIGNEDSKILL-001",
       "spec": "SP-BPCONFORMANCE-008",
       "measures": {
         "SP-BPCONFORMANCE-008": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-008 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-006",
-      "spec": "SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010",
+      "spec": "SP-BPCONFORMANCE-002",
       "measures": {
         "SP-BPCONFORMANCE-002": {
           "by": "whole"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-002 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-006",
+      "spec": "SP-BPCONFORMANCE-010",
+      "measures": {
         "SP-BPCONFORMANCE-010": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-010 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-007",
-      "spec": "SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011",
+      "spec": "SP-BPCONFORMANCE-002",
       "measures": {
         "SP-BPCONFORMANCE-002": {
           "by": "whole"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-002 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-007",
+      "spec": "SP-BPCONFORMANCE-011",
+      "measures": {
         "SP-BPCONFORMANCE-011": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-011 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-008",
-      "spec": "SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027",
+      "spec": "SP-BPCONFORMANCE-012",
       "measures": {
         "SP-BPCONFORMANCE-012": {
           "by": "injection"
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "同時実行の上限を runtime の設定で守る fixture と script で守る fixture が同じ判定の結果になる",
+          "reason": "題材は script で守る形だけを持つ"
         },
+        {
+          "clause": "SP-BPCONFORMANCE-012 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-008",
+      "spec": "SP-BPCONFORMANCE-027",
+      "measures": {
         "SP-BPCONFORMANCE-027": {
           "by": "injection"
         }
@@ -352,16 +416,43 @@
         {
           "clause": "同時実行の上限を runtime の設定で守る fixture と script で守る fixture が同じ判定の結果になる",
           "reason": "題材は script で守る形だけを持つ"
+        },
+        {
+          "clause": "SP-BPCONFORMANCE-027 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-009",
-      "spec": "SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035",
+      "spec": "SP-BPCONFORMANCE-013",
       "measures": {
         "SP-BPCONFORMANCE-013": {
           "by": "injection"
+        }
+      },
+      "deterministic": [
+        {
+          "clause": "best-practices 自身の script の定数が SP-BPCONFORMANCE-035 の表と一致する",
+          "test": "tests/bp-spelling.test.mjs",
+          "id": "SP-BPCONFORMANCE-035"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "agent() の model・effort の有無の決定的照合",
+          "reason": "題材の全ての agent() が model と effort を持ち、無い呼び出しを仕込んでいない（SP-BPCONFORMANCE-035 の単位は値の違反に使った）"
         },
+        {
+          "clause": "SP-BPCONFORMANCE-013 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-009",
+      "spec": "SP-BPCONFORMANCE-035",
+      "measures": {
         "SP-BPCONFORMANCE-035": {
           "by": "injection"
         }
@@ -377,6 +468,10 @@
         {
           "clause": "agent() の model・effort の有無の決定的照合",
           "reason": "題材の全ての agent() が model と effort を持ち、無い呼び出しを仕込んでいない（SP-BPCONFORMANCE-035 の単位は値の違反に使った）"
+        },
+        {
+          "clause": "SP-BPCONFORMANCE-035 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
@@ -387,24 +482,94 @@
         "SP-BPCONFORMANCE-014": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-014 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-011",
-      "spec": "SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034",
+      "spec": "SP-BPCONFORMANCE-015",
       "measures": {
         "SP-BPCONFORMANCE-015": {
           "by": "injection"
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "上限に達する fixture での停止",
+          "reason": "review の試走は題材の script を読むだけで走らせない"
         },
+        {
+          "clause": "SP-BPCONFORMANCE-015 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-011",
+      "spec": "SP-BPCONFORMANCE-030",
+      "measures": {
         "SP-BPCONFORMANCE-030": {
           "by": "injection"
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "上限に達する fixture での停止",
+          "reason": "review の試走は題材の script を読むだけで走らせない"
         },
+        {
+          "clause": "SP-BPCONFORMANCE-030 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-011",
+      "spec": "SP-BPCONFORMANCE-031",
+      "measures": {
         "SP-BPCONFORMANCE-031": {
           "by": "injection"
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "上限に達する fixture での停止",
+          "reason": "review の試走は題材の script を読むだけで走らせない"
         },
+        {
+          "clause": "SP-BPCONFORMANCE-031 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-011",
+      "spec": "SP-BPCONFORMANCE-032",
+      "measures": {
         "SP-BPCONFORMANCE-032": {
           "by": "injection"
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "上限に達する fixture での停止",
+          "reason": "review の試走は題材の script を読むだけで走らせない"
         },
+        {
+          "clause": "SP-BPCONFORMANCE-032 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-011",
+      "spec": "SP-BPCONFORMANCE-034",
+      "measures": {
         "SP-BPCONFORMANCE-034": {
           "by": "none",
           "reason": "探索グラフ型の題材は上限を満たし、review の試走は題材を走らせない"
@@ -414,20 +579,42 @@
         {
           "clause": "上限に達する fixture での停止",
           "reason": "review の試走は題材の script を読むだけで走らせない"
+        },
+        {
+          "clause": "SP-BPCONFORMANCE-034 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
         }
       ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-012",
-      "spec": "SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033",
+      "spec": "SP-BPCONFORMANCE-016",
       "measures": {
         "SP-BPCONFORMANCE-016": {
           "by": "injection"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-016 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-012",
+      "spec": "SP-BPCONFORMANCE-033",
+      "measures": {
         "SP-BPCONFORMANCE-033": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-033 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-013",
@@ -436,60 +623,210 @@
         "SP-BPCONFORMANCE-017": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-017 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPOPERATIONS-024",
-      "spec": "SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038",
+      "spec": "SP-BPCONFORMANCE-001",
       "measures": {
         "SP-BPCONFORMANCE-001": {
           "by": "whole"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-001 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPCONFORMANCE-002",
+      "measures": {
         "SP-BPCONFORMANCE-002": {
           "by": "whole"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-002 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPCONFORMANCE-003",
+      "measures": {
         "SP-BPCONFORMANCE-003": {
           "by": "whole"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-003 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPCONFORMANCE-018",
+      "measures": {
         "SP-BPCONFORMANCE-018": {
           "by": "whole"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-018 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPCONFORMANCE-038",
+      "measures": {
         "SP-BPCONFORMANCE-038": {
           "by": "whole"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-038 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     },
     {
       "req": "PR-BPOPERATIONS-025",
-      "spec": "SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036",
+      "spec": "SP-BPCONFORMANCE-028",
       "measures": {
         "SP-BPCONFORMANCE-028": {
           "by": "none",
           "reason": "探索グラフ型の題材に until-pass の部品が無い"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-028 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-029",
+      "measures": {
         "SP-BPCONFORMANCE-029": {
           "by": "none",
           "reason": "探索グラフ型の題材は固定集合の反復型でない"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-029 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-030",
+      "measures": {
         "SP-BPCONFORMANCE-030": {
           "by": "injection"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-030 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-031",
+      "measures": {
         "SP-BPCONFORMANCE-031": {
           "by": "injection"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-031 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-032",
+      "measures": {
         "SP-BPCONFORMANCE-032": {
           "by": "injection"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-032 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-033",
+      "measures": {
         "SP-BPCONFORMANCE-033": {
           "by": "injection"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-033 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-027",
+      "measures": {
         "SP-BPCONFORMANCE-027": {
           "by": "injection"
-        },
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-027 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-036",
+      "measures": {
         "SP-BPCONFORMANCE-036": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "SP-BPCONFORMANCE-036 の検証方法表の全入力条件・境界",
+          "reason": "この題材は従来の個別条件だけを測る。現行の検証計画の全条件を測った実行証拠がない"
+        }
+      ]
     }
   ]
 }

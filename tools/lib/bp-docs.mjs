@@ -94,3 +94,24 @@ export function specIds(text) {
   }
   return [...ids];
 }
+
+// 検証方法の正本は SP ごとの一行。参照が壊れた行を未検査の集合から落とさない。
+export function verificationTable(text) {
+  const seen = new Set();
+  return tableLines(outsideFences(text).join('\n'), '| 仕様項目 ID | 手段 | 入力と観測（条件・境界） |').map(({ line, cells: row }) => {
+    const [spec, means, conditions] = row;
+    if (row.length !== 3 || !SPEC_ID.test(spec ?? '') || !means || !conditions) throw new Error(`検証方法の行が不正: ${line} 行目`);
+    if (seen.has(spec)) throw new Error(`検証方法の仕様項目 ID が重複: ${spec}`);
+    seen.add(spec);
+    return { spec, means, conditions };
+  });
+}
+
+export function verifiedTraceRows(text) {
+  const methods = new Map(verificationTable(text).map((row) => [row.spec, row]));
+  return traceTable(text).map((row) => {
+    const ref = /^\[検証方法\]\(#検証方法\) の (SP-[A-Z][A-Z0-9]*-\d+) 行$/.exec(row.method);
+    if (!ref || row.ids.length !== 1 || ref[1] !== row.spec || !methods.has(ref[1])) throw new Error(`検証方法の参照が不正: ${row.line} 行目: ${row.method}`);
+    return { ...row, verification: methods.get(ref[1]) };
+  });
+}
