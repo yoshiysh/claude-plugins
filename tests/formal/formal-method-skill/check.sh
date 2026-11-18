@@ -137,25 +137,22 @@ failures=0 total=0 case_seq=0
 
 case_weight() {
   case "$1" in
-    lock-baseline) echo 108123 ;;
-    run-witness-NeverCompleted) echo 74618 ;;
-    run-baseline) echo 60720 ;;
-    run-witness-NeverStoppedCex) echo 34014 ;;
-    run-mut-complete_before_publish) echo 26242 ;;
-    run-mut-ignore_save_failure) echo 21105 ;;
-    run-termination) echo 17326 ;;
-    run-witness-NeverStoppedUndetected) echo 16024 ;;
-    run-baseline-4stages) echo 15631 ;;
-    lock-baseline-status-unreadable) echo 9257 ;;
-    run-mut-complete_ignores_confirmation) echo 8127 ;;
-    lock-termination|lock-termination-determinable) echo 4239 ;;
-    run-witness-NeverStoppedDeadline) echo 3426 ;;
-    run-baseline-unreadable) echo 2978 ;;
-    run-witness-NeverStoppedQuestion) echo 2943 ;;
-    run-witness-independent_after_cex) echo 1814 ;;
-    run-termination-unreadable) echo 1127 ;;
-    run-save-failure-reaches) echo 1007 ;;
-    *) echo 100 ;;
+    run-termination) echo 430 ;;
+    lock-baseline) echo 285 ;;
+    run-baseline) echo 180 ;;
+    run-witness-NeverCompleted) echo 175 ;;
+    lock-termination|lock-termination-determinable) echo 92 ;;
+    run-witness-NeverStoppedCex) echo 85 ;;
+    run-witness-NeverStoppedUndetected) echo 71 ;;
+    run-mut-complete_before_publish) echo 65 ;;
+    run-mut-ignore_save_failure) echo 55 ;;
+    run-baseline-4stages) echo 45 ;;
+    lock-baseline-status-unreadable) echo 30 ;;
+    run-mut-complete_ignores_confirmation) echo 25 ;;
+    run-termination-unreadable) echo 20 ;;
+    run-witness-NeverStoppedDeadline|run-baseline-unreadable|run-witness-NeverStoppedQuestion) echo 15 ;;
+    run-commander-ends|run-termination-ps|run-save-failure-reaches) echo 12 ;;
+    *) echo 2 ;;
   esac
 }
 
