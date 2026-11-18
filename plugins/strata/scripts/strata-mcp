@@ -1,33 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1. Pre-installed binary on PATH
-if command -v strata >/dev/null 2>&1; then
-  exec strata mcp "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+LOCAL_BIN="$SCRIPT_DIR/../../../crates/strata/target/release/strata"
+if [ -x "$LOCAL_BIN" ]; then
+  exec "$LOCAL_BIN" mcp "$@"
 fi
 
-# 2. Cached binary installed by this plugin wrapper
-CACHE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/strata"
+PLUGIN_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PLUGIN_ROOT/.claude-plugin/plugin.json" | head -n 1)"
+PLUGIN_VERSION="${PLUGIN_VERSION:-0.1.0}"
+CACHE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/strata/${PLUGIN_VERSION}"
 CACHE_BIN="${CACHE_ROOT}/bin/strata"
 if [ -x "$CACHE_BIN" ]; then
   exec "$CACHE_BIN" mcp "$@"
 fi
 
-# 3. Local repository checkout fallback (development mode)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for ancestor in "$SCRIPT_DIR/../../.." "$SCRIPT_DIR/../../../.."; do
-  if [ -x "$ancestor/crates/strata/target/release/strata" ]; then
-    exec "$ancestor/crates/strata/target/release/strata" mcp "$@"
-  fi
-done
-
-# 4. Auto-install via cargo from upstream repository
-if command -v cargo >/dev/null 2>&1; then
-  echo "[strata] Installing strata binary via cargo..." >&2
-  mkdir -p "$CACHE_ROOT"
-  cargo install --locked --git https://github.com/yoshiysh/claude-plugins.git --bin strata --root "$CACHE_ROOT" >&2
-  exec "$CACHE_BIN" mcp "$@"
+if command -v strata >/dev/null 2>&1; then
+  exec strata mcp "$@"
 fi
 
-echo "Error: 'strata' binary not found on PATH and 'cargo' is not available." >&2
+# MCP startup has a 30s default timeout; fail fast instead of running a release cargo build synchronously.
+cat >&2 <<EOF
+Error: 'strata' binary not found.
+Pre-install the matching version before starting the MCP server:
+  cargo install --locked --git https://github.com/yoshiysh/claude-plugins.git --tag strata-v${PLUGIN_VERSION} --bin strata --root "${CACHE_ROOT}"
+EOF
 exit 1
