@@ -11,38 +11,9 @@ description: "Delegates code/test/documentation generation and ruthless adversar
 
 ---
 
-## 1. CLI からの実行
+## 1. MCP ツールとしての利用
 
-ネイティブ Rust バイナリ `tools/strata run`（または互換ラッパー `tools/strata-worker`）経由で実行します。起動時間は 1ms 未満です。
-
-```bash
-# テストコード生成 (正常系・異常系・境界値を網羅)
-tools/strata run --role test-gen --target "path/to/target.py" --goal "Write comprehensive unit tests covering all edge cases" --output "tests/test_target.py"
-
-# 敵対的テストレビュー (甘いアサーション、モック隠蔽、Flaky 検知)
-tools/strata run --role test-review --target "tests/test_target.py" --context "path/to/target.py" --goal "Verify test quality and attack weaknesses"
-
-# コード実装 (既存規約に沿った最小堅牢な実装)
-tools/strata run --role code-gen --target "path/to/file.py" --goal "Implement user authentication helper" --context "path/to/types.py" --output "path/to/file.py"
-
-# 敵対的コードレビュー (欠陥ハンター: リーク、Off-by-one、エラー握りつぶし)
-tools/strata run --role code-review --target "path/to/file.py" --diff --goal "Find all critical failure modes and concurrency bugs"
-
-# ドキュメント作成 (仕様解説)
-tools/strata run --role doc-gen --target "path/to/file.py" --goal "Write API reference document" --output "docs/api.md"
-
-# ドキュメント監査 (言行不一致検知)
-tools/strata run --role doc-review --target "docs/api.md" --context "path/to/file.py" --goal "Verify consistency between doc and actual implementation"
-```
-
-※ 従来の `tools/strata-worker --role ...` も透過的に Rust 実装へ委譲されます。
-※ `--reasoning-effort <low|medium|high>` でタスク難易度に応じて思考量を動的に調整できます。
-
----
-
-## 2. MCP ツールとしての利用
-
-MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers` 設定に `tools/strata mcp`（または `tools/strata-mcp`）を登録することで、以下のツールを呼び出せます：
+プラグイン同梱の `.mcp.json` により `strata` MCP サーバーが自動登録され、以下のツールを呼び出せます。
 
 * **`strata_generate`**:
   * `role`: `"test-gen"`, `"code-gen"`, または `"doc-gen"`
@@ -65,11 +36,20 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `max_tokens`: 最大出力トークン数（既定 `4096`）
   * `reasoning_effort`: 思考量レベル（`"low"`, `"medium"`, `"high"`。任意）
 
+### 用途別の使い分け
+
+* **テスト生成 (`test-gen`)**: 正常系・異常系・境界値を網羅する単体テストの生成
+* **敵対的テストレビュー (`test-review`)**: 甘いアサーション・モック隠蔽・Flaky 要因の検知
+* **コード実装 (`code-gen`)**: 既存規約に沿った最小堅牢な実装の生成
+* **敵対的コードレビュー (`code-review`)**: リーク・Off-by-one・エラー握りつぶし等の欠陥検知
+* **ドキュメント生成 (`doc-gen`)**: 仕様・API リファレンスの作成
+* **ドキュメント監査 (`doc-review`)**: 実装と文書の言行不一致検知
+
 ---
 
-## 3. リポジトリ規約・レビュー観点の自動注入
+## 2. リポジトリ規約・レビュー観点の自動注入
 
-既定では、ワークスペースルート（Git ルート等）から以下の規約ファイルを自動検出してプロンプトに注入します（シンボリックリンクは重複排除）：
+既定（`use_guidelines: true`）では、`workspace_root`（未指定時はワークスペースルート）から以下の規約ファイルを自動検出してプロンプトに注入します（シンボリックリンクは重複排除）：
 
 * **全ロール共通（生成・レビュー双方）**: `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`
   * 実装役（`*-gen`）にも `REVIEW.md` を事前に渡すことで、レビュー基準から外れないコード・テスト・文書を生成します。
@@ -78,11 +58,9 @@ MCP クライアント（Claude Code, Antigravity, Cursor 等）の `mcpServers`
   * `test-*`: `docs/guidelines/testing.md`, `docs/guidelines/README.md`
   * `doc-*`: `docs/guidelines/documentation.md`, `docs/guidelines/README.md`
 
-CLI では `--no-guidelines` で自動注入を無効化、`--guidelines <path>` で追加ファイルを指定、`--workspace <dir>` で探索起点を明示指定できます。
-
 ---
 
-## 4. 設定と前提
+## 3. 設定と前提
 
 * **Strata API エンドポイント**:
   * 指定された OpenAI 互換エンドポイント（既定: `http://127.0.0.1:8080/v1`）が稼働・到達可能であること。
