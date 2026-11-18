@@ -151,28 +151,28 @@ run_case() {
       case "$tier" in
         giant)
           giant_index=$((giant_index + 1))
-          [ "$(( (giant_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+          [ "$(( (giant_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
           ;;
         heavy)
           heavy_index=$((heavy_index + 1))
-          [ "$(( (heavy_index - 1) % (shard_n - 2) + 3 ))" -eq "$shard_k" ] || return
+          [ "$(( (heavy_index - 1) % (shard_n - 2) + 3 ))" -eq "$shard_k" ] || return 0
           ;;
         light)
           light_index=$((light_index + 1))
-          [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+          [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
           ;;
       esac
     else
       if [ "$tier" = light ]; then
         light_index=$((light_index + 1))
-        [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+        [ "$(( (light_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
       else
         heavy_index=$((heavy_index + 1))
-        [ "$(( (heavy_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return
+        [ "$(( (heavy_index - 1) % shard_n + 1 ))" -eq "$shard_k" ] || return 0
       fi
     fi
   fi
-  if [ -n "$only" ] && ! printf '%s' "$id" | grep -Eq "$only"; then return; fi
+  if [ -n "$only" ] && ! printf '%s' "$id" | grep -Eq "$only"; then return 0; fi
   total=$((total + 1))
   temporal=no
   [ "$spec" = FairSpec ] && temporal=yes   # 公平性つきの仕様では、性質を時相の性質（PROPERTIES）として回す
