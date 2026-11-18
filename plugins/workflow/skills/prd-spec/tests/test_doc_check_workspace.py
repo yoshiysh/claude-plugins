@@ -516,6 +516,21 @@ class FlowAndConflicts(_Workspace):
             f.write("\n未コミットの作業を失ってはならない。\n")
         _put(self.ws, "decisions", {"decisions": [{"id": id_, "kind": "invariant", "quote": "未コミットの作業を失ってはならない。", "value": "未コミットの作業を失わない"}]})
 
+    def test_要求文書だけのランはmay_failの失敗の扱いを求めない(self):
+        # 仕様書を書くランかは doc と同じ plan.json の units で決める。
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "obtain": "may_fail", "obtain_source": None}]})
+        self.assertEqual(_ok(self.ws, "flow")["codes"].get("FLOW_FAIL_UNHANDLED"), ["F-002"])
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["units"] = [{"id": "U-1", "docs": ["requirements/auth"], "depends_on": []}]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+        self.assertNotIn("FLOW_FAIL_UNHANDLED", _ok(self.ws, "flow")["codes"])
+
+    def test_planが無ければflowは止まる(self):
+        (self.ws / "plan.json").unlink()
+        r = _run(self.ws, "flow")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("plan.json", r.stderr)
+
     def test_effectの無い工程はFLOW_EFFECT_MISSING(self):
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": None}]})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 1)

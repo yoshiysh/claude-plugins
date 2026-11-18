@@ -361,10 +361,10 @@ class DecisionTable(unittest.TestCase):
         self.assertTrue(any(i.startswith("ST-DT-VALUE-") for i in _ids(_structural([_doc(md)]), "ST-DT-")))
 
 
-def _flow_table(flow):
+def _flow_table(flow, writes_spec=True):
     """doc_check.mjs の flowTableCompact（短い形）を当て、(種別, 引数) の組にする。"""
-    src = f"import {{ flowTableCompact }} from {json.dumps(DOC_CHECK.as_uri())}\n" + "function main(spec) { return flowTableCompact(spec.flow) }"
-    return [(f["c"], f["a"]) for f in _node(src, {"flow": flow})]
+    src = f"import {{ flowTableCompact }} from {json.dumps(DOC_CHECK.as_uri())}\n" + "function main(spec) { return flowTableCompact(spec.flow, spec.writesSpec) }"
+    return [(f["c"], f["a"]) for f in _node(src, {"flow": flow, "writesSpec": writes_spec})]
 
 
 def _codes(found, code):
@@ -597,6 +597,24 @@ class FlowFailHandling(unittest.TestCase):
         self.assertEqual(_flow_table(flow), [("FLOW_FAIL_UNHANDLED", ["F-002", False])])
         _el(flow, "F-002")["on_fail"] = {"as": "取れない", "source": {"input": "依頼文"}}
         self.assertEqual(_flow_table(flow), [], "on_fail で扱えば下流は何も要らない")
+
+    def test_要求文書だけのランは扱いの無い失敗を指摘しない(self):
+        # 失敗の扱いは仕様書の範囲。求めると内部の失敗が成否の判断になり、FLOW_UNATTACHED で要求文書の要求になる。
+        flow = _shape("a_decision")
+        self.assertEqual(_flow_table(flow, writes_spec=False), [])
+        self.assertEqual(_flow_table(flow, writes_spec=True), [("FLOW_FAIL_UNHANDLED", ["F-002", False])])
+
+    def test_直後の判断とon_failの両方はどのランでもFLOW_FAIL_UNHANDLED(self):
+        flow = _shape("after_check")
+        _el(flow, "F-002")["on_fail"] = {"as": "取れない", "source": {"input": "依頼文"}}
+        for writes_spec in (True, False):
+            with self.subTest(writes_spec=writes_spec):
+                self.assertIn(("FLOW_FAIL_UNHANDLED", ["F-002", True]), _flow_table(flow, writes_spec=writes_spec))
+
+    def test_要求文書だけのランでもon_failで扱った要素の下流はFLOW_INPUT_ON_FAIL(self):
+        flow = _shape("ws_on_fail")
+        _el(flow, "F-017")["inputs"][0]["from"] = "F-004"
+        self.assertEqual(_flow_table(flow, writes_spec=False), [("FLOW_INPUT_ON_FAIL", ["F-017", "primary か", "取れない"])])
 
     def test_直後に成否の判断を置けば通る(self):
         flow = _shape("a_decision")

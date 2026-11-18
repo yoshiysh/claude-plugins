@@ -1495,7 +1495,7 @@ const WORKSPACE_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: obtain may_fail（${both ? '直後の成否の判断と on_fail の両方' : '直後の成否の判断も on_fail も無い'}）`,
     issue: `may_fail の要素 ${id} の失敗が値になる場所が 1 つに決まらない。場所が無ければ得られないときの行き先を誰も決めず、2 つあれば扱いが食い違う。`,
-    fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。`,
+    fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。要求文書だけのランで、その失敗が依頼者・利用者に見えないなら、両方を外す（agents/flow-framer.md「### 要求文書だけのラン」）。`,
   }),
   FLOW_ON_FAIL_AS: (id) => ({
     id: `ST-FLOW-ON-FAIL-AS-${id}`,
@@ -1663,7 +1663,7 @@ const LINT_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: effect ${effect} / obtain always`,
     issue: `状態を変える工程 ${id} が obtain always なのに、失敗しないと言える出典（obtain_source）が無い。書き込みはふつう失敗しうるので、根拠の無い always は verifier が insufficient_grounds で落とし、失敗の枝と未決が検証の後まで見つからない。`,
-    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
+    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。要求文書だけのランで、その失敗が依頼者・利用者に見えないなら、may_fail にして扱い（判断・on_fail）は付けない（agents/flow-framer.md「### 要求文書だけのラン」）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
   }),
   LINT_GROUNDS_SHAPE: (where) => ({
     id: `LINT-GROUNDS-SHAPE-${where}`,
@@ -3315,7 +3315,9 @@ function failBranches(el, x) {
 
 // flowTableCompact: decision ごとの判定表（inputs × cases）。網羅と一意は文書の判定表と同じ tableFindings で見る。
 // 行き先の同じ値を 1 つの枝に畳んだ判断は、下流が値を使わない限り、分類を潰したまま検査を通る。
-function flowTableCompact(flow) {
+// writesSpec が偽（要求文書だけのラン）では、may_fail の失敗の扱いが無いことを指摘しない。失敗の扱いは仕様書の範囲で、求めると
+// 内部の失敗が成否の判断として描かれ、FLOW_UNATTACHED で要求文書の要求になる。
+function flowTableCompact(flow, writesSpec = true) {
   const out = []
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
   const byId = new Map(els.map((el) => [el.id, el]))
@@ -3341,8 +3343,9 @@ function flowTableCompact(flow) {
     const b = el.on_fail != null
     const as = b && typeof el.on_fail === 'object' && !Array.isArray(el.on_fail) && String(el.on_fail.as ?? '').trim() ? String(el.on_fail.as) : null
     if (b && as === null) out.push({ c: 'FLOW_ON_FAIL_AS', d: 'flow', a: [el.id] })
-    if (a === b) out.push({ c: 'FLOW_FAIL_UNHANDLED', d: 'flow', a: [el.id, a] })
-    else if (b) {
+    if (a === b) {
+      if (a || writesSpec) out.push({ c: 'FLOW_FAIL_UNHANDLED', d: 'flow', a: [el.id, a] })
+    } else if (b) {
       if (as !== null) handled.set(el.id, { as })
     } else {
       const fails = failBranches(d, el.id)
@@ -3594,7 +3597,9 @@ function wsFlow(ws, opts) {
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
   const inv = invariantsOf(ws)
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  if (plan === null) throw new Error('plan.json がありません')
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow, writesSpecOf(planUnitDocs(plan))), ...flowHistoryCompact(flow)]
   const grouped = groupCompact(list)
   const body = expandWorkspace({ findings: grouped, not_checked: [] })
   const digest = digestOf(body)

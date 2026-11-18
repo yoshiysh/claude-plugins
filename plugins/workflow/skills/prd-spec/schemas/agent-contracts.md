@@ -162,7 +162,7 @@
 ```
 
 - `layer` は decisions と resolutions で同じ欄であり、intake も resolver も `references/prd-and-spec.md` §11.4 の定義で
-  値を選ぶ（ここに定義を置くと、課された設計制約の扱いが決定の出所で分かれる）。writer は `手段` の決定を要求文書に書かない。
+  値を選ぶ（ここに定義を置くと、課された設計制約の扱いが決定の出所で分かれる）。writer は `手段` の決定（名指しされていない手段）を要求文書に書かない。名指しされた手段の扱いも同じ §11.4 が正。
   `references/prd-and-spec.md` §5「書きすぎとは何か（上限）」が書かないとする内部の実現の選択は、現物が定めていても決定にも未決（open）にもしない。
 - `targets` は doc_check の `conflicts` が「同じ target を持つ決定どうし」「target が流れの要素の id か label と
   一致する決定と要素」の組を列挙するのに使う。名前が揃わないと組が見つからず、矛盾が初稿まで残る。
@@ -387,6 +387,8 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   case の `source` も verifier の検証対象で、要素の digest は `cases` を含む。
 - `obtain`（`input`・`step`）: その要素自身の処理が値を得られないことがあるか。値は `always` / `may_fail`。`may_fail` の要素は、
   失敗が値になる場所を次のちょうど 1 つにする（無いか両方なら `ST-FLOW-FAIL-UNHANDLED-`）。失敗の下流への伝播は計算しない。
+  仕様書を書かないラン（plan.json の `units` に仕様書が無い。doc_check の `doc` と同じ材料）では、失敗の扱いは仕様書の範囲なので
+  flow に置かなくてよい（無くても指摘しない）。置くなら次のちょうど 1 つにする。
   - (a) 直後の成否の判断: `next` が 1 つの `decision` D だけで、D の `inputs` に `from` がその要素で `unknown` を持つ入力がある。
     D と、D の失敗の枝の行き先から `next`・`branches` で辿れる `decision`（その要素に戻った先は次の試行なので含めない）では、
     その要素を `from` にする入力が `unknown` を持つ（`ST-FLOW-INPUT-UNKNOWN-`）。成功の枝の先では要らない。
@@ -399,6 +401,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   - (a) の失敗の枝の先の `step` が、得られなかった値を前提にしていないか（`step` は `inputs` を持たない）。
   - 値を数えたり他の値と合わせたりする `step`・`decision` の後で、「得られない」が他の値に紛れて消えていないか（flow は値の依存を
     持たないので、script が追うと近似になる）。
+  - 仕様書を書かないランで扱いの無い `may_fail` は、得られないことを判定しない（仕様書の範囲）。
 - `effect`（`step`）: 値は `read` / `reversible` / `destructive`。`destructive` は ref・作業ツリー・未反映の変更・外部の状態の
   どれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。
 - `obtain_source`（`obtain` が `always` の `input`・`step` だけ。任意）: `obtain` が `always` であることの出典。形は `source` と同じで
