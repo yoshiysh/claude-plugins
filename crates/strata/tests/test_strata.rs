@@ -3,13 +3,14 @@ use std::collections::HashSet;
 use std::io::Write;
 use tempfile::{tempdir, NamedTempFile};
 
-use strata::client::read_sse_stream;
+use strata::client::{parse_loaded_model_id, read_sse_stream};
 use strata::context::{
     distill_context_with, estimate_tokens, minify_json_in_text, prepare_optimized_prompt_with,
     split_into_chunks,
 };
 use strata::diagnose::{
-    analyze_diagnostics, evaluate_health, preflight_intercept_with, ApiHealth, HealthStatus,
+    analyze_diagnostics, evaluate_health, extract_section, preflight_intercept_with,
+    run_health_with, ApiHealth, HealthOptions, HealthStatus,
 };
 use strata::guidelines::{collect_guidelines, find_workspace_root};
 use strata::mcp::{get_tools, handle_rpc};
@@ -391,8 +392,12 @@ ERROR exit code -9
 ===SYSCTL_LSBLK_LINGER===
 sdd 1
 Linger=no
+===HOST_LOG===
+2026-11-16T05:39:37 the server ended on its own (exit code 1)
+===PROCESSES===
+strata 1234
 ";
-    let (findings, _status, _summary, _raw) = analyze_diagnostics(
+    let (findings, server_log, _engine_log, snapshot_summary) = analyze_diagnostics(
         &ApiHealth::Unreachable("connection refused".to_string()),
         Some(300),
         Some(600),
@@ -407,6 +412,100 @@ Linger=no
     assert!(codes.contains("WSL_LINGER_DISABLED"));
     assert!(codes.contains("CONFIG_SILENCE_TIMEOUT_ACTIVE"));
     assert!(codes.contains("CONFIG_IDLE_UNLOAD_ACTIVE"));
+    assert!(codes.contains("HOST_SERVER_EXITED"));
+    assert!(server_log.contains("INFO engine started"));
+    assert!(!server_log.contains("Out of memory"));
+    assert!(snapshot_summary.contains("strata 1234"));
+    assert!(snapshot_summary.contains("Linger=no"));
+    assert_eq!(extract_section(simulated_snapshot, "MISSING_SECTION"), "");
+
+    // AuthError, Unloaded, and Host Collection Failed (even when API is Loaded)
+    let (auth_findings, _, _, _) =
+        analyze_diagnostics(&ApiHealth::AuthError, Some(0), Some(0), "");
+    assert!(auth_findings.iter().any(|f| f.code == "API_AUTH_ERROR"));
+
+    let (unloaded_findings, _, _, _) =
+        analyze_diagnostics(&ApiHealth::Unloaded, Some(0), Some(0), "");
+    assert!(unloaded_findings.iter().any(|f| f.code == "MODEL_UNLOADED"));
+
+    let (col_err_findings, _, _, _) = analyze_diagnostics(
+        &ApiHealth::Loaded("qwen3.8".to_string()),
+        Some(0),
+        Some(0),
+        "===COLLECTION_ERROR===\nssh: connect to host winbox: Connection timed out",
+    );
+    assert!(col_err_findings
+        .iter()
+        .any(|f| f.code == "HOST_COLLECTION_FAILED"));
+
+    // Negative case: healthy system produces zero findings
+    let healthy_snapshot = "\
+===SERVER_LOG===
+ready: http://127.0.0.1:8080/v1
+===SYSCTL_LSBLK_LINGER===
+sda 0
+Linger=yes
+";
+    let (clean_findings, _, _, _) = analyze_diagnostics(
+        &ApiHealth::Loaded("qwen3.8".to_string()),
+        Some(0),
+        Some(0),
+        healthy_snapshot,
+    );
+    assert!(
+        clean_findings.is_empty(),
+        "expected no findings for healthy snapshot, got: {:?}",
+        clean_findings
+    );
+}
+
+#[test]
+fn test_parse_loaded_model_id_variants() {
+    assert_eq!(parse_loaded_model_id(&json!({"data": []})), None);
+    assert_eq!(
+        parse_loaded_model_id(&json!({"data": [{"id": "m1"}]})),
+        None
+    );
+    assert_eq!(
+        parse_loaded_model_id(&json!({"data": [{"id": "m1", "status": {"value": "unloaded"}}]})),
+        None
+    );
+    assert_eq!(
+        parse_loaded_model_id(&json!({"data": [{"id": "m1", "status": {"value": "loaded"}}]})),
+        Some("m1".to_string())
+    );
+}
+
+#[test]
+fn test_run_health_warmup_updates_api_health() {
+    let opts = HealthOptions {
+        api_base: "http://127.0.0.1:8080/v1",
+        api_key: "",
+        model: "qwen3.8",
+        warmup: true,
+        strict: false,
+        json_output: false,
+    };
+    let mut call_count = 0usize;
+    let (report, text, exit_code) = run_health_with(
+        &opts,
+        || {
+            call_count += 1;
+            if call_count == 1 {
+                (ApiHealth::Unloaded, Some(0), Some(0))
+            } else {
+                (ApiHealth::Loaded("qwen3.8".to_string()), Some(0), Some(0))
+            }
+        },
+        || Ok(()),
+    )
+    .unwrap();
+    assert_eq!(call_count, 2);
+    assert_eq!(exit_code, 0);
+    assert_eq!(report.status, HealthStatus::Healthy);
+    assert_eq!(report.api_health, ApiHealth::Loaded("qwen3.8".to_string()));
+    assert!(text.contains("HEALTHY"));
+    assert!(text.contains("Loaded(\"qwen3.8\")"));
 }
 
 #[test]

@@ -8,6 +8,7 @@
 #   tools/claude-strata --start-server  # WSL 上で Strata サーバーを起動 (未起動時のみ)
 #   tools/claude-strata --restart-server # WSL 上で Strata サーバーを再起動
 #   tools/claude-strata --stop-server   # WSL 上で Strata サーバーを停止
+#   tools/claude-strata --start-tunnel  # SSH トンネルを再接続
 #   tools/claude-strata --stop-tunnel   # 起動中の SSH トンネルを切断
 #   tools/claude-strata --sync-key      # WSL から API キーを再取得してローカルに保存
 #   tools/claude-strata --bare          # 初期プロンプトを最小化する軽量モード (既定: フルモード)
@@ -366,6 +367,10 @@ while [ $# -gt 0 ]; do
       ACTION="stop_server"
       shift
       ;;
+    --start-tunnel)
+      ACTION="start_tunnel"
+      shift
+      ;;
     --stop-tunnel)
       ACTION="stop_tunnel"
       shift
@@ -445,6 +450,11 @@ case "$ACTION" in
     ;;
   stop_server)
     stop_server_on_wsl
+    exit 0
+    ;;
+  start_tunnel)
+    ensure_tunnel
+    echo "SSH トンネルの接続を確認しました。"
     exit 0
     ;;
   stop_tunnel)

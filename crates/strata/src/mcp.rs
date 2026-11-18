@@ -138,13 +138,13 @@ pub fn get_tools() -> Value {
         },
         {
             "name": "strata_health",
-            "description": "Fast preflight health check (<0.1s) verifying Strata API reachability, model load status, and timeout settings before sending requests. Set warmup=true to run a minimal 1-token inference and measure latency.",
+            "description": "Fast preflight health check (<0.1s) verifying Strata API reachability, model load status, and timeout settings before sending requests. Set warmup=true to run a minimal 1-token inference and measure latency (auto-loads model if unloaded, taking tens of seconds).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "warmup": {
                         "type": "boolean",
-                        "description": "Run a minimal 1-token inference to verify warm cache and measure latency (default: false)."
+                        "description": "Run a minimal 1-token inference to measure latency; auto-loads model if unloaded (default: false)."
                     },
                     "strict": {
                         "type": "boolean",

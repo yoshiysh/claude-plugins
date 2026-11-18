@@ -4,7 +4,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::client::call_strata_api;
+use crate::client::{base_host_from_api_base, call_strata_api, query_models_endpoint};
 use crate::context::execute_optimized;
 use crate::personas::find_persona;
 
@@ -66,59 +66,19 @@ tail -n 20 "$HOME/.local/state/strata/runtime"/*.host.log 2>/dev/null || true
 "#;
 
 pub fn check_api_health(api_base: &str, api_key: &str) -> (ApiHealth, Option<i64>, Option<i64>) {
-    let clean_base = api_base.trim_end_matches('/');
-    let models_url = format!("{}/models", clean_base);
-
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(3))
         .timeout_read(Duration::from_secs(5))
         .build();
 
-    let mut req = agent.get(&models_url);
-    if !api_key.is_empty() {
-        req = req.set("Authorization", &format!("Bearer {}", api_key));
-    }
-
-    let api_health = match req.call() {
-        Ok(resp) => match resp.into_json::<Value>() {
-            Ok(val) => {
-                let data = val.get("data").and_then(|d| d.as_array());
-                if let Some(arr) = data {
-                    if let Some(loaded_model) = arr.iter().find(|m| {
-                        m.get("status")
-                            .and_then(|s| s.get("value"))
-                            .and_then(|v| v.as_str())
-                            == Some("loaded")
-                    }) {
-                        let id = loaded_model
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        ApiHealth::Loaded(id)
-                    } else if let Some(first) = arr.first() {
-                        let id = first
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        ApiHealth::Loaded(id)
-                    } else {
-                        ApiHealth::Unloaded
-                    }
-                } else {
-                    ApiHealth::Unloaded
-                }
-            }
-            Err(e) => ApiHealth::Unreachable(format!("Invalid JSON from /models: {}", e)),
-        },
-        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => {
-            ApiHealth::AuthError
-        }
-        Err(e) => ApiHealth::Unreachable(e.to_string()),
+    let api_health = match query_models_endpoint(&agent, api_base, api_key) {
+        Ok(Some(id)) => ApiHealth::Loaded(id),
+        Ok(None) => ApiHealth::Unloaded,
+        Err((Some(401 | 403), _)) => ApiHealth::AuthError,
+        Err((_, msg)) => ApiHealth::Unreachable(msg),
     };
 
-    let base_host = clean_base.split("/v1").next().unwrap_or(clean_base);
+    let base_host = base_host_from_api_base(api_base);
     let config_url = format!("{}/config", base_host);
     let mut cfg_req = agent.get(&config_url);
     if !api_key.is_empty() {
@@ -202,19 +162,21 @@ fn collect_host_snapshot(host: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to read ssh diagnostics from {}: {}", host, e))?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    if stdout.trim().is_empty() && (!out.status.success() || write_err.is_some()) {
+    if stdout.trim().is_empty() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let detail = if !stderr.is_empty() {
             stderr
+        } else if let Some(e) = write_err {
+            e.to_string()
         } else {
-            write_err.map(|e| e.to_string()).unwrap_or_default()
+            format!("empty output (exit status: {})", out.status)
         };
         return Err(format!("SSH diagnostic collection failed: {}", detail));
     }
     Ok(stdout)
 }
 
-fn extract_section(raw: &str, marker: &str) -> String {
+pub fn extract_section(raw: &str, marker: &str) -> String {
     let tag = format!("==={}===", marker);
     let mut collecting = false;
     let mut lines = Vec::new();
@@ -246,8 +208,19 @@ pub fn analyze_diagnostics(
     let sys_info = extract_section(raw_snapshot, "SYSCTL_LSBLK_LINGER");
     let procs = extract_section(raw_snapshot, "PROCESSES");
     let host_log = extract_section(raw_snapshot, "HOST_LOG");
+    let collection_error = extract_section(raw_snapshot, "COLLECTION_ERROR");
 
     let mut findings = Vec::new();
+
+    if !collection_error.is_empty() {
+        findings.push(DiagnosticFinding {
+            severity: "WARNING".to_string(),
+            code: "HOST_COLLECTION_FAILED".to_string(),
+            summary: "ホスト側（SSH / WSL2）のログ・OS 状態の収集に失敗しました。".to_string(),
+            evidence: collection_error,
+            remediation: "SSH 接続・ホスト名（--host / STRATA_HOST）・WSL 状態を確認してください。".to_string(),
+        });
+    }
 
     match api_health {
         ApiHealth::Unreachable(err) => findings.push(DiagnosticFinding {
@@ -255,7 +228,7 @@ pub fn analyze_diagnostics(
             code: "API_UNREACHABLE".to_string(),
             summary: "Strata API エンドポイントに接続できません（SSH トンネル切断・ゾンビ化、またはサーバー停止）。".to_string(),
             evidence: err.clone(),
-            remediation: "tools/claude-strata --stop-tunnel && tools/claude-strata --start-server".to_string(),
+            remediation: "トンネル再接続: tools/claude-strata --stop-tunnel && tools/claude-strata --start-tunnel / サーバー再起動: tools/claude-strata --restart-server".to_string(),
         }),
         ApiHealth::AuthError => findings.push(DiagnosticFinding {
             severity: "CRITICAL".to_string(),
@@ -419,7 +392,8 @@ pub fn run_diagnose(opts: &DiagnoseOptions<'_>) -> Result<String, String> {
                     Some("low"),
                     true,
                 )
-                .ok()
+                .map(Some)
+                .unwrap_or_else(|e| Some(format!("AI 分析失敗: {}", e)))
             } else {
                 None
             }
@@ -553,7 +527,7 @@ pub fn evaluate_health(
             return (
                 HealthStatus::Unhealthy,
                 warnings,
-                Some("tools/claude-strata --diagnose または tools/claude-strata --stop-tunnel && tools/claude-strata --start-server".to_string()),
+                Some("tools/claude-strata --diagnose または --stop-tunnel && --start-tunnel / --restart-server".to_string()),
             );
         }
         ApiHealth::AuthError => {
@@ -594,31 +568,51 @@ pub fn evaluate_health(
 }
 
 pub fn run_health(opts: &HealthOptions) -> Result<(HealthReport, String, i32), String> {
+    run_health_with(
+        opts,
+        || check_api_health(opts.api_base, opts.api_key),
+        || {
+            call_strata_api(
+                opts.api_base,
+                opts.api_key,
+                opts.model,
+                "Reply with OK.",
+                "ping",
+                0.0,
+                1,
+                Some("low"),
+            )
+            .map(|_| ())
+        },
+    )
+}
+
+pub fn run_health_with<FHealth, FWarmup>(
+    opts: &HealthOptions,
+    mut check_health_fn: FHealth,
+    mut warmup_fn: FWarmup,
+) -> Result<(HealthReport, String, i32), String>
+where
+    FHealth: FnMut() -> (ApiHealth, Option<i64>, Option<i64>),
+    FWarmup: FnMut() -> Result<(), String>,
+{
     let start = Instant::now();
-    let (api_health, engine_silence_s, idle_unload_s) = check_api_health(opts.api_base, opts.api_key);
+    let (mut api_health, engine_silence_s, idle_unload_s) = check_health_fn();
     let (mut status, mut warnings, mut next_action) =
         evaluate_health(&api_health, engine_silence_s, idle_unload_s);
 
     let mut warmup_ms = None;
     if opts.warmup && status != HealthStatus::Unhealthy {
         let warm_start = Instant::now();
-        match call_strata_api(
-            opts.api_base,
-            opts.api_key,
-            opts.model,
-            "Reply with OK.",
-            "ping",
-            0.0,
-            1,
-            Some("low"),
-        ) {
+        match warmup_fn() {
             Ok(_) => {
                 warmup_ms = Some(warm_start.elapsed().as_millis() as u64);
                 // Re-check health after warmup if it was Unloaded
                 if matches!(api_health, ApiHealth::Unloaded) {
-                    let (re_api, _, _) = check_api_health(opts.api_base, opts.api_key);
+                    let (re_api, _, _) = check_health_fn();
                     let (re_status, re_warnings, re_next) =
                         evaluate_health(&re_api, engine_silence_s, idle_unload_s);
+                    api_health = re_api;
                     status = re_status;
                     warnings = re_warnings;
                     next_action = re_next;

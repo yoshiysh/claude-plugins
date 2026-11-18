@@ -223,7 +223,7 @@ fn main() {
                     return;
                 }
             }
-            eprintln!("Usage: strata <COMMAND> [OPTIONS]\n\nCommands:\n  run   Execute worker persona\n  mcp   Start stdio MCP server\n\nRun 'strata --help' for details.");
+            eprintln!("Usage: strata <COMMAND> [OPTIONS]\n\nCommands:\n  run       Execute worker persona\n  mcp       Start stdio MCP server\n  diagnose  Self-diagnose Strata API health, logs, and WSL2 configuration\n  health    Fast preflight health check\n\nRun 'strata --help' for details.");
             std::process::exit(1);
         }
     }

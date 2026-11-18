@@ -158,7 +158,7 @@ pub struct HealthArgs {
     #[arg(long, env = "STRATA_MODEL", default_value = "qwen3.8-flash-next-iq2_xs")]
     pub model: String,
 
-    /// Run a minimal 1-token inference to verify warm cache / latency
+    /// Run a minimal 1-token inference to measure latency (auto-loads model if unloaded, taking tens of seconds)
     #[arg(long)]
     pub warmup: bool,
 
