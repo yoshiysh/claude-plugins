@@ -24,13 +24,18 @@ function sameEvidenceFile(left, right) {
     left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
+// 環境変数 CLAUDE_PLUGINS_SKIP_FSYNC が '1' のときだけ fsync を省く。make test のためのもので、既定は fsync する
+// （macOS の fsync は F_FULLFSYNC でマシン全体で直列に進み、並列のテストの待ちの大半を占める。tests/fsync-switch.test.mjs）。
+export async function syncHandle(file) {
+  if (process.env.CLAUDE_PLUGINS_SKIP_FSYNC !== '1') await file.sync();
+}
 async function syncDirectory(path) {
   const file = await fsPromises.open(path, 'r');
-  try { await file.sync(); } finally { await file.close(); }
+  try { await syncHandle(file); } finally { await file.close(); }
 }
 async function durableFile(path, content) {
   const file = await fsPromises.open(path, 'wx', 0o600);
-  try { await file.writeFile(content); await file.sync(); } finally { await file.close(); }
+  try { await file.writeFile(content); await syncHandle(file); } finally { await file.close(); }
 }
 async function filesSnapshot(paths) {
   return Promise.all(paths.map(async path => {
@@ -218,7 +223,7 @@ async function execute({ backend, runDir, policy, limits, body, argsText, source
       const payload = { sequence: ++sequence, previous: digest, ...event };
       digest = hash(json(payload));
       await journal.writeFile(json({ ...payload, digest }) + '\n');
-      await journal.sync();
+      await syncHandle(journal);
     });
     io = next;
     next.catch(error => { poisoned = error; });

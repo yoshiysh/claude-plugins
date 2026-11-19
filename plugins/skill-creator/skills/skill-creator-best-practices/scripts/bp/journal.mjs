@@ -24,6 +24,12 @@ export async function linkCreate(target, content) {
   }
 }
 
+// 環境変数 CLAUDE_PLUGINS_SKIP_FSYNC が '1' のときだけ fsync を省く。make test のためのもので、既定は fsync する
+// （macOS の fsync は F_FULLFSYNC でマシン全体で直列に進み、並列のテストの待ちの大半を占める。tests/fsync-switch.test.mjs）。
+export async function syncHandle(handle) {
+  if (process.env.CLAUDE_PLUGINS_SKIP_FSYNC !== '1') await handle.sync();
+}
+
 export async function readOrNull(file) {
   try {
     return await fs.readFile(file, 'utf8');
@@ -107,7 +113,7 @@ export async function append(dir, line) {
     }
     const { size: end } = await handle.stat();
     await handle.write(formatLine(line), end);
-    await handle.sync();
+    await syncHandle(handle);
   } finally {
     await handle.close();
   }

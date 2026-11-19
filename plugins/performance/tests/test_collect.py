@@ -149,7 +149,24 @@ class CollectionTests(unittest.TestCase):
             collect.save(self.store, self.item, now=101)
         self.assertTrue(pending.exists())
 
+    def test_fsync_is_skipped_only_when_switch_is_exactly_one(self):
+        # 既定は fsync する。make test が立てる CLAUDE_PLUGINS_SKIP_FSYNC=1 のときだけ省く。
+        for value, expected in ((None, True), ("1", False), ("0", True), ("true", True)):
+            with self.subTest(value=value), patch.dict(os.environ), \
+                    patch.object(collect.os, "fsync") as fsync:
+                os.environ.pop("CLAUDE_PLUGINS_SKIP_FSYNC", None)
+                if value is not None:
+                    os.environ["CLAUDE_PLUGINS_SKIP_FSYNC"] = value
+                collect.save(self.root / f"store-{value}", self.item, now=100)
+                # 一時ファイルとディレクトリの 2 回。
+                self.assertEqual(fsync.call_count, 2 if expected else 0)
+
     def test_directory_fsync_failure_can_be_retried_without_duplicate(self):
+        # make test は CLAUDE_PLUGINS_SKIP_FSYNC=1 で fsync を省く。この検査は fsync の故障を注入するので、既定に戻す。
+        env = patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("CLAUDE_PLUGINS_SKIP_FSYNC", None)
         real_fsync = os.fsync
         count = 0
         def fail_second(fd):

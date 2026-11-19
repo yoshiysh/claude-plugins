@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import stat
 
-from collect import private_file
+from collect import durable_sync, private_file
 from measure import decode, require
 
 LIMIT = 2 * 1024 * 1024
@@ -60,12 +60,12 @@ def transaction(directory, initial, validate, readonly=False):
         with os.fdopen(fd, "wb") as stream:
             stream.write(raw)
             stream.flush()
-            os.fsync(stream.fileno())
+            durable_sync(stream.fileno())
         os.replace(root / ".pending", root / "state.json")
         pending = False
         fd = os.open(root, os.O_RDONLY)
         try:
-            os.fsync(fd)
+            durable_sync(fd)
         finally:
             os.close(fd)
     finally:

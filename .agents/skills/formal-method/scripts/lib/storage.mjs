@@ -5,7 +5,12 @@ import { dirname, join } from 'node:path';
 import { sha256Bytes, randomHex } from './canonical.mjs';
 import { scanSecrets, describeHits } from './secrets.mjs';
 
+// 環境変数 CLAUDE_PLUGINS_SKIP_FSYNC が '1' のときだけ fsync を省く。make test のためのもので、既定は fsync する
+// （macOS の fsync は F_FULLFSYNC でマシン全体で直列に進み、並列のテストの待ちの大半を占める。tests/fsync-switch.test.mjs）。
+export const skipFsync = () => process.env.CLAUDE_PLUGINS_SKIP_FSYNC === '1';
+
 export function fsyncDir(dir) {
+  if (skipFsync()) return;
   const fd = openSync(dir, 'r');
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
@@ -19,7 +24,7 @@ export function writeTempFile(tmpPath, data) {
     const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
     let at = 0;
     while (at < bytes.length) at += writeSync(fd, bytes, at, bytes.length - at);
-    fsyncSync(fd);
+    if (!skipFsync()) fsyncSync(fd);
   } finally { closeSync(fd); }
 }
 
