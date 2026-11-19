@@ -146,6 +146,9 @@ class TrialEvidence(unittest.TestCase):
                                 writes.add(el["id"])
                 (ws / f"{name}.json").write_text(canonical(body))
             self.assertGreaterEqual(len(writes), 3)
+            # 証拠の plan は要求文書だけのランだが、そのままでは扱いの無い may_fail を指摘しなくなり検査が弱まるので、
+            # 仕様書を書く units に置き換える。
+            (ws / "plan.json").write_text(json.dumps({"units": [{"id": "U-1", "docs": ["requirements/cleanup-branches", "specifications/cleanup-branches"], "depends_on": []}]}))
             out = _ok(ws, "flow", "--lint")
             self.assertEqual(out["findings"], 0, "共有の検査は always に戻した版を拾わない")
             self.assertEqual(set(out["lint_codes"]), {"LINT_OBTAIN_UNGROUNDED"})
@@ -164,6 +167,7 @@ class TrialEvidence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             (ws / "requirements-cleanup-branches.md").write_text(fixed)
+            (ws / "plan.json").write_text(json.dumps({"units": [{"id": "U-1", "docs": ["requirements/cleanup-branches"], "depends_on": []}]}))
             self.assertEqual(_ok(ws, "doc", "--lint")["lint"], 0)
             (ws / "requirements-cleanup-branches.md").write_text(broken)
             plain = _ok(ws, "doc")

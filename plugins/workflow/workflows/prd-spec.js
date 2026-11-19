@@ -543,11 +543,15 @@ function parseStdout(text) {
 // copyFault: JSON の行はあるのに受け取れない（写し損ね）。JSON の行の無い値（失敗したコマンドの stderr）は写し損ねではなく、これまでの経路で扱う。
 const copyFault = (text) => stdoutRaw(text) !== null && !parseStdout(text)
 
+// units は plan.json の units をそのまま写したもので、state.units の唯一の出所（doc_check の writesSpecOf と同じ材料）。
 function planCheckOf(text) {
   const o = parseStdout(text)
-  const coversOk = (c) => c && typeof c === 'object' && !Array.isArray(c) && Object.values(c).every((v) => Array.isArray(v) && v.every((k) => typeof k === 'string'))
-  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 && coversOk(o.covers) ? o : null
+  const strs = (v) => Array.isArray(v) && v.every((k) => typeof k === 'string')
+  const coversOk = (c) => c && typeof c === 'object' && !Array.isArray(c) && Object.values(c).every(strs)
+  const unitsOk = (u) => Array.isArray(u) && u.length > 0 && u.every((x) => isMap(x) && typeof x.id === 'string' && strs(x.docs) && x.docs.length > 0 && strs(x.depends_on))
+  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 && coversOk(o.covers) && unitsOk(o.units) ? o : null
 }
+const unitsOf = (pc) => pc.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
 
 // rulingRows: doc_check flow --rulings の resolutions（ruling・has_answer・verdict・fail_kind の組ごとに束ねたもの。束ね方は doc_check の rulingsCompact）を
 // resolution ごとの行 {id, about, ruling, has_answer, verdict}（不合格は fail_kind も）に戻す。形の外の組が 1 つでもあれば null。並びは ID の番号順にする
@@ -734,18 +738,7 @@ const ABOUT = {
 }
 const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, about: ABOUT }, required: ['id', 'about'] } }
 
-const INTAKE_SCHEMA = {
-  type: 'object',
-  properties: {
-    plan_check: STR,
-    units: {
-      type: 'array',
-      minItems: 1,
-      items: { type: 'object', properties: { id: STR, docs: { type: 'array', items: STR, minItems: 1 }, depends_on: STRS }, required: ['id', 'docs', 'depends_on'] },
-    },
-  },
-  required: ['plan_check', 'units'],
-}
+const INTAKE_SCHEMA = { type: 'object', properties: { plan_check: STR }, required: ['plan_check'] }
 
 const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
 const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, required: ['restore_check'] }
@@ -1392,6 +1385,8 @@ const DECIDING_FILE = /^(?:input\.md|answers\/g[1-9]\d*\.md)#L[1-9]\d*$/
 // 固定の文書は別のランで承認された決定なので、その行で値が決まる論点を問いにも保持規則にもしない（仕様書だけを書く run では、問いが
 // upstream_gap になる）。仕様書を書く run では、現物（対象リポジトリの行）も実現の手段を決める出典になる（契約「## 現物と既存実装の扱い」）。
 const fixedDocLine = (src) => { const m = /^((?:requirements|specifications)-[^/#]+)\.md#L[1-9]\d*$/.exec(src); return Boolean(m) && FIXED_KEYS.includes(m[1].replace('-', '/')) }
+// writesSpec: doc_check の writesSpecOf の写し（同じ材料の plan.json の units に当てる）。判定の結果を state で運ぶと、next_args が
+// 打ち直しの上限（test_prd_stages の NEXT_ARGS_MAX_CHARS）を超えるので、1 行の述語を写している。
 const writesSpec = () => auditDocs().some((k) => k.startsWith('specifications/'))
 const repoLine = (src) => writesSpec() && /^\/[^#]+#L[1-9]\d*$/.test(src)
 function decidableDefect(f, fc) {
@@ -1859,7 +1854,11 @@ function lintOf(fc) {
 // （通常の差し戻しに入ると、直らないときに段が止まり、next_args の再実行も同じ差し戻しを通るので抜けられない）。
 async function frameFlow(label, lines, phaseTitle, { lint = false } = {}) {
   const run = frameRun(lint)
-  const prompt = (l) => lines(l, run).filter(Boolean).join('\n\n')
+  const prompt = (l) => {
+    const [head, ...rest] = lines(l, run)
+    // 仕様書を書かない run では、flow の要素は要求文書の要求になる。発生源の無い要素は doc_check が振らず NC_FLOW_NO_ORIGIN に回す（prd-and-spec.md §11.1）ので、描く範囲を絞らせる。
+    return [head, !writesSpec() ? '作る文書は要求文書だけなので、flow-framer.md の「### 要求文書だけのラン」で描く。' : null, ...rest].filter(Boolean).join('\n\n')
+  }
   const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check, plan_check: x.plan_check })
   const defectOf = (x) => {
     const { fc, cc } = read(x)
@@ -2235,7 +2234,7 @@ async function needsAnswers(from, onward) {
 // 仕様項目が要求に辿れなくなる。covers を見ないと、INDEX のために並べただけの無関係な固定の文書で、聞けば済む run まで止まる。
 const fixedRequirements = () => new Set(EXISTING.filter((d) => d.fixed && String(d.key).startsWith('requirements/')).map((d) => d.key))
 const specOnly = () => {
-  const docs = (state.units || []).flatMap((u) => u.docs)
+  const docs = auditDocs()
   const fixed = fixedRequirements()
   return docs.length > 0 && docs.every((k) => k.startsWith('specifications/') && ((state.covers || {})[k] || []).some((r) => fixed.has(r)))
 }
@@ -2348,7 +2347,7 @@ async function stage1() {
       .join('\n\n')
   const defectOf = (x) => {
     const pc = planCheckOf(x.plan_check)
-    if (!pc) return { count: Infinity, text: 'doc_check plan の stdout がありません' }
+    if (!pc) return { count: Infinity, text: 'doc_check plan の stdout が無いか、plan.json の units が形（id・空でない docs・depends_on）を満たしません' }
     return pc.findings > 0 ? { count: pc.findings, text: `doc_check plan の指摘が ${pc.findings} 件あります（${W}/checks/plan.json）` } : null
   }
   const first = await once('intake', 'intake', prompt('intake'), INTAKE_SCHEMA, 'Intake')
@@ -2357,23 +2356,23 @@ async function stage1() {
     return once(l, 'intake', `${prompt(l)}\n\n返した stdout が不合格だった: ${d.text}。直して返す。`, INTAKE_SCHEMA, 'Intake')
   }, MAX_CHECK_REWORK)
   if (done.defect) return blocked(`intake の出力が検査を通りません: ${done.defect.text}`, '1')
-  const r = done.got
+  const pc = planCheckOf(done.got.plan_check)
+  const units = unitsOf(pc)
   try {
-    unitWaves(r.units)
+    unitWaves(units)
   } catch (e) {
     return blocked(`intake の writer の単位が不正です: ${e.message}`, '1')
   }
   // 単位の文書のキーは段 4・7 の本文の控え（doc_check backup）のコマンド文に入る。
-  const badKeys = uniq(r.units.flatMap((u) => u.docs).filter((k) => !DOC_KEY.test(k)))
+  const badKeys = uniq(units.flatMap((u) => u.docs).filter((k) => !DOC_KEY.test(k)))
   if (badKeys.length) return blocked(`intake の writer の単位に文書のキーの形（${DOC_KEY.source}）でない文書があります: ${badKeys.join(', ')}`, '1')
-  const inUnits = new Set(r.units.flatMap((u) => u.docs))
+  const inUnits = new Set(units.flatMap((u) => u.docs))
   const fixed = EXISTING.filter((d) => d.fixed).map((d) => d.key)
   const wrongFixed = fixed.filter((k) => inUnits.has(k))
   const lost = EXISTING.filter((d) => !d.fixed && !inUnits.has(d.key)).map((d) => d.key)
   if (wrongFixed.length) return blocked(`固定の文書が writer の単位に入っています: ${wrongFixed.join(', ')}`, '1')
   if (lost.length) return blocked(`既存文書がどの writer の単位にも入っていません（topic を変えると改稿が別名の新規執筆に化ける）: ${lost.join(', ')}`, '1')
-  state.units = r.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
-  const pc = planCheckOf(r.plan_check)
+  state.units = units
   state.plan_sha256 = pc.content_sha256
   state.covers = pc.covers
   return '2'
@@ -2393,11 +2392,13 @@ async function stage2() {
   // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
   const pc = planCheckOf(got.plan_check)
   if (!pc) return blocked('flow-framer が doc_check plan の stdout を返しませんでした', '2')
-  // covers も intake の申告だけから入るので、同じ照合に含める（specOnly が読む）。
+  // covers・units も intake の写した stdout だけから入るので、同じ照合に含める（specOnly・writesSpec が読む）。
   const coversMoved = canonicalText(pc.covers) !== canonicalText(state.covers)
-  if (pc.content_sha256 !== planSha || pc.findings > 0 || coversMoved) {
+  const unitsMoved = canonicalText(unitsOf(pc)) !== canonicalText(state.units)
+  if (pc.content_sha256 !== planSha || pc.findings > 0 || coversMoved || unitsMoved) {
     if (pc.content_sha256 !== planSha) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${planSha}）と違う`)
     else if (coversMoved) noteIntegrity(`flow-framer が返した plan の covers が、intake が返した covers と違う（${canonicalText(pc.covers)} / ${canonicalText(state.covers)}）`)
+    else if (unitsMoved) noteIntegrity(`flow-framer が返した plan の units が、intake が返した units と違う（${canonicalText(unitsOf(pc))} / ${canonicalText(state.units)}）`)
     return blocked(`plan.json が intake の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, '1')
   }
   framed = { open_ids: got.fc.open_ids, pair_keys: got.cc.pair_keys }

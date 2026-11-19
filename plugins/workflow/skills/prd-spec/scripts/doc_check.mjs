@@ -241,7 +241,16 @@ const FINDING_TEXT = {
     location: id,
     quote: id,
     issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
-    fix: '根拠（input.md・answers・決定の台帳・固定前提・flow）を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+    fix: '根拠（input.md・answers・決定の台帳・固定前提・flow）を trace に申告する。要求文書の項目は、発生源（§11.1）に届く trace を申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+  }),
+  REQ_NO_ORIGIN: (id, writesSpec) => ({
+    id: `ST-REQ-NO-ORIGIN-${id}`,
+    location: id,
+    quote: id,
+    issue: `${id} の trace を辿っても、要求の発生源に届かない。発生源の定義は references/prd-and-spec.md §11.1。`,
+    fix: writesSpec
+      ? `${id} を要求文書から外す。同じ単位に仕様書があればそこへ移し、無ければ残りとして報告する。発生源があるなら、それを trace に申告する。`
+      : `${id} を削るか、依頼者に問う TBD にする。発生源があるなら、それを trace に申告する。`,
   }),
   NON_NORMATIVE: (what, quote, docKey) => ({
     id: `ST-NON-NORMATIVE-${docKey}-${what}`,
@@ -400,6 +409,14 @@ const FINDING_TEXT = {
   NC_FLOW: () => ({
     id: 'ST-NOTCHECKED-FLOW',
     issue: '工程の流れ（flow）が渡されていないため、各工程に項目が当たっているかを検査していない。「指摘 0 件」ではなく「未検査」である。',
+  }),
+  NC_FLOW_UNATTACHED: (ids) => ({
+    id: 'ST-NOTCHECKED-FLOW-UNATTACHED',
+    issue: `仕様書を書くランで、流れの要素 ${ids.join('・')} に項目が当たっていないが、書く仕様書が検査した文書の中にまだ無いため指摘していない（要求文書には振らない）。「指摘 0 件」ではなく「未検査」である。`,
+  }),
+  NC_FLOW_NO_ORIGIN: (ids) => ({
+    id: 'ST-NOTCHECKED-FLOW-NO-ORIGIN',
+    issue: `要求文書だけのランで、流れの要素 ${ids.join('・')} に項目が当たっていないが、発生源が無く仕様書の範囲なので要求文書には振っていない（references/prd-and-spec.md §11.1）。「指摘 0 件」ではなく「未検査」である。`,
   }),
   NC_DTABLE: (key, label, n) => ({
     id: `ST-NOTCHECKED-DTABLE-${key}-${label}`,
@@ -859,7 +876,7 @@ function tableFindings(conds, rows, hasElse) {
 
 // flow が undefined（入力に flow キーが無い）なら flow の検査を行わない。null は「渡されるはずが
 // 無かった」ではなく「無い」の申告なので未検査として返す。
-function formalCompact(docs, flow) {
+function formalCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(docs)), origin = null) {
   const out = []
   const notChecked = []
   for (const d of docs) {
@@ -892,8 +909,11 @@ function formalCompact(docs, flow) {
     }
     // 当たっていない要素は、隣の要素に項目を当てている文書へ返す（その工程の関心事を持っている
     // 可能性が最も高い）。隣にも無ければ最初の非固定の仕様書、無ければ最初の非固定の文書へ返す。
-    const editable = docs.filter((d) => !d.fixed)
+    // 仕様書を書くランでは仕様書にだけ返す: 要求文書へ返すと内部の工程・異常系の分岐が要求になる（prd-and-spec.md §11）。
+    const editable = docs.filter((d) => !d.fixed && (!writesSpec || d.kind === 'specifications'))
     const fallback = (editable.find((d) => d.kind === 'specifications') || editable[0] || {}).key
+    const unowned = []
+    const noOrigin = []
     const neighbours = new Map(elements.map((el) => [el.id, new Set()]))
     for (const el of elements) {
       const targets = [...(Array.isArray(el.next) ? el.next : []), ...(Array.isArray(el.branches) ? el.branches.map((b) => b && b.next) : [])]
@@ -905,18 +925,90 @@ function formalCompact(docs, flow) {
     }
     for (const el of elements) {
       if (attachedBy.has(el.id)) continue
+      // 要求文書だけのランで発生源の無い要素を振ると、REQ_NO_ORIGIN が削らせる要求を足させることになる。
+      if (!writesSpec && origin && !origin.element(el.id)) {
+        noOrigin.push(el.id)
+        continue
+      }
       const near = [...neighbours.get(el.id)].flatMap((n) => [...(attachedBy.get(n) || [])])
       const owner = editable.map((d) => d.key).find((k) => near.includes(k)) || fallback
       if (owner) out.push({ c: 'FLOW_UNATTACHED', d: owner, a: [el.id, String(el.label || '')] })
+      else if (writesSpec) unowned.push(el.id)
     }
+    if (unowned.length) notChecked.push({ c: 'NC_FLOW_UNATTACHED', a: [unowned] })
+    if (noOrigin.length) notChecked.push({ c: 'NC_FLOW_NO_ORIGIN', a: [noOrigin] })
   }
   return { findings: out, not_checked: notChecked }
+}
+
+// writesSpecOf: 「仕様書を書くラン」の述語。run では plan.json の units（planUnitDocs）に当てる。prd-spec.js の writesSpec はこの写しで、
+// 同じ units（doc_check plan の stdout から入る state.units）に当てるので、flow-framer への指示と振り先が同じ材料で決まる。
+function writesSpecOf(keys) {
+  return keys.some((k) => String(k).startsWith('specifications/'))
+}
+const writtenKeys = (docs) => docs.filter((d) => !d.fixed).map((d) => d.key)
+// units の欠けや形の崩れを空の単位として読むと、仕様書を書くランが黙って要求文書だけのランになる。
+function unitsFault(plan) {
+  const units = plan && plan.units
+  const strs = (v) => Array.isArray(v) && v.every((k) => typeof k === 'string')
+  const ok = Array.isArray(units) && units.length > 0 && units.every((u) => u && typeof u === 'object' && typeof u.id === 'string' && strs(u.docs) && u.docs.length > 0 && strs(u.depends_on))
+  return ok ? null : 'plan.json の units が無いか、形（id・空でない docs・depends_on）を満たしません'
+}
+function planUnitDocs(plan) {
+  const fault = unitsFault(plan)
+  if (fault) throw new Error(fault)
+  return plan.units.flatMap((u) => u.docs)
+}
+
+// passedResolutions: 合格を検証した版のままの裁定だけ。検証の後に書き換えた裁定を根拠に数えない。
+function passedResolutions(resolutions, verifications) {
+  const verdicts = new Map(listOf(verifications, 'items').filter((it) => it && it.id && it.verdict).map((it) => [String(it.id), it]))
+  return listOf(resolutions, 'resolutions').filter((r) => {
+    const judged = r && r.id && verdicts.get(String(r.id))
+    return Boolean(judged) && judged.verdict === 'pass' && carriesVerdict(judged, r)
+  })
+}
+
+// originJudge: 要求の発生源（references/prd-and-spec.md §11.1）に届くかの判定の正本。終点と非終点の一覧は §11.1 だけが持つ。
+// ドメイン分析から導いた決定・裁定（plan.json の domain / required_categories が指す決定、about.domain の裁定）は、source に関わらず終点にしない。
+// 保持規則は、その項目の ID が hold.item_ids にあるときだけ終点にする。flow の要素は要素自身の source だけを見る。
+function originJudge(ledgers, flow, plan) {
+  const decisions = new Map(listOf(ledgers.decisions, 'decisions').filter((d) => d && d.id).map((d) => [String(d.id), d]))
+  const domainDecisions = new Set(
+    [...listOf(plan, 'domain'), ...listOf(plan, 'required_categories')].map((x) => x && x.decision).filter(Boolean).map(String),
+  )
+  const passed = passedResolutions(ledgers.resolutions, ledgers.verifications)
+  const rulings = new Map(passed.map((r) => [String(r.id), r]))
+  const elements = new Map(listOf(flow, 'elements').filter((el) => el && el.id).map((el) => [String(el.id), el]))
+  const byId = (id, itemId) => {
+    const d = decisions.get(id)
+    if (d) return !domainDecisions.has(id) && ['input', 'precedent'].includes(d.source)
+    const r = rulings.get(id)
+    if (!r || (r.about && r.about.domain != null)) return false
+    if (r.ruling === 'hold') return itemId != null && listOf(r.hold, 'item_ids').map(String).includes(String(itemId))
+    return ['answered_by', 'precedent'].includes(r.ruling) || (r.ruling === 'question' && r.answer != null)
+  }
+  const closesOpen = (o, itemId) => passed.some((r) => r.about && String(r.about.open) === o && byId(String(r.id), itemId))
+  const fromSource = (s, itemId) =>
+    Boolean(s) &&
+    typeof s === 'object' &&
+    (s.input != null || (s.decision != null && byId(String(s.decision), itemId)) || (s.open != null && closesOpen(String(s.open), itemId)))
+  const element = (id, itemId) => {
+    const el = elements.get(String(id))
+    return Boolean(el) && [].concat(el.source ?? []).some((s) => fromSource(s, itemId))
+  }
+  const trace = (t, itemId) =>
+    Boolean(t) &&
+    (['input', 'answers'].includes(t.kind) || (['decision', 'resolution'].includes(t.kind) && byId(String(t.ref), itemId)) || (t.kind === 'flow' && element(t.ref, itemId)))
+  return { element: (id) => element(id), item: (itemId, traces) => traces.some((t) => trace(t, itemId)) }
 }
 
 // 構造検査の正本はこのファイルだけである。Workflow script は複製を持たず、agent にこの CLI を実行させる。
 // not_checked は「材料が無くて実行できなかった検査」で、失格ではない。これを返さないと、片側の文書が対象外のランで
 // 「検査して 0 件」と「そもそも検査していない」が区別できず、後者が合格として提示される。
-function structuralCompact(docs, flow) {
+// ledgers（decisions・resolutions・verifications）が undefined なら発生源の検査を行わない（flow の undefined と同じ扱い）。
+function structuralCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(docs)), ledgers, plan) {
+  const origin = ledgers === undefined ? null : originJudge(ledgers, flow, plan)
   const out = []
   const notChecked = []
   const reqDocs = docs.filter((d) => d.kind === 'requirements')
@@ -1195,6 +1287,14 @@ function structuralCompact(docs, flow) {
         if (traced.has(id)) continue
         out.push({ c: 'NO_EVIDENCE', d: d.key, a: [id] })
       }
+      // (7b) 要求の発生源。trace があっても、run の中で決めたことだけを根拠にした要求は依頼者の要求ではない（prd-and-spec.md §11.1）。
+      //      trace の無い項目は (7) が持つ。
+      if (origin && d.kind === 'requirements') {
+        for (const id of d.ids) {
+          const own = d.trace.filter((t) => t && t.item_id === id)
+          if (own.length && !origin.item(id, own)) out.push({ c: 'REQ_NO_ORIGIN', d: d.key, a: [id, writesSpec] })
+        }
+      }
     }
   }
 
@@ -1218,7 +1318,7 @@ function structuralCompact(docs, flow) {
 
   // (9) 状態 × イベント表・判定表・工程の流れ（flow）の閉包。文書内の整合と閉包の欠陥であり、
   //     依頼者に聞く論点ではない（writer が表と項目を直せば閉じる）。
-  const formal = formalCompact(docs, flow)
+  const formal = formalCompact(docs, flow, writesSpec, origin)
   out.push(...formal.findings)
   notChecked.push(...formal.not_checked)
 
@@ -1277,8 +1377,8 @@ function stampStdout(value) {
 
 // structuralFindings: 文面付きの形で返す版（tests と、文面を直接見たい呼び出し側のため）。
 // CLI の出力は structuralCompact の短い形で、文面は受け取った側が expandStructural で組み立てる。
-function structuralFindings(docs, flow) {
-  return expandStructural(structuralCompact(docs, flow))
+function structuralFindings(docs, flow, writesSpec, ledgers, plan) {
+  return expandStructural(structuralCompact(docs, flow, writesSpec, ledgers, plan))
 }
 
 function headingIndex(md) {
@@ -1468,7 +1568,7 @@ const WORKSPACE_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: obtain may_fail（${both ? '直後の成否の判断と on_fail の両方' : '直後の成否の判断も on_fail も無い'}）`,
     issue: `may_fail の要素 ${id} の失敗が値になる場所が 1 つに決まらない。場所が無ければ得られないときの行き先を誰も決めず、2 つあれば扱いが食い違う。`,
-    fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。`,
+    fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。要求文書だけのランで、その失敗の扱いに依頼者側の発生源が無いなら、両方を外す（agents/flow-framer.md「### 要求文書だけのラン」）。`,
   }),
   FLOW_ON_FAIL_AS: (id) => ({
     id: `ST-FLOW-ON-FAIL-AS-${id}`,
@@ -1568,6 +1668,13 @@ const WORKSPACE_TEXT = {
     issue: `観点 ${key} の判定が無い。判定しなかった観点は、要る要求カテゴリが丸ごと落ちても気づけない。`,
     fix: `${key} を ${Object.keys(PLAN_VERDICT_NEEDS).join(' / ')} のどれかで判定して足す。`,
   }),
+  PLAN_UNITS: (fault) => ({
+    id: 'ST-PLAN-UNITS',
+    location: 'plan.json の units',
+    quote: 'units',
+    issue: fault,
+    fix: 'units を、各要素が id・空でない docs・depends_on を持つ空でない配列に直す。',
+  }),
   PLAN_ASPECT_DUP: (key) => ({
     id: `ST-PLAN-ASPECT-DUP-${key}`,
     location: 'plan.json の domain',
@@ -1636,7 +1743,7 @@ const LINT_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: effect ${effect} / obtain always`,
     issue: `状態を変える工程 ${id} が obtain always なのに、失敗しないと言える出典（obtain_source）が無い。書き込みはふつう失敗しうるので、根拠の無い always は verifier が insufficient_grounds で落とし、失敗の枝と未決が検証の後まで見つからない。`,
-    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
+    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。要求文書だけのランで、その失敗の扱いに依頼者側の発生源が無いなら、may_fail にして扱い（判断・on_fail）は付けない（agents/flow-framer.md「### 要求文書だけのラン」）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
   }),
   LINT_GROUNDS_SHAPE: (where) => ({
     id: `LINT-GROUNDS-SHAPE-${where}`,
@@ -3288,7 +3395,9 @@ function failBranches(el, x) {
 
 // flowTableCompact: decision ごとの判定表（inputs × cases）。網羅と一意は文書の判定表と同じ tableFindings で見る。
 // 行き先の同じ値を 1 つの枝に畳んだ判断は、下流が値を使わない限り、分類を潰したまま検査を通る。
-function flowTableCompact(flow) {
+// writesSpec が偽（要求文書だけのラン）では、may_fail の失敗の扱いが無いことを指摘しない。失敗の扱いは仕様書の範囲で、求めると
+// 発生源の無い失敗が要素として描かれ、要求文書の要求になる（発生源の扱いは references/prd-and-spec.md §11.1）。
+function flowTableCompact(flow, writesSpec = true) {
   const out = []
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
   const byId = new Map(els.map((el) => [el.id, el]))
@@ -3314,8 +3423,9 @@ function flowTableCompact(flow) {
     const b = el.on_fail != null
     const as = b && typeof el.on_fail === 'object' && !Array.isArray(el.on_fail) && String(el.on_fail.as ?? '').trim() ? String(el.on_fail.as) : null
     if (b && as === null) out.push({ c: 'FLOW_ON_FAIL_AS', d: 'flow', a: [el.id] })
-    if (a === b) out.push({ c: 'FLOW_FAIL_UNHANDLED', d: 'flow', a: [el.id, a] })
-    else if (b) {
+    if (a === b) {
+      if (a || writesSpec) out.push({ c: 'FLOW_FAIL_UNHANDLED', d: 'flow', a: [el.id, a] })
+    } else if (b) {
       if (as !== null) handled.set(el.id, { as })
     } else {
       const fails = failBranches(d, el.id)
@@ -3567,7 +3677,9 @@ function wsFlow(ws, opts) {
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
   const inv = invariantsOf(ws)
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  if (plan === null) throw new Error('plan.json がありません')
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow, writesSpecOf(planUnitDocs(plan))), ...flowHistoryCompact(flow)]
   const grouped = groupCompact(list)
   const body = expandWorkspace({ findings: grouped, not_checked: [] })
   const digest = digestOf(body)
@@ -3717,6 +3829,8 @@ function wsPlan(ws) {
   const inv = invariantsOf(ws)
   const domain = listOf(plan, 'domain')
   const out = []
+  const unitsProblem = unitsFault(plan)
+  if (unitsProblem) out.push({ c: 'PLAN_UNITS', d: 'plan', a: [unitsProblem] })
   const seen = new Map()
   for (const d of domain) {
     const aspect = String((d && d.aspect) ?? '')
@@ -3746,9 +3860,10 @@ function wsPlan(ws) {
   const body = expandWorkspace({ findings: groupCompact(out), not_checked: [] })
   const digest = digestOf(body)
   // content_sha256: intake の後で plan.json が書き換えられていないかを、script が次の段の stdout と照合する。
-  // covers: 仕様文書ごとの実現する要求文書。script は plan.json を読めないので、仕様書だけを書く run の判定（prd-spec.js の specOnly）にここから渡す。
+  // covers・units: script は plan.json を読めないので、ここから渡す。covers は仕様書だけを書く run の判定（prd-spec.js の specOnly）に、
+  // units は書く文書の正本として state.units に入る（intake の申告で別に受けると、wsDoc の writesSpecOf と材料が分かれる）。
   const covers = Object.fromEntries(listOf(plan, 'docs').filter((d) => d && String(d.key).startsWith('specifications/')).map((d) => [String(d.key), Array.isArray(d.covers) ? d.covers.map(String) : []]))
-  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))), covers }
+  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))), covers, units: listOf(plan, 'units') }
 }
 
 // doc: 開いている TBD は --open-tbd
@@ -3760,13 +3875,16 @@ function wsDoc(ws, opts) {
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
   const selected = selectDocs(wsDocs.map((d) => d.key), opts.doc)
   const plan = readJsonFile(path.join(ws, 'plan.json'))
+  if (plan === null) throw new Error('plan.json がありません')
   const coversOf = new Map(listOf(plan, 'docs').filter((p) => p && p.key).map((p) => [p.key, Array.isArray(p.covers) ? p.covers : []]))
   const docs = deriveDocs(wsDocs).map((d) => ({ ...d, covers: coversOf.get(d.key) || [] }))
   const openTbd = opts.openTbd
     ? { source: 'args', ids: [...new Set(opts.openTbd)].sort() }
     : { source: 'meta', ids: [...new Set(docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))].sort() }
   const flow = readLedger(ws, 'flow')
-  const structural = structuralCompact(docs, flow)
+  // disk の文書では決めない: 要求文書の writer の lint は仕様書のファイルがまだ無い時点でも走る。
+  const ledgers = { decisions: readLedger(ws, 'decisions'), resolutions: readLedger(ws, 'resolutions'), verifications: readLedger(ws, 'verifications') }
+  const structural = structuralCompact(docs, flow, writesSpecOf(planUnitDocs(plan)), ledgers, plan)
   const open = new Set(openTbd.ids)
   const kept = structural.findings
     .map((g) => (g.c === 'UNDECLARED_TBD' ? { ...g, a: g.a.filter((a) => !open.has(a[0])) } : g))

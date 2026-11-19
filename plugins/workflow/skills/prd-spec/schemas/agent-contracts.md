@@ -161,9 +161,9 @@
 }
 ```
 
-- `layer` は、プロダクトが何を達成するか（要求）か、それに何が必要で外からどう振る舞うか（手段）か。依頼者または
-  上位文書が課した設計制約は `手段` に含める。writer は `手段` の決定を要求文書に書かない。`references/prd-and-spec.md` §5「書きすぎとは何か（上限）」が書かないとする
-  内部の実現の選択は、現物が定めていても決定にも未決（open）にもしない。
+- `layer` は decisions と resolutions で同じ欄であり、intake も resolver も `references/prd-and-spec.md` §11.4 の定義で
+  値を選ぶ（ここに定義を置くと、課された設計制約の扱いが決定の出所で分かれる）。writer は `手段` の決定（名指しされていない手段）を要求文書に書かない。名指しされた手段の扱いも同じ §11.4 が正。
+  `references/prd-and-spec.md` §5「書きすぎとは何か（上限）」が書かないとする内部の実現の選択は、現物が定めていても決定にも未決（open）にもしない。
 - `targets` は doc_check の `conflicts` が「同じ target を持つ決定どうし」「target が流れの要素の id か label と
   一致する決定と要素」の組を列挙するのに使う。名前が揃わないと組が見つからず、矛盾が初稿まで残る。
 - `kind` は「## 不変条件の kind」が正。
@@ -340,11 +340,12 @@
 ```
 
 返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が prd-spec.js の
-`MAX_CHECK_REWORK` を上限に差し戻し、直らなければ段 1 で止まる。段 2 の flow-framer が実行した `plan` の `content_sha256` と違えば、
+`MAX_CHECK_REWORK` を上限に差し戻し、直らなければ段 1 で止まる。stdout の `units` は plan.json の `units` の写しで、script の writer の
+単位はここからだけ入る（形が違えば差し戻す）。段 2 の flow-framer が実行した `plan` の `content_sha256`・`covers`・`units` のどれかが違えば、
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
-{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"covers\":{\"specifications/auth\":[\"requirements/auth\"]}}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
+{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"covers\":{\"specifications/auth\":[\"requirements/auth\"]},\"units\":[{\"id\":\"U-1\",\"docs\":[\"requirements/auth\"],\"depends_on\":[]}]}" }
 ```
 
 ## flow.json の形
@@ -386,6 +387,8 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   case の `source` も verifier の検証対象で、要素の digest は `cases` を含む。
 - `obtain`（`input`・`step`）: その要素自身の処理が値を得られないことがあるか。値は `always` / `may_fail`。`may_fail` の要素は、
   失敗が値になる場所を次のちょうど 1 つにする（無いか両方なら `ST-FLOW-FAIL-UNHANDLED-`）。失敗の下流への伝播は計算しない。
+  仕様書を書かないラン（plan.json の `units` に仕様書が無い。doc_check の `doc` と同じ材料）では、依頼者が述べていない失敗の扱いは
+  発生源が無く仕様書の範囲なので flow に置かなくてよい（無くても指摘しない）。置くなら次のちょうど 1 つにする。
   - (a) 直後の成否の判断: `next` が 1 つの `decision` D だけで、D の `inputs` に `from` がその要素で `unknown` を持つ入力がある。
     D と、D の失敗の枝の行き先から `next`・`branches` で辿れる `decision`（その要素に戻った先は次の試行なので含めない）では、
     その要素を `from` にする入力が `unknown` を持つ（`ST-FLOW-INPUT-UNKNOWN-`）。成功の枝の先では要らない。
@@ -398,6 +401,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   - (a) の失敗の枝の先の `step` が、得られなかった値を前提にしていないか（`step` は `inputs` を持たない）。
   - 値を数えたり他の値と合わせたりする `step`・`decision` の後で、「得られない」が他の値に紛れて消えていないか（flow は値の依存を
     持たないので、script が追うと近似になる）。
+  - 仕様書を書かないランで扱いの無い `may_fail` は、得られないことを判定しない（発生源が無ければ仕様書の範囲）。
 - `effect`（`step`）: 値は `read` / `reversible` / `destructive`。`destructive` は ref・作業ツリー・未反映の変更・外部の状態の
   どれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。
 - `obtain_source`（`obtain` が `always` の `input`・`step` だけ。任意）: `obtain` が `always` であることの出典。形は `source` と同じで
@@ -637,6 +641,8 @@ digest と、次の 2 つ。
   `premise`（`ref` に `前提 N`。`references/fixed-premises.md` の前提で、書き方の選択にだけ使える）のどれか。
   これ以外の出所は根拠として認められていないので、列挙に無い。
 - 1 項目に複数の trace を置いてよい。振る舞いを定める項目は `flow` の trace を 1 つ以上持つ。
+- doc_check `doc` は要求文書の各項目の trace を決定・合格した裁定・flow の要素の `source` まで辿り、依頼者側の発生源
+  （`references/prd-and-spec.md` §11.1）に 1 つも届かない項目を `ST-REQ-NO-ORIGIN-` で返す。
 - TBD の ID は `TBD-<R|S><領域>-<連番>`（要求文書は R、仕様書は S。領域は topic を英大文字にしたもの）。
 - `tbd` の要素の形が doc_check の `tbdItemOk` に合わなければ put が拒む（その meta から保存の写しを作るため。拒んだときの stderr に形が出る）。
 - 既存文書の meta には、保存した時に開いていた TBD が段 1 の入口の reset で入っている。閉じるまで `tbd` から外さない（外すと、閉じていない TBD が保存の後に消える）。
@@ -666,7 +672,7 @@ digest と、次の 2 つ。
   `<文書キー>§(meta)`、TBD の候補は TBD の ID。script はこれを段 8 の diff と文字列で比べる。形が違うと、
   直した項目がすべて「申告に無い変更」になり、監査が余分に起動する。初稿では空配列でよい。
 
-有効な必須カテゴリの集合と supersession は「決定の台帳」の後段 domain assessment 規則を正とする。writer は各有効カテゴリを要求 ID または仕様項目 ID の中身として実現し、その `trace` は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
+有効な必須カテゴリの集合と supersession は「決定の台帳」の後段 domain assessment 規則を正とする。writer は各有効カテゴリを、置き場を `references/prd-and-spec.md` §11.1 に従って決めた項目の中身として実現し、その `trace` は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
 
 ## 監査役の共通節
 
@@ -689,7 +695,7 @@ shunt が使えない環境では全文を読む。範囲を絞った監査（�
 |---|---|---|
 | implementer | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
 | grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
-| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、要求・決定・流れと照らした仕様書の観点の不足（`references/prd-and-spec.md` §11.7）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
 | doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
 doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。
@@ -855,6 +861,8 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `ST-REF-UNDEFINED-` | 本文が参照する ID がどの文書の見出しにも無く、欠番の申告も無い |
 | `ST-OBSOLETE-` / `ST-UNVERIFIED-` | 廃止済み規制の語・本文未確認の規格の条番号（`references/citation-policy.md`） |
 | `ST-NO-EVIDENCE-` | 項目 ID に対応する trace が meta に無い |
+| `ST-REQ-NO-ORIGIN-` | 要求文書の項目の trace が、要求の発生源（`references/prd-and-spec.md` §11.1）に届かない。台帳（decisions・resolutions・verifications）と plan.json の domain を使うので、`doc` の検査だけが出す |
+| `ST-PLAN-UNITS` | plan.json の `units` が無いか、形（`id`・空でない `docs`・`depends_on`）を満たさない。`doc_check plan` が出す（`doc` と `flow` は止まる） |
 | `ST-NON-NORMATIVE-` | 本文に根拠句・決定ログ・経緯・未確定事項の章が混ざっている |
 | `ST-AMBIGUOUS-` | ID を持つ項目の文に曖昧語リストの語がある |
 | `ST-TBD-ASSERT-` | 開いている TBD に触れる文が断定の語尾で終わる |
@@ -862,6 +870,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `ST-DT-` | 判定表の組み合わせの欠け・重なり・宣言外の値（書式は同 §2.8） |
 | `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典（case の出典を含む）、判断の判定表の欠け・重なり・宣言外の値（`ST-FLOW-DT-`）と表の欠落・枝との食い違い、全枝が同じ行き先で下流が値を使わない判断（`ST-FLOW-SAME-NEXT-`）、経緯の印（`ST-FLOW-HISTORY-`）、項目が当たっていない要素、実在しない要素への当て。裁定で閉じた未決だけを出典に持つ要素は指摘ではなく stdout の `open_only` に出し、script が settle で直させる |
 
-`not_checked` は失格ではなく「材料が無くて実行できなかった検査」である。`ST-NOTCHECKED-TRACE-<文書>` は meta が
-無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いことを示す。「指摘 0 件」と混同させない
+`not_checked` は失格ではなく「材料が無くて実行できなかった検査」と「範囲外として意図して見ない検査」である。`ST-NOTCHECKED-TRACE-<文書>` は meta が
+無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いこと、`ST-NOTCHECKED-FLOW-UNATTACHED` は
+仕様書を書くランで項目の当たっていない要素の振り先の仕様書がまだ無いこと、`ST-NOTCHECKED-FLOW-NO-ORIGIN` は要求文書だけのランで要求の発生源（§11.1）に届かない要素を振らずに見ていないことを示す。「指摘 0 件」と混同させない
 ため、別の配列で返る。

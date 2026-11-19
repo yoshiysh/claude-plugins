@@ -261,6 +261,9 @@ const TX_ROLES = ['intake', 'flow-framer', 'resolver', 'verifier', 'writer']
 // planCovers: doc_check plan の stdout の covers。既定では仕様文書 specifications/<t> が同じ topic の requirements/<t> を実現する。
 const planCovers = () => spec.covers || Object.fromEntries((spec.units || []).flatMap((u) => u.docs).filter((k) => k.startsWith('specifications/')).map((k) => [k, [`requirements/${k.split('/')[1]}`]]))
 
+// planUnits: doc_check plan の stdout の units（plan.json の units の写し。script の state.units はここからだけ入る）。
+const planUnits = () => spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }]
+
 function respond(prompt, label) {
   const base = label
   const [role, stage, target] = base.split(':')
@@ -268,7 +271,7 @@ function respond(prompt, label) {
   if (TX_ROLES.includes(role) && !curToken) throw new Error(`${label}: 台帳を書く役のプロンプトにトークンがありません`)
   if (role === 'intake') {
     const plan = (spec.plan_findings || {})[base]
-    return { plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan'), covers: planCovers() }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+    return { plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan'), covers: planCovers(), units: planUnits() }), ...(spec.intake_units ? { units: spec.intake_units } : {}) }
   }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
@@ -289,7 +292,7 @@ function respond(prompt, label) {
     // plan_seen: flow-framer が実行した doc_check plan の stdout（null は返さない）。
     if (prompt.includes('doc_check.mjs plan ') && spec.plan_seen !== null) {
       const seen = spec.plan_seen || {}
-      out.plan_check = JSON.stringify({ findings: seen.findings || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H(seen.sha || 'plan'), covers: seen.covers || planCovers() })
+      out.plan_check = JSON.stringify({ findings: seen.findings || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H(seen.sha || 'plan'), covers: seen.covers || planCovers(), units: seen.units || planUnits() })
     }
     const asked = ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g)
     if (asked.length) {
@@ -1448,6 +1451,30 @@ class Stages(unittest.TestCase):
         writers = [l for l in r["labels"] if l.startswith("writer:")]
         self.assertEqual(writers, ["writer:U-1:draft", "writer:U-2:draft"])
 
+    def test_要求文書だけのrunでだけflow_framerに粒度の小節を指す(self):
+        heading = "### 要求文書だけのラン"
+        framer = (Path(PRD).resolve().parents[1] / "skills" / "prd-spec" / "agents" / "flow-framer.md").read_text()
+        self.assertIn(f"\n{heading}\n", framer, "プロンプトが指す小節は flow-framer.md に実在する")
+        both = [{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}]
+        for spec, expected in (({"args": args()}, True), ({"args": args(), "units": both}, False), (self._expand(), False)):
+            prompts = [p["prompt"] for p in run(spec)["prompts"] if p["label"].startswith("flow-framer")]
+            self.assertTrue(prompts)
+            self.assertEqual([heading in p for p in prompts], [expected] * len(prompts), spec.get("units"))
+
+    def test_裁定の反映と回答での組み直しのflow_framerにも同じ判定で小節を指す(self):
+        # frameFlow を通る 3 つの呼び出しのうち、段 2 以外の 2 つ（settle・3b-reframe）。
+        heading = "### 要求文書だけのラン"
+        both = [{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}]
+        for units, expected in ((None, True), (both, False)):
+            u = {"units": units} if units else {}
+            with self.subTest(units=units, call="3-settle"):
+                r = run({"args": args(), **u, "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "verifier_flow_findings_at": {"3v": 1}})
+                self.assertEqual(heading in nth_prompt(r, "flow-framer:3-settle", 0), expected)
+            with self.subTest(units=units, call="3b-reframe"):
+                g0 = run({"args": args(), **u, "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "questions_at": {"3": ["RS-099"]}})["result"]
+                r = run({"args": g0["next_args"], **u, "free_text_at": {"3a": ["RS-099"]}, "null_labels": ["flow-framer:3b-reframe"]})
+                self.assertEqual(heading in nth_prompt(r, "flow-framer:3b-reframe", 0), expected)
+
     def test_段1の入口がWをS0の直後に戻したstdoutを返さなければintakeを起動しない(self):
         entry = "flow-check:1-entry"
         for name, kw in (("応答しない", {"null_labels": [entry]}), ("stdout が無い", {"no_reset_at": [entry]}),
@@ -1582,6 +1609,21 @@ class Stages(unittest.TestCase):
         self.assertEqual((found["status"], found["next_args"]["from"]), ("blocked", "1"))
         missing = run({"args": args(), "plan_seen": None})["result"]
         self.assertEqual((missing["status"], missing["next_args"]["from"]), ("blocked", "2"))
+
+    def test_単位はplan_jsonのunitsだけから入りintakeの申告とflow_framerの検査で分かれない(self):
+        # 単位を intake の返り値で別に受けると、doc_check（plan.json の units）と flow-framer への指示（state.units）で「仕様書を書くランか」が分かれる。
+        both = [{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}]
+        r = run({"args": args(), "units": both, "intake_units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}]})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["result"]["docs"], ["requirements/x", "specifications/x"], "intake の返り値の units は読まない")
+        self.assertFalse(any("### 要求文書だけのラン" in p["prompt"] for p in r["prompts"] if p["label"].startswith("flow-framer")))
+        moved = run({"args": args(), "units": both, "plan_seen": {"units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}]}})["result"]
+        self.assertEqual((moved["status"], moved["next_args"]["from"]), ("blocked", "1"), moved.get("reason"))
+        self.assertTrue(any("units が、intake が返した units と違う" in line for line in moved["integrity"]), moved["integrity"])
+        bad = run({"args": args(), "units": [{"id": "U-1", "docs": [], "depends_on": []}]})
+        self.assertEqual(bad["labels"], ["flow-check:1-entry", "intake", "intake:rework"])
+        self.assertIn("units が形", nth_prompt(bad, "intake:rework", 0))
+        self.assertEqual((bad["result"]["status"], bad["result"]["next_args"]["from"]), ("blocked", "1"))
 
     def test_role_optsの未知の役割は止める(self):
         r = run({"args": args(role_opts={"checker": {"model": "opus"}})})
