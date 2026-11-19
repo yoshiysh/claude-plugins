@@ -1668,6 +1668,13 @@ const WORKSPACE_TEXT = {
     issue: `観点 ${key} の判定が無い。判定しなかった観点は、要る要求カテゴリが丸ごと落ちても気づけない。`,
     fix: `${key} を ${Object.keys(PLAN_VERDICT_NEEDS).join(' / ')} のどれかで判定して足す。`,
   }),
+  PLAN_UNITS: (fault) => ({
+    id: 'ST-PLAN-UNITS',
+    location: 'plan.json の units',
+    quote: 'units',
+    issue: fault,
+    fix: 'units を、各要素が id・空でない docs・depends_on を持つ空でない配列に直す。',
+  }),
   PLAN_ASPECT_DUP: (key) => ({
     id: `ST-PLAN-ASPECT-DUP-${key}`,
     location: 'plan.json の domain',
@@ -3822,6 +3829,8 @@ function wsPlan(ws) {
   const inv = invariantsOf(ws)
   const domain = listOf(plan, 'domain')
   const out = []
+  const unitsProblem = unitsFault(plan)
+  if (unitsProblem) out.push({ c: 'PLAN_UNITS', d: 'plan', a: [unitsProblem] })
   const seen = new Map()
   for (const d of domain) {
     const aspect = String((d && d.aspect) ?? '')

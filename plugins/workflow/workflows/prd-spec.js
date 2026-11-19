@@ -2664,7 +2664,7 @@ function noteAudited(audited, label) {
 }
 
 function auditDocs() {
-  return uniq((state.units || []).flatMap((u) => u.docs))
+  return uniq(state.units.flatMap((u) => u.docs))
 }
 
 // runAuditors: 未実施の監査を「指摘 0 件」にしないため、返り値の無い監査役は missing に挙げる（呼び出した段が止める）。

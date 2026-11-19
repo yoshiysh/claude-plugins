@@ -862,6 +862,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `ST-OBSOLETE-` / `ST-UNVERIFIED-` | 廃止済み規制の語・本文未確認の規格の条番号（`references/citation-policy.md`） |
 | `ST-NO-EVIDENCE-` | 項目 ID に対応する trace が meta に無い |
 | `ST-REQ-NO-ORIGIN-` | 要求文書の項目の trace が、要求の発生源（`references/prd-and-spec.md` §11.1）に届かない。台帳（decisions・resolutions・verifications）と plan.json の domain を使うので、`doc` の検査だけが出す |
+| `ST-PLAN-UNITS` | plan.json の `units` が無いか、形（`id`・空でない `docs`・`depends_on`）を満たさない。`doc_check plan` が出す（`doc` と `flow` は止まる） |
 | `ST-NON-NORMATIVE-` | 本文に根拠句・決定ログ・経緯・未確定事項の章が混ざっている |
 | `ST-AMBIGUOUS-` | ID を持つ項目の文に曖昧語リストの語がある |
 | `ST-TBD-ASSERT-` | 開いている TBD に触れる文が断定の語尾で終わる |

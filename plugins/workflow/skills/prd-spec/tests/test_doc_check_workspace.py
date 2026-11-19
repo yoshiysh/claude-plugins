@@ -970,6 +970,16 @@ class PlanCheck(_Workspace):
     def _all(self, **verdicts):
         return [{"aspect": k, **verdicts.get(k, {"verdict": "非該当", "decision": "D-003"})} for k in _aspect_keys()]
 
+    def test_unitsの形が崩れたplanは指摘を返す(self):
+        plan = json.loads((self.ws / "plan.json").read_text())
+        for name, units in (("欠け", None), ("空", []), ("docs が空", [{"id": "U-1", "docs": [], "depends_on": []}])):
+            with self.subTest(name):
+                broken = {**{k: v for k, v in plan.items() if k != "units"}, "domain": self._all(), **({} if units is None else {"units": units})}
+                (self.ws / "plan.json").write_text(json.dumps(broken, ensure_ascii=False))
+                out = _ok(self.ws, "plan")
+                self.assertGreater(out["findings"], 0)
+                self.assertIn("ST-PLAN-UNITS", _findings(self.ws, "plan.json"))
+
     def test_観点がすべてそろえば0件(self):
         self.assertEqual(len(_aspect_keys()), 10)
         self.assertEqual(self._plan(self._all()), [])
