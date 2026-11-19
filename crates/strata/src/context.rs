@@ -29,6 +29,13 @@ Rules:
 - Omit style/linting nitpicks and generic textbook advice unrelated to actual defects.
 - Output at most 12 compact bullets."#;
 
+pub const REVIEW_REDUCE_SYSTEM_PROMPT: &str = r#"You are merging Stage 1 code/document review notes across chunks.
+Preserve every symbol name, file/line reference, failing input, and public contract from Local Suspects and Public Contracts.
+Rules:
+1. Merge duplicate findings and keep exact identifiers, error types, and call contracts intact.
+2. Do NOT convert review suspects into generic specification prose or drop evidence.
+3. Output ONLY a concise Markdown bullet list."#;
+
 pub const REVIEW_GLOBAL_STAGE_INSTRUCTIONS: &str = r#"
 [Stage 2: Global Audit & False-Positive Filter]
 The context above was produced by Stage 1 local chunk audits. Now synthesize the final review across all chunks:
@@ -367,6 +374,29 @@ pub fn distill_context_with_prompt<F>(
     max_tokens: usize,
     chunk_tokens: usize,
     map_system_prompt: &str,
+    call_fn: F,
+) -> Result<(String, bool), String>
+where
+    F: FnMut(&str, &str) -> Result<String, String>,
+{
+    distill_context_with_prompts(
+        goal,
+        raw_context,
+        max_tokens,
+        chunk_tokens,
+        map_system_prompt,
+        REDUCE_SYSTEM_PROMPT,
+        call_fn,
+    )
+}
+
+pub fn distill_context_with_prompts<F>(
+    goal: &str,
+    raw_context: &str,
+    max_tokens: usize,
+    chunk_tokens: usize,
+    map_system_prompt: &str,
+    reduce_system_prompt: &str,
     mut call_fn: F,
 ) -> Result<(String, bool), String>
 where
@@ -425,7 +455,7 @@ where
                 reduce_chunks.len(),
                 r_chunk
             );
-            let merged = call_fn(REDUCE_SYSTEM_PROMPT, &reduce_prompt)?;
+            let merged = call_fn(reduce_system_prompt, &reduce_prompt)?;
             reduced_parts.push(merged.trim().to_string());
         }
         combined = reduced_parts.join("\n\n");
@@ -587,17 +617,18 @@ where
         min_diff.as_deref(),
         &[],
     );
-    let user_map_prompt = if is_review {
-        REVIEW_MAP_SYSTEM_PROMPT
+    let (user_map_prompt, user_reduce_prompt) = if is_review {
+        (REVIEW_MAP_SYSTEM_PROMPT, REVIEW_REDUCE_SYSTEM_PROMPT)
     } else {
-        DISTILL_SYSTEM_PROMPT
+        (DISTILL_SYSTEM_PROMPT, REDUCE_SYSTEM_PROMPT)
     };
-    let (distilled_user, did_distill_user) = distill_context_with_prompt(
+    let (distilled_user, did_distill_user) = distill_context_with_prompts(
         goal,
         &raw_user_body,
         user_budget,
         chunk_tokens,
         user_map_prompt,
+        user_reduce_prompt,
         &mut call_fn,
     )?;
 
@@ -629,6 +660,14 @@ where
         ),
         did_distill_user,
     ))
+}
+
+pub fn finalize_user_prompt(base: String, is_review: bool, did_distill_user: bool) -> String {
+    if is_review && did_distill_user {
+        format!("{}{}", base, REVIEW_GLOBAL_STAGE_INSTRUCTIONS)
+    } else {
+        base
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -689,7 +728,7 @@ pub fn execute_optimized_with_preflight(
         preflight_intercept(api_base, api_key, model)?;
     }
 
-    let (mut final_user_prompt, did_distill_user) = prepare_optimized_prompt_for_role_with(
+    let (final_user_prompt, did_distill_user) = prepare_optimized_prompt_for_role_with(
         goal,
         target,
         contexts,
@@ -713,9 +752,7 @@ pub fn execute_optimized_with_preflight(
         },
     )?;
 
-    if persona.is_review && did_distill_user {
-        final_user_prompt.push_str(REVIEW_GLOBAL_STAGE_INSTRUCTIONS);
-    }
+    let final_user_prompt = finalize_user_prompt(final_user_prompt, persona.is_review, did_distill_user);
 
     call_strata_api(
         api_base,
