@@ -59,8 +59,12 @@ test-node-other: runtime-deps
 		$(NODE) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
 	fi
 
-# 合否ゲート。1 つでも失敗したら止まる。
-test: test-static-and-python test-node-traceability test-node-other
+# 合否ゲート。3 つを同時に走らせて全ての終了を待ち、1 つでも失敗したら失敗する。
+# runtime-deps を先に満たすのは、3 つのサブ make が同じ node_modules へ npm ci を並列に流さないため。
+# レシピに $(MAKE) を字句どおり書くのは、make -n test でもこの行を実行してサブ make に -n を渡すため。
+TEST_TARGETS := test-static-and-python test-node-traceability test-node-other
+test: runtime-deps
+	@$(SHELL) scripts/run_make_targets.sh '$(MAKE)' $(TEST_TARGETS)
 
 traceability: runtime-deps
 	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
