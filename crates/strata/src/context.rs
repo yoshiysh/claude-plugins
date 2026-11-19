@@ -21,6 +21,28 @@ Rules:
 2. Eliminate redundancy while preserving every distinct technical fact.
 3. Output ONLY a concise Markdown bullet list."#;
 
+pub const REVIEW_MAP_SYSTEM_PROMPT: &str = r#"You are Stage 1 (Local Audit) of a 2-stage code/document reviewer.
+Inspect ONLY this chunk and extract two concise lists relevant to the Goal:
+1. Local Suspects: concrete bugs, edge-case failures, error-swallowing, or injection/resource risks with exact symbol/line and failing input.
+2. Public Contracts: function signatures, CLI/API flags, error types, and external calls needed for cross-chunk verification.
+Rules:
+- Omit style/linting nitpicks and generic textbook advice unrelated to actual defects.
+- Output at most 12 compact bullets."#;
+
+pub const REVIEW_REDUCE_SYSTEM_PROMPT: &str = r#"You are merging Stage 1 code/document review notes across chunks.
+Preserve every symbol name, file/line reference, failing input, and public contract from Local Suspects and Public Contracts.
+Rules:
+1. Merge duplicate findings and keep exact identifiers, error types, and call contracts intact.
+2. Do NOT convert review suspects into generic specification prose or drop evidence.
+3. Output ONLY a concise Markdown bullet list."#;
+
+pub const REVIEW_GLOBAL_STAGE_INSTRUCTIONS: &str = r#"
+[Stage 2: Global Audit & False-Positive Filter]
+The context above was produced by Stage 1 local chunk audits. Now synthesize the final review across all chunks:
+1. Reject false positives or generic advice that conflict with the actual runtime context (e.g., local CLI tools calling localhost endpoints, or unreachable theoretical overflows).
+2. Deduplicate overlapping findings and highlight cross-chunk contract mismatches if any.
+3. Rank remaining confirmed issues by severity; if no real defects remain, state that no major defects were found."#;
+
 #[inline]
 pub fn tokens_from_counts(ascii_bytes: usize, non_ascii_chars: usize) -> usize {
     ascii_bytes.div_ceil(4) + non_ascii_chars
@@ -331,6 +353,50 @@ pub fn distill_context_with<F>(
     raw_context: &str,
     max_tokens: usize,
     chunk_tokens: usize,
+    call_fn: F,
+) -> Result<(String, bool), String>
+where
+    F: FnMut(&str, &str) -> Result<String, String>,
+{
+    distill_context_with_prompt(
+        goal,
+        raw_context,
+        max_tokens,
+        chunk_tokens,
+        DISTILL_SYSTEM_PROMPT,
+        call_fn,
+    )
+}
+
+pub fn distill_context_with_prompt<F>(
+    goal: &str,
+    raw_context: &str,
+    max_tokens: usize,
+    chunk_tokens: usize,
+    map_system_prompt: &str,
+    call_fn: F,
+) -> Result<(String, bool), String>
+where
+    F: FnMut(&str, &str) -> Result<String, String>,
+{
+    distill_context_with_prompts(
+        goal,
+        raw_context,
+        max_tokens,
+        chunk_tokens,
+        map_system_prompt,
+        REDUCE_SYSTEM_PROMPT,
+        call_fn,
+    )
+}
+
+pub fn distill_context_with_prompts<F>(
+    goal: &str,
+    raw_context: &str,
+    max_tokens: usize,
+    chunk_tokens: usize,
+    map_system_prompt: &str,
+    reduce_system_prompt: &str,
     mut call_fn: F,
 ) -> Result<(String, bool), String>
 where
@@ -360,7 +426,7 @@ where
             total,
             chunk
         );
-        let note = call_fn(DISTILL_SYSTEM_PROMPT, &map_prompt)?;
+        let note = call_fn(map_system_prompt, &map_prompt)?;
         notes.push(format!("### Distilled Part {}/{}\n{}", idx + 1, total, note.trim()));
     }
 
@@ -389,7 +455,7 @@ where
                 reduce_chunks.len(),
                 r_chunk
             );
-            let merged = call_fn(REDUCE_SYSTEM_PROMPT, &reduce_prompt)?;
+            let merged = call_fn(reduce_system_prompt, &reduce_prompt)?;
             reduced_parts.push(merged.trim().to_string());
         }
         combined = reduced_parts.join("\n\n");
@@ -430,13 +496,44 @@ pub fn prepare_optimized_prompt_with<F>(
     max_ctx_tokens: usize,
     chunk_tokens: usize,
     optimize: bool,
-    mut call_fn: F,
+    call_fn: F,
 ) -> Result<String, String>
 where
     F: FnMut(&str, &str) -> Result<String, String>,
 {
+    prepare_optimized_prompt_for_role_with(
+        goal,
+        target,
+        contexts,
+        diff,
+        guidelines,
+        max_ctx_tokens,
+        chunk_tokens,
+        optimize,
+        false,
+        call_fn,
+    )
+    .map(|(prompt, _)| prompt)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_optimized_prompt_for_role_with<F>(
+    goal: &str,
+    target: Option<&str>,
+    contexts: &[String],
+    diff: Option<&str>,
+    guidelines: &[(String, String)],
+    max_ctx_tokens: usize,
+    chunk_tokens: usize,
+    optimize: bool,
+    is_review: bool,
+    mut call_fn: F,
+) -> Result<(String, bool), String>
+where
+    F: FnMut(&str, &str) -> Result<String, String>,
+{
     if !optimize {
-        return Ok(build_user_prompt(goal, target, contexts, diff, guidelines));
+        return Ok((build_user_prompt(goal, target, contexts, diff, guidelines), false));
     }
 
     let min_target = target.map(minify_json_in_text);
@@ -452,7 +549,7 @@ where
         guidelines,
     );
     if estimate_tokens(&full_prompt) <= max_ctx_tokens {
-        return Ok(full_prompt);
+        return Ok((full_prompt, false));
     }
 
     // Check if user inputs (goal + target + contexts + diff) fit without guidelines
@@ -475,7 +572,7 @@ where
                     remaining_budget
                 );
             }
-            return Ok(user_only_prompt);
+            return Ok((user_only_prompt, false));
         }
 
         let raw_guidelines: String = guidelines
@@ -491,18 +588,25 @@ where
             &mut call_fn,
         )?;
         let guide_pair = vec![("Distilled Guidelines".to_string(), distilled_guide)];
-        return Ok(build_user_prompt(
-            goal,
-            min_target.as_deref(),
-            &min_contexts,
-            min_diff.as_deref(),
-            &guide_pair,
+        return Ok((
+            build_user_prompt(
+                goal,
+                min_target.as_deref(),
+                &min_contexts,
+                min_diff.as_deref(),
+                &guide_pair,
+            ),
+            false,
         ));
     }
 
-    // Both or user inputs exceed max_ctx_tokens: reserve a small budget for guidelines if present
+    // Both or user inputs exceed max_ctx_tokens: reserve budget for guidelines if present
     let goal_tokens = estimate_tokens(goal) + 16;
-    let guide_reserve = if guidelines.is_empty() { 0 } else { 200.min(max_ctx_tokens / 4) };
+    let guide_reserve = if guidelines.is_empty() {
+        0
+    } else {
+        350.min(max_ctx_tokens / 3)
+    };
     let user_budget = max_ctx_tokens.saturating_sub(goal_tokens + guide_reserve).max(250);
 
     // Build user context body using build_user_prompt (with empty goal) to stay 100% consistent
@@ -513,11 +617,18 @@ where
         min_diff.as_deref(),
         &[],
     );
-    let (distilled_user, _) = distill_context_with(
+    let (user_map_prompt, user_reduce_prompt) = if is_review {
+        (REVIEW_MAP_SYSTEM_PROMPT, REVIEW_REDUCE_SYSTEM_PROMPT)
+    } else {
+        (DISTILL_SYSTEM_PROMPT, REDUCE_SYSTEM_PROMPT)
+    };
+    let (distilled_user, did_distill_user) = distill_context_with_prompts(
         goal,
         &raw_user_body,
         user_budget,
         chunk_tokens,
+        user_map_prompt,
+        user_reduce_prompt,
         &mut call_fn,
     )?;
 
@@ -539,13 +650,24 @@ where
         Vec::new()
     };
 
-    Ok(build_user_prompt(
-        goal,
-        None,
-        &[distilled_user],
-        None,
-        &distilled_guidelines,
+    Ok((
+        build_user_prompt(
+            goal,
+            None,
+            &[distilled_user],
+            None,
+            &distilled_guidelines,
+        ),
+        did_distill_user,
     ))
+}
+
+pub fn finalize_user_prompt(base: String, is_review: bool, did_distill_user: bool) -> String {
+    if is_review && did_distill_user {
+        format!("{}{}", base, REVIEW_GLOBAL_STAGE_INSTRUCTIONS)
+    } else {
+        base
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -606,7 +728,7 @@ pub fn execute_optimized_with_preflight(
         preflight_intercept(api_base, api_key, model)?;
     }
 
-    let final_user_prompt = prepare_optimized_prompt_with(
+    let (final_user_prompt, did_distill_user) = prepare_optimized_prompt_for_role_with(
         goal,
         target,
         contexts,
@@ -615,6 +737,7 @@ pub fn execute_optimized_with_preflight(
         max_ctx_tokens,
         chunk_tokens,
         optimize,
+        persona.is_review,
         |sys_prompt, usr_prompt| {
             call_strata_api(
                 api_base,
@@ -628,6 +751,8 @@ pub fn execute_optimized_with_preflight(
             )
         },
     )?;
+
+    let final_user_prompt = finalize_user_prompt(final_user_prompt, persona.is_review, did_distill_user);
 
     call_strata_api(
         api_base,

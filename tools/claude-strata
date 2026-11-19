@@ -2,6 +2,7 @@
 # Windows/WSL 上で稼働する Strata (MoE ローカル推論) 経由で Claude Code を起動する。
 #
 #   tools/claude-strata [claude オプション...]
+#   tools/claude-strata --skill <NAME> [依頼文]  # claude -p "/<NAME> ..." でスキルを非対話実行 (--permission-mode 未指定時は acceptEdits、STRATA_CLAUDE_PERMISSION_MODE で変更可)
 #   tools/claude-strata --status        # トンネルと Strata の稼働状態を確認
 #   tools/claude-strata --health        # 高速プリフライトチェック (--warmup, --strict, --json 可)
 #   tools/claude-strata --diagnose      # ログ・WSL2 状態を含めた自己診断 (--ai, --json, --no-logs 可)
@@ -330,6 +331,7 @@ EOF
 
 # サブコマンド・特殊フラグの初期チェック
 ACTION=""
+SKILL_NAME=""
 PASSTHROUGH_ARGS=()
 SUBCOMMAND_ARGS=()
 
@@ -350,6 +352,10 @@ while [ $# -gt 0 ]; do
     --health)
       ACTION="health"
       shift
+      ;;
+    --skill)
+      SKILL_NAME="$2"
+      shift 2
       ;;
     --warmup|--strict|--json|--ai|--no-logs)
       SUBCOMMAND_ARGS+=("$1")
@@ -422,18 +428,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+STRATA_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STRATA_BIN="${STRATA_SCRIPT_DIR}/strata"
+STRATA_RELEASE_BIN="${STRATA_SCRIPT_DIR}/../crates/strata/target/release/strata"
+STRATA_API_BASE="http://127.0.0.1:${STRATA_PORT}/v1"
+
 case "$ACTION" in
   status)
     show_status
     exit 0
     ;;
   diagnose)
-    STRATA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/strata"
-    exec "$STRATA_BIN" diagnose --host "$STRATA_HOST" --api-base "http://127.0.0.1:${STRATA_PORT}/v1" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
+    exec "$STRATA_BIN" diagnose --host "$STRATA_HOST" --api-base "$STRATA_API_BASE" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
     ;;
   health)
-    STRATA_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/strata"
-    exec "$STRATA_BIN" health --api-base "http://127.0.0.1:${STRATA_PORT}/v1" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
+    exec "$STRATA_BIN" health --api-base "$STRATA_API_BASE" ${SUBCOMMAND_ARGS[@]+"${SUBCOMMAND_ARGS[@]}"}
     ;;
   start_server)
     if is_server_running_on_wsl; then
@@ -502,9 +511,14 @@ fi
 BARE_MODE=false
 HAS_MODEL=false
 HAS_SETTING_SOURCES=false
+HAS_PERMISSION_MODE=false
+IS_PRINT_MODE=false
 CLAUDE_ARGS=()
+SKILL_PROMPT_PARTS=()
 
-for arg in "${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}"; do
+idx=0
+while [ "$idx" -lt "${#PASSTHROUGH_ARGS[@]}" ]; do
+  arg="${PASSTHROUGH_ARGS[$idx]}"
   case "$arg" in
     --bare)
       BARE_MODE=true
@@ -512,18 +526,62 @@ for arg in "${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}"; do
     --full)
       BARE_MODE=false
       ;;
-    --model)
+    -p|--print)
+      IS_PRINT_MODE=true
+      CLAUDE_ARGS+=("$arg")
+      ;;
+    --permission-mode=*)
+      HAS_PERMISSION_MODE=true
+      CLAUDE_ARGS+=("$arg")
+      ;;
+    --permission-mode)
+      HAS_PERMISSION_MODE=true
+      CLAUDE_ARGS+=("$arg")
+      if [ $((idx + 1)) -lt "${#PASSTHROUGH_ARGS[@]}" ]; then
+        idx=$((idx + 1))
+        CLAUDE_ARGS+=("${PASSTHROUGH_ARGS[$idx]}")
+      fi
+      ;;
+    --model=*)
       HAS_MODEL=true
       CLAUDE_ARGS+=("$arg")
       ;;
-    --setting-sources*)
+    --model)
+      HAS_MODEL=true
+      CLAUDE_ARGS+=("$arg")
+      if [ $((idx + 1)) -lt "${#PASSTHROUGH_ARGS[@]}" ]; then
+        idx=$((idx + 1))
+        CLAUDE_ARGS+=("${PASSTHROUGH_ARGS[$idx]}")
+      fi
+      ;;
+    --setting-sources=*)
       HAS_SETTING_SOURCES=true
       CLAUDE_ARGS+=("$arg")
       ;;
-    *)
+    --setting-sources)
+      HAS_SETTING_SOURCES=true
       CLAUDE_ARGS+=("$arg")
+      if [ $((idx + 1)) -lt "${#PASSTHROUGH_ARGS[@]}" ]; then
+        idx=$((idx + 1))
+        CLAUDE_ARGS+=("${PASSTHROUGH_ARGS[$idx]}")
+      fi
+      ;;
+    --add-dir|--append-system-prompt|--system-prompt|--mcp-config|--output-format|--input-format|--max-turns|--fallback-model|--allowedTools|--disallowedTools)
+      CLAUDE_ARGS+=("$arg")
+      if [ $((idx + 1)) -lt "${#PASSTHROUGH_ARGS[@]}" ]; then
+        idx=$((idx + 1))
+        CLAUDE_ARGS+=("${PASSTHROUGH_ARGS[$idx]}")
+      fi
+      ;;
+    *)
+      if [ -n "$SKILL_NAME" ] && [[ "$arg" != -* ]]; then
+        SKILL_PROMPT_PARTS+=("$arg")
+      else
+        CLAUDE_ARGS+=("$arg")
+      fi
       ;;
   esac
+  idx=$((idx + 1))
 done
 
 FINAL_ARGS=()
@@ -531,6 +589,22 @@ FINAL_ARGS=()
 # モデルの自動付与（指定がなければ sonnet）
 if [ "$HAS_MODEL" = false ]; then
   FINAL_ARGS+=(--model "${STRATA_MODEL}")
+fi
+
+# --skill 指定時は claude -p "/<skill> <prompt>" へ変換
+if [ -n "$SKILL_NAME" ]; then
+  IS_PRINT_MODE=true
+  BARE_MODE=false
+  SKILL_CMD="/${SKILL_NAME}"
+  if [ "${#SKILL_PROMPT_PARTS[@]}" -gt 0 ]; then
+    SKILL_CMD="${SKILL_CMD} ${SKILL_PROMPT_PARTS[*]}"
+  fi
+  FINAL_ARGS+=(-p "$SKILL_CMD")
+fi
+
+# 非対話 (-p / --skill) 時は権限確認で停止しないよう既定権限モードを付与
+if [ "$IS_PRINT_MODE" = true ] && [ "$HAS_PERMISSION_MODE" = false ]; then
+  FINAL_ARGS+=(--permission-mode "${STRATA_CLAUDE_PERMISSION_MODE:-acceptEdits}")
 fi
 
 # --bare 明示時のみ軽量化オプションを適用
@@ -543,6 +617,15 @@ fi
 
 if [ "${#CLAUDE_ARGS[@]}" -gt 0 ]; then
   FINAL_ARGS+=("${CLAUDE_ARGS[@]}")
+fi
+
+# 非対話実行時かつリリースバイナリがビルド済みの場合のみ、起動直前に高速ヘルスチェック (<0.1s) を通す
+if [ "$IS_PRINT_MODE" = true ] && [ -x "$STRATA_RELEASE_BIN" ]; then
+  if ! HEALTH_OUT="$("$STRATA_RELEASE_BIN" health --api-base "$STRATA_API_BASE" 2>&1)"; then
+    printf '%s\n' "$HEALTH_OUT" >&2
+    echo "エラー: Strata のプリフライトヘルスチェックに失敗しました。" >&2
+    exit 1
+  fi
 fi
 
 exec claude "${FINAL_ARGS[@]}"

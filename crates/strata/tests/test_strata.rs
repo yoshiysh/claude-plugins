@@ -5,8 +5,9 @@ use tempfile::{tempdir, NamedTempFile};
 
 use strata::client::{parse_loaded_model_id, read_sse_stream};
 use strata::context::{
-    distill_context_with, estimate_tokens, minify_json_in_text, prepare_optimized_prompt_with,
-    split_into_chunks,
+    distill_context_with, estimate_tokens, finalize_user_prompt, minify_json_in_text,
+    prepare_optimized_prompt_for_role_with, prepare_optimized_prompt_with, split_into_chunks,
+    REVIEW_GLOBAL_STAGE_INSTRUCTIONS, REVIEW_MAP_SYSTEM_PROMPT, REVIEW_REDUCE_SYSTEM_PROMPT,
 };
 use strata::diagnose::{
     analyze_diagnostics, evaluate_health, extract_section, preflight_intercept_with,
@@ -599,4 +600,82 @@ fn test_preflight_intercept_behavior() {
     .unwrap();
     assert!(ran_warmup);
     assert!(warmup_called);
+}
+
+#[test]
+fn test_two_stage_review_distillation_mock() {
+    let big_code = "fn check_item(x: i32) -> i32 {\n    x + 1\n}\n".repeat(120);
+    let mut review_sys_prompts = Vec::new();
+    let mut gen_sys_prompts = Vec::new();
+
+    // Return long Map notes (>260 tokens combined) so Reduce is triggered as well
+    let (review_prompt, did_distill) = prepare_optimized_prompt_for_role_with(
+        "Audit check_item",
+        Some(&big_code),
+        &[],
+        None,
+        &[],
+        260,
+        140,
+        true,
+        true,
+        |sys, _usr| {
+            review_sys_prompts.push(sys.to_string());
+            if sys == REVIEW_REDUCE_SYSTEM_PROMPT {
+                Ok("- [CONCERN] check_item: overflow on i32::MAX (reduced)".to_string())
+            } else {
+                Ok(
+                    "- [CONCERN] check_item: overflow on i32::MAX with detailed contract notes. "
+                        .repeat(12),
+                )
+            }
+        },
+    )
+    .unwrap();
+    assert!(did_distill);
+    assert!(review_sys_prompts.iter().any(|s| s == REVIEW_MAP_SYSTEM_PROMPT));
+    assert!(review_sys_prompts.iter().any(|s| s == REVIEW_REDUCE_SYSTEM_PROMPT));
+    assert!(review_prompt.contains("overflow on i32::MAX (reduced)"));
+
+    let (_gen_prompt, did_distill_gen) = prepare_optimized_prompt_for_role_with(
+        "Implement helper",
+        Some(&big_code),
+        &[],
+        None,
+        &[],
+        260,
+        140,
+        true,
+        false,
+        |sys, _usr| {
+            gen_sys_prompts.push(sys.to_string());
+            Ok("- check_item(x: i32) -> i32".to_string())
+        },
+    )
+    .unwrap();
+    assert!(did_distill_gen);
+    assert!(!gen_sys_prompts.is_empty());
+    assert!(gen_sys_prompts
+        .iter()
+        .all(|s| s != REVIEW_MAP_SYSTEM_PROMPT && s != REVIEW_REDUCE_SYSTEM_PROMPT));
+}
+
+#[test]
+fn test_finalize_user_prompt_matrix() {
+    let cases = [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ];
+    for (is_review, did_distill_user, expected_stage2) in cases {
+        let out = finalize_user_prompt("base prompt".to_string(), is_review, did_distill_user);
+        assert_eq!(
+            out.contains(REVIEW_GLOBAL_STAGE_INSTRUCTIONS),
+            expected_stage2,
+            "failed for is_review={}, did_distill_user={}",
+            is_review,
+            did_distill_user
+        );
+    }
 }
