@@ -288,6 +288,10 @@ test('common adapter exposes checkpoint/resume with pinned mock SDK model policy
 });
 
 test('write and fsync faults at every task/checkpoint boundary prevent unsafe resume', async t => {
+  // make test は CLAUDE_PLUGINS_SKIP_FSYNC=1 で fsync を省く。この検査は sync の故障を注入するので、既定（fsync する）に戻す。
+  const skip = process.env.CLAUDE_PLUGINS_SKIP_FSYNC;
+  delete process.env.CLAUDE_PLUGINS_SKIP_FSYNC;
+  t.after(() => { if (skip !== undefined) process.env.CLAUDE_PLUGINS_SKIP_FSYNC = skip; });
   for (const type of ['agent.accepted', 'agent.started', 'agent.completed', 'reply.released', 'checkpoint.stopped']) {
     for (const operation of ['write', 'sync']) {
       const f = await fixture(t, `await agent('a'); await checkpoint('one'); return await agent('b');`);

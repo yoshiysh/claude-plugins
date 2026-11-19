@@ -120,6 +120,21 @@ test('real Node execution distinguishes skip and loaded/never loaded source inve
   assert.ok(coverage.files.some(x => x.file.endsWith('never.mjs') && ['unloaded','zero-covered'].includes(x.status)));
 });
 
+test('runner disables the Node compile cache for the coverage run and its child processes', async t => {
+  // compile cache はカバレッジの精度を下げ得るので、Makefile が NODE_COMPILE_CACHE を渡していても測る子では無効にする。
+  const {root,file} = await fixture(t);
+  const c = await loadConfig(file);
+  await writeFile(path.join(root,'tests','bp-sample.test.mjs'),
+    "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { execFileSync } from 'node:child_process';\n" +
+    "test('compile cache off', () => {\n  assert.equal(process.env.NODE_DISABLE_COMPILE_CACHE, '1');\n" +
+    "  assert.equal(execFileSync(process.execPath, ['-p', 'process.env.NODE_DISABLE_COMPILE_CACHE'], {encoding:'utf8'}).trim(), '1');\n});\n");
+  const saved = process.env.NODE_COMPILE_CACHE;
+  process.env.NODE_COMPILE_CACHE = path.join(root,'cache');
+  t.after(() => { if (saved === undefined) delete process.env.NODE_COMPILE_CACHE; else process.env.NODE_COMPILE_CACHE = saved; });
+  const run = await runTests(c,c.testFiles);
+  assert.equal(run.summary.success,true,run.diagnostics);
+});
+
 test('runner failure cannot become success and explicit unmeasured source remains visible', async t => {
   const {root,file} = await fixture(t);
   const c = await loadConfig(file);

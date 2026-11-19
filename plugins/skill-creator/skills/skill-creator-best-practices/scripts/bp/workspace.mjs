@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { CODES, LOG_FILE, STATE_DIR_NAME, STATE_ROOT_ENV, STATES_DIR, WORK_DIR } from './constants.mjs';
 import { reject } from './errors.mjs';
-import { formatLine } from './journal.mjs';
+import { formatLine, syncHandle } from './journal.mjs';
 
 export function realpathLoose(p) {
   const abs = path.resolve(p);
@@ -93,7 +93,7 @@ export async function createStateDir(root, id, firstLine, { writeFile = fs.write
     await fs.mkdir(path.join(staging, WORK_DIR));
     await writeFile(path.join(staging, LOG_FILE), formatLine(firstLine), { flag: 'wx' });
     const handle = await fs.open(path.join(staging, LOG_FILE), 'r');
-    await handle.sync();
+    await syncHandle(handle);
     await handle.close();
     await fs.rename(staging, target);
   } catch (error) {

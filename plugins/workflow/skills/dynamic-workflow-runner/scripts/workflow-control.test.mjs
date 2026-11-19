@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import test, { describe } from "node:test";
 import { fileURLToPath } from "node:url";
+import { run as runControl } from "./workflow-control.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./workflow-control.mjs", import.meta.url));
 const BRIDGE_SCRIPT = fileURLToPath(new URL("./workflow-bridge.mjs", import.meta.url));
@@ -59,8 +60,9 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+// CLI と同じ入口（run）を process を起動せずに呼ぶ。process としての入口は「the CLI entry」と invokeAsync のテストで確かめる。
 function invoke(args, expectedStatus = 0) {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
+  const result = runControl(args);
   assert.equal(result.status, expectedStatus, result.stderr);
   return JSON.parse(expectedStatus === 0 ? result.stdout : result.stderr);
 }
@@ -94,6 +96,32 @@ function invokeBridgeAsync(args) {
 }
 
 describe("workflow-control", { concurrency: 4 }, () => {
+test("the CLI entry writes the same stdout, stderr, and exit status as run(), also when started through a symlink", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "workflow-control-entry-")));
+  // 直接実行の判定は realpath で比べるので、symlink を経た起動でも本体が走る（走らなければ何も出さずに 0 で終わる）。
+  const link = join(dir, "workflow-control.mjs");
+  symlinkSync(SCRIPT, link);
+  const paths = fixture([agentTask("inspect")]);
+  assert.equal(initialize(paths).status, "workflow_ready");
+  const cases = [
+    [["bogus"], 1],
+    [["status", "--run-dir", join(dir, "missing")], 1],
+    [["status"], 1],
+    [["status", "--run-dir", paths.runDir], 0],
+    [["ready", "--run-dir", paths.runDir], 0],
+  ];
+  for (const script of [SCRIPT, link]) {
+    for (const [args, status] of cases) {
+      const child = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+      const direct = runControl(args);
+      assert.deepEqual({ status: child.status, stdout: child.stdout, stderr: child.stderr }, direct, `${script} ${args.join(" ")}`);
+      assert.equal(direct.status, status, args.join(" "));
+      if (status === 0) assert.equal(typeof JSON.parse(direct.stdout).status, "string");
+      else assert.equal(JSON.parse(direct.stderr).status, "error");
+    }
+  }
+});
+
 test("documents the mode-specific workflow-call init argument", () => {
   const result = invoke([], 1);
   assert.equal(result.code, "invalid_arguments");

@@ -1,7 +1,7 @@
-import test, { describe } from 'node:test'
+import test, { after, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -81,8 +81,13 @@ function fakeGithub(fx) {
   return gh
 }
 
-function fixture(t) {
-  const repo = tmp(t, 'address-cli-repo-')
+// git の repo は 1 回だけ作り、各テストはその写しを使う（テストごとに git を十数回起動しないため）。
+let templateRepo
+after(() => { if (templateRepo) rmSync(templateRepo.repo, { recursive: true, force: true }) })
+
+function template() {
+  if (templateRepo) return templateRepo
+  const repo = realpathSync(mkdtempSync(path.join(tmpdir(), 'address-cli-base-')))
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'config', 'commit.gpgsign', 'false')
   write(repo, 'src/a.mjs', 'export const a = 1\n')
@@ -95,6 +100,16 @@ function fixture(t) {
   git(repo, 'commit', '-q', '-m', 'head')
   const head = git(repo, 'rev-parse', 'HEAD')
   git(repo, 'update-ref', 'refs/remotes/origin/main', base)
+  templateRepo = { repo, base, head }
+  return templateRepo
+}
+
+function fixture(t) {
+  const { repo: source, base, head } = template()
+  const repo = tmp(t, 'address-cli-repo-')
+  cpSync(source, repo, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true })
+  // 写しで変わる inode・ctime による stat の不一致を index から消し、git status を元と同じにする。
+  git(repo, 'update-index', '-q', '--refresh')
   const fx = { repo, base, head, stateDir: tmp(t, 'address-cli-state-') }
   fx.gh = fakeGithub(fx)
   const real = defaultIo()

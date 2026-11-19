@@ -15,6 +15,13 @@ MAX_BYTES = 1024 * 1024
 PENDING = ".pending-snapshot"
 
 
+# 環境変数 CLAUDE_PLUGINS_SKIP_FSYNC が "1" のときだけ fsync を省く。make test のためのもので、既定は fsync する
+# （macOS の fsync は F_FULLFSYNC でマシン全体で直列に進み、並列のテストの待ちを増やす）。
+def durable_sync(fd):
+    if os.environ.get("CLAUDE_PLUGINS_SKIP_FSYNC") != "1":
+        os.fsync(fd)
+
+
 def validate_item(item):
     def natural(value):
         return type(value) is int and value >= 0
@@ -156,12 +163,12 @@ def save(directory, item, retention_days=30, max_records=1000, now=None):
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
             stream.flush()
-            os.fsync(stream.fileno())
+            durable_sync(stream.fileno())
         os.replace(temporary, target)
         temporary = None
         directory_fd = os.open(root, os.O_RDONLY)
         try:
-            os.fsync(directory_fd)
+            durable_sync(directory_fd)
         finally:
             os.close(directory_fd)
         return {"status": "collected", "duplicate": duplicate is not None,

@@ -43,24 +43,38 @@ test-static-and-python: runtime-deps references
 		$(PYTHON) $(VALIDATOR) $(SKILLS_DIR)/$$s --verbose; \
 	done
 	@echo "── unittest"
-	@$(PYTHON) scripts/parallel_unittest.py $(TEST_DIRS)
+	@$(TEST_ENV) $(PYTHON) scripts/parallel_unittest.py $(TEST_DIRS)
 	@set -e; for e in $(EVAL_RUNNERS); do \
 		echo "── eval preflight $$e"; \
 		$(NODE) $$e; \
 	done
 
+# Node の段（とそこから起動される子の node）が、読み込んだモジュールのコンパイル結果を使い回す。
+# 置き場は Node の文書の勧めに従い一時ディレクトリの下にする（テストの fixture は乱数の path にでき、cache が溜まり続けるため）。
+# target-specific の export にしないのは、前提ターゲット（runtime-deps の npm ci）にまで効くため。
+# traceability の段はカバレッジを測る子で無効にする（scripts/traceability/runner.mjs）。
+# CLAUDE_PLUGINS_SKIP_FSYNC=1 は、テストの段の中だけ本番コードの fsync を省く（既定は fsync する。macOS の fsync は
+# F_FULLFSYNC でマシン全体で 1 本ずつ進み、並列のテストの待ちの大半を占める。スイッチ自体は tests/fsync-switch.test.mjs で確かめる）。
+NODE_COMPILE_CACHE_DIR ?= $(or $(TMPDIR),/tmp)/claude-plugins-node-compile-cache
+TEST_ENV := CLAUDE_PLUGINS_SKIP_FSYNC=1
+NODE_FOR_TESTS := $(TEST_ENV) NODE_COMPILE_CACHE='$(NODE_COMPILE_CACHE_DIR)' $(NODE)
+
 test-node-traceability: runtime-deps
 	@echo "── Node tests (traceability)"
-	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
+	@$(NODE_FOR_TESTS) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
 
 test-node-other: runtime-deps
 	@if [ -n "$(NODE_TEST_FILES)" ]; then \
 		echo "── Node tests (other)"; \
-		$(NODE) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
+		$(NODE_FOR_TESTS) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
 	fi
 
-# 合否ゲート。1 つでも失敗したら止まる。
-test: test-static-and-python test-node-traceability test-node-other
+# 合否ゲート。3 つを同時に走らせて全ての終了を待ち、1 つでも失敗したら失敗する。
+# runtime-deps を先に満たすのは、3 つのサブ make が同じ node_modules へ npm ci を並列に流さないため。
+# レシピに $(MAKE) を字句どおり書くのは、make -n test でもこの行を実行してサブ make に -n を渡すため。
+TEST_TARGETS := test-static-and-python test-node-traceability test-node-other
+test: runtime-deps
+	@$(SHELL) scripts/run_make_targets.sh '$(MAKE)' $(TEST_TARGETS)
 
 traceability: runtime-deps
 	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)

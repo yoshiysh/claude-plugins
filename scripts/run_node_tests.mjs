@@ -3,27 +3,37 @@
  * Run Node.js tests outside traceability.config.json with optional deterministic sharding.
  * Keeps `traceability/cli.mjs` focused on its configured scope while ensuring zero omissions.
  */
-import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
+import { run } from 'node:test';
+import { spec } from 'node:test/reporters';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './traceability/specs.mjs';
 
-// Estimated durations (seconds) used for LPT shard balancing.
-// Exact values are not required; ordering heavy files first prevents long-tail shards.
-const KNOWN_WEIGHTS = new Map([
-  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 112],
-  ['.agents/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 30],
-  ['.agents/skills/formal-method/scripts/cli-recovery.test.mjs', 20],
-  ['.agents/skills/formal-method/scripts/cli-scope.test.mjs', 40],
-  ['.agents/skills/repo-implement/scripts/implement-cli.test.mjs', 30],
-  ['tests/repo-implement-workflow.test.mjs', 25],
-  ['.agents/skills/formal-method/scripts/cli-intake.test.mjs', 22],
-  ['tests/repo-review-workflow.test.mjs', 16],
-  ['.agents/skills/address-review/scripts/address-cli.test.mjs', 12],
+// ファイルごとの所要時間の見積もり（秒）。シャードの配分（LPT）と、実行の順（重い順）に使う。
+// 値は make test の並列実行での実測（2026-11）。キーは normalizeRepoPath の結果（realpath の repo 相対）で、
+// .agents/skills の symlink 経由で渡されたファイルも実体の path で引く。正確さは要らず、重いものが先に起動すれば足りる。
+export const KNOWN_WEIGHTS = new Map([
+  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 70],
+  ['.agents/skills/formal-method/scripts/cli-pipeline-returns.test.mjs', 55],
+  ['.agents/skills/formal-method/scripts/cli-pipeline-models.test.mjs', 45],
+  ['.agents/skills/formal-method/scripts/cli-pipeline-plan-defects.test.mjs', 30],
+  ['.agents/skills/repo-implement/scripts/implement-cli.test.mjs', 40],
+  ['.agents/skills/repo-implement/scripts/implement-cli-checks.test.mjs', 40],
+  ['.agents/skills/repo-implement/scripts/implement-cli-review.test.mjs', 40],
+  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 8],
+  ['tests/repo-implement-workflow-run.test.mjs', 28],
+  ['tests/repo-implement-workflow.test.mjs', 18],
+  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/run-workspace.test.mjs', 64],
+  ['.agents/skills/address-review/scripts/address-cli.test.mjs', 22],
+  ['tests/repo-review-workflow.test.mjs', 52],
+  ['.agents/skills/repo-review/scripts/review-cli.test.mjs', 35],
+  ['.agents/skills/formal-method/scripts/cli-recovery.test.mjs', 14],
   ['.agents/skills/formal-method/scripts/cli-client.test.mjs', 12],
-  ['.agents/skills/repo-review/scripts/review-cli.test.mjs', 9],
-  ['.agents/skills/dynamic-workflow-runner/scripts/runtime/resume.test.mjs', 7],
+  ['.agents/skills/formal-method/scripts/cli-scope.test.mjs', 11],
+  ['.agents/skills/formal-method/scripts/cli-intake.test.mjs', 8],
+  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/resume.test.mjs', 7],
   ['tests/traceability.test.mjs', 6],
   ['.agents/skills/formal-method/scripts/fake-z3.test.mjs', 5],
   ['tests/formal/bp-prd/check.test.mjs', 5],
@@ -60,15 +70,17 @@ export function partitionFiles(root, allFiles, tracedFiles) {
   return untraced.sort();
 }
 
+// 重い順（同じ重みは path の順）に並べる。node:test の run() は渡した順に起動するので、
+// 長いファイルが最後に起動して全体の終わりを引き延ばすことを防ぐ。
+export function orderByWeight(files, root = process.cwd()) {
+  return files
+    .map((file) => ({ file, weight: KNOWN_WEIGHTS.get(normalizeRepoPath(root, file)) ?? 1 }))
+    .sort((a, b) => b.weight - a.weight || a.file.localeCompare(b.file));
+}
+
 export function assignShards(files, totalShards, root = process.cwd()) {
   const buckets = Array.from({ length: totalShards }, () => ({ weight: 0, files: [] }));
-  const weighted = files.map((file) => {
-    const norm = normalizeRepoPath(root, file);
-    const weight = KNOWN_WEIGHTS.get(norm) ?? KNOWN_WEIGHTS.get(file.replaceAll('\\', '/')) ?? 1;
-    return { file, weight };
-  });
-  weighted.sort((a, b) => b.weight - a.weight || a.file.localeCompare(b.file));
-  for (const item of weighted) {
+  for (const item of orderByWeight(files, root)) {
     let best = 0;
     for (let i = 1; i < buckets.length; i += 1) {
       if (buckets[i].weight < buckets[best].weight) best = i;
@@ -77,6 +89,25 @@ export function assignShards(files, totalShards, root = process.cwd()) {
     buckets[best].weight += item.weight;
   }
   return buckets.map((b) => b.files);
+}
+
+// files を run() で実行し、spec reporter で stdout に出す。全体の test:summary の success を返す
+// （summary が来ないまま終わったら失敗）。`node --test` は argv の順を無視して path の順に起動するので、run() を使う。
+export async function runFiles(files, { cwd, concurrency, output = process.stdout }) {
+  let success = false;
+  // Node 22 の run() は cwd を受け付けない（v23 で追加）ので、子が継ぐ cwd を process の側でもそろえる。
+  process.chdir(cwd);
+  const stream = run({ files: files.map((f) => path.resolve(cwd, f)), cwd, concurrency });
+  stream.on('test:summary', (data) => {
+    if (data.file === undefined) success = data.success;
+  });
+  const reporter = stream.compose(spec);
+  reporter.pipe(output, { end: false });
+  await new Promise((resolve, reject) => {
+    reporter.on('end', resolve);
+    reporter.on('error', reject);
+  });
+  return success;
 }
 
 function parseArgs(argv) {
@@ -100,12 +131,23 @@ function parseArgs(argv) {
   return { configPath, shard: parseShard(shard), dryRun, files };
 }
 
+// 同時に走らせるファイルの数。NODE_TEST_CONCURRENCY が無ければ CPU の半分。make test では traceability の段
+// （node --test の既定の CPU − 1 だが、対象のファイルの数で頭打ちになる）と同時に走るので、全ての CPU は取らない。
+// CI は値を明示する（verification.yml）。
+export function testConcurrency(value, cpus) {
+  if (value === undefined || value === '') return Math.max(1, Math.floor(cpus / 2));
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`Invalid NODE_TEST_CONCURRENCY: ${value}`);
+  return n;
+}
+
 async function main() {
   const { configPath, shard, dryRun, files } = parseArgs(process.argv.slice(2));
   const config = await loadConfig(path.resolve(configPath));
   const targetFiles = partitionFiles(config.root, files, config.testFiles);
-  const selected = shard ? assignShards(targetFiles, shard.total, config.root)[shard.index - 1] : targetFiles;
+  const selected = shard ? assignShards(targetFiles, shard.total, config.root)[shard.index - 1] : orderByWeight(targetFiles, config.root).map((x) => x.file);
 
+  const concurrency = testConcurrency(process.env.NODE_TEST_CONCURRENCY, availableParallelism());
   if (dryRun) {
     for (const f of selected) console.log(f);
     return;
@@ -115,10 +157,10 @@ async function main() {
     return;
   }
 
-  const concurrency = process.env.NODE_TEST_CONCURRENCY || '4';
-  const args = ['--test', `--test-concurrency=${concurrency}`, ...selected];
-  const res = spawnSync(process.execPath, args, { cwd: config.root, stdio: 'inherit' });
-  process.exitCode = res.status ?? 1;
+  // reporter が終わりを告げずに event loop が空になっても、成功で終わらせない。
+  process.exitCode = 1;
+  const ok = await runFiles(selected, { cwd: config.root, concurrency });
+  process.exitCode = ok ? 0 : 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

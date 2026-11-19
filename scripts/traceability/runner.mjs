@@ -28,6 +28,8 @@ export async function runTests(config, files) {
   args.push(...files);
   const env = {...process.env};
   delete env.NODE_TEST_CONTEXT;
+  // compile cache はカバレッジの精度を下げ得る（Node の文書）。テストが起動する子の node にも引き継がせて無効にする。
+  env.NODE_DISABLE_COMPILE_CACHE = '1';
   const result = await collect(process.execPath,args,{cwd:config.root,env});
   const events = [];
   for (const line of result.stdout.split('\n').filter(Boolean)) {
