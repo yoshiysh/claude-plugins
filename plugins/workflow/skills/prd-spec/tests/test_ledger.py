@@ -1186,7 +1186,7 @@ class DomainAssessment(_Workspace):
         self.assertIn("後段カテゴリが空でも除外したカテゴリを戻さない", ledger)
         self.assertIn("この集合の導出と supersession はここを正とする", ledger)
         self.assertIn("有効な必須カテゴリの集合と supersession は「決定の台帳」", writer)
-        self.assertIn("要求 ID または仕様項目 ID の中身として実現", writer)
+        self.assertIn("§11.1 に従って決めた項目の中身として実現", writer)
         self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", cross_doc)
         self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", cross_doc)
         self.assertIn("## 決定の台帳\n", writer)

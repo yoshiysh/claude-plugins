@@ -211,6 +211,176 @@ stateDiagram-v2
 """
 
 
+def _with_ledgers(docs, flow, writes_spec, decisions, resolutions, passed, plan=None):
+    """台帳を渡して structuralFindings で検査する。passed は裁定 ID → 検証（pass: 今の版で合格 / fail: 不合格 / stale: 書き換える前の版で合格）。"""
+    src = (f"import {{ structuralFindings, canonicalJson }} from {json.dumps(DOC_CHECK.as_uri())}\n"
+           "import crypto from 'node:crypto'\n"
+           "function main(spec) {\n"
+           "  const digest = (v) => crypto.createHash('sha256').update(canonicalJson(v)).digest('hex')\n"
+           "  const items = spec.resolutions.filter((r) => r.id in spec.passed).map((r) => ({ id: r.id, verdict: spec.passed[r.id] === 'fail' ? 'fail' : 'pass', digest: digest(spec.passed[r.id] === 'stale' ? { ...r, value: '前の版' } : r) }))\n"
+           "  return structuralFindings(spec.docs, spec.flow, spec.writesSpec, { decisions: { decisions: spec.decisions }, resolutions: { resolutions: spec.resolutions }, verifications: { items } }, spec.plan) }")
+    return _node(src, {"docs": docs, "flow": flow, "writesSpec": writes_spec, "decisions": decisions,
+                       "resolutions": resolutions, "passed": passed, "plan": plan})
+
+
+ORIGIN_DECISIONS = [
+    {"id": "D-001", "source": "input"}, {"id": "D-002", "source": "default"}, {"id": "D-003", "source": "precedent"},
+    {"id": "D-004", "source": "input", "status": "superseded"},
+    {"id": "D-005", "source": "input"},  # plan の domain が指す
+    {"id": "D-006", "source": "precedent"},  # plan の required_categories が指す
+]
+ORIGIN_PLAN = {"domain": [{"aspect": "個人情報", "verdict": "該当", "decision": "D-005"}], "required_categories": [{"name": "監査ログ", "decision": "D-006"}]}
+ORIGIN_RESOLUTIONS = [
+    {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "answered_by"},
+    {"id": "RS-002", "about": {"open": "O-002"}, "ruling": "internal"},
+    {"id": "RS-003", "about": {"open": "O-003"}, "ruling": "question", "answer": {"path": "answers/g1.md", "quote": "はい"}},
+    {"id": "RS-004", "about": {"open": "O-004"}, "ruling": "question"},
+    {"id": "RS-005", "about": {"tbd": "TBD-RFLOW-001"}, "ruling": "hold", "hold": {"item_ids": ["PR-FLOW-001"]}},
+    {"id": "RS-006", "about": {"open": "O-006"}, "ruling": "answered_by"},
+    {"id": "RS-007", "about": {"open": "O-007"}, "ruling": "measured"},
+    {"id": "RS-008", "about": {"open": "O-008"}, "ruling": "method"},
+    {"id": "RS-009", "about": {"open": "O-009"}, "ruling": "precedent"},
+    {"id": "RS-010", "about": {"open": "O-010"}, "ruling": "answered_by"},
+    {"id": "RS-011", "about": {"open": "O-011"}, "ruling": "answered_by"},
+    {"id": "RS-012", "about": {"tbd": "TBD-RFLOW-002"}, "ruling": "hold", "hold": {"item_ids": ["PR-OTHER-001"]}},
+    {"id": "RS-013", "about": {"domain": "個人情報"}, "ruling": "answered_by"},
+]
+# RS-006 は未検証、RS-010 は不合格、RS-011 は合格の後に書き換えた。
+ORIGIN_PASSED = {**{f"RS-{i:03d}": "pass" for i in (1, 2, 3, 4, 5, 7, 8, 9, 12, 13)}, "RS-010": "fail", "RS-011": "stale"}
+
+
+def _origin_flow(sources):
+    """F-001 → F-002 → … の一本道。要素 i の source は sources[i]。"""
+    n = len(sources)
+    els = [{"id": f"F-{i + 1:03d}", "type": "input" if i == 0 else "output" if i == n - 1 else "step",
+            "kind": FLOW_BROKEN["kinds"][0]["name"] if i == 0 else "返すもの" if i == n - 1 else "工程",
+            "label": f"要素{i + 1}", "source": src, **({"next": [f"F-{i + 2:03d}"]} if i < n - 1 else {})}
+           for i, src in enumerate(sources)]
+    return {"elements": els, "kinds": FLOW_BROKEN["kinds"], "closure": "依頼文の動詞を全て工程に当てた"}
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class RequirementOrigin(unittest.TestCase):
+    """要求文書の要求は依頼者側の発生源を持つ（references/prd-and-spec.md §11.1）。trace の閉包が終点に届かなければ ST-REQ-NO-ORIGIN。"""
+
+    FLOW = _origin_flow([{"input": "依頼文"}, {"decision": "D-002"}, [{"open": "O-002"}, {"open": "O-001"}], {"open": "O-002"}, {"open": "O-006"}, {"decision": "RS-007"}])
+
+    def _check(self, trace, writes_spec=False):
+        req = _doc("本文", key="requirements/flow", kind="requirements", ids=["PR-FLOW-001"],
+                   trace=[{"item_id": "PR-FLOW-001", **t} for t in trace])
+        return _with_ledgers([req], self.FLOW, writes_spec, ORIGIN_DECISIONS, ORIGIN_RESOLUTIONS, ORIGIN_PASSED, ORIGIN_PLAN)
+
+    def _flagged(self, trace, writes_spec=False):
+        return _ids(self._check(trace, writes_spec), "ST-REQ-NO-ORIGIN-") == ["ST-REQ-NO-ORIGIN-PR-FLOW-001"]
+
+    def test_終点に届かない根拠だけの要求を指摘する(self):
+        for name, trace in (
+            ("既定の決定", [{"kind": "decision", "ref": "D-002"}]),
+            ("内部の裁定", [{"kind": "resolution", "ref": "RS-002"}]),
+            ("実測の裁定", [{"kind": "resolution", "ref": "RS-007"}]),
+            ("方法の裁定", [{"kind": "resolution", "ref": "RS-008"}]),
+            ("回答の無い問い", [{"kind": "resolution", "ref": "RS-004"}]),
+            ("固定前提", [{"kind": "premise", "ref": "前提 1"}]),
+            ("未検証の answered_by", [{"kind": "resolution", "ref": "RS-006"}]),
+            ("不合格の answered_by", [{"kind": "resolution", "ref": "RS-010"}]),
+            ("合格の後に書き換えた answered_by", [{"kind": "resolution", "ref": "RS-011"}]),
+            ("既定の決定を出典にする要素", [{"kind": "flow", "ref": "F-002"}]),
+            ("内部の裁定でだけ閉じた open を出典にする要素", [{"kind": "flow", "ref": "F-004"}]),
+            ("合格していない裁定でだけ閉じた open を出典にする要素", [{"kind": "flow", "ref": "F-005"}]),
+            ("実測の裁定を出典にする要素", [{"kind": "flow", "ref": "F-006"}]),
+            ("plan の domain が指す入力の決定", [{"kind": "decision", "ref": "D-005"}]),
+            ("plan の required_categories が指す前例の決定", [{"kind": "decision", "ref": "D-006"}]),
+            ("about.domain の裁定", [{"kind": "resolution", "ref": "RS-013"}]),
+            ("item_ids に無い項目の保持規則", [{"kind": "resolution", "ref": "RS-012"}]),
+            ("終点に届かない根拠を重ねても届かない", [{"kind": "decision", "ref": "D-002"}, {"kind": "premise", "ref": "前提 1"}]),
+        ):
+            with self.subTest(name):
+                self.assertTrue(self._flagged(trace))
+
+    def test_終点に届く根拠が_1_つあれば指摘しない(self):
+        for name, trace in (
+            ("入力", [{"kind": "input", "quote": "依頼文"}]),
+            ("回答", [{"kind": "answers", "quote": "はい"}]),
+            ("入力の決定", [{"kind": "decision", "ref": "D-001"}]),
+            ("置き換えられた入力の決定", [{"kind": "decision", "ref": "D-004"}]),
+            ("前例の決定", [{"kind": "decision", "ref": "D-003"}]),
+            ("合格した answered_by", [{"kind": "resolution", "ref": "RS-001"}]),
+            ("回答のある問い", [{"kind": "resolution", "ref": "RS-003"}]),
+            ("保持規則", [{"kind": "resolution", "ref": "RS-005"}]),
+            ("前例の裁定", [{"kind": "resolution", "ref": "RS-009"}]),
+            ("decision の欄で引いた裁定", [{"kind": "decision", "ref": "RS-001"}]),
+            ("入力を出典にする要素", [{"kind": "flow", "ref": "F-001"}]),
+            ("合格した answered_by で閉じた open を配列に含む要素", [{"kind": "flow", "ref": "F-003"}]),
+            ("既定の決定と並べた入力", [{"kind": "decision", "ref": "D-002"}, {"kind": "input", "quote": "依頼文"}]),
+        ):
+            with self.subTest(name):
+                self.assertFalse(self._flagged(trace))
+
+    def test_直し方はランで分かれる(self):
+        trace = [{"kind": "decision", "ref": "D-002"}]
+        fix = lambda ws: next(f for f in self._check(trace, ws)["findings"] if f["id"] == "ST-REQ-NO-ORIGIN-PR-FLOW-001")["fix"]
+        self.assertIn("同じ単位に仕様書があればそこへ移し、無ければ残りとして報告する", fix(True))
+        self.assertIn("削るか、依頼者に問う TBD にする", fix(False))
+
+    def test_保持規則は_item_ids_に挙げた項目だけが発生源になる(self):
+        other = _doc("本文", key="requirements/flow", kind="requirements", ids=["PR-OTHER-001"],
+                     trace=[{"item_id": "PR-OTHER-001", "kind": "resolution", "ref": "RS-005"}])
+        res = _with_ledgers([other], self.FLOW, False, ORIGIN_DECISIONS, ORIGIN_RESOLUTIONS, ORIGIN_PASSED, ORIGIN_PLAN)
+        self.assertEqual(_ids(res, "ST-REQ-NO-ORIGIN-"), ["ST-REQ-NO-ORIGIN-PR-OTHER-001"])
+        self.assertFalse(self._flagged([{"kind": "resolution", "ref": "RS-005"}]))
+
+    def test_仕様書と固定の要求文書と_trace_の無い項目は見ない(self):
+        trace = [{"item_id": "SP-FLOW-001", "kind": "decision", "ref": "D-002"}]
+        spec = _doc("本文", ids=["SP-FLOW-001"], trace=trace)
+        fixed = _doc("本文", key="requirements/old", kind="requirements", ids=["PR-OLD-001"], fixed=True,
+                     trace=[{"item_id": "PR-OLD-001", "kind": "decision", "ref": "D-002"}])
+        bare = _doc("本文", key="requirements/flow", kind="requirements", ids=["PR-FLOW-001"], trace=[])
+        res = _with_ledgers([spec, fixed, bare], self.FLOW, True, ORIGIN_DECISIONS, ORIGIN_RESOLUTIONS, ORIGIN_PASSED)
+        self.assertEqual(_ids(res, "ST-REQ-NO-ORIGIN-"), [])
+        self.assertIn("ST-NO-EVIDENCE-PR-FLOW-001", _ids(res, "ST-NO-EVIDENCE-"), "trace の無い項目は NO_EVIDENCE だけが持つ")
+
+    def test_台帳が渡されなければ検査しない(self):
+        req = _doc("本文", key="requirements/flow", kind="requirements", ids=["PR-FLOW-001"],
+                   trace=[{"item_id": "PR-FLOW-001", "kind": "decision", "ref": "D-002"}])
+        self.assertEqual(_ids(_structural([req], self.FLOW, writes_spec=False), "ST-REQ-NO-ORIGIN-"), [])
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class UnattachedByOrigin(unittest.TestCase):
+    """要求文書だけのランでは、発生源の無い流れの要素を要求文書に振らず未検査に宣言する。"""
+
+    # F-001 入力 / F-002 既定の決定 / F-003 合格した answered_by で閉じた open / F-004 内部の裁定で閉じた open
+    FLOW = _origin_flow([{"input": "依頼文"}, {"decision": "D-002"}, {"open": "O-001"}, {"open": "O-002"}])
+
+    def _run(self, docs, writes_spec):
+        res = _with_ledgers(docs, self.FLOW, writes_spec, ORIGIN_DECISIONS, ORIGIN_RESOLUTIONS, ORIGIN_PASSED)
+        routed = [(f["id"], f["document"]) for f in res["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-")]
+        return routed, {n["id"]: n["issue"] for n in res["not_checked"]}
+
+    def _req(self):
+        return _doc("本文", key="requirements/flow", kind="requirements")
+
+    def test_要求文書だけのランは発生源の無い要素を未検査に出し振らない(self):
+        routed, nc = self._run([self._req()], False)
+        self.assertEqual(routed, [("ST-FLOW-UNATTACHED-F-001", "requirements/flow"), ("ST-FLOW-UNATTACHED-F-003", "requirements/flow")])
+        self.assertIn("ST-NOTCHECKED-FLOW-NO-ORIGIN", nc)
+        self.assertIn("F-002・F-004", nc["ST-NOTCHECKED-FLOW-NO-ORIGIN"])
+        self.assertNotIn("ST-NOTCHECKED-FLOW-UNATTACHED", nc)
+
+    def test_業務上の例外は要素自身の_source_が入力なら要求文書に振る(self):
+        flow = _origin_flow([{"input": "依頼文"}, {"input": "差戻しは依頼者が述べた"}, {"decision": "D-002"}])
+        flow["elements"][1]["cases"] = [{"when": {}, "branch": "F-003", "source": {"decision": "D-002"}}]
+        res = _with_ledgers([self._req()], flow, False, ORIGIN_DECISIONS, ORIGIN_RESOLUTIONS, ORIGIN_PASSED)
+        routed = [f["id"] for f in res["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-")]
+        self.assertIn("ST-FLOW-UNATTACHED-F-002", routed)
+        self.assertNotIn("ST-FLOW-UNATTACHED-F-003", routed)
+
+    def test_仕様書を書くランは発生源を問わず仕様書へ振る(self):
+        routed, nc = self._run([self._req(), _doc("本文")], True)
+        self.assertEqual(routed, [(f"ST-FLOW-UNATTACHED-F-00{i}", "specifications/flow") for i in range(1, 5)])
+        self.assertNotIn("ST-NOTCHECKED-FLOW-NO-ORIGIN", nc)
+
+
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class StateTable(unittest.TestCase):
     def setUp(self):
@@ -599,7 +769,7 @@ class FlowFailHandling(unittest.TestCase):
         self.assertEqual(_flow_table(flow), [], "on_fail で扱えば下流は何も要らない")
 
     def test_要求文書だけのランは扱いの無い失敗を指摘しない(self):
-        # 失敗の扱いは仕様書の範囲。求めると内部の失敗が成否の判断になり、FLOW_UNATTACHED で要求文書の要求になる。
+        # 失敗の扱いは仕様書の範囲。求めると発生源の無い失敗が要素として描かれ、要求文書の要求になる（発生源の扱いは prd-and-spec.md §11.1）。
         flow = _shape("a_decision")
         self.assertEqual(_flow_table(flow, writes_spec=False), [])
         self.assertEqual(_flow_table(flow, writes_spec=True), [("FLOW_FAIL_UNHANDLED", ["F-002", False])])

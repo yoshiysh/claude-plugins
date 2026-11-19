@@ -128,7 +128,7 @@
         "location": "PR-AUTH-003",
         "quote": "PR-AUTH-003",
         "issue": "PR-AUTH-003 に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。",
-        "fix": "根拠（input.md・answers・決定の台帳・固定前提・flow）を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。"
+        "fix": "根拠（input.md・answers・決定の台帳・固定前提・flow）を trace に申告する。要求文書の項目は、発生源（§11.1）に届く trace を申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。"
       },
       {
         "auditor": "structural",

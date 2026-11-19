@@ -345,7 +345,8 @@ class DocChecks(_Workspace):
         for el in ("F-001", "F-003", "F-004", "F-005"):
             self.assertIn(el, nc[0]["issue"])
 
-    def test_要求文書だけのランは流れの要素を要求文書に振る(self):
+    def test_要求文書だけのランは発生源のある流れの要素だけを要求文書に振る(self):
+        # F-003 の出典は裁定の無い O-001 だけで、依頼者側の発生源が無い（references/prd-and-spec.md §11.1）。
         (self.ws / "specifications-auth.md").unlink()
         (self.ws / "specifications-auth.meta.json").unlink()
         plan = json.loads((self.ws / "plan.json").read_text())
@@ -356,8 +357,27 @@ class DocChecks(_Workspace):
         _ok(self.ws, "doc", "--doc", "requirements/auth")
         body = json.loads((self.ws / "checks" / "doc.requirements__auth.json").read_text())
         got = sorted(f["id"] for f in body["findings"] if f["id"].startswith("ST-FLOW-UNATTACHED-"))
-        self.assertEqual(got, [f"ST-FLOW-UNATTACHED-{el}" for el in ("F-001", "F-003", "F-004", "F-005")])
+        self.assertEqual(got, [f"ST-FLOW-UNATTACHED-{el}" for el in ("F-001", "F-004", "F-005")])
         self.assertNotIn("ST-NOTCHECKED-FLOW-UNATTACHED", [n["id"] for n in body["not_checked"]])
+        nc = [n for n in body["not_checked"] if n["id"] == "ST-NOTCHECKED-FLOW-NO-ORIGIN"]
+        self.assertEqual(len(nc), 1)
+        self.assertIn("F-003", nc[0]["issue"])
+
+    def test_要求の発生源の検査はwsDocでplanのdomainを使って台帳を辿る(self):
+        # 要求文書だけのランで、PR-AUTH-001 の trace を入力の決定 D-001 にする。plan の domain が D-001 を指すと発生源でなくなる。
+        (self.ws / "specifications-auth.md").unlink()
+        (self.ws / "specifications-auth.meta.json").unlink()
+        self._plan([d for d in json.loads((self.ws / "plan.json").read_text())["docs"] if d["key"].startswith("requirements/")],
+                   [{"id": "U-1", "docs": ["requirements/auth"], "depends_on": []}])
+        meta = json.loads((self.ws / "requirements-auth.meta.json").read_text())
+        meta["trace"][0] = {"item_id": "PR-AUTH-001", "kind": "decision", "ref": "D-001"}
+        (self.ws / "requirements-auth.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        flagged = lambda: "ST-REQ-NO-ORIGIN-PR-AUTH-001" in (_ok(self.ws, "doc", "--doc", "requirements/auth"), _findings(self.ws, "doc.requirements__auth.json"))[1]
+        self.assertFalse(flagged())
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["domain"] = [{"aspect": "個人情報", "verdict": "該当", "decision": "D-001"}]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+        self.assertTrue(flagged())
 
     def _plan(self, docs, units):
         plan = json.loads((self.ws / "plan.json").read_text())
@@ -376,7 +396,8 @@ class DocChecks(_Workspace):
         (self.ws / "specifications-auth.meta.json").unlink()
         req = {"key": "requirements/auth", "concern": "認証と承認", "covers": [], "fixed": False}
         spec = {"key": "specifications/auth", "concern": "認証と承認", "covers": ["requirements/auth"]}
-        prd_only = [f"ST-FLOW-UNATTACHED-{el}" for el in ("F-001", "F-003", "F-004", "F-005")]
+        # F-003 は発生源が無いので、要求文書だけのランでも振らない。
+        prd_only = [f"ST-FLOW-UNATTACHED-{el}" for el in ("F-001", "F-004", "F-005")]
         for name, docs, unit_docs, routed in (
             ("固定の仕様書だけ", [req, {**spec, "fixed": True}], ["requirements/auth"], True),
             ("docs にある固定でない仕様書が units に無い", [req, {**spec, "fixed": False}], ["requirements/auth"], True),

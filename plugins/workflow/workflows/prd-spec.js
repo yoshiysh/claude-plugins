@@ -1856,7 +1856,7 @@ async function frameFlow(label, lines, phaseTitle, { lint = false } = {}) {
   const run = frameRun(lint)
   const prompt = (l) => {
     const [head, ...rest] = lines(l, run)
-    // 仕様書を書かない run では、flow の要素は要求文書に振られる（doc_check の FLOW_UNATTACHED）ので、内部の工程を描くと要求になる。
+    // 仕様書を書かない run では、flow の要素は要求文書の要求になる。発生源の無い要素は doc_check が振らず NC_FLOW_NO_ORIGIN に回す（prd-and-spec.md §11.1）ので、描く範囲を絞らせる。
     return [head, !writesSpec() ? '作る文書は要求文書だけなので、flow-framer.md の「### 要求文書だけのラン」で描く。' : null, ...rest].filter(Boolean).join('\n\n')
   }
   const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check, plan_check: x.plan_check })
