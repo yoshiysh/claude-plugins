@@ -5,8 +5,9 @@ use tempfile::{tempdir, NamedTempFile};
 
 use strata::client::{parse_loaded_model_id, read_sse_stream};
 use strata::context::{
-    distill_context_with, estimate_tokens, minify_json_in_text, prepare_optimized_prompt_with,
-    split_into_chunks,
+    distill_context_with, estimate_tokens, minify_json_in_text,
+    prepare_optimized_prompt_for_role_with, prepare_optimized_prompt_with, split_into_chunks,
+    REVIEW_MAP_SYSTEM_PROMPT,
 };
 use strata::diagnose::{
     analyze_diagnostics, evaluate_health, extract_section, preflight_intercept_with,
@@ -599,4 +600,54 @@ fn test_preflight_intercept_behavior() {
     .unwrap();
     assert!(ran_warmup);
     assert!(warmup_called);
+}
+
+#[test]
+fn test_two_stage_review_distillation_mock() {
+    let big_code = "fn check_item(x: i32) -> i32 {\n    x + 1\n}\n".repeat(120);
+    let mut saw_review_map = false;
+    let mut saw_distill = false;
+
+    let (review_prompt, did_distill) = prepare_optimized_prompt_for_role_with(
+        "Audit check_item",
+        Some(&big_code),
+        &[],
+        None,
+        &[],
+        260,
+        140,
+        true,
+        true,
+        |sys, _usr| {
+            if sys == REVIEW_MAP_SYSTEM_PROMPT {
+                saw_review_map = true;
+            }
+            Ok("- [CONCERN] check_item: overflow on i32::MAX".to_string())
+        },
+    )
+    .unwrap();
+    assert!(did_distill);
+    assert!(saw_review_map);
+    assert!(review_prompt.contains("overflow on i32::MAX"));
+
+    let (_gen_prompt, did_distill_gen) = prepare_optimized_prompt_for_role_with(
+        "Implement helper",
+        Some(&big_code),
+        &[],
+        None,
+        &[],
+        260,
+        140,
+        true,
+        false,
+        |sys, _usr| {
+            if sys != REVIEW_MAP_SYSTEM_PROMPT {
+                saw_distill = true;
+            }
+            Ok("- check_item(x: i32) -> i32".to_string())
+        },
+    )
+    .unwrap();
+    assert!(did_distill_gen);
+    assert!(saw_distill);
 }

@@ -53,7 +53,7 @@ description: "Delegates code/test/documentation generation and ruthless adversar
 
 ## 2. リポジトリ規約・レビュー観点の自動注入とコンテキスト最適化
 
-既定（`use_guidelines: true`）では、`workspace_root`（未指定時はワークスペースルート）から以下の規約ファイルを自動検出してプロンプトに組み込みます（シンボリックリンクは重複排除）。なお、合計トークン数が予算（既定 `1,200 tokens`、環境変数 `STRATA_MAX_CONTEXT_TOKENS` で変更可）を超える場合は、`target` / `diff` の原文を優先して残しつつガイドライン側を先に Map-Reduce 蒸留し、ユーザー入力自体が超過する場合はセマンティック境界で分割・蒸留してから実行します（`optimize: false` / `--no-optimize` で無効化可）：
+既定（`use_guidelines: true`）では、`workspace_root`（未指定時はワークスペースルート）から以下の規約ファイルを自動検出してプロンプトに組み込みます（シンボリックリンクは重複排除）。なお、合計トークン数が予算（既定 `1,200 tokens`、環境変数 `STRATA_MAX_CONTEXT_TOKENS` で変更可）を超える場合は、`target` / `diff` の原文を優先して残しつつガイドライン側を先に Map-Reduce 蒸留し、ユーザー入力自体が超過する場合はセマンティック境界で分割して処理します（`*-review` ロールでは Stage 1 局所バグ・契約抽出 → Stage 2 全体統合＆誤検知フィルタの 2 段構成で実行、`optimize: false` / `--no-optimize` で無効化可）。また、`tools/claude-strata --skill <name> "<prompt>"` で任意の単発スキルを `claude -p` 経由で非対話実行することもできます：
 
 * **全ロール共通（生成・レビュー双方）**: `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`
   * 実装役（`*-gen`）にも `REVIEW.md` を事前に渡すことで、レビュー基準から外れないコード・テスト・文書を生成します。
