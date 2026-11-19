@@ -49,14 +49,21 @@ test-static-and-python: runtime-deps references
 		$(NODE) $$e; \
 	done
 
+# Node の段（とそこから起動される子の node）が、読み込んだモジュールのコンパイル結果を使い回す。
+# 置き場は Node の文書の勧めに従い一時ディレクトリの下にする（テストの fixture は乱数の path にでき、cache が溜まり続けるため）。
+# target-specific の export にしないのは、前提ターゲット（runtime-deps の npm ci）にまで効くため。
+# traceability の段はカバレッジを測る子で無効にする（scripts/traceability/runner.mjs）。
+NODE_COMPILE_CACHE_DIR ?= $(or $(TMPDIR),/tmp)/claude-plugins-node-compile-cache
+NODE_CACHED := NODE_COMPILE_CACHE='$(NODE_COMPILE_CACHE_DIR)' $(NODE)
+
 test-node-traceability: runtime-deps
 	@echo "── Node tests (traceability)"
-	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
+	@$(NODE_CACHED) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
 
 test-node-other: runtime-deps
 	@if [ -n "$(NODE_TEST_FILES)" ]; then \
 		echo "── Node tests (other)"; \
-		$(NODE) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
+		$(NODE_CACHED) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
 	fi
 
 # 合否ゲート。3 つを同時に走らせて全ての終了を待ち、1 つでも失敗したら失敗する。
