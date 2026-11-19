@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../scripts/traceability/specs.mjs';
-import { KNOWN_WEIGHTS, assignShards, normalizeRepoPath, orderByWeight, parseShard, partitionFiles } from '../scripts/run_node_tests.mjs';
+import { KNOWN_WEIGHTS, assignShards, normalizeRepoPath, orderByWeight, parseShard, partitionFiles, testConcurrency } from '../scripts/run_node_tests.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,12 +67,19 @@ test('orderByWeight: 重い順に並べ、同じ重みは path の順。symlink 
     'tests/make-test-parallel.test.mjs',
   ];
   assert.deepEqual(orderByWeight(files, ROOT), [
-    { file: '.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', weight: 165 },
-    { file: '.agents/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', weight: 77 },
+    { file: '.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', weight: 70 },
+    { file: '.agents/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', weight: 55 },
     { file: 'tests/traceability.test.mjs', weight: 6 },
     { file: 'tests/make-test-parallel.test.mjs', weight: 1 },
     { file: 'tests/run-node-tests.test.mjs', weight: 1 },
   ]);
+});
+
+test('testConcurrency: 指定が無ければ CPU の半分（1 以上）、指定があればその正の整数、それ以外は拒否する', () => {
+  for (const [value, cpus, expected] of [[undefined, 16, 8], ['', 16, 8], [undefined, 3, 1], [undefined, 1, 1], ['4', 16, 4], ['1', 16, 1], ['32', 2, 32]]) {
+    assert.equal(testConcurrency(value, cpus), expected, `${value} / ${cpus}`);
+  }
+  for (const value of ['0', '-1', '1.5', 'many']) assert.throws(() => testConcurrency(value, 16), /NODE_TEST_CONCURRENCY/, value);
 });
 
 const SCRIPT = path.join(ROOT, 'scripts/run_node_tests.mjs');

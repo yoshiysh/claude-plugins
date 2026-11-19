@@ -4,6 +4,7 @@
  * Keeps `traceability/cli.mjs` focused on its configured scope while ensuring zero omissions.
  */
 import { realpathSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { run } from 'node:test';
 import { spec } from 'node:test/reporters';
@@ -14,13 +15,19 @@ import { loadConfig } from './traceability/specs.mjs';
 // 値は make test の並列実行での実測（2026-11）。キーは normalizeRepoPath の結果（realpath の repo 相対）で、
 // .agents/skills の symlink 経由で渡されたファイルも実体の path で引く。正確さは要らず、重いものが先に起動すれば足りる。
 export const KNOWN_WEIGHTS = new Map([
-  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 165],
-  ['.agents/skills/repo-implement/scripts/implement-cli.test.mjs', 124],
-  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 77],
-  ['tests/repo-implement-workflow.test.mjs', 64],
+  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 70],
+  ['.agents/skills/formal-method/scripts/cli-pipeline-returns.test.mjs', 55],
+  ['.agents/skills/formal-method/scripts/cli-pipeline-models.test.mjs', 45],
+  ['.agents/skills/formal-method/scripts/cli-pipeline-plan-defects.test.mjs', 30],
+  ['.agents/skills/repo-implement/scripts/implement-cli.test.mjs', 40],
+  ['.agents/skills/repo-implement/scripts/implement-cli-checks.test.mjs', 40],
+  ['.agents/skills/repo-implement/scripts/implement-cli-review.test.mjs', 40],
+  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 55],
+  ['tests/repo-implement-workflow-run.test.mjs', 28],
+  ['tests/repo-implement-workflow.test.mjs', 18],
   ['plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/run-workspace.test.mjs', 64],
-  ['.agents/skills/address-review/scripts/address-cli.test.mjs', 53],
-  ['tests/repo-review-workflow.test.mjs', 38],
+  ['.agents/skills/address-review/scripts/address-cli.test.mjs', 22],
+  ['tests/repo-review-workflow.test.mjs', 52],
   ['.agents/skills/repo-review/scripts/review-cli.test.mjs', 35],
   ['.agents/skills/formal-method/scripts/cli-recovery.test.mjs', 14],
   ['.agents/skills/formal-method/scripts/cli-client.test.mjs', 12],
@@ -124,14 +131,23 @@ function parseArgs(argv) {
   return { configPath, shard: parseShard(shard), dryRun, files };
 }
 
+// 同時に走らせるファイルの数。NODE_TEST_CONCURRENCY が無ければ CPU の半分。make test では traceability の段
+// （node --test の既定の CPU − 1 だが、対象のファイルの数で頭打ちになる）と同時に走るので、全ての CPU は取らない。
+// CI は値を明示する（verification.yml）。
+export function testConcurrency(value, cpus) {
+  if (value === undefined || value === '') return Math.max(1, Math.floor(cpus / 2));
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`Invalid NODE_TEST_CONCURRENCY: ${value}`);
+  return n;
+}
+
 async function main() {
   const { configPath, shard, dryRun, files } = parseArgs(process.argv.slice(2));
   const config = await loadConfig(path.resolve(configPath));
   const targetFiles = partitionFiles(config.root, files, config.testFiles);
   const selected = shard ? assignShards(targetFiles, shard.total, config.root)[shard.index - 1] : orderByWeight(targetFiles, config.root).map((x) => x.file);
 
-  const concurrency = Number(process.env.NODE_TEST_CONCURRENCY || '4');
-  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid NODE_TEST_CONCURRENCY: ${process.env.NODE_TEST_CONCURRENCY}`);
+  const concurrency = testConcurrency(process.env.NODE_TEST_CONCURRENCY, availableParallelism());
   if (dryRun) {
     for (const f of selected) console.log(f);
     return;
