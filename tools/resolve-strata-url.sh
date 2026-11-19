@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Resolve the Strata API base URL, prioritizing direct LAN over SSH tunnel.
+# Resolve the Strata base URL, prioritizing direct LAN over SSH tunnel.
 set -euo pipefail
 
 PORT="${STRATA_PORT:-8080}"
 SSH_HOST="${STRATA_HOST:-winbox}"
 
-if [ -n "${STRATA_API_BASE:-}" ]; then
-  printf '%s\n' "$STRATA_API_BASE"
+if [ -n "${STRATA_BASE_URL:-}" ]; then
+  printf '%s\n' "$STRATA_BASE_URL"
   exit 0
 fi
 
@@ -21,7 +21,7 @@ if [ -n "${STRATA_LAN_HOST:-}" ]; then
 fi
 if [ "${STRATA_LAN_RESOLVE:-1}" != "0" ] && command -v ssh >/dev/null 2>&1; then
   ssh_ip="$(ssh -G "$SSH_HOST" 2>/dev/null | awk '/^hostname / {print $2; exit}' || true)"
-  win_name="$(ssh -o ConnectTimeout=1 -o BatchMode=yes "$SSH_HOST" hostname 2>/dev/null | tr -d '\r\n' || true)"
+  win_name="$(ssh -n -o ConnectTimeout=1 -o BatchMode=yes "$SSH_HOST" hostname 2>/dev/null | tr -d '\r\n' || true)"
   if [ -n "$win_name" ]; then
     candidates+=("${win_name}.local")
   fi

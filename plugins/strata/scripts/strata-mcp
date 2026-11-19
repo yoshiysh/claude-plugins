@@ -4,9 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-resolve_strata_api_base() {
-  if [ -n "${STRATA_API_BASE:-}" ]; then
-    printf '%s\n' "$STRATA_API_BASE"
+resolve_strata_base_url() {
+  if [ -n "${STRATA_BASE_URL:-}" ]; then
+    printf '%s\n' "$STRATA_BASE_URL"
     return 0
   fi
 
@@ -19,7 +19,7 @@ resolve_strata_api_base() {
   if [ "${STRATA_LAN_RESOLVE:-1}" != "0" ] && command -v ssh >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
     local ssh_ip win_name
     ssh_ip="$(ssh -G "$ssh_host" 2>/dev/null | awk '/^hostname / {print $2; exit}' || true)"
-    win_name="$(ssh -o ConnectTimeout=1 -o BatchMode=yes "$ssh_host" hostname 2>/dev/null | tr -d '\r\n' || true)"
+    win_name="$(ssh -n -o ConnectTimeout=1 -o BatchMode=yes "$ssh_host" hostname 2>/dev/null | tr -d '\r\n' || true)"
     if [ -n "$win_name" ]; then
       candidates+=("${win_name}.local")
     fi
@@ -38,7 +38,7 @@ resolve_strata_api_base() {
   printf 'http://127.0.0.1:%s/v1\n' "$port"
 }
 
-export STRATA_API_BASE="$(resolve_strata_api_base)"
+export STRATA_BASE_URL="$(resolve_strata_base_url)"
 
 LOCAL_BIN="$SCRIPT_DIR/../../../crates/strata/target/release/strata"
 if [ -x "$LOCAL_BIN" ]; then

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -z "${STRATA_API_BASE:-}" ] && [ -x "${SCRIPT_DIR}/resolve-strata-url.sh" ]; then
-  export STRATA_API_BASE="$("${SCRIPT_DIR}/resolve-strata-url.sh")"
+if [ -z "${STRATA_BASE_URL:-}" ] && [ -x "${SCRIPT_DIR}/resolve-strata-url.sh" ]; then
+  export STRATA_BASE_URL="$("${SCRIPT_DIR}/resolve-strata-url.sh")"
 fi
 exec "${SCRIPT_DIR}/strata" mcp "$@"
