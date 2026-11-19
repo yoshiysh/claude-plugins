@@ -22,7 +22,7 @@ export const KNOWN_WEIGHTS = new Map([
   ['.agents/skills/repo-implement/scripts/implement-cli.test.mjs', 40],
   ['.agents/skills/repo-implement/scripts/implement-cli-checks.test.mjs', 40],
   ['.agents/skills/repo-implement/scripts/implement-cli-review.test.mjs', 40],
-  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 55],
+  ['plugins/workflow/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 8],
   ['tests/repo-implement-workflow-run.test.mjs', 28],
   ['tests/repo-implement-workflow.test.mjs', 18],
   ['plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/run-workspace.test.mjs', 64],

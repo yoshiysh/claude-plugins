@@ -2131,7 +2131,7 @@ function commandInit(options) {
       const resumeErrors = validateRunIntegrity(current, runDir);
       fail(resumeErrors.length === 0, "state_drift", `Resume would violate run lineage: ${resumeErrors.join(", ")}`);
       atomicWriteJson(current.paths.state, current.state);
-      process.stdout.write(`${JSON.stringify(summarize(current.manifest, current.state))}\n`);
+      emit(`${JSON.stringify(summarize(current.manifest, current.state))}\n`);
       return;
     } finally {
       release();
@@ -2203,7 +2203,7 @@ function commandInit(options) {
     });
     reconcileState(manifest, state, runDir);
     atomicWriteJson(paths.state, state);
-    process.stdout.write(`${JSON.stringify(summarize(manifest, state))}\n`);
+    emit(`${JSON.stringify(summarize(manifest, state))}\n`);
   } finally {
     release();
   }
@@ -2219,7 +2219,7 @@ function withMutableRun(options, callback) {
     const result = callback(run, runDir);
     reconcileState(run.manifest, run.state, runDir);
     atomicWriteJson(run.paths.state, run.state);
-    process.stdout.write(`${JSON.stringify(result ?? summarize(run.manifest, run.state))}\n`);
+    emit(`${JSON.stringify(result ?? summarize(run.manifest, run.state))}\n`);
   } finally {
     release();
   }
@@ -2268,7 +2268,7 @@ function commandRecoverLock(options) {
       actor,
       recovered_by: { pid: process.pid, hostname: hostname() },
     });
-    process.stdout.write(`${JSON.stringify({ status: "stale_lock_recovered", archived_lock: relative(runDir, archivedLock), receipt: relative(runDir, recoveryPath) })}\n`);
+    emit(`${JSON.stringify({ status: "stale_lock_recovered", archived_lock: relative(runDir, archivedLock), receipt: relative(runDir, recoveryPath) })}\n`);
   } finally {
     releaseRecovery();
   }
@@ -3399,8 +3399,8 @@ function usage() {
   ].join("\n");
 }
 
-function main() {
-  const { command, options } = parseArgs(process.argv.slice(2));
+function main(argv) {
+  const { command, options } = parseArgs(argv);
   const commands = {
     init: commandInit,
     ready: commandReady,
@@ -3422,10 +3422,32 @@ function main() {
   commands[command](options);
 }
 
-try {
-  main();
-} catch (error) {
-  const code = error instanceof WorkflowError || typeof error?.code === "string" ? error.code : "internal_error";
-  process.stderr.write(`${JSON.stringify({ status: "error", code, message: error.message })}\n`);
-  process.exitCode = 1;
+// 実行中の run の標準出力の行。run は同期で終わるので、1 度に 1 つの run だけが使う。
+let emitted = null;
+
+function emit(text) {
+  emitted.push(text);
+}
+
+// argv（コマンド名から後）を 1 回実行し、process を起動したときと同じ終了コード・標準出力・標準エラーを返す。
+// テストが process を起動せずに同じ入口を呼ぶためのもので、標準出力・標準エラーと終了コードの作り方は CLI と共通。
+export function run(argv) {
+  const out = [];
+  emitted = out;
+  try {
+    main(argv);
+    return { status: 0, stdout: out.join(""), stderr: "" };
+  } catch (error) {
+    const code = error instanceof WorkflowError || typeof error?.code === "string" ? error.code : "internal_error";
+    return { status: 1, stdout: out.join(""), stderr: `${JSON.stringify({ status: "error", code, message: error.message })}\n` };
+  } finally {
+    emitted = null;
+  }
+}
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  const result = run(process.argv.slice(2));
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.status;
 }

@@ -68,7 +68,7 @@ test('orderByWeight: 重い順に並べ、同じ重みは path の順。symlink 
   ];
   assert.deepEqual(orderByWeight(files, ROOT), [
     { file: '.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', weight: 70 },
-    { file: '.agents/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', weight: 55 },
+    { file: '.agents/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', weight: 8 },
     { file: 'tests/traceability.test.mjs', weight: 6 },
     { file: 'tests/make-test-parallel.test.mjs', weight: 1 },
     { file: 'tests/run-node-tests.test.mjs', weight: 1 },
