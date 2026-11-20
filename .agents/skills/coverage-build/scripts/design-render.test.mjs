@@ -356,14 +356,14 @@ test('L.arch が無い台帳（方式設計の前）は拒否しない', (t) => 
 })
 
 // ---------------- 7. 設計レビューへの --link と frame ----------------
-// 偽の検査: 呼ばれた audit の欄（argv と、そのときの goal.md の本文）を残す。置き場に台帳のファイルを置き、2 回目からは reframe_argv にさせる。
+// 偽の検査: 呼ばれた audit の欄（argv と、そのときの goal.md の本文）を残す。置き場に段の位置のファイル（phase.json）を置き、2 回目からは reframe_argv にさせる。
 function recorder(state, seen, { findingOnce = false } = {}) {
   let n = 0
   return (phase, out) => {
     const a = out.audit
     seen.push({ phase, argv: a.init_argv || a.reframe_argv, kind: a.init_argv ? 'init' : 'reframe', goal: readFileSync(a.goal, 'utf8') })
     mkdirSync(a.state, { recursive: true })
-    if (!existsSync(path.join(a.state, 'ledger.json'))) writeFileSync(path.join(a.state, 'ledger.json'), '{}')
+    if (!existsSync(path.join(a.state, 'phase.json'))) writeFileSync(path.join(a.state, 'phase.json'), '{}')
     if (findingOnce && phase === 'design' && n++ === 0) return auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] })
     return auditStatus({ phase })
   }

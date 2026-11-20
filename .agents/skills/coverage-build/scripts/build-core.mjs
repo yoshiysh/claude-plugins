@@ -380,22 +380,21 @@ export function ingestRetro(L, res, args, readText) {
   L.retro.dry = added ? 0 : L.retro.dry + 1
 }
 
-// coverage-audit の指摘の id（枡#hash、枡は 資産|観点|回）から path を取る。資産の id は path#<中身の位置>
-// （Markdown は 見出しの経路/<ブロックの種類><序数>・_frontmatter、JS は宣言の名前、他は c<n>。長い範囲は /c<n>、重なりは ~<k>）で、位置の側に # を含まない。
-// 振り返りの資産（retro:c<周>:<段>）は対象のファイルでないので null（照合済みの印のある台帳は作らないが、形として受ける）。
-export function findingPath(id) {
-  const cell = String(id).slice(0, String(id).lastIndexOf('#'))
-  const asset = cell.split('|')[0]
-  if (asset.startsWith('retro:') || !asset.includes('#')) return null
-  return asset.slice(0, asset.lastIndexOf('#'))
+// coverage-audit の確定指摘の path。指摘は 1 つ以上の path（paths）を持ち、引用（quote）は先頭の path の単位の本文にある。
+// paths の無い指摘（coverage-audit の振り返りなど、対象のファイルでないもの）は null。
+export function findingPath(f) {
+  const ps = arr(f && f.paths).filter((p) => typeof p === 'string' && p)
+  return ps.length ? ps[0] : null
 }
 
-// coverage-audit の status の出力を取り込む。終わった検査だけを受け、引用を今の本文に照らし、指摘を単位と層へ結ぶ。
+// coverage-audit の status（stateDir/status-<段>.json の中身）を取り込む。終わった検査だけを受け、引用を今の本文に照らし、指摘を単位と層へ結ぶ。
+// 指摘は path・義務（obligation）・確信度（confidence）・原因の層（layer）・出どころ（origin）と、再レビューでの出どころの分類（provenance）を持つ。
+// 参考（references。義務に結べないもの）は指摘にせず、開示の一覧として残す。試行の上限で判定できずに閉じた意図（undecided）を含む complete も受け、意図の id を出来事にする。
 export function importAudit(L, status, phase, { readText, unitOfPath }) {
   const st = status && status.stopped
   if (!st || !['complete', 'needs_input'].includes(st.stop)) throw new Error(`coverage-audit が終わっていない（stopped: ${st ? st.stop : 'なし'}）。coverage-audit の「止まったとき」に従ってから取り込む`)
   if (status.pending != null) throw new Error('coverage-audit の呼び出しが途中にある（stopped は前の停止の記録）。coverage-audit を止まるまで回してから取り込む')
-  if (arr(status.coverage && status.coverage.pending).length) throw new Error(`coverage-audit に読み終えていない枡が ${status.coverage.pending.length} 件ある。coverage-audit を続けてから取り込む`)
+  if (arr(status.coverage && status.coverage.pending).length) throw new Error(`coverage-audit に読み終えていない単位が ${status.coverage.pending.length} 件ある。coverage-audit を続けてから取り込む`)
   const stage = `${phase}_review`
   // coverage-audit の群の id は段の始まりごとに数え直されるので、build の周と段を前に付けて別の群にする。
   const auditGroups = new Map(arr(status.groups).map((g) => [g.id, g]))
@@ -405,21 +404,28 @@ export function importAudit(L, status, phase, { readText, unitOfPath }) {
     if (!(id in L.audit_groups)) L.audit_groups[id] = { root_cause: src ? src.root_cause : null, layer: src ? C.LAYER_MAP[src.layer] || null : null }
     return id
   })
-  const base = { findings: [], unverifiable: [], not_seen: arr(status.skip).map((s) => s.cell) }
+  const base = {
+    findings: [], unverifiable: [],
+    not_seen: arr(status.skip).map((s) => (s && s.reason ? `${s.unit}（${s.reason}）` : s && s.unit)).filter(Boolean),
+    references: arr(status.references).map((r) => ({ id: r.id, path: r.path, claim: r.claim, quote: r.quote })),
+  }
   for (const f of arr(status.findings && status.findings.confirmed)) {
-    const path = findingPath(f.id)
+    const path = findingPath(f)
     if (path === null) { addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit の進め方の指摘 ${f.id}: ${f.claim}` }); continue }
     const t = readText(path)
     const q = t == null ? '対象が読めない' : C.quoteProblem(f.quote, t)
     const layer = C.LAYER_MAP[f.layer]
     if (q || !layer) { addEvent(L, { stage, kind: 'import_mismatch', text: `${f.id}: ${q || `層が不正: ${f.layer}`}` }); continue }
+    const others = arr(f.paths).slice(1)
+    const where = others.length ? `${path} ほか ${others.join('、')}` : path
+    const extra = { ...(f.obligation ? { obligation: f.obligation } : {}), ...(f.confidence ? { confidence: f.confidence } : {}), ...(f.origin ? { origin: f.origin } : {}), ...(f.provenance ? { provenance: f.provenance } : {}) }
     if (phase === 'baseline') {
-      base.findings.push({ id: f.id, path, layer, claim: f.claim, quote: f.quote })
-      if (layer === '目標') L.human.push({ id: `B${L.human.length + 1}`, reason: '現状の検査で目標・方針の層の欠陥が出た（設計に進まない）', text: `${f.claim}（${path}: ${f.quote}）` })
+      base.findings.push({ id: f.id, path, paths: arr(f.paths), layer, claim: f.claim, quote: f.quote, ...extra })
+      if (layer === '目標') L.human.push({ id: `B${L.human.length + 1}`, reason: '現状の検査で目標・方針の層の欠陥が出た（設計に進まない）', text: `${f.claim}（${where}: ${f.quote}）` })
       continue
     }
     const m = unitOfPath(path)
-    addEvent(L, { stage, kind: 'finding', layer, unit: m.unit, test: m.test, text: `${f.claim}（${path}: 「${f.quote}」）`, ref: f.id, groups: groupsOf(f) })
+    addEvent(L, { stage, kind: 'finding', layer, unit: m.unit, test: m.test, text: `${f.claim}（${where}: 「${f.quote}」）`, ref: f.id, groups: groupsOf(f), ...extra })
   }
   for (const f of arr(status.findings && status.findings.unverifiable)) {
     if (phase === 'baseline') base.unverifiable.push(f)
@@ -431,7 +437,15 @@ export function importAudit(L, status, phase, { readText, unitOfPath }) {
     L.audit_events_seen.push(e.id)
     addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit の出来事 ${e.id} [${e.stage}/${e.kind}]: ${e.text}`, ref: e.id })
   }
+  // 試行の上限で判定できずに開示して閉じた意図。出来事に意図の id が出ていなければ、ここで 1 回だけ出来事にする（黙って完了に含めない）。
+  for (const u of arr(status.undecided)) {
+    const key = `${phase}:undecided:${u.id}`
+    if (!u || !u.id || L.audit_events_seen.includes(key)) continue
+    L.audit_events_seen.push(key)
+    if (arr(status.events).some((e) => e && String(e.text).includes(u.id))) continue
+    addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit が判定できずに開示して閉じた意図 ${u.id} [${u.kind}]: ${u.reason || '理由なし'}`, ref: u.id })
+  }
   if (phase === 'baseline') L.baseline = base
-  else for (const c of base.not_seen) addEvent(L, { stage, kind: 'not_seen', text: `見ていない枡（開示）: ${c}` })
+  else for (const c of base.not_seen) addEvent(L, { stage, kind: 'not_seen', text: `見ていない単位（開示）: ${c}` })
   return base
 }

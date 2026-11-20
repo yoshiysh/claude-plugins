@@ -56,7 +56,7 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 
 | 要素 | 実体 |
 |---|---|
-| 事実 | 悪かった出来事（`events`: 受け付けなかった出力・返らなかった役・書き込みの違反・読まなかった入力・レビューの指摘・検証不能・見ていない枡・check の失敗）と、受理した原因（`facts`） |
+| 事実 | 悪かった出来事（`events`: 受け付けなかった出力・返らなかった役・書き込みの違反・読まなかった入力・レビューの指摘・検証不能・見ていない単位・check の失敗）と、受理した原因（`facts`） |
 | 意図 | 「原因はこれか」（`intents`）。根拠の事実の id・仮説・層・読むファイル |
 | 辺 | 意図 → 根拠の事実、原因 → 根拠（出来事か、さらに下流の原因）。原因の原因を問う意図で上流へ辿る |
 
@@ -67,20 +67,22 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 ## coverage-audit との口
 
 - 台帳の置き場: coverage-audit の台帳は `stateDir/audit/state` の 1 つに固定する（段や入力で置き場を分けない）。段ごとの入力は `stateDir/audit/in/<段>/` に書く。
-- 渡すもの: goal.md（先頭に検査の段を述べる文）・request.md・decisions.md・criteria.md・constraints.md と、対象のファイルの一覧と、それらを並べた引数。受け入れ基準は制約と取り違えないよう criteria.md で渡し、実装レビューでは単位ごとの受け入れ（`U<n>A<m>`）も基準に入る。`next` の audit の欄には、次のどちらか 1 つを載せる。
+- 渡すもの: goal.md（先頭に検査の段を述べる文）・request.md・decisions.md・criteria.md・constraints.md・lenses.json と、対象のファイルの一覧と、それらを並べた引数。受け入れ基準は制約と取り違えないよう criteria.md で渡し、実装レビューでは単位ごとの受け入れ（`U<n>A<m>`）も基準に入る。lenses.json は段ごとの観点で、正本は build-cli.mjs の `AUDIT_FRAMES`（段の冒頭の文と同じ所に置く）。coverage-audit はこの観点に、仕組みの標準の観点と計画役の提案を足して読む。`next` の audit の欄には、次のどちらか 1 つを載せる。
 
   | 台帳 | 欄 | coverage-audit がすること |
   |---|---|---|
   | 無い | `init_argv`（照合済みの印 `--goal-checked coverage-build` と `--phase <段>` を含む） | 台帳を作る。目標の照合は流さない |
-  | ある | `reframe_argv`（`--phase <段>` を含み、印は渡さない） | 印を残したまま、目標・基準・制約・決定の記録・対象と段を差し替え、全ての枡を読み直して計画から作り直す |
+  | ある | `reframe_argv`（`--phase <段>` を含み、印は渡さない） | 印を残したまま、目標・基準・制約・決定の記録・観点・対象と段を差し替える。同じ段で手続きが同じなら（`kept`）内容の変わった単位だけを、それ以外は全ての単位を読み直す |
   | あり、同じ段・同じ入力で返した argv を流した後で、取り込みの前 | `framed: true`（引数なし） | coverage-audit の `next` を続ける |
 
-  design の段の `init_argv`・`reframe_argv` だけが、`--link` に `LINK_PATTERN`（`<checks>` 区間。境界の行・受け入れ・振る舞いの id の型）を持ち、同じ id を含む設計の写しどうしを coverage-audit が同じ枡で読む。ほかの段では渡さないので、reframe で coverage-audit の link は null に戻る。
+  「台帳がある」は、coverage-audit が init で書く段の位置のファイル（`<audit.state>/phase.json`）があることで判じる。coverage-audit の台帳（`ledger.json`）は読まない。
 
-  `framed` を返すのは、検査の途中で `next` を流し直したときに reframe で途中の検査と coverage-audit の `answer` で足した `A<n>` を消さないため。渡した段と入力は `audit_frame` に残し、取り込みで消す。`reframe_argv` を返すときは coverage-audit の台帳の `phase_start`（段の始まり。reframe のたびに置き直される）も `audit_frame` に控え、同じ段・同じ入力の間は最初の控えを保つ。`phase_start` が控えから変わる（reframe が流れた）までは `reframe_argv` を返し直す。台帳が読めない・`phase_start` が無い・控えが分からないときは `framed` にしない（誤っても余分な reframe になるだけで、reframe を飛ばさない）。`init_argv` の後は、台帳ができて段が合えば `framed` になる。`framed` を返す `next` は控えを書き換えない。answer で制約（`A<n>`）が足されたときや、単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳を reframe して検査し直す。
-- 受け取るもの: coverage-audit の `status` の出力。status は段ごとに分かれ、上の階層（確かめた指摘・検証不能・開示した枡・束ね・出来事）は今の段のもので、出ていった段は `phases` に残る。取り込みは上の階層だけを読み、`status.phase` が待っている段と違えば拒否して台帳を変えない。写しを `stateDir/audit/<段>-status.json` に置き、振り返りの読めるファイルに入れる。
-- 出来事: 照合済みの印のある coverage-audit の台帳は振り返りの資産を作らず、検査の中の出来事を status の `events` で返す。取り込みはそれを `audit_internal`（進め方）の出来事として受け、`audit_events_seen` で 1 回だけにする。振り返りの探索グラフはこのスキルの 1 つだけ。
-- 指摘の結び付け: 指摘の id（枡#hash、枡は 資産|観点|回、資産は path#<中身の位置>）から path を取り、設計の写しなら単位、実装なら持ち主の単位とテストかを決める。確かめた指摘の `groups`（coverage-audit の束ねの群）は、周と段を前に付けた id（`c<周>:<段>:<群の id>`）にして出来事の `groups` に載せ、群の根本原因と層は `audit_groups` に 1 回だけ置く。coverage-audit の群の id は段の始まりごとに数え直されるので、周をまたぐと同じ id が別の群を指すため。
+  design の段の `init_argv`・`reframe_argv` だけが、`--link` に `LINK_PATTERN`（`<checks>` 区間。境界の行・受け入れ・振る舞いの id の型）を持つ。coverage-audit はこの id の型で静的な検査を流し、範囲で書いた参照（例: `X1-1〜X1-3`）を 1 件ずつに展開して、どの設計の写しにも無い id を指摘の判定にかける。ほかの段では渡さないので、reframe で coverage-audit の link は null に戻る。
+
+  `framed` を返すのは、検査の途中で `next` を流し直したときに reframe で途中の検査と coverage-audit の `answer` で足した `A<n>` を消さないため。渡した段と入力は `audit_frame` に残し、取り込みで消す。`reframe_argv` を返すときは `phase.json` の `phase_start`（段の始まり。coverage-audit が init と reframe のたびに書き直し、`kept` の reframe でも `reframes` の数が増える）も `audit_frame` に控え、同じ段・同じ入力の間は最初の控えを保つ。`phase_start` が控えから変わる（reframe が流れた）までは `reframe_argv` を返し直す。`phase.json` が読めない・`phase_start` が無い・控えが分からないときは `framed` にしない（誤っても余分な reframe になるだけで、reframe を飛ばさない）。`init_argv` の後は、`phase.json` ができて段が合えば `framed` になる。`framed` を返す `next` は控えを書き換えない。answer で制約（`A<n>`）が足されたときや、単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳を reframe して検査し直す。
+- 受け取るもの: coverage-audit が止まったときに書く `<audit.state>/status-<段>.json`（中身は coverage-audit の `status` の出力と同じ）。`import-audit` がこの path を自分で読み、司令塔は status の出力を写さない。ファイルが無ければ（coverage-audit が止まる前）拒否する。status は段ごとに分かれ、上の階層（確かめた指摘・検証不能・参考・見られなかった単位・束ね・出来事・判定できなかった意図）は今の段のもので、出ていった段は `phases` に残る。取り込みは上の階層だけを読み、`status.phase` が待っている段と違えば拒否して台帳を変えない。写しを `stateDir/audit/<段>-status.json` に置き、振り返りの読めるファイルに入れる。
+- 出来事: 照合済みの印のある coverage-audit の台帳は振り返りの単位を作らず、検査の中の出来事を status の `events` で返す。取り込みはそれを `audit_internal`（進め方）の出来事として受け、`audit_events_seen` で 1 回だけにする。試行の上限で判定できずに閉じた意図（status の `undecided`）も、出来事に意図の id が出ていなければ `audit_internal` の出来事にする。振り返りの探索グラフはこのスキルの 1 つだけ。
+- 指摘の結び付け: 確かめた指摘は 1 つ以上の path（`paths`）を持ち、引用は先頭の path の本文にある。`findingPath` が先頭の path を取り、設計の写しなら単位、実装なら持ち主の単位とテストかを決める。参考（目標・受け入れ基準に結べない気づき）は指摘にせず `audits.<段>.references` に、coverage-audit の run の指標（`metrics`）は `audits.<段>.metrics` に残す。確かめた指摘の `groups`（coverage-audit の束ねの群）は、周と段を前に付けた id（`c<周>:<段>:<群の id>`）にして出来事の `groups` に載せ、群の根本原因と層は `audit_groups` に 1 回だけ置く。coverage-audit の群の id は段の始まりごとに数え直されるので、周をまたぐと同じ id が別の群を指すため。
 
 ## 止める条件
 
@@ -122,6 +124,6 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 - 同じ `next` の券で書く Workflow を 2 回流し、どちらも `ingest` の前に書き終えたときの 1 回目の書き込み。
 - 書く Workflow が途中で落ちた後の `next` は、その時点の中身を前の hash として記録するので、落ちる前の部分的な書き込みは受け持ちの外の変更として見えない（受け持ちの中なら、次の回が書き直す）。
 - 目標の照合役が挙げた成果が、依頼文と決定の記録の全てを尽くしているか（引用と id は照らすが、挙げ漏れは LLM に依る）。利用者の言葉そのものに手段が書かれていれば、引用は通る。
-- coverage-audit の中身（読む役は 1 つの資産を読み、その資産に当たる観点の枡を出す。設計レビューでは同じ id を含む資産を関係する資産として同じ枡で読むが、ほかの段で別のファイルの資産と突き合わせる観点は、受け入れの制約を通してしか持てない）。
+- coverage-audit の中身（読む役は 1 つの単位〔ファイル。大きすぎるファイルだけを構造の境目で分けたもの〕の全文を、渡した観点の全てで読む。ファイルをまたぐ食い違いは、coverage-audit の全体の段が、読む役の書いた保証と前提の主語から作る意図で照らす。主語として書かれなかった関係は照らされない）。
 - 詳細設計の前提に、入力・対象・単位が持つファイルのどれでもない既存のファイルは引けない。そうした前提は確かめていない前提（`unverified`）に、崩れたときの扱いと共に書く。入力に渡すかは呼ぶ側（`--input`）が決める。
   - 詳細設計の束には、前提に引ける path の一覧（取り込みが照らす集合と同じ）を載せる。方式設計と同じ呼び出しの束は単位が決まっていないので、入力と対象だけを載せ、単位のファイルは規則の文で伝える。

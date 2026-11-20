@@ -4,8 +4,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { cli as auditCli, drive as auditDrive, evidenceOf, mockAgent as auditAgent } from '../.agents/skills/coverage-audit/scripts/test-harness.mjs'
+import { cli as auditCli, driveScript as auditDrive, scriptAgent } from '../.agents/skills/coverage-audit/scripts/blackboard-fixture.mjs'
+import { planAct } from '../.agents/skills/coverage-audit/scripts/plan-roles.mjs'
 import { cli, drive, mockAgent, setup } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
+
+// coverage-audit の束ね役・反証役の偽物: 全件を 1 つの群に入れ（型にしない）、反証しない。
+const GROUPING = {
+  group: (task, ctx) => { const q = ctx.query(task).inputs; return { groups: [{ id: 'g1', root_cause: '根の原因', layer: '詳細設計', keys: q.items.map((x) => x.key), pattern: '', applies_to: [] }], unassigned: [] } },
+  refute: (task) => ({ group_id: task.group, refuted: false, reason: '確かめられない' }),
+}
 
 test('設計レビュー: coverage-audit の status を取り込み、指摘を単位と層へ結ぶ', async (t) => {
   const { state } = setup(t)
@@ -17,18 +24,16 @@ test('設計レビュー: coverage-audit の status を取り込み、指摘を�
     // coverage-build が書いた init の引数をそのまま渡す（照合済みの印を含む）。
     const init = auditCli(...a.init_argv)
     assert.equal(init.code, 0, JSON.stringify(init))
-    // 資産は見出しの下のブロックで切られるので、引用の文を本文に含む U1.md の資産の、計画の観点 X1（偽の計画役の既定）の枡を 1 つだけ選ぶ。
+    // ファイルの段は 1 ファイル 1 単位。引用の文を本文に含む U1.md の単位にだけ、coverage-build が渡した設計の段の観点の指摘を 1 件書く。
     const quote = '入力を受け取り、決まった値を返す。'
     const once = { done: false }
-    const agentFn = auditAgent({
-      read: (p, o) => {
-        if (once.done || !o.label.includes('U1.md') || !o.label.includes('|X1|') || !evidenceOf(p).some((l) => l.includes(quote))) return undefined
-        once.done = true
-        return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '値の決め方が基準に照らせない', quote, severity: 'HIGH', layer: '詳細設計' }], outside_notes: [], none_reason: '' }
-      },
-    }, log)
-    const r = await auditDrive(a.state, agentFn)
-    assert.ok(once.done, '引用の文を本文に含む U1.md の計画の観点 X1 の枡に指摘を返した')
+    const facts = (p, lines) => {
+      if (path.basename(p) !== 'U1.md' || !lines.some((l) => l.includes(quote))) return {}
+      once.done = true
+      return { findings: [{ claim: '値の決め方が基準に照らせない', quote, severity: 'HIGH', layer: '詳細設計' }] }
+    }
+    const r = await auditDrive(a.state, scriptAgent(planAct({ facts, ...GROUPING }), log), { maxSteps: 60 })
+    assert.ok(once.done, '引用の文を本文に含む U1.md の単位に指摘を書いた')
     assert.ok(['complete', 'needs_input'].includes(r.stop.stop), JSON.stringify(r.stop))
     return auditCli('status', '--state', a.state)
   }
@@ -41,7 +46,7 @@ test('設計レビュー: coverage-audit の status を取り込み、指摘を�
   assert.deepEqual([f[0].unit, f[0].layer, f[0].stage], ['U1', '設計', 'design_review'])
   assert.ok(!L.events.some((e) => e.kind === 'import_mismatch'), JSON.stringify(L.events))
   assert.equal(L.retro.due, true)
-  assert.ok(log.length && !log.some((x) => x.label.startsWith('goal-check')), 'coverage-build が照合した目標を coverage-audit は照合し直さない')
+  assert.ok(log.length && !log.some((x) => x.label.startsWith('goal_checker-')), 'coverage-build が照合した目標を coverage-audit は照合し直さない')
   const AL = JSON.parse(readFileSync(path.join(steps[1].out.audit.state, 'ledger.json'), 'utf8'))
   assert.deepEqual(AL.criteria.map((c) => c.id), ['AC1'], '受け入れ基準は coverage-audit の基準の欄に入る')
   assert.deepEqual(AL.constraints.map((c) => c.id), ['D1'])
@@ -77,7 +82,7 @@ test('段をまたいで 1 つの台帳: 設計レビューは init、実装レ�
     const r = auditCli(...argv)
     assert.equal(r.code, 0, JSON.stringify(r))
     calls.push({ phase, kind: argv[0], state: a.state, targets: a.targets })
-    const d = await auditDrive(a.state, auditAgent())
+    const d = await auditDrive(a.state, scriptAgent(planAct(GROUPING)), { maxSteps: 60 })
     assert.ok(['complete', 'needs_input'].includes(d.stop.stop), JSON.stringify(d.stop))
     return auditCli('status', '--state', a.state)
   }

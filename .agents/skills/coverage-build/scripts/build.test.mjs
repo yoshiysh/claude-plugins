@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C, RETRO_MAX_ROUNDS, findingPath, layerOf, retroConcluded } from './build-core.mjs'
-import { auditStatus, cli, defaultUnits, drive, inputsOf, mockAgent, runWorkflow, setup } from './test-harness.mjs'
+import { auditStatus, cli, defaultUnits, drive, inputsOf, mockAgent, runWorkflow, setup, writeAuditStatus } from './test-harness.mjs'
 
 const OK_CHECK = ['node', '-e', 'process.exit(0)']
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
@@ -178,12 +178,13 @@ test('取り込み: 終わっていない検査を拒否し、引用の合わな
   const { state } = setup(t)
   const first = await drive(state, mockAgent(), { audit: (phase) => auditStatus({ phase, stop: 'needs_input', pending: ['c1'] }) })
   assert.equal(first.stop.code, 2)
-  assert.match(first.stop.error, /読み終えていない枡/)
-  const f = path.join(state, 'bad.json')
-  writeFileSync(f, JSON.stringify(auditStatus({ phase: 'design', stop: 'blocked' })))
-  assert.match(cli('import-audit', '--state', state, '--status', f).error, /終わっていない/)
-  writeFileSync(f, JSON.stringify({ ...auditStatus({ phase: 'design' }), pending: { call_id: 'x', step: 'group' } }))
-  assert.match(cli('import-audit', '--state', state, '--status', f).error, /途中にある/, '前の停止の記録が残っていても、途中の検査は受けない')
+  assert.match(first.stop.error, /読み終えていない単位/)
+  // import-audit は coverage-audit の置き場の status-<段>.json を読む（--status は無い）。
+  const auditState = path.join(state, 'audit', 'state')
+  writeAuditStatus(auditState, 'design', auditStatus({ phase: 'design', stop: 'blocked' }))
+  assert.match(cli('import-audit', '--state', state).error, /終わっていない/)
+  writeAuditStatus(auditState, 'design', { ...auditStatus({ phase: 'design' }), pending: { call_id: 'x', step: 'group' } })
+  assert.match(cli('import-audit', '--state', state).error, /途中にある/, '前の停止の記録が残っていても、途中の検査は受けない')
   const second = await drive(state, mockAgent(), { audit: (ph) => auditStatus(ph === 'design' ? { phase: ph, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '設計に無い架空の引用の一文', layer: '設計' }] } : { phase: ph }) })
   assert.equal(second.stop.stop, 'complete', JSON.stringify(second.stop))
   const L = ledger(state)
@@ -191,10 +192,11 @@ test('取り込み: 終わっていない検査を拒否し、引用の合わな
   assert.equal(L.routes.find((r) => L.events.find((e) => e.id === r.event).kind === 'import_mismatch').layer, '進め方')
 })
 
-test('指摘の id から path を取る（資産の位置の key・回を含む）', () => {
-  assert.equal(findingPath('/a/b#c.md#sec/sub~2|purpose|p1#abc'), '/a/b#c.md')
-  assert.equal(findingPath('/x/y.mjs#c1|L1|p2#0123456789'), '/x/y.mjs')
-  assert.equal(findingPath('retro:c1:review|R1|p1#0123456789'), null, 'coverage-audit 自身の振り返りの枡は対象のファイルでない')
+test('指摘の path は paths の先頭（引用はその単位の本文にある）。paths の無い指摘は対象のファイルでない', () => {
+  assert.equal(findingPath({ id: 'F0123456789ab', paths: ['/a/b#c.md', '/x/y.mjs'] }), '/a/b#c.md', 'ファイルをまたぐ指摘は先頭の path に結ぶ')
+  assert.equal(findingPath({ id: 'F0123456789ab', paths: ['/x/y.mjs'] }), '/x/y.mjs')
+  assert.equal(findingPath({ id: 'F0123456789ab', paths: [] }), null)
+  assert.equal(findingPath({ id: 'F0123456789ab' }), null, 'paths の無い指摘（coverage-audit 自身の振り返りなど）は対象のファイルでない')
 })
 
 test('native の .output（result に包んだ形）をそのまま ingest できる', async (t) => {
@@ -470,12 +472,12 @@ for (const shape of ['runner', 'native']) {
 // ---------------- coverage-audit の台帳を 1 つに固定する（計画の 7） ----------------
 const AUDIT_STATE = (state) => path.join(state, 'audit', 'state')
 const pairOf = (argv, k) => argv.slice(argv.indexOf(k), argv.indexOf(k) + 2)
-// 偽の検査: 呼ばれた audit の欄を残し、本物の coverage-audit が init した後と同じく、置き場に台帳のファイルを置く。
+// 偽の検査: 呼ばれた audit の欄を残し、本物の coverage-audit が init した後と同じく、置き場に段の位置のファイル（phase.json）を置く。
 function recordingAudit(state, seen, status = (phase) => auditStatus({ phase })) {
   return (phase, out) => {
     seen.push({ phase, audit: out.audit, pending: ledger(state).pending })
     mkdirSync(out.audit.state, { recursive: true })
-    if (!existsSync(path.join(out.audit.state, 'ledger.json'))) writeFileSync(path.join(out.audit.state, 'ledger.json'), '{}')
+    if (!existsSync(path.join(out.audit.state, 'phase.json'))) writeFileSync(path.join(out.audit.state, 'phase.json'), '{}')
     return status(phase, out)
   }
 }
@@ -546,7 +548,7 @@ test('answer で制約が足されても、coverage-audit の置き場は増え�
 })
 
 // ---------------- 同じ段を続けて検査するときの framed（reframe を流す前に next を流し直しても reframe を飛ばさない） ----------------
-// 偽の coverage-audit の台帳: init は phase と phase_start を置き、reframe は phase を差し替えて phase_start.cycle を 1 つ進める（startPhase の代わり）。
+// 偽の coverage-audit の段の位置（phase.json）: init は phase と phase_start を置き、reframe は phase を差し替えて phase_start.cycle を 1 つ進める（startPhase の代わり）。
 const START1 = { cycle: 1, agents: 0, events: 0 }
 function fakeRun(c, kind = c.kind) {
   mkdirSync(path.dirname(c.lf), { recursive: true })
@@ -563,7 +565,7 @@ const nextAudit = (state) => { const n = cli('next', '--state', state); assert.e
 // scenario(c) が true を返した audit は、その scenario が決めた列だけを流す。
 function ledgerAudit(state, probes, { status = (phase) => auditStatus({ phase }), scenario = null } = {}) {
   return (phase, out) => {
-    const lf = path.join(out.audit.state, 'ledger.json')
+    const lf = path.join(out.audit.state, 'phase.json')
     let prevPhase = null
     try { prevPhase = JSON.parse(readFileSync(lf, 'utf8')).phase ?? null } catch { prevPhase = null }
     const c = { state, phase, lf, kind: kindOf(out.audit), prevPhase, first: out.audit }
@@ -607,17 +609,17 @@ for (const p of SAME_PHASE) {
 
 // 控えや今の値が分からない間は framed にしない。各 next の audit の欄と、build.json の控え（audit_start）を確かめる。
 const UNKNOWN = [
-  { name: 'reframe の途中で台帳が読めなくなり、元のバイトに戻ってから reframe を流す', at: (c) => c.kind === 'reframe', steps: [
+  { name: 'reframe の途中で phase.json が読めなくなり、元のバイトに戻ってから reframe を流す', at: (c) => c.kind === 'reframe', steps: [
     { act: (c) => { c.X = ledger(c.state).audit_frame.audit_start; assert.equal(typeof c.X, 'string'); c.saved = readFileSync(c.lf, 'utf8'); writeFileSync(c.lf, '{') }, keys: ['reframe_argv'], start: (c) => c.X },
     { act: (c) => writeFileSync(c.lf, c.saved), keys: ['reframe_argv'] },
     { act: (c) => fakeRun(c, 'reframe'), keys: ['framed'] },
   ] },
-  { name: 'init を流す前に読めない台帳が現れ、読める台帳にしてから reframe を流す', at: (c) => c.kind === 'init', steps: [
+  { name: 'init を流す前に読めない phase.json が現れ、読める phase.json にしてから reframe を流す', at: (c) => c.kind === 'init', steps: [
     { act: (c) => { mkdirSync(path.dirname(c.lf), { recursive: true }); writeFileSync(c.lf, '{') }, keys: ['reframe_argv'], start: () => null },
     { act: (c) => writeFileSync(c.lf, JSON.stringify({ phase: 'design', phase_start: START1 })), keys: ['reframe_argv'] },
     { act: (c) => fakeRun(c, 'reframe'), keys: ['framed'] },
   ] },
-  { name: 'reframe の途中で台帳が phase_start を持たなくなり、元に戻してから reframe を流す', at: (c) => c.kind === 'reframe', steps: [
+  { name: 'reframe の途中で phase.json が phase_start を持たなくなり、元に戻してから reframe を流す', at: (c) => c.kind === 'reframe', steps: [
     { act: (c) => { c.saved = readFileSync(c.lf, 'utf8'); writeFileSync(c.lf, JSON.stringify({ phase: c.phase })) }, keys: ['reframe_argv'] },
     { act: (c) => writeFileSync(c.lf, c.saved), keys: ['reframe_argv'] },
     { act: (c) => fakeRun(c, 'reframe'), keys: ['framed'] },
@@ -666,9 +668,9 @@ test('import-audit: 待っている段と違う段の status の指摘は取り�
   let wrong = null
   const audit = (phase) => {
     if (phase === 'impl' && !wrong) {
-      const f = path.join(state, 'wrong-phase.json')
-      writeFileSync(f, JSON.stringify(auditStatus({ phase: 'design', confirmed: [{ path: path.join(repo, 'src/a.mjs'), quote: 'export const value = 2', layer: '実装', claim: '別の段の指摘' }] })))
-      wrong = cli('import-audit', '--state', state, '--status', f)
+      // 置き場の status-impl.json に、段の違う（design の）status が書かれていたとき。
+      writeAuditStatus(path.join(state, 'audit', 'state'), 'impl', auditStatus({ phase: 'design', confirmed: [{ path: path.join(repo, 'src/a.mjs'), quote: 'export const value = 2', layer: '実装', claim: '別の段の指摘' }] }))
+      wrong = cli('import-audit', '--state', state)
     }
     return auditStatus({ phase })
   }

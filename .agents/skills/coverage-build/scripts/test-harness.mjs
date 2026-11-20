@@ -71,17 +71,29 @@ export async function runWorkflow(args, agentFn, { shape = 'runner', budget } = 
   return body(agentFn, parallel, pipeline, () => {}, () => {}, args, budget)
 }
 
-// coverage-audit の status の偽物。confirmed は [{path, quote, layer, claim}]。phase はその検査の段（coverage-audit の台帳が記録する段）。
-// 今の段の節（coverage・skip・findings・groups・events）を上の階層と phases[phase] の両方に置き、others で前の段の節（phase_records の写し）を足せる。
-export function auditStatus({ phase, confirmed = [], unverifiable = [], skip = [], stop = 'complete', pending = [], events = [], groups = [], others = {} } = {}) {
+// coverage-audit の status の偽物（coverage-audit が止まったときに書く status-<段>.json の中身と同じ形）。confirmed は [{path, quote, layer, claim}]。
+// phase はその検査の段（coverage-audit の台帳が記録する段）。指摘は path（paths）・義務・確信度・原因の層・出どころを持ち、id は事実の id（F<hex>）。
+// skip は見られなかった単位の id、pending は読み終えていない単位の id。今の段の節（findings・groups・events）を上の階層と phases[phase] の両方に置き、
+// others で前の段の節（phase_records の写し）を足せる。references は参考、undecided は試行の上限で判定できずに閉じた意図。
+export function auditStatus({ phase, confirmed = [], unverifiable = [], skip = [], stop = 'complete', pending = [], events = [], groups = [], others = {}, references = [], undecided = [] } = {}) {
   if (!phase) throw new Error('auditStatus には phase が要る（coverage-audit の status は段ごとに分かれる）')
   const section = {
-    coverage: { pending },
-    findings: { confirmed: confirmed.map((f, i) => ({ id: `${f.path}#sec|purpose|p1#h${i}`, severity: 'HIGH', layer: f.layer, claim: f.claim || '欠陥', quote: f.quote })), unverifiable },
-    skip: skip.map((cell) => ({ cell, problems: [] })),
+    findings: {
+      confirmed: confirmed.map((f, i) => ({ id: `F${String(i).padStart(12, '0')}`, ids: [`F${String(i).padStart(12, '0')}`], severity: 'HIGH', layer: f.layer, claim: f.claim || '欠陥', quote: f.quote, paths: [f.path], obligation: 'G1', confidence: 'high', origin: 'file', provenance: 'new', groups: [] })),
+      unverifiable,
+    },
     groups, events,
   }
-  return { phase, stopped: { stop }, pending: null, ...section, phases: { ...others, [phase]: section } }
+  return {
+    phase, stopped: { stop }, pending: null, coverage: { units: 1 + pending.length + skip.length, seen: 1, disclosed: skip, pending },
+    skip: skip.map((unit) => ({ unit, reason: '試行の上限' })), references, undecided, ...section, phases: { ...others, [phase]: section },
+  }
+}
+// coverage-audit が止まったときに書く status のファイル（import-audit が読む）。
+export const auditStatusPath = (auditState, phase) => path.join(auditState, `status-${phase}.json`)
+export function writeAuditStatus(auditState, phase, status) {
+  mkdirSync(auditState, { recursive: true })
+  writeFileSync(auditStatusPath(auditState, phase), JSON.stringify(status))
 }
 
 // next → Workflow / 偽の coverage-audit / run-checks → ingest を止まるまで回す。audit(phase, out) は status を返す。
@@ -91,9 +103,9 @@ export async function drive(state, agentFn, { audit = (phase) => auditStatus({ p
     const n = cli('next', '--state', state)
     if (n.code !== 0 || n.stop) return { stop: n, steps }
     if (n.step === 'audit') {
-      const f = path.join(state, `audit-result-${i}.json`)
-      writeFileSync(f, JSON.stringify(await audit(n.phase, n)))
-      const g = cli('import-audit', '--state', state, '--status', f)
+      // 偽の coverage-audit が止まったときと同じく、置き場に status-<段>.json を書いてから取り込む（--status は無い）。
+      writeAuditStatus(n.audit.state, n.phase, await audit(n.phase, n))
+      const g = cli('import-audit', '--state', state)
       steps.push({ step: 'audit', phase: n.phase, out: n, ingest: g })
       if (g.code !== 0) return { stop: g, steps }
       continue

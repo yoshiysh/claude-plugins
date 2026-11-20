@@ -18,7 +18,7 @@ class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra
 const MULTI = ['input', 'target', 'check']
 const KNOWN = {
   init: ['state', 'mode', 'repo', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'input', 'target', 'check', 'roles', 'max-cycles', 'max-agents-total', 'max-unit-rounds'],
-  next: ['state'], ingest: ['state', 'result'], 'import-audit': ['state', 'status'], 'run-checks': ['state'], status: ['state'],
+  next: ['state'], ingest: ['state', 'result'], 'import-audit': ['state'], 'run-checks': ['state'], status: ['state'],
   hint: ['state', 'text'], answer: ['state', 'id', 'text', 'file'], dismiss: ['state', 'id', 'text'], config: ['state', 'max-cycles', 'max-agents-total', 'max-unit-rounds'],
 }
 function parse(argv) {
@@ -149,7 +149,7 @@ const archInputs = (L, dir) => [...L.inputs, ...(L.mode === 'update' ? L.targets
 function baselineText(L) {
   if (!L.baseline) return ''
   const b = L.baseline
-  return `## 現状の検査（coverage-audit）の結果\n確かめた指摘と見ていない枡。影響の範囲と既存の欠陥として設計に入れる（全件は ${'baseline-status.json'}）。\n${b.findings.map((f) => `- [${f.layer}] ${f.claim}（${f.path}: 「${f.quote}」）`).join('\n') || '- 指摘なし'}\n### 見ていない枡（開示。見たとして扱わない）\n${b.not_seen.map((c) => `- ${c}`).join('\n') || '- なし'}\n### 検証不能の指摘\n${b.unverifiable.map((f) => `- ${f.id}: ${f.claim}`).join('\n') || '- なし'}\n`
+  return `## 現状の検査（coverage-audit）の結果\n確かめた指摘と見ていない単位。影響の範囲と既存の欠陥として設計に入れる（全件は ${'baseline-status.json'}）。\n${b.findings.map((f) => `- [${f.layer}] ${f.claim}（${f.path}: 「${f.quote}」）`).join('\n') || '- 指摘なし'}\n### 見ていない単位（開示。見たとして扱わない）\n${b.not_seen.map((c) => `- ${c}`).join('\n') || '- なし'}\n### 検証不能の指摘\n${b.unverifiable.map((f) => `- ${f.id}: ${f.claim}`).join('\n') || '- なし'}\n### 参考（目標・受け入れ基準に結べない気づき。欠陥として扱わない）\n${(b.references || []).map((r) => `- ${r.claim}（${r.path}: 「${r.quote}」）`).join('\n') || '- なし'}\n`
 }
 const designPath = (dir, id) => path.join(designDir(dir), `${id}.md`)
 function unitWriteBrief(L, dir, u, stage, unread) {
@@ -207,36 +207,57 @@ ${carry.length ? `## 流す意図（前の呼び出しで起動の枠に入ら�
 const listFiles = (d) => (existsSync(d) ? readdirSync(d, { recursive: true }).map((f) => path.join(d, String(f))).filter((f) => /\.(json|md|log)$/.test(f) && !f.includes(`${path.sep}snap${path.sep}`)) : [])
 
 // coverage-audit に渡す入力を CLI が決定的に書く（司令塔が目標を言い換えない）。
-// coverage-audit の台帳は stateDir/audit/state の 1 つに固定する。台帳が無ければ init、あれば reframe で段と枠（目標・基準・制約・決定の記録・対象）を差し替える。
-// reframe は全ての枡を読み直し、計画から作り直す。同じ段・同じ入力で返した reframe を流した後（coverage-audit の台帳の段の始まり phase_start が、
+// coverage-audit の台帳は stateDir/audit/state の 1 つに固定する。段の位置（phase.json）が無ければ init、あれば reframe で段と枠（目標・基準・制約・決定の記録・対象）を差し替える。
+// reframe は全ての単位を読み直し、計画から作り直す。同じ段・同じ入力で返した reframe を流した後（coverage-audit が書く段の位置 phase.json の段の始まり phase_start が、
 // reframe_argv を返したときの控えから変わった後）に next を流し直しても、argv を返し直さない（途中の検査と、coverage-audit の answer で足した A<n> を消さないため）。
-// 流す前や、台帳が読めず控えや今の値が分からない間は reframe_argv を返し直す（誤っても余分な reframe になるだけで、reframe を飛ばさない）。
+// 流す前や、phase.json が読めず控えや今の値が分からない間は reframe_argv を返し直す（誤っても余分な reframe になるだけで、reframe を飛ばさない）。
+// coverage-audit の台帳（ledger.json）は読まない。段の位置は coverage-audit が init と reframe で書く stateDir/phase.json（{ phase, phase_start }）だけから読む。
 // init は、台帳ができて段が合えば続けさせる。入力が変われば reframe を返す。
 // 目標はこのスキルが照合済みなので、init には照合済みの印（--goal-checked coverage-build）を付け、coverage-audit は照合を流さない。reframe は台帳の印を残す。
 // 受け入れ基準（単位ごとの受け入れを含む）は制約と取り違えないよう、coverage-audit の基準の欄（criteria.md）で渡す。
 // 基準・制約が 0 件なら、その欄のファイルも引数も渡さない（「- なし」を書くと coverage-audit が「AC1: なし」という項目として読む）。
 export const auditState = (dir) => path.join(dir, 'audit', 'state')
-// 台帳が読めなければ undefined。読めれば段と、段の始まり（phase_start。plain object のときだけ正規化した文字列、それ以外は null）。
+// coverage-audit の段の位置のファイル。init が書くので、あれば台帳があるとみなす（init でなく reframe を返す）。
+const auditPhaseFile = (state) => path.join(state, 'phase.json')
+// coverage-audit が止まったときに書く status のファイル（中身は status の出力と同じ）。司令塔は status の出力を写さず、import-audit がこれを読む。
+const auditStatusFile = (state, phase) => path.join(state, `status-${phase}.json`)
+// phase.json が読めなければ undefined。読めれば段と、段の始まり（phase_start。plain object のときだけ正規化した文字列、それ以外は null）。
 function auditPosOf(state) {
   let A
-  try { A = JSON.parse(read(path.join(state, 'ledger.json'))) } catch { return undefined }
+  try { A = JSON.parse(read(auditPhaseFile(state))) } catch { return undefined }
   if (A === null || typeof A !== 'object') return undefined
   const s = A.phase_start
   return { phase: A.phase, start: s !== null && typeof s === 'object' && !Array.isArray(s) ? C.canon(s) : null }
 }
+// 検査の段ごとの枠（目標のファイルの冒頭の文）と、coverage-audit に渡す観点（呼ぶ側が持つ領域の観点の中身）。観点の正本はここだけ。
+// 観点は枠の文から作り、手続きは「何を列挙し、何と照らすか」で書く。coverage-audit は観点を一覧で全ての単位に渡し、計画役で観点を作らない。
+const AUDIT_FRAMES = {
+  baseline: {
+    frame: '既存の対象を、次の固定した目標に照らして検査する。目標を果たすのに影響を受ける範囲、足りないもの、既存の欠陥を確かめる。',
+    lens: { id: 'baseline-fit', name: '目標に照らした現状', procedure: '対象の主張と振る舞いを列挙し、固定した目標・受け入れ基準・制約と照らして、目標を果たすのに影響を受ける範囲、足りないもの、既存の欠陥を探す' },
+  },
+  review: {
+    frame: '対象が、次の固定した目標・受け入れ基準・制約を満たすかを確かめる。',
+    lens: { id: 'review-fit', name: '目標・基準・制約の充足', procedure: '対象の主張と振る舞いを列挙し、固定した目標・受け入れ基準・制約と照らして、満たしていないもの・食い違うものを探す' },
+  },
+  design: {
+    frame: '設計（方式設計と単位ごとの詳細設計）が、次の固定した目標・受け入れ基準・制約を満たし、単位の分け方・依存・受け入れ・ケースが実装とテストに足りるかを確かめる。単位をまたぐ扱いは `_architecture.md` の境界の表にあり、設計の文書は行 id（`X<n>-<k>`）でそれを指す。前提の引用と照合の不変条件は script が照らし済みである。',
+    lens: { id: 'design-fit', name: '設計の充足と実装への足り', procedure: '設計の決定（単位の分け方・依存・受け入れ・ケース）を列挙し、固定した目標・受け入れ基準・制約と照らして満たしていないものを探す。次に、各決定が実装とテストに足りるか（境界の表の行 id で単位をまたぐ扱いが決まっているか）を照らす' },
+  },
+  impl: {
+    frame: '実装（各単位のファイルとテスト）が、次の固定した目標・受け入れ基準・制約と、単位ごとの受け入れ（基準の U<n>A<m>）を満たすかを確かめる。',
+    lens: { id: 'impl-fit', name: '実装とテストの充足', procedure: '実装とテストの振る舞いを列挙し、固定した目標・受け入れ基準・制約と単位ごとの受け入れ（U<n>A<m>）と照らして、満たしていないもの・テストが確かめていないものを探す' },
+  },
+}
 function prepAudit(L, dir, phase, keys) {
   const targets = phase === 'design' ? designFiles(L, dir) : phase === 'impl' ? ownedPaths(L).map((p) => abs(L, p)) : L.targets
-  const frame = {
-    baseline: '既存の対象を、次の固定した目標に照らして検査する。目標を果たすのに影響を受ける範囲、足りないもの、既存の欠陥を確かめる。',
-    review: '対象が、次の固定した目標・受け入れ基準・制約を満たすかを確かめる。',
-    design: '設計（方式設計と単位ごとの詳細設計）が、次の固定した目標・受け入れ基準・制約を満たし、単位の分け方・依存・受け入れ・ケースが実装とテストに足りるかを確かめる。単位をまたぐ扱いは `_architecture.md` の境界の表にあり、設計の文書は行 id（`X<n>-<k>`）でそれを指す。前提の引用と照合の不変条件は script が照らし済みである。',
-    impl: '実装（各単位のファイルとテスト）が、次の固定した目標・受け入れ基準・制約と、単位ごとの受け入れ（基準の U<n>A<m>）を満たすかを確かめる。',
-  }[phase]
+  const frame = AUDIT_FRAMES[phase].frame
   const criteria = [...L.criteria, ...(phase === 'impl' ? unitList(L).flatMap((u) => u.acceptance) : [])]
   const files = {
     'goal.md': `${frame}\n\n${items(L.goal.items)}\n`, 'request.md': `${L.request}\n`,
     ...(criteria.length ? { 'criteria.md': `${items(criteria)}\n` } : {}), ...(L.constraints.length ? { 'constraints.md': `${items(L.constraints)}\n` } : {}),
     ...(L.decisions != null ? { 'decisions.md': `${L.decisions}\n` } : {}),
+    'lenses.json': `${JSON.stringify([AUDIT_FRAMES[phase].lens])}\n`,
   }
   const inDir = path.join(dir, 'audit', 'in', phase)
   for (const f of existsSync(inDir) ? readdirSync(inDir) : []) if (!(f in files)) rmSync(path.join(inDir, f))
@@ -244,9 +265,9 @@ function prepAudit(L, dir, phase, keys) {
   const state = auditState(dir)
   const inFile = (f) => path.join(inDir, f)
   const frameKey = sha(C.canon({ phase, targets: [...targets].sort(), files })).slice(0, 16)
-  const exists = existsSync(path.join(state, 'ledger.json'))
-  // 同じ段・同じ入力で返した argv を流した後（取り込みの前）なら、argv を返さずに続けさせる。init の枠（audit_start を持たない）は台帳がその段にあれば流した後とみなし、
-  // reframe の枠は台帳の段の始まりが控え（audit_start）から変わったときだけ流した後とみなす。控えか今の値が分からなければ framed にしない。
+  const exists = existsSync(auditPhaseFile(state))
+  // 同じ段・同じ入力で返した argv を流した後（取り込みの前）なら、argv を返さずに続けさせる。init の枠（audit_start を持たない）は phase.json がその段にあれば流した後とみなし、
+  // reframe の枠は phase.json の段の始まりが控え（audit_start）から変わったときだけ流した後とみなす。控えか今の値が分からなければ framed にしない。
   const F = L.audit_frame
   const same = !!F && F.phase === phase && F.key === frameKey
   const cur = exists ? auditPosOf(state) : undefined
@@ -254,7 +275,7 @@ function prepAudit(L, dir, phase, keys) {
     && (!Object.hasOwn(F, 'audit_start') || (typeof F.audit_start === 'string' && F.audit_start !== cur.start))
   if (!framed && !exists) L.audit_frame = { phase, key: frameKey }
   else if (!framed) {
-    // 同じ枠の間は最初の控えを保つ（読めない台帳や phase_start の無い台帳で控えを置き換えない）。
+    // 同じ枠の間は最初の控えを保つ（読めない phase.json や phase_start の無い phase.json で控えを置き換えない）。
     const keep = same && typeof F.audit_start === 'string' ? F.audit_start : null
     L.audit_frame = { phase, key: frameKey, audit_start: keep ?? (cur && cur.start !== null ? cur.start : null) }
   }
@@ -264,15 +285,15 @@ function prepAudit(L, dir, phase, keys) {
     ...Object.fromEntries(['criteria', 'constraints', 'decisions'].filter((k) => files[`${k}.md`]).map((k) => [k, inFile(`${k}.md`)])), targets,
   }
   // 設計レビューだけ、関係する資産を結ぶ id の型（境界の行・受け入れ・振る舞い）を --link で渡す。ほかの段では渡さない（reframe で link は null に戻る）。
-  const frameArgv = [...['goal', 'request', 'criteria', 'constraints', 'decisions'].flatMap((k) => (audit[k] ? [`--${k}`, audit[k]] : [])), ...targets.flatMap((f) => ['--target', f]), '--phase', phase, ...(phase === 'design' ? ['--link', C.LINK_PATTERN] : [])]
+  const frameArgv = [...['goal', 'request', 'criteria', 'constraints', 'decisions'].flatMap((k) => (audit[k] ? [`--${k}`, audit[k]] : [])), '--lenses', inFile('lenses.json'), ...targets.flatMap((f) => ['--target', f]), '--phase', phase, ...(phase === 'design' ? ['--link', C.LINK_PATTERN] : [])]
   if (framed) audit.framed = true
   else if (exists) audit.reframe_argv = ['reframe', '--state', state, ...frameArgv]
   else audit.init_argv = ['init', '--state', state, ...frameArgv, '--goal-checked', 'coverage-build']
   return {
     step: 'audit', phase, cycle: L.cycle, audit,
     then: framed
-      ? `coverage-audit の台帳は既にこの段にある（argv は無い）。coverage-audit の next から止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`
-      : `coverage-audit の CLI に audit.${exists ? 'reframe_argv' : 'init_argv'} をそのまま渡し、coverage-audit を止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`,
+      ? `coverage-audit の台帳は既にこの段にある（argv は無い）。coverage-audit の next から止まるまで回し、import-audit --state ${dir} を流す（coverage-audit が止まったときに書く ${auditStatusFile(state, phase)} を CLI が読む）`
+      : `coverage-audit の CLI に audit.${exists ? 'reframe_argv' : 'init_argv'} をそのまま渡し、coverage-audit を止まるまで回し、import-audit --state ${dir} を流す（coverage-audit が止まったときに書く ${auditStatusFile(state, phase)} を CLI が読む）`,
   }
 }
 
@@ -400,7 +421,10 @@ function cmdImportAudit(o) {
   const L = load(dir)
   const p = L.pending
   if (!p || p.step !== 'audit') throw new Fail('取り込む coverage-audit が無い（next が audit を返した後に流す）')
-  const status = unwrap(JSON.parse(read(need(o, 'status'))))
+  const file = auditStatusFile(p.audit_state, p.phase)
+  if (!existsSync(file)) throw new Fail(`coverage-audit の status のファイルが無い: ${file}（coverage-audit を止まるまで回してから流す）`, { phase: p.phase, status_path: file })
+  let status
+  try { status = unwrap(JSON.parse(read(file))) } catch (e) { throw new Fail(`coverage-audit の status のファイルを読めない: ${file}（${e.message}）`, { phase: p.phase, status_path: file }) }
   // coverage-audit の status は段ごとに分かれる。上の階層は今の段の節なので、待っている段と同じ段の status だけを受ける。
   if (!status || status.phase !== p.phase) throw new Fail(`待っている段と違う段の status（待っているのは ${p.phase}、受け取ったのは ${status && status.phase}）。coverage-audit の台帳をこの段にしてから（next の audit の argv）流し直す`, { phase: p.phase })
   writeDesign(L, dir)
@@ -415,7 +439,8 @@ function cmdImportAudit(o) {
   try { base = importAudit(L, status, p.phase, { readText: reader(L, dir), unitOfPath }) } catch (e) { throw new Fail(e.message) }
   writeAtomic(path.join(dir, 'audit', `${p.phase}-status.json`), JSON.stringify(status, null, 1))
   L.audit_frame = null
-  L.audits[p.phase] = { imported: p.key, state: p.audit_state, cycle: L.cycle, not_seen: base.not_seen, findings: (status.findings && status.findings.confirmed || []).length }
+  // metrics は coverage-audit の run の指標（指摘の出どころの内訳・持ち越した読みの数・全体の段で落とした数と確認で復活した数）。
+  L.audits[p.phase] = { imported: p.key, state: p.audit_state, cycle: L.cycle, not_seen: base.not_seen, findings: (status.findings && status.findings.confirmed || []).length, references: base.references, metrics: status.metrics || null }
   if (p.phase !== 'baseline') L.retro.due = true
   L.pending = null
   save(dir, L)
@@ -453,7 +478,7 @@ function cmdStatus(o) {
   return {
     mode: L.mode, cycle: L.cycle, stopped: L.stopped, pending: L.pending, goal_checked: L.goal.checked,
     units: unitList(L).map((u) => ({ id: u.id, kind: u.kind, title: u.title, designed: !!u.design_hash && !u.need_design, tests: u.kind === 'code' ? u.tests_for === u.design_hash : null, implemented: u.impl_for === u.design_hash, rounds: u.rounds })),
-    audits: Object.fromEntries(PHASES.filter((p) => L.audits[p]).map((p) => [p, { cycle: L.audits[p].cycle, findings: L.audits[p].findings, not_seen: L.audits[p].not_seen }])),
+    audits: Object.fromEntries(PHASES.filter((p) => L.audits[p]).map((p) => [p, { cycle: L.audits[p].cycle, findings: L.audits[p].findings, not_seen: L.audits[p].not_seen, references: L.audits[p].references || [], metrics: L.audits[p].metrics || null }])),
     checks: L.checks_run, routes: L.routes, facts: L.facts.map((f) => ({ id: f.id, layer: f.layer, cause: f.cause, basis: f.basis })),
     human: L.human.map((h) => ({ ...h, answered: L.answers.some((a) => a.id === h.id) })), notes: L.notes,
     events_not_in_retro: dueEvents(L).map((e) => ({ id: e.id, stage: e.stage, kind: e.kind })), agents_by_role: roles, calls: L.calls,

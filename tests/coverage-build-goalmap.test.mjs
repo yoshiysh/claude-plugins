@@ -51,15 +51,18 @@ async function auditGoalPrompt(t, text = src(AUDIT_WF)) {
   const state = path.join(d, 'state')
   const r = auditHarness.cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--target', path.join(d, 'doc.md'))
   assert.equal(r.code, 0, JSON.stringify(r))
+  // 照合済みの印が無い台帳の最初の呼び出しは、目標の照合の段（目標の照合役の行が 1 つ）。
   const n = auditHarness.cli('next', '--state', state)
-  assert.equal(n.step, 'plan', JSON.stringify(n))
+  assert.equal(n.step, 'goal_check', JSON.stringify(n))
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  assert.ok(!args.goalChecked, '照合を流す呼び出し')
+  assert.deepEqual(args.workers.map((w) => w.role), ['goal_checker'])
   const log = []
-  await bodyOf(text)(auditHarness.mockAgent({}, log), parallel, pipeline, () => {}, () => {}, args, undefined)
-  const hit = log.filter((x) => x.label === 'goal-check')
+  // 役は起動の prompt を残すだけ（台帳と読み書きしない）。prompt に載る規則の文だけを見る。
+  const agentFn = async (prompt, opts) => { log.push({ label: opts.label, prompt }); return { notes: [] } }
+  await bodyOf(text)(agentFn, parallel, pipeline, () => {}, () => {}, args, undefined)
+  const hit = log.filter((x) => x.label.startsWith('goal_checker-'))
   assert.equal(hit.length, 1, '目標の照合役は 1 体')
-  return hit[0].raw
+  return hit[0].prompt
 }
 
 // 規則が伝えること（合格条件 1）。語句は計画の文（unit-goalcheck-quote.md）のとおり。
@@ -74,7 +77,7 @@ const RULE_PARTS = [
 // 規則の各部を述べる文（句点か改行で区切った 1 文）を並べる。2 つの prompt で同じ並びになる。
 const ruleSentence = (prompt) => RULE_PARTS.map(([re]) => prompt.split(/[。\n]/).find((x) => re.test(x)) || '').join('\n')
 
-for (const [name, get, file] of [['coverage-build の designStage', buildGoalPrompt, BUILD_STEP], ['coverage-audit の planStage', auditGoalPrompt, AUDIT_WF]]) {
+for (const [name, get, file] of [['coverage-build の designStage', buildGoalPrompt, BUILD_STEP], ['coverage-audit の goal_check の段', auditGoalPrompt, AUDIT_WF]]) {
   test(`${name} の goal_checker の prompt に、引用の規則（12 字以上・短い引用は 1 件の全体だけ・1 件の定義）が載る`, async (t) => {
     const prompt = await get(t)
     for (const [re, what] of RULE_PARTS) assert.match(prompt, re, `規則の文に「${what}」が無い`)
