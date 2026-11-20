@@ -208,14 +208,21 @@ const listFiles = (d) => (existsSync(d) ? readdirSync(d, { recursive: true }).ma
 
 // coverage-audit に渡す入力を CLI が決定的に書く（司令塔が目標を言い換えない）。
 // coverage-audit の台帳は stateDir/audit/state の 1 つに固定する。台帳が無ければ init、あれば reframe で段と枠（目標・基準・制約・決定の記録・対象）を差し替える。
-// reframe は全ての枡を読み直し、計画から作り直す。同じ段の検査を回している間（取り込みの前）に next を流し直しても、
-// 入力が同じなら argv を返し直さない（途中の検査と、coverage-audit の answer で足した A<n> を消さないため）。入力が変われば reframe を返す。
+// reframe は全ての枡を読み直し、計画から作り直す。同じ段・同じ入力で返した reframe を流した後（coverage-audit の台帳の段の始まり phase_start が、
+// reframe_argv を返したときの控えから変わった後）に next を流し直しても、argv を返し直さない（途中の検査と、coverage-audit の answer で足した A<n> を消さないため）。
+// 流す前や、台帳が読めず控えや今の値が分からない間は reframe_argv を返し直す（誤っても余分な reframe になるだけで、reframe を飛ばさない）。
+// init は、台帳ができて段が合えば続けさせる。入力が変われば reframe を返す。
 // 目標はこのスキルが照合済みなので、init には照合済みの印（--goal-checked coverage-build）を付け、coverage-audit は照合を流さない。reframe は台帳の印を残す。
 // 受け入れ基準（単位ごとの受け入れを含む）は制約と取り違えないよう、coverage-audit の基準の欄（criteria.md）で渡す。
 // 基準・制約が 0 件なら、その欄のファイルも引数も渡さない（「- なし」を書くと coverage-audit が「AC1: なし」という項目として読む）。
 export const auditState = (dir) => path.join(dir, 'audit', 'state')
-function auditPhaseOf(state) {
-  try { return JSON.parse(read(path.join(state, 'ledger.json'))).phase } catch { return undefined }
+// 台帳が読めなければ undefined。読めれば段と、段の始まり（phase_start。plain object のときだけ正規化した文字列、それ以外は null）。
+function auditPosOf(state) {
+  let A
+  try { A = JSON.parse(read(path.join(state, 'ledger.json'))) } catch { return undefined }
+  if (A === null || typeof A !== 'object') return undefined
+  const s = A.phase_start
+  return { phase: A.phase, start: s !== null && typeof s === 'object' && !Array.isArray(s) ? C.canon(s) : null }
 }
 function prepAudit(L, dir, phase, keys) {
   const targets = phase === 'design' ? designFiles(L, dir) : phase === 'impl' ? ownedPaths(L).map((p) => abs(L, p)) : L.targets
@@ -238,9 +245,19 @@ function prepAudit(L, dir, phase, keys) {
   const inFile = (f) => path.join(inDir, f)
   const frameKey = sha(C.canon({ phase, targets: [...targets].sort(), files })).slice(0, 16)
   const exists = existsSync(path.join(state, 'ledger.json'))
-  // 同じ段・同じ入力で init か reframe を返した後（取り込みの前）で、台帳がその段にあれば、argv を返さずに続けさせる。
-  const framed = exists && L.audit_frame && L.audit_frame.phase === phase && L.audit_frame.key === frameKey && auditPhaseOf(state) === phase
-  L.audit_frame = { phase, key: frameKey }
+  // 同じ段・同じ入力で返した argv を流した後（取り込みの前）なら、argv を返さずに続けさせる。init の枠（audit_start を持たない）は台帳がその段にあれば流した後とみなし、
+  // reframe の枠は台帳の段の始まりが控え（audit_start）から変わったときだけ流した後とみなす。控えか今の値が分からなければ framed にしない。
+  const F = L.audit_frame
+  const same = !!F && F.phase === phase && F.key === frameKey
+  const cur = exists ? auditPosOf(state) : undefined
+  const framed = exists && same && !!cur && cur.phase === phase && cur.start !== null
+    && (!Object.hasOwn(F, 'audit_start') || (typeof F.audit_start === 'string' && F.audit_start !== cur.start))
+  if (!framed && !exists) L.audit_frame = { phase, key: frameKey }
+  else if (!framed) {
+    // 同じ枠の間は最初の控えを保つ（読めない台帳や phase_start の無い台帳で控えを置き換えない）。
+    const keep = same && typeof F.audit_start === 'string' ? F.audit_start : null
+    L.audit_frame = { phase, key: frameKey, audit_start: keep ?? (cur && cur.start !== null ? cur.start : null) }
+  }
   L.pending = { step: 'audit', phase, key: keys[phase], audit_state: state }
   const audit = {
     state, goal: inFile('goal.md'), request: inFile('request.md'),

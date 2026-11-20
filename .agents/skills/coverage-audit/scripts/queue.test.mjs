@@ -3,10 +3,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { C, MAX_ATTEMPTS } from './ledger-core.mjs'
+import { withLock } from './ledger-cli.mjs'
 import { cli, cliArgvOf, drive, evidenceOf, mockAgent, tmp } from './test-harness.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -890,38 +891,45 @@ test('lock: 並べて流した hint は互いに違う id を受け取る', asyn
   assert.equal(new Set(outs.map((o) => o.id)).size, outs.length)
 })
 
-test('lock: 生きた lock（mtime が 60 秒より新しい）を待つ時間が上限（10 秒）を超えたら Fail（終了状態 2）で、台帳を変えず、他の process の lock を消さない', { timeout: 60000 }, async (t) => {
-  const { state } = qsetup(t)
-  const lock = path.join(state, 'ledger.lock')
-  writeFileSync(lock, String(process.pid))
-  const before = bytes(state)
-  const t0 = Date.now()
-  const r = await run(['config', '--state', state, '--max-cycles', '9'])
-  const took = Date.now() - t0
-  assert.equal(r.code, 2, JSON.stringify(r))
-  assert.ok(took >= 9000, `上限まで待つ（${took} ms）`)
-  assert.ok(took < 30000, `上限を超えて待たない（${took} ms）`)
-  assert.equal(bytes(state), before)
-  assert.ok(existsSync(lock), '生きた lock は消さない')
+// 生きた lock も古い lock も消さずに上限まで待って止まり、古い lock のときだけ手で消す案内を出す。2 つのケースは別の stateDir で同時に流す（待ちは 10 秒のまま）。
+const LOCK_AGES = [
+  { name: '生きた lock（mtime が 60 秒より新しい）', content: String(process.pid), ageSec: 0, maxCycles: '9', stale: false },
+  { name: '古い lock（mtime が 60 秒より前）', content: 'x', ageSec: 120, maxCycles: '6', stale: true },
+]
+test('lock: 生きた lock でも古い lock でも消さず、待つ時間が上限（10 秒）を超えたら Fail（終了状態 2）で、台帳を変えない。古い lock のときだけ手で消す案内を出す', { timeout: 60000 }, async (t) => {
+  const cases = LOCK_AGES.map((c) => {
+    const { state } = qsetup(t)
+    const lock = path.join(state, 'ledger.lock')
+    writeFileSync(lock, c.content)
+    if (c.ageSec) { const old = (Date.now() - c.ageSec * 1000) / 1000; utimesSync(lock, old, old) }
+    return { ...c, state, lock, before: bytes(state) }
+  })
+  const outs = await Promise.all(cases.map(async (c) => {
+    const t0 = Date.now()
+    const r = await run(['config', '--state', c.state, '--max-cycles', c.maxCycles])
+    return { r, took: Date.now() - t0 }
+  }))
+  cases.forEach((c, i) => {
+    const { r, took } = outs[i]
+    assert.equal(r.code, 2, `${c.name}: ${JSON.stringify(r)}`)
+    assert.ok(took >= 9000, `${c.name}: 上限まで待つ（${took} ms）`)
+    assert.ok(took < 30000, `${c.name}: 上限を超えて待たない（${took} ms）`)
+    assert.equal(bytes(c.state), c.before, `${c.name}: 台帳を変えない`)
+    assert.ok(existsSync(c.lock), `${c.name}: lock を消さない`)
+    assert.equal(readFileSync(c.lock, 'utf8'), c.content, `${c.name}: lock を取り直さない`)
+    assert.ok(r.error.includes(c.lock), `${c.name}: lock の path を示す: ${r.error}`)
+    if (c.stale) {
+      for (const w of ['落ちた process', 'CLI が動いていない', '手で消']) assert.ok(r.error.includes(w), `${c.name}: 案内に「${w}」: ${r.error}`)
+    } else {
+      assert.ok(r.error.includes('他の process が台帳を書いている'), `${c.name}: ${r.error}`)
+      for (const w of ['手で消', '落ちた process']) assert.ok(!r.error.includes(w), `${c.name}: 案内を出さない「${w}」: ${r.error}`)
+    }
+  })
 })
 
-test('lock: mtime が 60 秒より前の lock は古いものとして消して取り直す', (t) => {
+test('lock: コマンドは成功しても失敗しても lock を残さない', (t) => {
   const { state } = qsetup(t)
   const lock = path.join(state, 'ledger.lock')
-  writeFileSync(lock, 'x')
-  const old = (Date.now() - 120 * 1000) / 1000
-  utimesSync(lock, old, old)
-  const c = cli('config', '--state', state, '--max-cycles', '6')
-  assert.equal(c.code, 0, JSON.stringify(c))
-  assert.equal(ledger(state).config.max_cycles, 6)
-  assert.ok(!existsSync(lock))
-})
-
-test('lock: 古い lock（stateDir/ledger.lock）は壊れたものとして消して取り直し、コマンドは成功しても失敗しても lock を残さない', (t) => {
-  const { state } = qsetup(t)
-  const lock = path.join(state, 'ledger.lock')
-  writeFileSync(lock, 'x')
-  utimesSync(lock, 0, 0)
   const c = cli('config', '--state', state, '--max-cycles', '5')
   assert.equal(c.code, 0, JSON.stringify(c))
   assert.equal(ledger(state).config.max_cycles, 5)
@@ -930,6 +938,36 @@ test('lock: 古い lock（stateDir/ledger.lock）は壊れたものとして消�
   assert.ok(!existsSync(lock))
   assert.equal(claim(state, n.call_id, 'no-such-worker').code, 2)
   assert.ok(!existsSync(lock), 'Fail の後にも lock を残さない')
+})
+
+// finally の時点の lock の中身ごとに、消すか・fn の結果を通すかを確かめる。
+const BOOM = new Error('boom')
+const LOCK_ENDS = [
+  { name: '自分の token のまま', act: () => {}, left: null },
+  { name: '他の中身に上書き', act: (lock) => writeFileSync(lock, 'other'), left: () => 'other' },
+  { name: '自分の token の末尾に文字を足した中身に上書き', act: (lock) => writeFileSync(lock, `${readFileSync(lock, 'utf8')}z`), left: (seen) => `${seen}z` },
+  { name: 'fn の中で消す', act: (lock) => rmSync(lock), left: null },
+  { name: '他の中身に上書きして fn が投げる', act: (lock) => { writeFileSync(lock, 'other'); throw BOOM }, left: () => 'other', throws: BOOM },
+]
+for (const c of LOCK_ENDS) {
+  test(`withLock: finally の lock の中身が「${c.name}」のとき、自分の token と完全に一致するときだけ消し、fn の結果をそのまま通す`, (t) => {
+    const dir = tmp(t)
+    const lock = path.join(dir, 'ledger.lock')
+    let seen = null
+    const fn = () => { seen = readFileSync(lock, 'utf8'); c.act(lock); return 'value' }
+    if (c.throws) assert.throws(() => withLock(dir, fn), (e) => e === c.throws, 'fn が投げた例外をそのまま投げる')
+    else assert.equal(withLock(dir, fn), 'value')
+    if (c.left === null) assert.ok(!existsSync(lock), 'lock は無い')
+    else assert.equal(readFileSync(lock, 'utf8'), c.left(seen), 'lock はその中身のまま残る')
+  })
+}
+
+test('withLock: lock には取得ごとに違う、空でない token を書く', (t) => {
+  const dir = tmp(t)
+  const lock = path.join(dir, 'ledger.lock')
+  const seen = [withLock(dir, () => readFileSync(lock, 'utf8')), withLock(dir, () => readFileSync(lock, 'utf8'))]
+  for (const s of seen) assert.ok(typeof s === 'string' && s.length > 0, JSON.stringify(seen))
+  assert.notEqual(seen[0], seen[1])
 })
 
 // ---------------- Workflow の review の段（偽の worker） ----------------

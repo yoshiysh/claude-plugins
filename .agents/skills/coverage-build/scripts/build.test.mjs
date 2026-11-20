@@ -545,6 +545,112 @@ test('answer で制約が足されても、coverage-audit の置き場は増え�
   assert.match(readFileSync(a.constraints, 'utf8'), /check を直す/, '足した制約を渡す')
 })
 
+// ---------------- 同じ段を続けて検査するときの framed（reframe を流す前に next を流し直しても reframe を飛ばさない） ----------------
+// 偽の coverage-audit の台帳: init は phase と phase_start を置き、reframe は phase を差し替えて phase_start.cycle を 1 つ進める（startPhase の代わり）。
+const START1 = { cycle: 1, agents: 0, events: 0 }
+function fakeRun(c, kind = c.kind) {
+  mkdirSync(path.dirname(c.lf), { recursive: true })
+  if (kind === 'init') { writeFileSync(c.lf, JSON.stringify({ phase: c.phase, phase_start: START1 })); return }
+  const A = JSON.parse(readFileSync(c.lf, 'utf8'))
+  A.phase = c.phase
+  A.phase_start = { ...A.phase_start, cycle: A.phase_start.cycle + 1 }
+  writeFileSync(c.lf, JSON.stringify(A))
+}
+const kindOf = (a) => (a.init_argv ? 'init' : a.reframe_argv ? 'reframe' : 'framed')
+const keysOf = (a) => ['framed', 'init_argv', 'reframe_argv'].filter((k) => a[k] !== undefined)
+const nextAudit = (state) => { const n = cli('next', '--state', state); assert.equal(n.step, 'audit', JSON.stringify(n)); return n.audit }
+// 各 audit で、流す前に next を流し（before）、偽の台帳に argv を流し、流した後に next を 2 回流す（after）。
+// scenario(c) が true を返した audit は、その scenario が決めた列だけを流す。
+function ledgerAudit(state, probes, { status = (phase) => auditStatus({ phase }), scenario = null } = {}) {
+  return (phase, out) => {
+    const lf = path.join(out.audit.state, 'ledger.json')
+    let prevPhase = null
+    try { prevPhase = JSON.parse(readFileSync(lf, 'utf8')).phase ?? null } catch { prevPhase = null }
+    const c = { state, phase, lf, kind: kindOf(out.audit), prevPhase, first: out.audit }
+    if (!(scenario && scenario(c))) {
+      c.before = nextAudit(state)
+      fakeRun(c)
+      const f0 = ledger(state).audit_frame
+      c.after = [nextAudit(state), nextAudit(state)]
+      c.frameStable = JSON.stringify(f0) === JSON.stringify(ledger(state).audit_frame)
+    }
+    probes.push(c)
+    return status(phase, out)
+  }
+}
+const SAME_PHASE = [
+  { name: 'design', status: () => { let n = 0; return (phase, out) => (phase === 'design' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(out.audit.state), '..', 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] }) : auditStatus({ phase })) } },
+  { name: 'impl', status: () => { let n = 0; return (phase, out) => (phase === 'impl' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(out.audit.state), '..', '..', 'repo', 'test', 'a.test.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus({ phase })) } },
+]
+for (const p of SAME_PHASE) {
+  test(`framed: 同じ段（${p.name}）を続けて検査するとき、reframe を流す前の next は reframe_argv を返し直し、流した後だけ framed にして控えを書き換えない`, async (t) => {
+    const { state } = setup(t)
+    const probes = []
+    const { stop } = await drive(state, mockAgent(), { audit: ledgerAudit(state, probes, { status: p.status() }) })
+    assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+    for (const c of probes) {
+      const at = `${c.phase}（${c.kind}・前の段 ${c.prevPhase}）`
+      assert.deepEqual(keysOf(c.before), [c.kind === 'init' ? 'init_argv' : 'reframe_argv'], `${at}: 流す前の next は同じ argv を返し直す: ${JSON.stringify(c.before)}`)
+      for (const a of c.after) {
+        assert.deepEqual(keysOf(a), ['framed'], `${at}: 流した後は argv を返さない: ${JSON.stringify(a)}`)
+        assert.equal(a.framed, true, at)
+      }
+      assert.ok(c.frameStable, `${at}: framed の next は audit_frame を書き換えない`)
+    }
+    assert.ok(probes.some((c) => c.kind === 'reframe' && c.prevPhase === p.name && c.phase === p.name), `同じ段を続けて検査する reframe がある: ${JSON.stringify(probes.map((c) => [c.phase, c.kind, c.prevPhase]))}`)
+    // 段が変わる reframe（design の後の impl）と、最初の design の init も同じ規則で振る舞う。
+    assert.ok(probes.some((c) => c.kind === 'reframe' && c.prevPhase === 'design' && c.phase === 'impl'), '段が変わる reframe がある')
+    assert.equal(probes[0].kind, 'init')
+    assert.equal(probes[0].phase, 'design')
+  })
+}
+
+// 控えや今の値が分からない間は framed にしない。各 next の audit の欄と、build.json の控え（audit_start）を確かめる。
+const UNKNOWN = [
+  { name: 'reframe の途中で台帳が読めなくなり、元のバイトに戻ってから reframe を流す', at: (c) => c.kind === 'reframe', steps: [
+    { act: (c) => { c.X = ledger(c.state).audit_frame.audit_start; assert.equal(typeof c.X, 'string'); c.saved = readFileSync(c.lf, 'utf8'); writeFileSync(c.lf, '{') }, keys: ['reframe_argv'], start: (c) => c.X },
+    { act: (c) => writeFileSync(c.lf, c.saved), keys: ['reframe_argv'] },
+    { act: (c) => fakeRun(c, 'reframe'), keys: ['framed'] },
+  ] },
+  { name: 'init を流す前に読めない台帳が現れ、読める台帳にしてから reframe を流す', at: (c) => c.kind === 'init', steps: [
+    { act: (c) => { mkdirSync(path.dirname(c.lf), { recursive: true }); writeFileSync(c.lf, '{') }, keys: ['reframe_argv'], start: () => null },
+    { act: (c) => writeFileSync(c.lf, JSON.stringify({ phase: 'design', phase_start: START1 })), keys: ['reframe_argv'] },
+    { act: (c) => fakeRun(c, 'reframe'), keys: ['framed'] },
+  ] },
+  { name: 'reframe の途中で台帳が phase_start を持たなくなり、元に戻してから reframe を流す', at: (c) => c.kind === 'reframe', steps: [
+    { act: (c) => { c.saved = readFileSync(c.lf, 'utf8'); writeFileSync(c.lf, JSON.stringify({ phase: c.phase })) }, keys: ['reframe_argv'] },
+    { act: (c) => writeFileSync(c.lf, c.saved), keys: ['reframe_argv'] },
+    { act: (c) => fakeRun(c, 'reframe'), keys: ['framed'] },
+  ] },
+]
+for (const s of UNKNOWN) {
+  test(`framed: ${s.name}とき、控えか今の値が分からない間は framed にせず、reframe を流した後だけ framed にする`, async (t) => {
+    const { state } = setup(t)
+    const probes = []
+    let done = false
+    const seen = []
+    const scenario = (c) => {
+      if (done || !s.at(c)) return false
+      done = true
+      for (const st of s.steps) {
+        st.act(c)
+        const a = nextAudit(state)
+        seen.push({ keys: keysOf(a), framed: a.framed, start: ledger(state).audit_frame.audit_start, want: st, c })
+      }
+      return true
+    }
+    const { stop } = await drive(state, mockAgent(), { audit: ledgerAudit(state, probes, { scenario }) })
+    assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+    assert.ok(done, 'その audit に届く')
+    assert.equal(seen.length, s.steps.length)
+    seen.forEach((x, i) => {
+      assert.deepEqual(x.keys, x.want.keys, `${i + 1} 番目の next: ${JSON.stringify(x.keys)}`)
+      if (x.want.keys[0] === 'framed') assert.equal(x.framed, true)
+      if (x.want.start) assert.equal(x.start, x.want.start(x.c), `${i + 1} 番目の next の後の控え`)
+    })
+  })
+}
+
 test('import-audit: その段の status だけを取り込み、前の段の節の指摘は取り込まない', async (t) => {
   const { state } = setup(t)
   const designFinding = { path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計', claim: '前の段の指摘' }

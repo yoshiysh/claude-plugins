@@ -73,11 +73,11 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
   |---|---|---|
   | 無い | `init_argv`（照合済みの印 `--goal-checked coverage-build` と `--phase <段>` を含む） | 台帳を作る。目標の照合は流さない |
   | ある | `reframe_argv`（`--phase <段>` を含み、印は渡さない） | 印を残したまま、目標・基準・制約・決定の記録・対象と段を差し替え、全ての枡を読み直して計画から作り直す |
-  | あり、同じ段・同じ入力を渡した後で、取り込みの前 | `framed: true`（引数なし） | coverage-audit の `next` を続ける |
+  | あり、同じ段・同じ入力で返した argv を流した後で、取り込みの前 | `framed: true`（引数なし） | coverage-audit の `next` を続ける |
 
   design の段の `init_argv`・`reframe_argv` だけが、`--link` に `LINK_PATTERN`（`<checks>` 区間。境界の行・受け入れ・振る舞いの id の型）を持ち、同じ id を含む設計の写しどうしを coverage-audit が同じ枡で読む。ほかの段では渡さないので、reframe で coverage-audit の link は null に戻る。
 
-  `framed` を返すのは、検査の途中で `next` を流し直したときに reframe で途中の検査と coverage-audit の `answer` で足した `A<n>` を消さないため。渡した段と入力は `audit_frame` に残し、取り込みで消す。answer で制約（`A<n>`）が足されたときや、単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳を reframe して検査し直す。
+  `framed` を返すのは、検査の途中で `next` を流し直したときに reframe で途中の検査と coverage-audit の `answer` で足した `A<n>` を消さないため。渡した段と入力は `audit_frame` に残し、取り込みで消す。`reframe_argv` を返すときは coverage-audit の台帳の `phase_start`（段の始まり。reframe のたびに置き直される）も `audit_frame` に控え、同じ段・同じ入力の間は最初の控えを保つ。`phase_start` が控えから変わる（reframe が流れた）までは `reframe_argv` を返し直す。台帳が読めない・`phase_start` が無い・控えが分からないときは `framed` にしない（誤っても余分な reframe になるだけで、reframe を飛ばさない）。`init_argv` の後は、台帳ができて段が合えば `framed` になる。`framed` を返す `next` は控えを書き換えない。answer で制約（`A<n>`）が足されたときや、単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳を reframe して検査し直す。
 - 受け取るもの: coverage-audit の `status` の出力。status は段ごとに分かれ、上の階層（確かめた指摘・検証不能・開示した枡・束ね・出来事）は今の段のもので、出ていった段は `phases` に残る。取り込みは上の階層だけを読み、`status.phase` が待っている段と違えば拒否して台帳を変えない。写しを `stateDir/audit/<段>-status.json` に置き、振り返りの読めるファイルに入れる。
 - 出来事: 照合済みの印のある coverage-audit の台帳は振り返りの資産を作らず、検査の中の出来事を status の `events` で返す。取り込みはそれを `audit_internal`（進め方）の出来事として受け、`audit_events_seen` で 1 回だけにする。振り返りの探索グラフはこのスキルの 1 つだけ。
 - 指摘の結び付け: 指摘の id（枡#hash、枡は 資産|観点|回、資産は path#<中身の位置>）から path を取り、設計の写しなら単位、実装なら持ち主の単位とテストかを決める。確かめた指摘の `groups`（coverage-audit の束ねの群）は、周と段を前に付けた id（`c<周>:<段>:<群の id>`）にして出来事の `groups` に載せ、群の根本原因と層は `audit_groups` に 1 回だけ置く。coverage-audit の群の id は段の始まりごとに数え直されるので、周をまたぐと同じ id が別の群を指すため。

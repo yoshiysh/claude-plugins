@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // 台帳を書く唯一の口。init → next →（Workflow）→ ingest を繰り返し、next が止まる条件を返したら終わる。
+import { randomUUID } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -67,13 +68,14 @@ function writeAtomic(file, text) {
   renameSync(tmp, file)
 }
 // 台帳を書くコマンドは、load から save までを stateDir/ledger.lock で囲む（並べて動く worker の claim・submit を直列にする）。
-// lock は openSync の wx で取る。取れなければ短く眠って取り直し、LOCK_WAIT_MS を超えたら Fail にする（生きた lock は消さない）。
-// mtime が LOCK_STALE_MS より前の lock は、落ちた process が残したものとして消してから取り直す。
+// lock は openSync の wx で取る。取れなければ短く眠って取り直し、LOCK_WAIT_MS を超えたら台帳を変えずに Fail にする。古い lock も消さない（自動で奪うと 2 つの process が同時に書く窓ができる）。
+// 止まるときの lock の mtime が LOCK_STALE_MS より前なら、落ちた process の残りかもしれないので、CLI が動いていないことを確かめてから手で消す案内を出す。
+// lock には取得ごとの token を書き、終わるときは中身が自分の token のときだけ消す（他の process の lock を消さない）。
 const LOCK_WAIT_MS = 10000
 const LOCK_STALE_MS = 60000
 const LOCK_SLEEP_MS = 20
 const nap = new Int32Array(new SharedArrayBuffer(4))
-function withLock(dir, fn) {
+export function withLock(dir, fn) {
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, 'ledger.lock')
   const t0 = Date.now()
@@ -83,17 +85,32 @@ function withLock(dir, fn) {
       if (e.code !== 'EEXIST') throw e
       let age = null
       try { age = Date.now() - statSync(file).mtimeMs } catch (e2) { if (e2.code === 'ENOENT') continue; throw e2 }
-      if (age > LOCK_STALE_MS) { rmSync(file, { force: true }); continue }
-      if (Date.now() - t0 >= LOCK_WAIT_MS) throw new Fail(`台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`)
+      if (Date.now() - t0 >= LOCK_WAIT_MS) {
+        throw new Fail(age > LOCK_STALE_MS
+          ? `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（mtime が ${LOCK_STALE_MS / 1000} 秒より前で、落ちた process の lock が残っている可能性がある。この台帳を使っている CLI が動いていないことを確かめてから、${file} を手で消して流し直す）`
+          : `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`)
+      }
       Atomics.wait(nap, 0, 0, LOCK_SLEEP_MS)
     }
   }
+  const token = `${process.pid}-${randomUUID()}`
+  let open = true
   try {
-    writeSync(fd, String(process.pid))
+    writeSync(fd, token)
     closeSync(fd)
+    open = false
+  } catch (e) {
+    // 中身を照合できない lock は誰も消さないので、自分が作った lock をここで消す。
+    if (open) try { closeSync(fd) } catch { /* 元の例外を投げる */ }
+    rmSync(file, { force: true })
+    throw e
+  }
+  try {
     return fn()
   } finally {
-    rmSync(file, { force: true })
+    let held = null
+    try { held = readFileSync(file, 'utf8') } catch (e) { if (e.code !== 'ENOENT') throw e }
+    if (held === token) rmSync(file, { force: true })
   }
 }
 // 書き込みは一時ファイルからの rename で 1 回に行う（途中で落ちても壊れた台帳を残さない）。
