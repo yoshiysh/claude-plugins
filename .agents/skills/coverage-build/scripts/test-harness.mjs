@@ -30,8 +30,8 @@ export const repoOf = (brief) => /repo（相対 path の起点）: (.+)$/m.exec(
 
 // 既定の方式設計: code の単位 U1 と、それに依存する doc の単位 U2。
 export const defaultUnits = (cover) => [
-  { id: 'U1', kind: 'code', title: '計算', responsibility: '値を計算する', paths: ['src/a.mjs'], tests: ['test/a.test.mjs'], depends_on: [], covers: cover },
-  { id: 'U2', kind: 'doc', title: '説明', responsibility: '使い方を書く', paths: ['docs/a.md'], tests: [], depends_on: ['U1'], covers: cover },
+  { id: 'U1', kind: 'code', title: '計算', responsibility: '値を計算する', paths: ['src/a.mjs'], tests: ['test/a.test.mjs'], test_uses: [], depends_on: [], covers: cover },
+  { id: 'U2', kind: 'doc', title: '説明', responsibility: '使い方を書く', paths: ['docs/a.md'], tests: [], test_uses: [], depends_on: ['U1'], covers: cover },
 ]
 
 // 既定の振る舞い: どの役も検査を通る最小の返り値を返す。over[label の頭] で差し替える（undefined なら既定、null は欠測）。
@@ -45,9 +45,9 @@ export function mockAgent(over = {}, log = []) {
     if (role === 'goal-check') return { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: requestOf(brief) }], items: [...idsIn(section(brief, '固定した目標')), ...idsIn(section(brief, '受け入れ基準')), ...idsIn(section(brief, '固定した制約'))] }] }
     if (role === 'architect') {
       const cover = [...idsIn(section(brief, '受け入れ基準')), ...idsIn(section(brief, '固定した制約'))]
-      return { units: defaultUnits(cover), inputs_read: inputsOf(brief).map((p) => ({ path: p, quotes: [firstLine(p)] })), inputs_not_read: [], questions: [] }
+      return { units: defaultUnits(cover), inputs_read: inputsOf(brief).map((p) => ({ path: p, quotes: [firstLine(p)] })), inputs_not_read: [], questions: [], contracts: [], copies: [] }
     }
-    if (role === 'design') return { unit_id: head.slice('design-'.length), spec: '入力を受け取り、決まった値を返す。', acceptance: ['値を返す'], cases: [{ condition: '入力が 1', expect: '2 を返す' }] }
+    if (role === 'design') return { unit_id: head.slice('design-'.length), spec: '入力を受け取り、決まった値を返す。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
     if (role === 'tests' || role === 'implement') {
       const paths = /書いてよいのは次の path だけ（repo からの相対）: ([^。]+)。/.exec(prompt)[1].split(', ')
       const repo = repoOf(brief)
@@ -61,26 +61,31 @@ export function mockAgent(over = {}, log = []) {
   }
 }
 
+// budget: native が注入する消費量の計器（spent() を持つ）。省略は注入しない経路（runner など）。
 // shape: pipeline の callback に渡す引数の形。runner は (item, index)、native は (prevResult, originalItem, index)（1 段なら prevResult は item）。
-export async function runWorkflow(args, agentFn, { shape = 'runner' } = {}) {
+export async function runWorkflow(args, agentFn, { shape = 'runner', budget } = {}) {
   const parallel = (ts) => Promise.all(ts.map((t) => Promise.resolve().then(t).catch(() => null)))
   const call = shape === 'native' ? (fn, x, i) => fn(x, x, i) : (fn, x, i) => fn(x, i)
   const pipeline = (items, fn) => Promise.all(items.map((x, i) => Promise.resolve().then(() => call(fn, x, i)).catch(() => null)))
   const body = ['tests', 'implement'].includes(args.stage) ? bodies.write : bodies.step
-  return body(agentFn, parallel, pipeline, () => {}, () => {}, args, undefined)
+  return body(agentFn, parallel, pipeline, () => {}, () => {}, args, budget)
 }
 
-// coverage-audit の status の偽物。confirmed は [{path, quote, layer, claim}]。
-export function auditStatus({ confirmed = [], unverifiable = [], skip = [], stop = 'complete', pending = [] } = {}) {
-  return {
-    stopped: { stop }, pending: null, coverage: { pending },
+// coverage-audit の status の偽物。confirmed は [{path, quote, layer, claim}]。phase はその検査の段（coverage-audit の台帳が記録する段）。
+// 今の段の節（coverage・skip・findings・groups・events）を上の階層と phases[phase] の両方に置き、others で前の段の節（phase_records の写し）を足せる。
+export function auditStatus({ phase, confirmed = [], unverifiable = [], skip = [], stop = 'complete', pending = [], events = [], groups = [], others = {} } = {}) {
+  if (!phase) throw new Error('auditStatus には phase が要る（coverage-audit の status は段ごとに分かれる）')
+  const section = {
+    coverage: { pending },
     findings: { confirmed: confirmed.map((f, i) => ({ id: `${f.path}#sec|purpose|p1#h${i}`, severity: 'HIGH', layer: f.layer, claim: f.claim || '欠陥', quote: f.quote })), unverifiable },
     skip: skip.map((cell) => ({ cell, problems: [] })),
+    groups, events,
   }
+  return { phase, stopped: { stop }, pending: null, ...section, phases: { ...others, [phase]: section } }
 }
 
 // next → Workflow / 偽の coverage-audit / run-checks → ingest を止まるまで回す。audit(phase, out) は status を返す。
-export async function drive(state, agentFn, { audit = () => auditStatus(), run = runWorkflow, maxSteps = 40, wrap = false } = {}) {
+export async function drive(state, agentFn, { audit = (phase) => auditStatus({ phase }), run = runWorkflow, maxSteps = 40, wrap = false } = {}) {
   const steps = []
   for (let i = 0; i < maxSteps; i++) {
     const n = cli('next', '--state', state)

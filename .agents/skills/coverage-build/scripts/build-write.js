@@ -25,7 +25,10 @@ const argsSum = (a) => fnv(canon(Object.fromEntries(Object.entries(a).filter(([k
 
 const A = typeof args === 'string' ? JSON.parse(args) : args
 const agents = []
-const tokens = () => (typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null)
+// 消費量は、本体の始めと返す直前の 2 回の budget.spent() の読みの差。どちらかが数でなければ null。
+const spentNow = () => { const v = typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null; return typeof v === 'number' && Number.isFinite(v) ? v : null }
+const spentStart = spentNow()
+const tokens = () => { const end = spentNow(); return spentStart === null || end === null ? null : end - spentStart }
 const argProblems = []
 if (!A || typeof A !== 'object') argProblems.push('args が object でない')
 else {

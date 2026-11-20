@@ -14,6 +14,22 @@ export const meta = {
 const LIMITS = { maxAgents: 40, concurrency: 3, timeoutMs: 7200000, agentTimeoutMs: 900000, maxOutputBytes: 4000000 }
 const QUOTE_MIN = 12
 const MAX_UNIT_PATHS = 3 // 1 単位が持つファイル（成果物・テストそれぞれ）の上限。1 体に任せる量を小さくする
+// 方式設計の照合（checkArch）が保証する不変条件。_architecture.md に描き、文書はこれを参照する（中身を写さない）。
+const ARCH_INVARIANTS = [
+  'kind は doc か code',
+  `paths は 1〜${MAX_UNIT_PATHS} 件`,
+  `code の単位の tests は 1〜${MAX_UNIT_PATHS} 件`,
+  'doc の単位は tests と test_uses を持たない',
+  '1 つのファイルは 1 つの単位だけが持つ',
+  '境界の行は、使う単位ごとに扱いを 1 つずつ持つ',
+]
+// id の形。境界の約束 X<n>、その行 X<n>-<k>（行の位置から決める）、振る舞い U<n>S<k>、受け入れ U<n>A<k>、写し C<n>。
+const ID_SHAPE = { contract: 'X\\d+', row: 'X\\d+-\\d+', behavior: 'U\\d+S\\d+', accept: 'U\\d+A\\d+', copy: 'C\\d+' }
+const isId = (kind, s) => new RegExp(`^${ID_SHAPE[kind]}$`).test(String(s))
+// 設計レビューへ --link で渡す、資産を結ぶ id の正規表現（境界の行・受け入れ・振る舞い）。
+const LINK_PATTERN = [ID_SHAPE.row, ID_SHAPE.accept, ID_SHAPE.behavior].join('|')
+// 決めきらない語。詳細設計の本文に現れたら、allowed_optional の引用で覆わない限り欠けにする。「など」「場合は」は列挙の省略と条件の書き出しに正しく現れるので入れない。
+const VAGUE_WORDS = ['してよい', 'してもよい', 'しても良い', '必要に応じて', '適切に', '場合によっては', 'なるべく', '可能なら', 'できれば']
 const MAX_SPEC_LINES = 80 // 1 単位の詳細設計の行数の上限。coverage-audit の 1 体が 1 回で読める大きさに収める
 const AUDIT_LAYERS = ['方針', '要求', '方式設計', '詳細設計', '実装']
 const LAYERS = ['目標', '設計', '実装', '進め方']
@@ -85,6 +101,83 @@ function checkArch(a, ctx) {
     for (const c of arr(u.covers)) if (!ctx.coverIds.includes(c)) p.push(`${u.id}: 実在しない基準・制約: ${c}`)
   }
   if (units.length && !p.length && !waves(units)) p.push('depends_on に循環か実在しない単位がある')
+  // 依存の閉包（depends_on を辿って届く単位。自分は含めない）。
+  const byId = new Map(units.filter((u) => u && ids.has(u.id)).map((u) => [u.id, u]))
+  const closure = (id) => {
+    const out = new Set()
+    const stack = [...arr(byId.get(id) && byId.get(id).depends_on)]
+    while (stack.length) { const d = stack.pop(); if (out.has(d) || !byId.has(d)) continue; out.add(d); stack.push(...arr(byId.get(d).depends_on)) }
+    out.delete(id)
+    return out
+  }
+  // テストの前提（test_uses）: 他の単位のファイルを前提にするなら、その単位が依存の閉包にあること。doc の単位は持たない。
+  const testUses = new Set()
+  for (const u of byId.values()) {
+    if (!Array.isArray(u.test_uses)) { p.push(`${u.id}: test_uses が配列でない`); continue }
+    if (u.kind === 'doc' && u.test_uses.length) p.push(`${u.id}: doc の単位は test_uses を持たない`)
+    const cl = closure(u.id)
+    for (const f of u.test_uses) {
+      testUses.add(f)
+      const o = owned.get(f)
+      if (o && o !== u.id && !cl.has(o)) p.push(`${u.id}: test_uses の ${f} は ${o} が持つが、${o} が依存の閉包に無い（逆向きの依存）`)
+    }
+  }
+  // 境界の約束（contracts）: 作る側の値 × 使う単位ごとの扱いの決定表。
+  if (!Array.isArray(a.contracts)) p.push('contracts が配列でない')
+  else {
+    const xids = new Set()
+    for (const c of a.contracts) {
+      const cid = c && c.id
+      if (!isId('contract', cid)) p.push(`境界の約束の id が X<数> でない: ${cid}`)
+      else if (xids.has(cid)) p.push(`境界の約束の id の重複: ${cid}`)
+      xids.add(cid)
+      if (!c || typeof c !== 'object') continue
+      if (!isStr(c.subject)) p.push(`${cid}: subject が空`)
+      if (!byId.has(c.producer)) p.push(`${cid}: producer が実在しない単位: ${c.producer}`)
+      const cons = Array.isArray(c.consumers) ? c.consumers : []
+      if (!cons.length) p.push(`${cid}: consumers が空`)
+      if (new Set(cons).size !== cons.length) p.push(`${cid}: consumers に重複がある`)
+      for (const u of cons) {
+        if (!byId.has(u)) p.push(`${cid}: consumers に実在しない単位: ${u}`)
+        else if (u === c.producer) p.push(`${cid}: consumers が producer を含む`)
+        else if (byId.has(c.producer) && !closure(u).has(c.producer)) p.push(`${cid}: ${u} の依存の閉包に producer ${c.producer} が無い`)
+      }
+      const rows = Array.isArray(c.rows) ? c.rows : []
+      if (!rows.length) p.push(`${cid}: rows が空`)
+      const values = new Set()
+      rows.forEach((r, i) => {
+        const rid = `${cid}-${i + 1}`
+        if (!r || typeof r !== 'object') { p.push(`${rid}: 行が object でない`); return }
+        if (!isStr(r.value) || !isStr(r.producer_does)) p.push(`${rid}: value か producer_does が空`)
+        else if (values.has(norm(r.value))) p.push(`${rid}: 同じ約束の中で value が重複: ${r.value}`)
+        if (isStr(r.value)) values.add(norm(r.value))
+        if (!Array.isArray(r.handling)) { p.push(`${rid}: handling が配列でない`); return }
+        const hs = r.handling.map((h) => h && h.unit)
+        for (const u of cons) if (hs.filter((x) => x === u).length !== 1) p.push(`${rid}: 使う単位 ${u} の扱いがちょうど 1 つでない`)
+        for (const u of new Set(hs)) if (!cons.includes(u)) p.push(`${rid}: 使う単位でない ${u} の扱いがある`)
+        for (const h of r.handling) if (!isStr(h && h.does)) p.push(`${rid}: ${h && h.unit} の扱い（does）が空`)
+      })
+    }
+  }
+  // 正本と写し（copies）: 一致を照らすテストは、どれかの単位の tests か test_uses にあること。
+  if (!Array.isArray(a.copies)) p.push('copies が配列でない')
+  else {
+    const tests = new Set([...byId.values()].flatMap((u) => arr(u.tests)))
+    const cids = new Set()
+    for (const c of a.copies) {
+      const cid = c && c.id
+      if (!isId('copy', cid)) p.push(`写しの id が C<数> でない: ${cid}`)
+      else if (cids.has(cid)) p.push(`写しの id の重複: ${cid}`)
+      cids.add(cid)
+      if (!c || typeof c !== 'object') continue
+      if (!isStr(c.rule)) p.push(`${cid}: rule が空`)
+      const cps = Array.isArray(c.copies) ? c.copies : []
+      for (const f of [c.canonical, ...cps, c.check]) if (!isRel(f)) p.push(`${cid}: repo からの相対 path でない: ${f}`)
+      if (!cps.length) p.push(`${cid}: copies が空`)
+      if (cps.includes(c.canonical)) p.push(`${cid}: copies が canonical を含む`)
+      if (isRel(c.check) && !tests.has(c.check) && !testUses.has(c.check)) p.push(`${cid}: 一致を照らすテスト ${c.check} が、どの単位の tests にも test_uses にも無い`)
+    }
+  }
   for (const c of ctx.coverIds) if (!units.some((u) => arr(u.covers).includes(c))) p.push(`基準・制約 ${c} の受け皿の単位が無い`)
   const seen = new Map()
   for (const r of arr(a.inputs_read)) { seen.set(r.path, (seen.get(r.path) || 0) + 1); if (!arr(r.quotes).length) p.push(`入力 ${r.path} を読んだ証拠の引用が無い`) }
@@ -95,23 +188,103 @@ function checkArch(a, ctx) {
   for (const q of arr(a.questions)) { if (!isStr(q.id) || qids.has(q.id)) p.push(`質問の id が空か重複: ${q.id}`); qids.add(q.id); if (!isStr(q.why_value_judgment)) p.push(`質問 ${q.id} に価値判断の理由が無い`) }
   return p
 }
-function checkSpec(rep, unit) {
+// 詳細設計の形: 振る舞い（behaviors）と受け入れ・ケース・境界の行の結び、分け方（partitions）、前提（premises・unverified）、決めきらない語。
+// ctx は { rowIds, readable }。rowIds はその単位が producer か consumer の境界の行 id（無ければ空）。readable を渡したときだけ premises の path を照らす。
+function checkSpec(rep, unit, ctx = {}) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
+  const rowIds = arr(ctx && ctx.rowIds)
+  const readable = ctx && Array.isArray(ctx.readable) ? ctx.readable : null
   if (rep.unit_id !== unit.id) p.push(`unit_id が違う: ${rep.unit_id}`)
   if (!isStr(rep.spec)) p.push('spec が空')
   else if (String(rep.spec).split('\n').length > MAX_SPEC_LINES) p.push(`spec が ${MAX_SPEC_LINES} 行を超える（単位を分けるのは方式設計の仕事。ここでは詰める）`)
-  if (!arr(rep.acceptance).length || arr(rep.acceptance).some((x) => !isStr(x))) p.push('acceptance が空か空の行を含む')
-  if (unit.kind === 'code' && !arr(rep.cases).length) p.push('code の単位なのに cases が空（テストの担当が書くケース）')
-  arr(rep.cases).forEach((c, i) => { if (!isStr(c && c.condition) || !isStr(c && c.expect)) p.push(`cases[${i}]: condition か expect が空`) })
+  const acc = arr(rep.acceptance)
+  if (!acc.length || acc.some((x) => !isStr(x))) p.push('acceptance が空か空の行を含む')
+  for (const k of ['behaviors', 'partitions', 'premises', 'unverified', 'allowed_optional']) if (!Array.isArray(rep[k])) p.push(`${k} が配列でない`)
+  const cases = arr(rep.cases)
+  if (unit.kind === 'code' && !cases.length) p.push('code の単位なのに cases が空（テストの担当が書くケース）')
+  // 受け入れの位置（1 から）を指す整数の配列か。
+  const badAccepts = (a) => !Array.isArray(a) || !a.length || a.some((n) => !Number.isInteger(n) || n < 1 || n > acc.length)
+  const behaviors = arr(rep.behaviors)
+  if (Array.isArray(rep.behaviors) && !behaviors.length) p.push('behaviors が空')
+  behaviors.forEach((b, i) => {
+    const sid = `${unit.id}S${i + 1}`
+    if (!b || typeof b !== 'object') { p.push(`${sid}: 振る舞いが object でない`); return }
+    if (!isStr(b.text)) p.push(`${sid}: text が空`)
+    if (badAccepts(b.accepts)) p.push(`${sid}: accepts が空か、受け入れの位置（1〜${acc.length}）に無い値を含む`)
+    if (!Array.isArray(b.rows)) p.push(`${sid}: rows が配列でない`)
+    for (const r of arr(b.rows)) if (!rowIds.includes(r)) p.push(`${sid}: 境界の行 ${r} はこの単位の行に無い`)
+  })
+  for (const r of rowIds) if (!behaviors.some((b) => arr(b && b.rows).includes(r))) p.push(`境界の行 ${r} を受ける振る舞いが無い`)
+  acc.forEach((_, i) => { if (!behaviors.some((b) => arr(b && b.accepts).includes(i + 1))) p.push(`受け入れ ${unit.id}A${i + 1} がどの振る舞いの accepts にも無い`) })
+  cases.forEach((c, i) => {
+    const cid = `${unit.id}C${i + 1}`
+    if (!isStr(c && c.condition) || !isStr(c && c.expect)) p.push(`${cid}: condition か expect が空`)
+    if (badAccepts(c && c.accepts)) p.push(`${cid}: accepts が空か、受け入れの位置（1〜${acc.length}）に無い値を含む`)
+    if (!Array.isArray(c && c.covers)) p.push(`${cid}: covers が配列でない`)
+  })
+  if (unit.kind === 'code') acc.forEach((_, i) => { if (!cases.some((c) => arr(c && c.accepts).includes(i + 1))) p.push(`受け入れ ${unit.id}A${i + 1} がどのケースの accepts にも無い`) })
+  // 分け方: 値はケースの covers（<name>=<value>）で全て覆う。
+  const parts = new Map()
+  arr(rep.partitions).forEach((pt, i) => {
+    const name = pt && pt.name
+    if (!isStr(name)) { p.push(`partitions[${i}]: name が空`); return }
+    if (parts.has(name)) p.push(`partitions の name が重複: ${name}`)
+    const vs = Array.isArray(pt.values) ? pt.values : null
+    if (!vs || vs.length < 2 || vs.some((v) => !isStr(v))) p.push(`partitions の ${name}: values が 2 件未満か空の値を含む`)
+    parts.set(name, new Set(arr(vs)))
+  })
+  const covered = new Set()
+  for (const c of cases) for (const cv of arr(c && c.covers)) {
+    const k = String(cv).indexOf('=')
+    const name = k < 0 ? null : String(cv).slice(0, k)
+    if (name == null || !parts.has(name) || !parts.get(name).has(String(cv).slice(k + 1))) p.push(`ケースの covers が partitions に無い: ${cv}`)
+    else covered.add(cv)
+  }
+  for (const [name, vs] of parts) for (const v of vs) if (!covered.has(`${name}=${v}`)) p.push(`分け方の値 ${name}=${v} をどのケースも覆わない`)
+  arr(rep.premises).forEach((x, i) => {
+    if (!isStr(x && x.claim) || !isStr(x && x.path) || !isStr(x && x.quote)) p.push(`premises[${i}]: claim・path・quote のどれかが空`)
+    else if (readable && !readable.includes(x.path)) p.push(`premises[${i}]: 読める path に無い: ${x.path}`)
+  })
+  arr(rep.unverified).forEach((x, i) => { if (!isStr(x && x.claim) || !isStr(x && x.if_broken)) p.push(`unverified[${i}]: claim か if_broken が空`) })
+  // 決めきらない語: 照らす本文の出現ごとに、その位置を含む allowed_optional の引用があるか。
+  const texts = [rep.spec, ...acc, ...behaviors.map((b) => b && b.text), ...cases.flatMap((c) => [c && c.condition, c && c.expect])].filter(isStr).map(norm)
+  const quotes = []
+  arr(rep.allowed_optional).forEach((o, i) => {
+    const q = norm(o && o.quote)
+    if (!q) { p.push(`allowed_optional[${i}]: quote が空`); return }
+    if (!isStr(o.why)) p.push(`allowed_optional[${i}]: why が空`)
+    if (!VAGUE_WORDS.some((w) => q.includes(w))) p.push(`allowed_optional[${i}]: 引用が決めきらない語を含まない`)
+    if (!texts.some((t) => t.includes(q))) p.push(`allowed_optional[${i}]: 引用が本文に逐語で無い`)
+    quotes.push(q)
+  })
+  const spans = (t, s) => { const out = []; for (let k = t.indexOf(s); k >= 0; k = t.indexOf(s, k + 1)) out.push(k); return out }
+  for (const t of texts) for (const w of VAGUE_WORDS) for (const at of spans(t, w)) {
+    if (!quotes.some((q) => spans(t, q).some((k) => k <= at && at + w.length <= k + q.length))) p.push(`決めきらない語「${w}」が allowed_optional に無い箇所にある: ${t.slice(Math.max(0, at - 12), at + w.length + 12)}`)
+  }
   return p
 }
-function checkIntents(rep, knownIds) {
+// 振り返りの根拠に使える id。known は args の範囲（events: [最初, 最後] の出来事の番号、facts: 事実の件数、groups: 群の id）。
+// Workflow はこの範囲で照らし、CLI は台帳の id の一覧（Set）で正確に照らす。
+function knownBasis(known) {
+  if (known instanceof Set) return (b) => known.has(b)
+  const k = known && typeof known === 'object' ? known : {}
+  const [lo, hi] = Array.isArray(k.events) ? k.events : [1, 0]
+  const groups = arr(k.groups)
+  return (b) => {
+    const m = /^([EF])([1-9]\d*)$/.exec(String(b))
+    if (m && m[1] === 'E') return Number(m[2]) >= lo && Number(m[2]) <= hi
+    if (m) return Number(m[2]) <= (Number.isInteger(k.facts) ? k.facts : 0)
+    return groups.includes(b)
+  }
+}
+function checkIntents(rep, known) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
+  const has = knownBasis(known)
   arr(rep.intents).forEach((it, i) => {
     if (!arr(it && it.basis).length) p.push(`intents[${i}]: basis が空`)
-    for (const b of arr(it && it.basis)) if (!knownIds.includes(b)) p.push(`intents[${i}]: 実在しない事実: ${b}`)
+    for (const b of arr(it && it.basis)) if (!has(b)) p.push(`intents[${i}]: 実在しない事実: ${b}`)
     if (!isStr(it && it.hypothesis)) p.push(`intents[${i}]: hypothesis が空`)
     if (!LAYERS.includes(it && it.layer)) p.push(`intents[${i}]: layer が不正`)
     if (!arr(it && it.look_at).length) p.push(`intents[${i}]: look_at が空`)
@@ -170,6 +343,8 @@ function citeSources(sources) {
   }
   return out
 }
+// 目標の照合役に渡す引用の規則の文（citeProblem が受け付ける引用を述べる。字数は CITE_MIN から作る）。両スキルの goal_checker の prompt が埋め込む。
+const CITE_RULE = `引用は ${CITE_MIN} 字以上にする。${CITE_MIN} 字未満の短い引用は、引用元の 1 件の全体を引くときだけ受け付ける。1 件とは、依頼文の全体、依頼文の空でない 1 行、決定の記録の 1 行で、決定の記録では行頭の「- 」を除く。決定の記録の短い行は、その行の全体を引く。`
 function citeProblem(c, src) {
   const s = src[c && c.source]
   if (!s) return `引用元が ${Object.keys(src).join('・')} のどれでもない: ${c && c.source}`
@@ -243,7 +418,10 @@ async function checked(role, label, prompt, schema, check) {
   }
   return { result: r, problems: p }
 }
-const tokens = () => (typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null)
+// 消費量は、本体の始めと返す直前の 2 回の budget.spent() の読みの差。どちらかが数でなければ null。
+const spentNow = () => { const v = typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null; return typeof v === 'number' && Number.isFinite(v) ? v : null }
+const spentStart = spentNow()
+const tokens = () => { const end = spentNow(); return spentStart === null || end === null ? null : end - spentStart }
 const left = () => LIMITS.maxAgents - agents.length
 
 const argProblems = []
@@ -261,14 +439,30 @@ const readBrief = (b) => `## 依頼の束\nまず Read で ${A.snapDir || ''}${b
 const ARCH_SCHEMA = {
   type: 'object',
   properties: {
-    units: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, kind: { type: 'string', enum: ['doc', 'code'] }, title: { type: 'string' }, responsibility: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } }, tests: { type: 'array', items: { type: 'string' } }, depends_on: { type: 'array', items: { type: 'string' } }, covers: { type: 'array', items: { type: 'string' } } }, required: ['id', 'kind', 'title', 'responsibility', 'paths', 'tests', 'depends_on', 'covers'] } },
+    units: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, kind: { type: 'string', enum: ['doc', 'code'] }, title: { type: 'string' }, responsibility: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } }, tests: { type: 'array', items: { type: 'string' } }, test_uses: { type: 'array', items: { type: 'string' } }, depends_on: { type: 'array', items: { type: 'string' } }, covers: { type: 'array', items: { type: 'string' } } }, required: ['id', 'kind', 'title', 'responsibility', 'paths', 'tests', 'test_uses', 'depends_on', 'covers'] } },
     inputs_read: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, quotes: { type: 'array', items: { type: 'string' } } }, required: ['path', 'quotes'] } },
     inputs_not_read: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, reason: { type: 'string' } }, required: ['path', 'reason'] } },
     questions: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, question: { type: 'string' }, why_value_judgment: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['id', 'question', 'why_value_judgment', 'options'] } },
+    contracts: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, subject: { type: 'string' }, producer: { type: 'string' }, consumers: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'object', properties: { value: { type: 'string' }, producer_does: { type: 'string' }, handling: { type: 'array', items: { type: 'object', properties: { unit: { type: 'string' }, does: { type: 'string' } }, required: ['unit', 'does'] } } }, required: ['value', 'producer_does', 'handling'] } } }, required: ['id', 'subject', 'producer', 'consumers', 'rows'] } },
+    copies: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, rule: { type: 'string' }, canonical: { type: 'string' }, copies: { type: 'array', items: { type: 'string' } }, check: { type: 'string' } }, required: ['id', 'rule', 'canonical', 'copies', 'check'] } },
   },
-  required: ['units', 'inputs_read', 'inputs_not_read', 'questions'],
+  required: ['units', 'inputs_read', 'inputs_not_read', 'questions', 'contracts', 'copies'],
 }
-const SPEC_SCHEMA = { type: 'object', properties: { unit_id: { type: 'string' }, spec: { type: 'string' }, acceptance: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: { type: 'object', properties: { condition: { type: 'string' }, expect: { type: 'string' } }, required: ['condition', 'expect'] } } }, required: ['unit_id', 'spec', 'acceptance', 'cases'] }
+const SPEC_SCHEMA = {
+  type: 'object',
+  properties: {
+    unit_id: { type: 'string' },
+    spec: { type: 'string' },
+    acceptance: { type: 'array', items: { type: 'string' } },
+    behaviors: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, accepts: { type: 'array', items: { type: 'integer' } }, rows: { type: 'array', items: { type: 'string' } } }, required: ['text', 'accepts', 'rows'] } },
+    partitions: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, values: { type: 'array', items: { type: 'string' } } }, required: ['name', 'values'] } },
+    cases: { type: 'array', items: { type: 'object', properties: { condition: { type: 'string' }, expect: { type: 'string' }, accepts: { type: 'array', items: { type: 'integer' } }, covers: { type: 'array', items: { type: 'string' } } }, required: ['condition', 'expect', 'accepts', 'covers'] } },
+    premises: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, path: { type: 'string' }, quote: { type: 'string' } }, required: ['claim', 'path', 'quote'] } },
+    unverified: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, if_broken: { type: 'string' } }, required: ['claim', 'if_broken'] } },
+    allowed_optional: { type: 'array', items: { type: 'object', properties: { quote: { type: 'string' }, why: { type: 'string' } }, required: ['quote', 'why'] } },
+  },
+  required: ['unit_id', 'spec', 'acceptance', 'behaviors', 'partitions', 'cases', 'premises', 'unverified', 'allowed_optional'],
+}
 const GOAL_SCHEMA = { type: 'object', properties: { outcomes: { type: 'array', items: { type: 'object', properties: { outcome: { type: 'string' }, quotes: { type: 'array', items: { type: 'object', properties: { source: { type: 'string', enum: ['request', 'decisions'] }, quote: { type: 'string' } }, required: ['source', 'quote'] } }, items: { type: 'array', items: { type: 'string' } } }, required: ['outcome', 'quotes', 'items'] } } }, required: ['outcomes'] }
 
 async function designStage() {
@@ -279,6 +473,7 @@ async function designStage() {
 ## あなたの役: 目標の照合役
 束の依頼文と利用者の決定の記録から、利用者が求めている成果を全て挙げる（件数は決めない。同じ成果を重ねない）。成果ごとに、根拠の逐語の引用（quotes。source は依頼文なら request、決定の記録なら decisions）と、その成果を受け止めている目標・受け入れ基準・制約の項目の id（items）を返す。受け止めている項目が無ければ items を空にする。
 項目が依頼に無いものを足したか・範囲を狭めたか・手順かは判定しない（項目ごとの引用は script が照らし済み）。
+${CITE_RULE}
 ### 項目の id（items に使う）
 ${JSON.stringify(A.goalIds)}`, GOAL_SCHEMA, (r) => checkGoalMap(r, A.goalIds))).result
   }
@@ -287,21 +482,32 @@ ${JSON.stringify(A.goalIds)}`, GOAL_SCHEMA, (r) => checkGoalMap(r, A.goalIds))).
     const a = await checked('architect', 'architect', `${readBrief(A.arch.brief)}
 ## あなたの役: 方式設計の役
 目標を、1 体が 1 回で設計・実装・検査できる大きさの単位に分ける。単位の数・例・型枠は与えない。目標・基準・制約と入力の中身から切る。
-- 単位ごとに、持つファイル（paths。repo からの相対 path）、code の単位ならテストのファイル（tests。実装とは別の担当が先に書く）、依存（depends_on）、効く基準・制約の id（covers）を決める。1 つのファイルは 1 つの単位だけが持つ。
-- 複数の単位にまたがる決定は、それを決める単位を 1 つ置き、使う単位はそれに depends_on で依存する。
+- 単位ごとに、持つファイル（paths。repo からの相対 path）、code の単位ならテストのファイル（tests。実装とは別の担当が先に書く）、依存（depends_on）、効く基準・制約の id（covers。受け入れ基準と制約が 0 件のときは目標の項目の id）を決める。1 つのファイルは 1 つの単位だけが持つ。
+- 単位をまたぐ値は、約束ごとに contracts に挙げる（id は X<数>）。作る単位（producer）と使う単位（consumers。producer に depends_on で依存する）を決め、作る側が返しうる全ての値（正常・失敗・空・上限に達したとき・呼び直しで前の呼び出しが残したもの）を 1 行ずつ rows にし、行ごとに使う単位ごとの扱い（handling）を書く。片側だけの約束は、使う側の扱いが単位ごとにぶれるため。
+- copies は、同じ規則・約束の文を 2 つ以上のファイルに置くときだけ挙げ、正本（canonical）・写し・一致を照らすテスト（check）を決める。参照で済むなら写しを置かない。一致を照らす手段の無い写しは食い違うため。
+- 単位ごとに、そのテストが前提にする自分の paths・tests の外のファイルを test_uses に挙げる。変更で落ちうる既存のテストは、それを tests か test_uses に持つ単位（持ち主）を決める。持ち主の無いテストは誰も直さないため。
+- 書く粒度は単位・責務・境界まで。関数名・内部の印・prompt の文面は詳細設計に任せる。
 - 全ての基準と制約に受け皿の単位を付ける。
 - 入力は全て、読んだなら逐語の引用（inputs_read）、読まないなら理由（inputs_not_read）を返す。引用は script が照らす。
 - 利用者への質問（questions）は、価値判断が要り、基準・制約で答えが出ていないものだけ。`, ARCH_SCHEMA, (r) => checkArch(r, A.arch.ctx))
     out.arch = a
     if (!a.result || a.problems.length) return { ...out, status: 'ok' }
-    units = arr(a.result.units).map((u) => ({ unit_id: u.id, unit: u, brief: A.arch.unitBrief, arch: a.result.units }))
+    // 境界の行 id（X<n>-<行の位置>）は、同じ呼び出しの方式設計の contracts から作る。
+    const rowsOf = (id) => arr(a.result.contracts).filter((c) => c && (c.producer === id || arr(c.consumers).includes(id))).flatMap((c) => arr(c.rows).map((_, i) => `${c.id}-${i + 1}`))
+    units = arr(a.result.units).map((u) => ({ unit_id: u.id, unit: u, rows: rowsOf(u.id), brief: A.arch.unitBrief, arch: a.result.units }))
   }
   const cap = Math.max(0, Math.floor(left() / 2))
   const run = units.slice(0, cap)
   out.not_run = units.slice(cap).map((u) => u.unit_id)
   const rows = await pipeline(run, (u) => checked('unit_designer', `design-${u.unit_id}`, `${readBrief(u.brief)}
 ## あなたの役: 詳細設計の役（単位 ${u.unit_id} だけ）
-${u.arch ? `### 方式設計（この run で決まったもの。全ての単位）\n${JSON.stringify(u.arch)}\n` : ''}受け持ちの単位の振る舞い・入出力・境界の条件を spec に書く（${MAX_SPEC_LINES} 行まで）。受け入れの条件（acceptance）は外から確かめられる文で 1 行 1 件。code の単位なら、テストの担当が書くケース（cases: 条件と期待）を、条件ごとに漏れなく挙げる。ケースの期待値は実装から取らず、基準と spec から決める。受け持ちの外の単位は決め直さない。`, SPEC_SCHEMA, (r) => checkSpec(r, u.unit || A.unitDefs[u.unit_id])).then((x) => ({ unit_id: u.unit_id, ...x })))
+${u.arch ? `### 方式設計（この run で決まったもの。全ての単位）\n${JSON.stringify(u.arch)}\n` : ''}受け持ちの単位の振る舞い・入出力・境界の条件を spec に書く（${MAX_SPEC_LINES} 行まで）。受け入れの条件（acceptance）は外から確かめられる文で 1 行 1 件。code の単位なら、テストの担当が書くケース（cases: 条件と期待）を、条件ごとに漏れなく挙げる。ケースの期待値は実装から取らず、基準と spec から決める。受け持ちの外の単位は決め直さない。
+- behaviors: 振る舞いを 1 件ずつ挙げ、確かめる受け入れの位置（accepts。acceptance の 1 から数えた位置）と、受ける境界の行 id（rows。方式設計の contracts の X<n>-<行の位置>）を付ける。受け持ちの単位が作るか使う境界の行は、全てどれかの振る舞いで受ける。spec の文だけの振る舞いは受け入れから落ちるため。
+- partitions と cases: 件数の 0・1・上限ちょうど・上限 + 1、未設定、mode や引数の組を分け方（partitions）に挙げ、ケースの covers（<name>=<value>）で全ての値を覆う。ケースには確かめる受け入れの位置（accepts）を付ける。期待は、比べる対象を持つ観測できる文にする。
+- premises と unverified: 既存のファイルや外の部品の振る舞いを前提にするときは、入力の逐語の引用（premises: 主張・path・引用）で書く。確かめていない前提は、崩れたときの扱いと共に unverified に書く。「要らない」と判断した入力に頼る前提も同じ。
+- premises の path は、束の「premises に引ける path」の一覧の path をそのまま書く。取り込みはこの一覧と文字列で照らすので、同じファイルでも別の path（repo の相対 path と入力の写しの絶対 path など）では落ちる。
+- 一覧に無いファイルや外の部品の振る舞いを前提にするときは、premises に書かず unverified に、崩れたときの扱いと共に書く。premises に書くと取り込みが詳細設計ごと拒否する。
+- 決めきらない語（${VAGUE_WORDS.map((w) => `「${w}」`).join('')}）で選択を実装の担当に残さない。役の権限を定めるときだけ、その箇所の逐語の引用と理由を allowed_optional に挙げる。`, SPEC_SCHEMA, (r) => checkSpec(r, u.unit || A.unitDefs[u.unit_id], { rowIds: u.unit ? u.rows : arr(A.unitDefs[u.unit_id] && A.unitDefs[u.unit_id].rows) })).then((x) => ({ unit_id: u.unit_id, ...x })))
   out.specs = rows.map((r, i) => r || { unit_id: run[i].unit_id, result: null, problems: ['pipeline が null を返した'] })
   return { ...out, status: 'ok' }
 }
@@ -312,22 +518,25 @@ const JUDGE_SCHEMA = { type: 'object', properties: { accept: { type: 'boolean' }
 
 async function retroStage() {
   phase('retro')
-  const pl = await checked('retro_planner', 'retro-plan', `${readBrief(A.brief)}
+  // carry のある呼び出しは、前の計画役の呼び出しで起動の枠に入らなかった意図（本文は束の「流す意図」の節）だけを流す。計画役は起動しない。
+  const carry = arr(A.carry)
+  const pl = carry.length ? { result: null, problems: [] } : await checked('retro_planner', 'retro-plan', `${readBrief(A.brief)}
 ## あなたの役: 振り返りの計画役
 束にある悪かった出来事と、受理済みの原因（事実）を読み、「原因はこれか」という意図を返す。意図ごとに、根拠にした事実の id（basis）、仮説（hypothesis）、原因と考える層（${LAYERS.join('・')}）、確かめるのに読むファイル（look_at。束の「読めるファイル」から選ぶ）を付ける。
 - 前提が満たされ、互いに重ならない意図を全て出す。件数は決めない。
 - 受理済みの原因から、さらに上流の原因（その原因の原因）を問う意図も出してよい。層は目標 → 設計 → 実装 の順に上流。進め方はこのスキルの段の構成・役・検査の欠け。
-- 既に退けられた意図を同じ根拠で繰り返さない。試すものが無ければ intents を空にする。`, INTENTS_SCHEMA, (r) => checkIntents(r, A.knownIds))
-  const intents = pl.result && !pl.problems.length ? arr(pl.result.intents) : []
+- 既に退けられた意図を同じ根拠で繰り返さない。試すものが無ければ intents を空にする。`, INTENTS_SCHEMA, (r) => checkIntents(r, A.known))
+  const intents = carry.length ? carry : pl.result && !pl.problems.length ? arr(pl.result.intents) : []
   const cap = Math.max(0, Math.floor(left() / 3))
   const run = intents.slice(0, cap)
+  const intentText = (it) => (carry.length ? `束の「流す意図」の節の ${it} を読む。` : JSON.stringify(it))
   // 添字は items に持たせる（pipeline の callback の第 2 引数は、native では元の item、runner では添字で、形が違う）。
   // 結果も添字で意図に結ぶ（pipeline の返り値の並びに頼らない）。
   const rows = await pipeline(run.map((it, i) => ({ it, i })), async ({ it, i }) => {
     const ex = await checked('retro_examiner', `retro-exam-${i}`, `${readBrief(A.brief)}
 ## あなたの役: 振り返りの実行役（意図 1 件だけ）
 ### 意図
-${JSON.stringify(it)}
+${intentText(it)}
 look_at のファイルを読み、仮説が記録で支えられるか（supported）、記録が否定するか（refuted）、決められないか（unclear）を返す。supported なら、原因（cause）と層と、決め手になった本文の逐語の引用を path つきで evidence に返す（script が照らす）。`, EXAM_SCHEMA, checkExam)
     let judge = null
     if (ex.result && !ex.problems.length && ex.result.verdict === 'supported') {
@@ -335,13 +544,14 @@ look_at のファイルを読み、仮説が記録で支えられるか（suppor
 ## あなたの役: 振り返りの検証役（反証側。意図 1 件の結論だけ）
 下の結論は誤りかもしれないという前提で、evidence の path を読み直して確かめる。原因でなく症状の言い換え、記録と合わない、層の取り違え、固定した目標・制約の蒸し返し、のどれかなら accept=false。
 ### 意図
-${JSON.stringify(it)}
+${intentText(it)}
 ### 結論
 ${JSON.stringify(ex.result)}`, JUDGE_SCHEMA)
     }
     return { index: i, exam: ex.result, exam_problems: ex.problems, judge, judge_problems: judge ? checkJudge(judge) : [] }
   })
-  return { status: 'ok', intents: pl.result, intent_problems: pl.problems, exams: run.map((_, i) => rows.find((r) => r && r.index === i) || { index: i, exam: null, exam_problems: ['pipeline が null を返した'], judge: null, judge_problems: [] }), not_run: intents.slice(cap).map((_, i) => cap + i) }
+  // 枠に入らなかった意図は not_run に添字で返す（CLI が queued で残し、次の呼び出しの carry に回す）。
+  return { status: 'ok', intents: pl.result, intent_problems: pl.problems, carry: carry.length ? carry : null, exams: run.map((_, i) => rows.find((r) => r && r.index === i) || { index: i, exam: null, exam_problems: ['pipeline が null を返した'], judge: null, judge_problems: [] }), not_run: intents.slice(cap).map((_, i) => cap + i) }
 }
 
 const body = A.stage === 'design' ? await designStage() : await retroStage()

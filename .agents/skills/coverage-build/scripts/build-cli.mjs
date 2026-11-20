@@ -5,8 +5,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renam
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  C, PHASES, WRITE_LIMITS, addEvent, decide, dueEvents, estimate, goalIds, implTodo, importAudit, ingestDesign, ingestRetro, ingestWrite, newLedger,
-  ownedPaths, ownerOf, readGoalFiles, renderDesign, route, sha, testsTodo, unitList, coverIds,
+  C, PHASES, WRITE_LIMITS, addEvent, decide, dueEvents, dueGroups, estimate, queuedIntents, goalIds, implTodo, importAudit, ingestDesign, ingestRetro, ingestWrite, newLedger,
+  applyRedo, ownedPaths, ownerOf, readGoalFiles, redoSummary, renderDesign, route, rowIdsOf, sha, testsTodo, unitList, coverIds,
 } from './build-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -54,6 +54,9 @@ function load(dir) {
   if (!existsSync(ledgerPath(dir))) throw new Fail(`台帳が無い: ${ledgerPath(dir)}（init を先に流す）`)
   const L = JSON.parse(read(ledgerPath(dir)))
   if (!L.goal || !Array.isArray(L.goal.items)) throw new Fail(`台帳の形式が古い（目標の項目と引用を持たない）: ${ledgerPath(dir)}。goal.md などを 1 行 1 件・引用つきに直し、新しい stateDir で init からやり直す`)
+  if (!Array.isArray(L.audit_events_seen)) throw new Fail(`台帳の形式が古い（coverage-audit の出来事の受けた記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (!L.audit_groups || typeof L.audit_groups !== 'object') throw new Fail(`台帳の形式が古い（設計レビューの群を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (L.arch && !Array.isArray(L.arch.contracts)) throw new Fail(`台帳の形式が古い（方式設計が境界の約束を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   return L
 }
 function writeAtomic(file, text) {
@@ -88,13 +91,22 @@ function keysOf(L, dir) {
   return { baseline: fileKey(L.targets), review: fileKey(L.targets), design: fileKey(designFiles(L, dir)), impl: fileKey(ownedPaths(L).map((p) => abs(L, p))) }
 }
 // 担当の引用と取り込みの引用を照らすときに読んでよいファイル: stateDir の中、入力、対象、単位が持つファイル。
+// 読める集合は呼ぶたびに今の台帳から作る（同じ ingest の中で方式設計が単位の持つファイルを変える）。
 function reader(L, dir) {
-  const ok = new Set([...L.inputs, ...L.targets, ...ownedPaths(L).map((p) => abs(L, p))])
   return (p) => {
+    const ok = new Set([...L.inputs, ...L.targets, ...ownedPaths(L).map((x) => abs(L, x))])
     const f = path.isAbsolute(p) ? path.resolve(p) : abs(L, p)
     if (!(ok.has(f) || f.startsWith(dir + path.sep)) || !existsSync(f)) return null
     return read(f)
   }
+}
+// 詳細設計の premises の path に使ってよいもの: 入力と対象（絶対 path）と、単位が持つ既にあるファイル（repo からの相対 path）。
+// 取り込みの照合と束の一覧は同じこの関数から作る。units: false は単位がまだ決まっていない（方式設計と同じ呼び出し）ときで、入力と対象だけを返す。
+const premisePaths = (L, { units = true } = {}) => [...L.inputs, ...L.targets, ...(units ? ownedPaths(L).filter((p) => existsSync(abs(L, p))) : [])]
+// 詳細設計の束に載せる、premises に引ける path の一覧の節。
+function premiseText(L, units) {
+  const rule = units ? '' : '\n加えて、方式設計で決めた単位（全ての単位）の paths・tests のうち既にあるファイルを、repo からの相対 path（paths・tests に書いた文字列のまま）で引いてよい。'
+  return `## premises に引ける path（この一覧の path をそのまま書く。一覧に無いものは unverified に）\n${premisePaths(L, { units }).map((p) => `- ${p}`).join('\n') || '- なし'}${rule}\n`
 }
 
 const items = (xs) => xs.map((c) => `- ${c.id}: ${c.text}`).join('\n') || '- なし'
@@ -114,6 +126,24 @@ ${L.request}
 ${L.decisions != null ? `## 利用者の決定の記録（利用者の言葉のまま）\n${L.decisions}\n` : ''}## 文書を書くときの規則
 ${path.join(SKILL_DIR, 'references', 'writing.md')} を読む（表・図・散文の使い分け）。
 ${unread.length ? `## 利用者のヒント（取り込む）\n${unread.map((h) => `- [${h.id}] ${h.text}`).join('\n')}\n` : ''}`
+}
+// 振り返りの束の悪かった出来事: 群ごとに見出し 1 行（群の id・層・根本原因）とその群の出来事、群の無い出来事はその後。
+// 2 つ以上の群に入る出来事は、本文を最初の群の下に 1 回だけ出し、他の群の下には id だけを置く。
+function eventsByGroup(L, due) {
+  const line = (e) => `- ${e.id} [${e.stage}/${e.kind}${e.layer ? `/監査の層: ${e.layer}` : ''}${e.unit ? `/${e.unit}${e.test ? ' のテスト' : ''}` : ''}] ${e.text}`
+  const shown = new Map()
+  const out = []
+  for (const g of dueGroups(L)) {
+    const ag = L.audit_groups[g] || {}
+    out.push(`### 群 ${g} [${ag.layer || '層なし'}] 根本原因: ${ag.root_cause || 'なし'}`)
+    for (const e of due.filter((x) => (x.groups || []).includes(g))) {
+      out.push(shown.has(e.id) ? `- ${e.id}: 本文は群 ${shown.get(e.id)} の下` : line(e))
+      if (!shown.has(e.id)) shown.set(e.id, g)
+    }
+  }
+  const rest = due.filter((e) => !shown.has(e.id))
+  if (rest.length) out.push('### 群の無い出来事', ...rest.map(line))
+  return out.join('\n')
 }
 const archInputs = (L, dir) => [...L.inputs, ...(L.mode === 'update' ? L.targets : []), ...(L.baseline ? [path.join(dir, 'audit', 'baseline-status.json')] : [])]
 function baselineText(L) {
@@ -142,45 +172,64 @@ function buildArgs(L, d, dir, unread) {
     if (L.mode === 'update' && !L.audits.baseline) return args // 目標の照合だけ。設計は現状の検査の後
     if (L.need_arch) {
       const prev = L.arch ? `## 前の方式設計（読むだけ。やり直す理由は下）\n${path.join(designDir(dir), '_architecture.md')}\n## 戻ってきた原因\n${(L.arch_causes || []).map((c) => `- ${c}`).join('\n') || '- 目標・基準・制約が変わった'}\n` : ''
-      args.arch = { brief: writeSnap(dir, `${common(L, unread)}\n${inputText}\n${prev}`), ctx: { coverIds: coverIds(L), inputs }, unitBrief: writeSnap(dir, `${common(L, unread)}\n${inputText}`) }
+      args.arch = { brief: writeSnap(dir, `${common(L, unread)}\n${inputText}\n${prev}`), ctx: { coverIds: coverIds(L), inputs }, unitBrief: writeSnap(dir, `${common(L, unread)}\n${inputText}\n${premiseText(L, false)}`) }
     } else {
       for (const u of unitList(L).filter((x) => x.need_design)) {
-        args.units.push({ unit_id: u.id, brief: writeSnap(dir, `${common(L, unread)}\n${inputText}\n## 方式設計\n${path.join(designDir(dir), '_architecture.md')}\n## 受け持ち: 単位 ${u.id}\n${JSON.stringify({ id: u.id, kind: u.kind, title: u.title, responsibility: u.responsibility, paths: u.paths, tests: u.tests, depends_on: u.depends_on, covers: u.covers })}\n${u.design_hash ? `## 前の詳細設計（読むだけ）\n${designPath(dir, u.id)}\n` : ''}${u.causes.length ? `## 戻ってきた原因\n${u.causes.map((c) => `- ${c}`).join('\n')}\n` : ''}`) })
-        args.unitDefs[u.id] = { id: u.id, kind: u.kind }
+        args.units.push({ unit_id: u.id, brief: writeSnap(dir, `${common(L, unread)}\n${inputText}\n${premiseText(L, true)}## 方式設計\n${path.join(designDir(dir), '_architecture.md')}\n## 受け持ち: 単位 ${u.id}\n${JSON.stringify({ id: u.id, kind: u.kind, title: u.title, responsibility: u.responsibility, paths: u.paths, tests: u.tests, depends_on: u.depends_on, covers: u.covers })}\n${u.design_hash ? `## 前の詳細設計（読むだけ）\n${designPath(dir, u.id)}\n` : ''}${u.causes.length ? `## 戻ってきた原因\n${u.causes.map((c) => `- ${c}`).join('\n')}\n` : ''}`) })
+        args.unitDefs[u.id] = { id: u.id, kind: u.kind, rows: rowIdsOf(L, u.id) } // 境界の行 id だけ。行の文は方式設計の写しにある
       }
     }
     return args
   }
   if (d.step === 'retro') {
     const due = dueEvents(L)
+    // 前の呼び出しで起動の枠に入らなかった意図。1 回の呼び出しの起動の枠（maxAgents の 1/3）に入る件数まで、意図の順に流す。
+    const carry = queuedIntents(L).slice(0, Math.floor(C.LIMITS.maxAgents / 3))
     const readable = [...designFiles(L, dir), ...ownedPaths(L).map((p) => abs(L, p)), ...L.inputs, ...L.targets, ...listFiles(path.join(dir, 'audit')), ...listFiles(path.join(dir, 'checks'))]
     const text = `${common(L, unread)}
-## 悪かった出来事（事実。この振り返りで原因を辿る）
-${due.map((e) => `- ${e.id} [${e.stage}/${e.kind}${e.layer ? `/監査の層: ${e.layer}` : ''}${e.unit ? `/${e.unit}${e.test ? ' のテスト' : ''}` : ''}] ${e.text}`).join('\n')}
+## 悪かった出来事（事実。この振り返りで原因を辿る。群の id を根拠にすると、その群の全ての出来事を辿る）
+${eventsByGroup(L, due)}
 ## 受理済みの原因（事実）
 ${L.facts.map((f) => `- ${f.id} [${f.layer}] ${f.cause}（根拠: ${f.basis.join(', ')}）`).join('\n') || '- なし'}
 ## この振り返りで試した意図
 ${L.intents.filter((i) => i.cycle === L.cycle).map((i) => `- ${i.id} [${i.status}] ${i.hypothesis}（根拠: ${i.basis.join(', ')}）${i.why ? ` — ${i.why}` : ''}`).join('\n') || '- なし'}
 ## 読めるファイル（look_at と evidence はこの中から）
 ${readable.map((p) => `- ${p}`).join('\n')}
-`
-    return { ...base, brief: writeSnap(dir, text), knownIds: [...due.map((e) => e.id), ...L.facts.map((f) => f.id)] }
+${carry.length ? `## 流す意図（前の呼び出しで起動の枠に入らなかったもの。実行役・検証役は名指しされた 1 件だけを読む）\n${carry.map((i) => `- ${i.id}: ${JSON.stringify({ basis: i.basis, hypothesis: i.hypothesis, layer: i.layer, look_at: i.look_at })}`).join('\n')}\n` : ''}`
+    // 根拠に使える id は範囲で渡す（due の出来事は台帳の末尾に続く。事実は件数。群は due の出来事が持つ群の id）。
+    const num = (e) => Number(e.id.slice(1))
+    const known = { events: due.length ? [num(due[0]), num(due[due.length - 1])] : [1, 0], facts: L.facts.length, groups: dueGroups(L) }
+    return { ...base, brief: writeSnap(dir, text), known, ...(carry.length ? { carry: carry.map((i) => i.id) } : {}) }
   }
   const us = (d.step === 'tests' ? testsTodo(L) : implTodo(L)).slice(0, WRITE_LIMITS.maxAgents)
   return { ...base, tasks: us.map((u) => ({ unit_id: u.id, brief: writeSnap(dir, unitWriteBrief(L, dir, u, d.step, unread)), paths: d.step === 'tests' ? u.tests : u.paths })) }
 }
 const listFiles = (d) => (existsSync(d) ? readdirSync(d, { recursive: true }).map((f) => path.join(d, String(f))).filter((f) => /\.(json|md|log)$/.test(f) && !f.includes(`${path.sep}snap${path.sep}`)) : [])
 
-// coverage-audit に渡す入力を CLI が決定的に書く（司令塔が目標を言い換えない）。同じ対象の集合なら同じ置き場を使い、変わった枡だけが読み直される。
-// 目標はこのスキルが照合済みなので、照合済みの印（--goal-checked coverage-build）を付けて渡し、coverage-audit は照合を流さない。
+// coverage-audit に渡す入力を CLI が決定的に書く（司令塔が目標を言い換えない）。
+// coverage-audit の台帳は stateDir/audit/state の 1 つに固定する。台帳が無ければ init、あれば reframe で段と枠（目標・基準・制約・決定の記録・対象）を差し替える。
+// reframe は全ての枡を読み直し、計画から作り直す。同じ段・同じ入力で返した reframe を流した後（coverage-audit の台帳の段の始まり phase_start が、
+// reframe_argv を返したときの控えから変わった後）に next を流し直しても、argv を返し直さない（途中の検査と、coverage-audit の answer で足した A<n> を消さないため）。
+// 流す前や、台帳が読めず控えや今の値が分からない間は reframe_argv を返し直す（誤っても余分な reframe になるだけで、reframe を飛ばさない）。
+// init は、台帳ができて段が合えば続けさせる。入力が変われば reframe を返す。
+// 目標はこのスキルが照合済みなので、init には照合済みの印（--goal-checked coverage-build）を付け、coverage-audit は照合を流さない。reframe は台帳の印を残す。
 // 受け入れ基準（単位ごとの受け入れを含む）は制約と取り違えないよう、coverage-audit の基準の欄（criteria.md）で渡す。
 // 基準・制約が 0 件なら、その欄のファイルも引数も渡さない（「- なし」を書くと coverage-audit が「AC1: なし」という項目として読む）。
+export const auditState = (dir) => path.join(dir, 'audit', 'state')
+// 台帳が読めなければ undefined。読めれば段と、段の始まり（phase_start。plain object のときだけ正規化した文字列、それ以外は null）。
+function auditPosOf(state) {
+  let A
+  try { A = JSON.parse(read(path.join(state, 'ledger.json'))) } catch { return undefined }
+  if (A === null || typeof A !== 'object') return undefined
+  const s = A.phase_start
+  return { phase: A.phase, start: s !== null && typeof s === 'object' && !Array.isArray(s) ? C.canon(s) : null }
+}
 function prepAudit(L, dir, phase, keys) {
   const targets = phase === 'design' ? designFiles(L, dir) : phase === 'impl' ? ownedPaths(L).map((p) => abs(L, p)) : L.targets
   const frame = {
     baseline: '既存の対象を、次の固定した目標に照らして検査する。目標を果たすのに影響を受ける範囲、足りないもの、既存の欠陥を確かめる。',
     review: '対象が、次の固定した目標・受け入れ基準・制約を満たすかを確かめる。',
-    design: '設計（方式設計と単位ごとの詳細設計）が、次の固定した目標・受け入れ基準・制約を満たし、単位の分け方・依存・受け入れ・ケースが実装とテストに足りるかを確かめる。',
+    design: '設計（方式設計と単位ごとの詳細設計）が、次の固定した目標・受け入れ基準・制約を満たし、単位の分け方・依存・受け入れ・ケースが実装とテストに足りるかを確かめる。単位をまたぐ扱いは `_architecture.md` の境界の表にあり、設計の文書は行 id（`X<n>-<k>`）でそれを指す。前提の引用と照合の不変条件は script が照らし済みである。',
     impl: '実装（各単位のファイルとテスト）が、次の固定した目標・受け入れ基準・制約と、単位ごとの受け入れ（基準の U<n>A<m>）を満たすかを確かめる。',
   }[phase]
   const criteria = [...L.criteria, ...(phase === 'impl' ? unitList(L).flatMap((u) => u.acceptance) : [])]
@@ -189,21 +238,41 @@ function prepAudit(L, dir, phase, keys) {
     ...(criteria.length ? { 'criteria.md': `${items(criteria)}\n` } : {}), ...(L.constraints.length ? { 'constraints.md': `${items(L.constraints)}\n` } : {}),
     ...(L.decisions != null ? { 'decisions.md': `${L.decisions}\n` } : {}),
   }
-  const auditDir = path.join(dir, 'audit', `${phase}-${sha(C.canon({ targets: [...targets].sort(), files })).slice(0, 12)}`)
-  for (const [f, t] of Object.entries(files)) writeAtomic(path.join(auditDir, 'in', f), t)
-  const state = path.join(auditDir, 'state')
-  const inFile = (f) => path.join(auditDir, 'in', f)
+  const inDir = path.join(dir, 'audit', 'in', phase)
+  for (const f of existsSync(inDir) ? readdirSync(inDir) : []) if (!(f in files)) rmSync(path.join(inDir, f))
+  for (const [f, t] of Object.entries(files)) writeAtomic(path.join(inDir, f), t)
+  const state = auditState(dir)
+  const inFile = (f) => path.join(inDir, f)
+  const frameKey = sha(C.canon({ phase, targets: [...targets].sort(), files })).slice(0, 16)
+  const exists = existsSync(path.join(state, 'ledger.json'))
+  // 同じ段・同じ入力で返した argv を流した後（取り込みの前）なら、argv を返さずに続けさせる。init の枠（audit_start を持たない）は台帳がその段にあれば流した後とみなし、
+  // reframe の枠は台帳の段の始まりが控え（audit_start）から変わったときだけ流した後とみなす。控えか今の値が分からなければ framed にしない。
+  const F = L.audit_frame
+  const same = !!F && F.phase === phase && F.key === frameKey
+  const cur = exists ? auditPosOf(state) : undefined
+  const framed = exists && same && !!cur && cur.phase === phase && cur.start !== null
+    && (!Object.hasOwn(F, 'audit_start') || (typeof F.audit_start === 'string' && F.audit_start !== cur.start))
+  if (!framed && !exists) L.audit_frame = { phase, key: frameKey }
+  else if (!framed) {
+    // 同じ枠の間は最初の控えを保つ（読めない台帳や phase_start の無い台帳で控えを置き換えない）。
+    const keep = same && typeof F.audit_start === 'string' ? F.audit_start : null
+    L.audit_frame = { phase, key: frameKey, audit_start: keep ?? (cur && cur.start !== null ? cur.start : null) }
+  }
   L.pending = { step: 'audit', phase, key: keys[phase], audit_state: state }
   const audit = {
-    state, initialized: existsSync(path.join(state, 'ledger.json')),
-    goal: inFile('goal.md'), request: inFile('request.md'),
+    state, goal: inFile('goal.md'), request: inFile('request.md'),
     ...Object.fromEntries(['criteria', 'constraints', 'decisions'].filter((k) => files[`${k}.md`]).map((k) => [k, inFile(`${k}.md`)])), targets,
   }
-  audit.init_argv = ['init', '--state', state, '--goal', audit.goal, '--request', audit.request,
-    ...['criteria', 'constraints', 'decisions'].flatMap((k) => (audit[k] ? [`--${k}`, audit[k]] : [])), '--goal-checked', 'coverage-build', ...targets.flatMap((f) => ['--target', f])]
+  // 設計レビューだけ、関係する資産を結ぶ id の型（境界の行・受け入れ・振る舞い）を --link で渡す。ほかの段では渡さない（reframe で link は null に戻る）。
+  const frameArgv = [...['goal', 'request', 'criteria', 'constraints', 'decisions'].flatMap((k) => (audit[k] ? [`--${k}`, audit[k]] : [])), ...targets.flatMap((f) => ['--target', f]), '--phase', phase, ...(phase === 'design' ? ['--link', C.LINK_PATTERN] : [])]
+  if (framed) audit.framed = true
+  else if (exists) audit.reframe_argv = ['reframe', '--state', state, ...frameArgv]
+  else audit.init_argv = ['init', '--state', state, ...frameArgv, '--goal-checked', 'coverage-build']
   return {
     step: 'audit', phase, cycle: L.cycle, audit,
-    then: `audit.initialized が false なら coverage-audit の CLI に audit.init_argv をそのまま渡して init し、coverage-audit を止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`,
+    then: framed
+      ? `coverage-audit の台帳は既にこの段にある（argv は無い）。coverage-audit の next から止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`
+      : `coverage-audit の CLI に audit.${exists ? 'reframe_argv' : 'init_argv'} をそのまま渡し、coverage-audit を止まるまで回し、その status の出力をファイルに保存して import-audit --state ${dir} --status <file> を流す`,
   }
 }
 
@@ -293,7 +362,7 @@ export function unwrap(v) {
 function recordCall(L, res, step) {
   const ag = Array.isArray(res.agents) ? res.agents : []
   for (const a of ag) L.agents.push({ call_id: res.call_id, cycle: L.cycle, stage: step, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
-  L.calls.push({ call_id: res.call_id, cycle: L.cycle, step, agents: ag.length, failed: ag.filter((a) => !a.ok).length, tokens: res.tokens ?? null, tokens_note: res.tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'native budget.spent()' })
+  L.calls.push({ call_id: res.call_id, cycle: L.cycle, step, agents: ag.length, failed: ag.filter((a) => !a.ok).length, tokens: res.tokens ?? null, tokens_note: res.tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'この呼び出しの budget.spent() の差' })
   L.fail_streak = ag.length && ag.every((a) => !a.ok) ? L.fail_streak + 1 : 0
   for (const a of ag) if (!a.ok) addEvent(L, { stage: step, kind: 'agent_missing', text: `${a.label}（${a.model}/${a.effort}）が返らなかったか、schema に合わない出力だった` })
 }
@@ -310,7 +379,7 @@ function cmdIngest(o) {
   recordCall(L, res, p.step)
   const seen = L.events.length
   const before = { ...L.attempts }
-  if (p.step === 'design') ingestDesign(L, res, args, reader(L, dir))
+  if (p.step === 'design') ingestDesign(L, res, args, reader(L, dir), () => premisePaths(L))
   else if (p.step === 'retro') ingestRetro(L, res, args, reader(L, dir))
   else ingestWrite(L, res, args, p.before, hashesNow(L))
   // 全ての役が欠けた呼び出しで増えた試行は env_attempts にも数え、blocked（failure）から再開したときに戻す（coverage-audit と同じ）。
@@ -332,6 +401,8 @@ function cmdImportAudit(o) {
   const p = L.pending
   if (!p || p.step !== 'audit') throw new Fail('取り込む coverage-audit が無い（next が audit を返した後に流す）')
   const status = unwrap(JSON.parse(read(need(o, 'status'))))
+  // coverage-audit の status は段ごとに分かれる。上の階層は今の段の節なので、待っている段と同じ段の status だけを受ける。
+  if (!status || status.phase !== p.phase) throw new Fail(`待っている段と違う段の status（待っているのは ${p.phase}、受け取ったのは ${status && status.phase}）。coverage-audit の台帳をこの段にしてから（next の audit の argv）流し直す`, { phase: p.phase })
   writeDesign(L, dir)
   const now = keysOf(L, dir)[p.phase]
   if (now !== p.key) throw new Fail('検査に渡した後に対象が変わった（next からやり直す）', { phase: p.phase })
@@ -343,6 +414,7 @@ function cmdImportAudit(o) {
   let base
   try { base = importAudit(L, status, p.phase, { readText: reader(L, dir), unitOfPath }) } catch (e) { throw new Fail(e.message) }
   writeAtomic(path.join(dir, 'audit', `${p.phase}-status.json`), JSON.stringify(status, null, 1))
+  L.audit_frame = null
   L.audits[p.phase] = { imported: p.key, state: p.audit_state, cycle: L.cycle, not_seen: base.not_seen, findings: (status.findings && status.findings.confirmed || []).length }
   if (p.phase !== 'baseline') L.retro.due = true
   L.pending = null
@@ -423,6 +495,16 @@ function cmdAnswer(o, dismiss = false) {
   const isQ = (L.arch && L.arch.questions || []).some((q) => q.id === id)
   const known = isQ || L.human.some((h) => h.id === id) || id.startsWith('attempts:')
   if (!known) throw new Fail(`台帳に無い id: ${id}`)
+  if (id.startsWith('cycles#')) { // 周の上限: answer は保留したやり直しを当てて上限を 1 増やし、dismiss は当てずに捨てる
+    const p = L.pending_redo
+    if (!p || p.id !== id) throw new Fail(`${id} に保留したやり直しが無い（答え済みか捨て済み。台帳は変えていない）`)
+    L.answers.push({ id, text, dismiss })
+    L.pending_redo = null
+    if (dismiss) L.notes.push(`${id} を dismiss し、保留したやり直しを捨てた: ${redoSummary(p)}`)
+    else applyRedo(L, p)
+    save(dir, L)
+    return { ok: true }
+  }
   if (id.startsWith('attempts:')) delete L.attempts[id.slice('attempts:'.length)]
   const rounds = id.startsWith('rounds:') ? id.slice('rounds:'.length).split('#')[0] : null // rounds:<単位か arch>#<周>
   if (rounds === 'arch') L.arch_rounds = 0
