@@ -1,9 +1,10 @@
-use serde_json::{json, Value};
+use crate::personas::build_user_prompt;
+use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 use crate::context::execute_optimized;
-use crate::diagnose::{run_diagnose, run_health, DiagnoseOptions, HealthOptions};
+use crate::diagnose::{DiagnoseOptions, HealthOptions, run_diagnose, run_health};
 use crate::guidelines::{collect_guidelines, resolve_workspace_root};
 use crate::personas::find_persona;
 use crate::syntax::verify_syntax;
@@ -156,8 +157,137 @@ pub fn get_tools() -> Value {
     ])
 }
 
+fn resolve_mcp_api_base() -> String {
+    std::env::var("STRATA_BASE_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:8080/v1".to_string())
+}
+
+fn anthropic_base_url(api_base: &str) -> String {
+    let trimmed = api_base.trim().trim_end_matches('/');
+    trimmed.strip_suffix("/v1").unwrap_or(trimmed).to_string()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_execute_claude_p(
+    api_base: &str,
+    api_key: &str,
+    persona: &crate::personas::Persona,
+    goal: &str,
+    target_formatted: Option<&str>,
+    contexts: &[String],
+    diff: Option<&str>,
+    guidelines: &[(String, String)],
+    workspace_root: Option<&str>,
+) -> Option<Result<String, String>> {
+    if std::env::var("STRATA_MCP_BACKEND").ok().as_deref() == Some("direct") {
+        return None;
+    }
+    let claude_bin = std::env::var("STRATA_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+    let claude_model =
+        std::env::var("STRATA_CLAUDE_MODEL").unwrap_or_else(|_| "sonnet".to_string());
+    let perm_mode = std::env::var("STRATA_CLAUDE_PERMISSION_MODE")
+        .unwrap_or_else(|_| "acceptEdits".to_string());
+    let user_prompt = build_user_prompt(goal, target_formatted, contexts, diff, guidelines);
+
+    let mut cmd = std::process::Command::new(&claude_bin);
+    cmd.arg("-p")
+        .arg(&user_prompt)
+        .arg("--system-prompt")
+        .arg(persona.system_prompt)
+        .arg("--model")
+        .arg(&claude_model)
+        .arg("--bare")
+        .arg("--setting-sources")
+        .arg("user")
+        .arg("--permission-mode")
+        .arg(&perm_mode)
+        .arg("--output-format")
+        .arg("text")
+        .env("ANTHROPIC_BASE_URL", anthropic_base_url(api_base))
+        .env_remove("CLAUDECODE");
+
+    if !api_key.is_empty() {
+        cmd.env("ANTHROPIC_AUTH_TOKEN", api_key)
+            .env("ANTHROPIC_API_KEY", api_key);
+    }
+    if let Some(ws) = workspace_root {
+        let p = Path::new(ws);
+        if p.is_dir() {
+            cmd.current_dir(p);
+        }
+    }
+
+    match cmd.output() {
+        Ok(out) if out.status.success() => {
+            Some(Ok(String::from_utf8_lossy(&out.stdout).into_owned()))
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Some(Err(format!(
+                "claude -p exited with {}: {}",
+                out.status,
+                stderr.trim()
+            )))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(Err(format!("failed to execute claude -p: {}", e))),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_mcp_worker(
+    api_base: &str,
+    api_key: &str,
+    model: &str,
+    persona: &crate::personas::Persona,
+    goal: &str,
+    target_formatted: Option<&str>,
+    contexts: &[String],
+    diff: Option<&str>,
+    guidelines: &[(String, String)],
+    workspace_root: Option<&str>,
+    max_tokens: u32,
+    reasoning_effort: Option<&str>,
+    optimize: bool,
+) -> Result<String, String> {
+    if let Some(res) = try_execute_claude_p(
+        api_base,
+        api_key,
+        persona,
+        goal,
+        target_formatted,
+        contexts,
+        diff,
+        guidelines,
+        workspace_root,
+    ) {
+        return res;
+    }
+
+    execute_optimized(
+        api_base,
+        api_key,
+        model,
+        persona,
+        goal,
+        target_formatted,
+        contexts,
+        diff,
+        guidelines,
+        persona.temperature,
+        max_tokens,
+        reasoning_effort,
+        optimize,
+    )
+}
+
 fn handle_generate(args: &Value) -> Result<String, String> {
-    let role = args.get("role").and_then(|r| r.as_str()).unwrap_or("code-gen");
+    let role = args
+        .get("role")
+        .and_then(|r| r.as_str())
+        .unwrap_or("code-gen");
     let goal = args.get("goal").and_then(|g| g.as_str()).unwrap_or("");
     let target = args.get("target").and_then(|t| t.as_str());
     let context_str = args.get("context").and_then(|c| c.as_str());
@@ -196,10 +326,11 @@ fn handle_generate(args: &Value) -> Result<String, String> {
     let persona = find_persona(role).ok_or_else(|| format!("Unknown role: {}", role))?;
 
     let api_key = resolve_api_key(None);
-    let api_base = std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
-    let model = std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
+    let api_base = resolve_mcp_api_base();
+    let model =
+        std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
 
-    let raw_output = execute_optimized(
+    let raw_output = execute_mcp_worker(
         &api_base,
         &api_key,
         &model,
@@ -209,7 +340,7 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         &contexts,
         None,
         &guidelines,
-        persona.temperature,
+        workspace_root,
         max_tokens,
         reasoning_effort,
         optimize,
@@ -222,7 +353,8 @@ fn handle_generate(args: &Value) -> Result<String, String> {
         if let Some(parent) = p.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        std::fs::write(p, &clean_output).map_err(|e| format!("Failed to write to {}: {}", out_path, e))?;
+        std::fs::write(p, &clean_output)
+            .map_err(|e| format!("Failed to write to {}: {}", out_path, e))?;
 
         let (valid, msg) = verify_syntax(p);
         let status_msg = if valid {
@@ -237,7 +369,10 @@ fn handle_generate(args: &Value) -> Result<String, String> {
 }
 
 fn handle_review(args: &Value) -> Result<String, String> {
-    let role = args.get("role").and_then(|r| r.as_str()).unwrap_or("code-review");
+    let role = args
+        .get("role")
+        .and_then(|r| r.as_str())
+        .unwrap_or("code-review");
     let goal = args.get("goal").and_then(|g| g.as_str()).unwrap_or("");
     let target = args.get("target").and_then(|t| t.as_str());
     let context_str = args.get("context").and_then(|c| c.as_str());
@@ -276,10 +411,11 @@ fn handle_review(args: &Value) -> Result<String, String> {
     let persona = find_persona(role).ok_or_else(|| format!("Unknown role: {}", role))?;
 
     let api_key = resolve_api_key(None);
-    let api_base = std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
-    let model = std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
+    let api_base = resolve_mcp_api_base();
+    let model =
+        std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
 
-    let raw_output = execute_optimized(
+    let raw_output = execute_mcp_worker(
         &api_base,
         &api_key,
         &model,
@@ -289,7 +425,7 @@ fn handle_review(args: &Value) -> Result<String, String> {
         &contexts,
         diff,
         &guidelines,
-        persona.temperature,
+        workspace_root,
         max_tokens,
         reasoning_effort,
         optimize,
@@ -316,8 +452,8 @@ fn handle_diagnose(args: &Value) -> Result<String, String> {
     let api_key = resolve_api_key(None);
     let api_base =
         std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
-    let model = std::env::var("STRATA_MODEL")
-        .unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
+    let model =
+        std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
 
     let opts = DiagnoseOptions {
         api_base: &api_base,
@@ -345,8 +481,8 @@ fn handle_health(args: &Value) -> Result<String, String> {
     let api_key = resolve_api_key(None);
     let api_base =
         std::env::var("STRATA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8080/v1".to_string());
-    let model = std::env::var("STRATA_MODEL")
-        .unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
+    let model =
+        std::env::var("STRATA_MODEL").unwrap_or_else(|_| "qwen3.8-flash-next-iq2_xs".to_string());
 
     let opts = HealthOptions {
         api_base: &api_base,
@@ -414,7 +550,7 @@ pub fn handle_rpc(request: &Value) -> Option<Value> {
                             "code": -32601,
                             "message": format!("Unknown tool: {}", tool_name)
                         }
-                    }))
+                    }));
                 }
             };
 
@@ -481,4 +617,25 @@ pub fn run_mcp_server() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_anthropic_base_url_strips_v1_suffix() {
+        assert_eq!(
+            anthropic_base_url("http://desktop-bc0ci5m.local:8080/v1"),
+            "http://desktop-bc0ci5m.local:8080"
+        );
+        assert_eq!(
+            anthropic_base_url("http://127.0.0.1:8080/v1/"),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(
+            anthropic_base_url("http://127.0.0.1:8080"),
+            "http://127.0.0.1:8080"
+        );
+    }
 }

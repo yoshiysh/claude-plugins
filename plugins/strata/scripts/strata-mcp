@@ -4,6 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+if [ -z "${STRATA_BASE_URL:-}" ] && [ -x "${SCRIPT_DIR}/resolve-strata-url.sh" ]; then
+  export STRATA_BASE_URL="$("${SCRIPT_DIR}/resolve-strata-url.sh")"
+fi
+
 LOCAL_BIN="$SCRIPT_DIR/../../../crates/strata/target/release/strata"
 if [ -x "$LOCAL_BIN" ]; then
   exec "$LOCAL_BIN" mcp "$@"
