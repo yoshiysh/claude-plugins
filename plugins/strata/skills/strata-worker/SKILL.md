@@ -67,11 +67,10 @@ description: "Delegates code/test/documentation generation and ruthless adversar
 ## 3. 設定と前提
 
 * **Strata API エンドポイント**:
-  * 指定された OpenAI 互換エンドポイント（既定: `http://127.0.0.1:8080/v1`）が稼働・到達可能であること。
-* **環境変数（任意）**:
-  * `STRATA_BASE_URL`: 既定は `http://127.0.0.1:8080/v1`
+  * MCP 起動時の接続先 URL 解決と関連環境変数（`STRATA_BASE_URL`・`STRATA_PORT`・`STRATA_LAN_RESOLVE`・`STRATA_LAN_HOST`・`STRATA_HOST`）の仕様・既定値は [../../README.md](../../README.md)「MCP サーバー」節（実装正本: [../../scripts/resolve-strata-url.sh](../../scripts/resolve-strata-url.sh)）を参照してください。API エンドポイントが稼働・到達可能であることが前提です。
+* **ワーカー実行時の環境変数（任意）**:
   * `STRATA_API_KEY`: 既定は `~/.config/strata/api_key` から自動読込
   * `STRATA_MODEL`: 既定は `qwen3.8-flash-next-iq2_xs`
-  * `STRATA_HOST`: `strata_diagnose` / `strata diagnose` の対象 SSH ホスト名（既定 `winbox`、ローカルは `"local"`）
+  * `STRATA_HOST`: `strata_diagnose` / `strata diagnose` でローカルを対象とする場合は `"local"` を指定（その他の仕様・既定値は `../../README.md` を参照）
   * `STRATA_PREFLIGHT`: リクエスト前の高速プリフライト（`<0.1s` API 疎通確認、`0` で無効化、既定は有効）
   * `STRATA_PREFLIGHT_WARMUP`: `1` で `Loaded` 時も毎回 1-token ウォームアップを実行（既定は `Unloaded` 時のみ）
