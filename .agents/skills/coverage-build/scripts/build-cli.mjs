@@ -104,7 +104,17 @@ function withLock(dir, fn) {
     }
   }
   const token = `${process.pid}-${randomUUID()}`
-  try { writeSync(fd, token) } finally { closeSync(fd) }
+  let open = true
+  try {
+    writeSync(fd, token)
+    closeSync(fd)
+    open = false
+  } catch (e) {
+    // 中身を照合できない lock は誰も消さないので、自分が作った lock をここで消す。
+    if (open) try { closeSync(fd) } catch { /* 元の例外を投げる */ }
+    rmSync(file, { force: true })
+    throw e
+  }
   try {
     return fn()
   } finally {

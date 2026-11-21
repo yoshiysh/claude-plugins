@@ -72,10 +72,10 @@ test('workers: ファイルの段は詰め合わせ 1 つに 1 体で、行は�
   assert.ok(big.every((w) => w.role === 'file_reader'))
 })
 
-test('config --workers: 正の整数で worker の数を変え、次の全体の段の呼び出しの行の数に効く。正の整数でない値と maxAgents を超える値は終了状態 2 で台帳を変えない', async (t) => {
+test('config --workers: 正の整数で worker の数を変え、次の全体の段の呼び出しの行の数に効く。正の整数でない値と、組の数 × workers が maxAgents を超える値は終了状態 2 で台帳を変えない', async (t) => {
   const { state } = await qsetup(t, { n: 5, workers: null })
   const before = bytes(state)
-  for (const v of ['0', '-1', '1.5', 'abc', String(C.LIMITS.maxAgents + 1)]) assert.equal(cli('config', '--state', state, '--workers', v).code, 2, v)
+  for (const v of ['0', '-1', '1.5', 'abc', String(Math.floor(C.LIMITS.maxAgents / 2) + 1)]) assert.equal(cli('config', '--state', state, '--workers', v).code, 2, v)
   assert.equal(bytes(state), before, '台帳を変えない')
   assert.equal(cli('config', '--state', state, '--workers', '2').code, 0)
   assert.equal(review(state).args.workers.length, 1, 'ファイルの段は詰め合わせの数（workers に縛られない）')
@@ -84,7 +84,7 @@ test('config --workers: 正の整数で worker の数を変え、次の全体の
   assert.equal(g.step, 'global', JSON.stringify(g))
   const roles = JSON.parse(readFileSync(g.args_path, 'utf8')).workers.filter((w) => w.role === 'global_judge')
   assert.equal(roles.length, 2, '全体の段の判定役の行（名寄せ・主語の照合・指摘・前提・目標）は workers 件')
-  assert.equal(cli('config', '--state', state, '--workers', String(C.LIMITS.maxAgents)).code, 0, 'maxAgents ちょうどは受け付ける')
+  assert.equal(cli('config', '--state', state, '--workers', String(Math.floor(C.LIMITS.maxAgents / 2))).code, 0, '組の数 × workers が maxAgents に収まる最大の値は受け付ける')
 })
 
 // ---------------- claim ----------------

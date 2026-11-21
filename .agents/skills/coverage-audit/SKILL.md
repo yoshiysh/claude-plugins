@@ -95,7 +95,7 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
 
    1 回の呼び出しの起動数は段で決まる。
    - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。起動数は詰め合わせの数を `meta.limits.maxAgents` と残りの起動数の予算に収めた数で、残りは次の呼び出しで読む。
-   - 全体の段: 開いた意図のある役（判定役・確認役）ごとに `workers` 体。既定は 1 体（`scripts/ledger-core.mjs` の `DEFAULT_CONFIG`）で、1 体が claim を繰り返して意図を束で取って処理する。`CLI config --state <stateDir> --workers N` が変えるのはこの数だけ（`meta.limits.maxAgents` を超える値は拒否する）。
+   - 全体の段: 開いた意図のある役（判定役・確認役）ごとに `workers` 体。既定は 1 体（`scripts/ledger-core.mjs` の `DEFAULT_CONFIG`）で、1 体が claim を繰り返して意図を束で取って処理する。`CLI config --state <stateDir> --workers N` が変えるのはこの数だけ（役の組の数 2 × `workers` が `meta.limits.maxAgents` を超える値は拒否する。行の合計は残りの起動数の予算にも収め、予算が足りないときは判定役の組を先に起動する）。
    - 計画の段: 計画役 1 体、観点の検証役 1 体。
    - 全文レビュー: いつも 1 体（`--workers` によらない）。
 

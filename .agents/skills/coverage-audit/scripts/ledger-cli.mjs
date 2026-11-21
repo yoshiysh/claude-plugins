@@ -316,9 +316,10 @@ function syncPlanLenses(L) {
   const plan = L.plan || { lenses: [] }
   L.lenses = [...L.lenses.filter((l) => l.origin !== 'plan'), ...(plan.lenses || []).map((l) => ({ ...l, origin: 'plan' }))]
 }
-// 1 回の呼び出しの起動数は workers ≤ maxAgents に収める。
+// 全体の段は役の組（INTENT_ROWS）ごとに最大 workers 体を起動するので、1 回の呼び出しの起動数は 組の数 × workers ≤ maxAgents に収める。
 function checkWorkers(config) {
-  if (config.workers > C.LIMITS.maxAgents) throw new Fail(`全体の段の役ごとの起動数 workers(${config.workers}) が上限 maxAgents ${C.LIMITS.maxAgents} を超える（--workers を下げる）`)
+  const n = INTENT_ROWS.length * config.workers
+  if (n > C.LIMITS.maxAgents) throw new Fail(`全体の段の役の組の数 ${INTENT_ROWS.length} × workers(${config.workers}) = ${n} が上限 maxAgents ${C.LIMITS.maxAgents} を超える（--workers を ${Math.floor(C.LIMITS.maxAgents / INTENT_ROWS.length)} 以下にする）`)
 }
 // 段ごとの worker の行と、行に結んだ担当。ファイルの段と振り返りの担当は詰め合わせ（bundles）で行に結び、worker が claim で詰め合わせの単位を取る。
 // 計画の段の担当は行に 1 つずつ結ぶ。akey は試行を数える鍵（stuck の id）。bytesOf(id) は単位の本文のバイト数（詰め合わせに使う）。
@@ -351,16 +352,21 @@ const INTENT_ROLE = { alias: 'global_judge', subject: 'global_judge', finding: '
 const INTENT_ROWS = [['g', ['alias', 'subject', 'finding', 'premise', 'goal']], ['c', ['confirm', 'group']]]
 // 今の段の残りの予算（起動数）。1 回の呼び出しの起動数をこれに収める（少なくとも 1）。
 const budgetLeft = (L) => Math.max(1, L.config.max_agents_total - (L.agents.length - L.phase_start.agents))
-// 全体の段の行: 開いた意図のある種類の組ごとに、min(workers, 開いた意図の数) 体（既定は 1 体）。
+// 全体の段の行: 開いた意図のある種類の組ごとに、min(workers, 開いた意図の数) 体（既定は 1 体）。行の合計は min(maxAgents, 残りの予算) 以下にする。
+// 予算は INTENT_ROWS の順（g が先、c が後）に開いた意図のある組へ 1 行ずつ割り当て、余りを各組の上限まで足す。予算が尽きた組はこの呼び出しでは 0 行で、
+// 開いた意図は次の呼び出しに回る（起動数が上限に達すれば decide が limit で止め、開いた意図を停止に載せる）。
 // 呼び出しの中で受理された事実から増えた意図は、行のある組なら同じ呼び出しで取る（確認役は確認に続けて束ねを取る）。
 function globalRows(L, B) {
   const open = B.intents.filter((i) => i.state === 'open')
+  const want = INTENT_ROWS.map(([, ks]) => Math.min(L.config.workers, open.filter((i) => ks.includes(i.kind)).length))
+  let left = Math.min(C.LIMITS.maxAgents, budgetLeft(L))
+  const got = want.map((w) => { const n = w > 0 && left > 0 ? 1 : 0; left -= n; return n })
+  for (let j = 0; j < got.length; j++) { const n = Math.min(want[j] - got[j], left); got[j] += n; left -= n }
   const rows = []
   const kinds = {}
-  for (const [tag, ks] of INTENT_ROWS) {
-    const n = Math.min(L.config.workers, open.filter((i) => ks.includes(i.kind)).length)
-    for (let k = 1; k <= n; k++) { rows.push({ id: `${tag}${k}`, role: INTENT_ROLE[ks[0]] }); kinds[`${tag}${k}`] = ks }
-  }
+  INTENT_ROWS.forEach(([tag, ks], j) => {
+    for (let k = 1; k <= got[j]; k++) { rows.push({ id: `${tag}${k}`, role: INTENT_ROLE[ks[0]] }); kinds[`${tag}${k}`] = ks }
+  })
   return { rows, kinds }
 }
 const intentTaskId = (intent, call) => `${intent}@${call}`
