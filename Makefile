@@ -28,7 +28,11 @@ REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 
 NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
-.PHONY: test test-static-and-python test-node-traceability test-node-other test-rust portability references check runtime-deps traceability traceability-complete
+.PHONY: test test-static-and-python test-node-traceability test-node-other test-rust portability references check runtime-deps traceability traceability-complete setup-formal
+
+# 形式検証の道具（TLA+・Z3）を versions.mk の版で tools/formal/ に置く。合否ゲートには入れない（CI は job ごとに同じ版を取る）。
+setup-formal:
+	@sh scripts/setup_formal.sh
 
 # plugin が同梱する Rust の crate（plugins/<plugin>/crates/<name>）。一覧は毎回導出する。crates/strata は plugin の外にあり対象外。
 PLUGIN_CRATES := $(patsubst %/Cargo.toml,%,$(wildcard $(PLUGINS_DIR)/*/crates/*/Cargo.toml))

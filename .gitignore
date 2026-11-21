@@ -20,3 +20,6 @@ __pycache__/
 # Rust build target
 target/
 **/target/
+
+# 形式検証の道具の実体（make setup-formal が versions.mk の版で置く。.worktreeinclude で worktree へ写す）
+/tools/formal/

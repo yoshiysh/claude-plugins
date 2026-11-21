@@ -84,8 +84,20 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 Codex Desktop の Worktree を使う場合は、ローカル環境のセットアップスクリプトに
 `scripts/worktree-setup.sh` を指定する。依存関係が未導入の Worktree だけが `npm ci` を実行し、runtime の
 リポジトリ root の `.npmrc` の release age 設定で新しい package version を拒否する。`.worktreeinclude` には Worktree
-へコピーするローカル設定（`.env` / `.env.local`）を列挙する。秘密情報を含むため、追加するパスは
+へコピーするローカル設定（`.env` / `.env.local`）と、形式検証の道具（`tools/formal/`）を列挙する。`.env` は秘密情報を含むため、追加するパスは
 必要最小限に保つ。
+
+形式検証の道具（TLA+ の `tla2tools.jar` と Z3）の版は root の `versions.mk` を正本とする。`make setup-formal` が
+その版を sha256 で照らしてから、git 管理外の `tools/formal/` に置く（合わなければ置かずに止まり、置いた z3 が動かなければ止まる。
+流し直してよい）。`tests/formal/*/check.sh` も jar の sha256 を `versions.mk` から読む。CI は job ごとに同じ版を取り、
+CI の値と `versions.mk` の一致は `tests/formal-tools-versions.test.mjs` が照らす。
+
+- main の作業ツリーで一度流しておくと、`.worktreeinclude` で、Claude Code が作る worktree（`--worktree`・subagent・desktop app）へ写る。
+  手で `git worktree add` した worktree や WorktreeCreate hook の worktree には写らないので、その worktree で `make setup-formal` を流す。
+- 道具を渡すときは絶対パスで書く（TLC の入口は作業ディレクトリを移ってから jar を読むので、相対パスでは見つからない）。
+  - formal-method は `PATH` から `z3` を探す: `PATH="$PWD/tools/formal/z3/bin:$PATH"`
+  - TLC を使う検査: `TLA2TOOLS="$PWD/tools/formal/tla2tools.jar"`
+  - `tests/formal/formal-method-*` の Z3 の検査: `Z3="$PWD/tools/formal/z3/bin/z3"`
 
 `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）を適用する環境では、編集のたびに `make test` が実行される。
 

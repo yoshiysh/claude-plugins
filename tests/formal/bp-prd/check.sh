@@ -14,7 +14,9 @@ jar=${TLA2TOOLS:?Set TLA2TOOLS to the pinned tla2tools.jar}
 JAVA=${JAVA:-java}
 export JAVA TLA2TOOLS
 rustc=${RUSTC:-rustc}
-expected_jar=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+# jar の sha256 の正本は root の versions.mk（make setup-formal と CI も同じ値を使う）。
+expected_jar=$(sed -n 's/^TLA2TOOLS_SHA256 := //p' "$root/versions.mk")
+[ -n "$expected_jar" ] || { echo 'versions.mk has no TLA2TOOLS_SHA256' >&2; exit 1; }
 actual_jar=$(shasum -a 256 "$jar" | cut -d ' ' -f 1)
 [ "$actual_jar" = "$expected_jar" ] || { echo "Unexpected TLC jar SHA-256" >&2; exit 1; }
 sh "$base/prd_sections.sh" check "$root" "$base/PRD.sections"
