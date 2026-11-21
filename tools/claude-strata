@@ -158,6 +158,28 @@ fi
 PYTHON=\$(dirname "\$STRATA_CLI")/python/bin/python3.12
 [ -x "\$PYTHON" ] || PYTHON=python3
 
+# engine_silence_s / idle_unload_s は server の config のキーで、launch の --set では渡せない。
+# install config に置けば launch が毎回引き継ぐので、キーが無いときだけ 0 を足す (書いてある値は変えない)
+INSTALL_CFG="\$HOME/.local/share/strata/install/strata-${STRATA_MODEL_SIZE}.json"
+if [ -f "\$INSTALL_CFG" ]; then
+  "\$PYTHON" - "\$INSTALL_CFG" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as f:
+    cfg = json.load(f)
+missing = [k for k in ("engine_silence_s", "idle_unload_s") if k not in cfg]
+if missing:
+    for k in missing:
+        cfg[k] = 0
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.chmod(tmp, os.stat(path).st_mode)
+    os.replace(tmp, path)
+    print("install config に既定値を足しました: " + ", ".join(k + "=0" for k in missing), file=sys.stderr)
+PY
+fi
+
 "\$PYTHON" "\$STRATA_CLI" launch \\
   --model "$STRATA_MODEL_SIZE" \\
   --context "$ctx" \\
@@ -182,8 +204,6 @@ EOF
   local key
   key=$(fetch_key_from_wsl)
 
-  # engine_silence_s / idle_unload_s は server の config のキーで、launch では渡せない。
-  # WSL の install config (~/.local/share/strata/install/strata-<model>.json) に置いておけば launch が毎回引き継ぐ
   ensure_tunnel
   API_KEY="$key" ensure_model_loaded
   echo "Strata サーバーの起動が完了しました。" >&2
@@ -388,8 +408,10 @@ done
 STRATA_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STRATA_BIN="${STRATA_SCRIPT_DIR}/strata"
 STRATA_RELEASE_BIN="${STRATA_SCRIPT_DIR}/../crates/strata/target/release/strata"
+# claude 本体と非対話起動前のプリフライトはトンネルを使う
+STRATA_TUNNEL_API_BASE="http://127.0.0.1:${STRATA_PORT}/v1"
 # --health / --diagnose の接続先。STRATA_BASE_URL があれば LAN 直結などに向けられる
-STRATA_API_BASE="${STRATA_BASE_URL:-http://127.0.0.1:${STRATA_PORT}/v1}"
+STRATA_API_BASE="${STRATA_BASE_URL:-$STRATA_TUNNEL_API_BASE}"
 
 case "$ACTION" in
   status)
@@ -579,7 +601,7 @@ fi
 
 # 非対話実行時かつリリースバイナリがビルド済みの場合のみ、起動直前に高速ヘルスチェック (<0.1s) を通す
 if [ "$IS_PRINT_MODE" = true ] && [ -x "$STRATA_RELEASE_BIN" ]; then
-  if ! HEALTH_OUT="$("$STRATA_RELEASE_BIN" health --api-base "$STRATA_API_BASE" 2>&1)"; then
+  if ! HEALTH_OUT="$("$STRATA_RELEASE_BIN" health --api-base "$STRATA_TUNNEL_API_BASE" 2>&1)"; then
     printf '%s\n' "$HEALTH_OUT" >&2
     echo "エラー: Strata のプリフライトヘルスチェックに失敗しました。" >&2
     exit 1
