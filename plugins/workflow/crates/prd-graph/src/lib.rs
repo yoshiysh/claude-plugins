@@ -31,7 +31,7 @@ pub struct Doc {
 #[derive(Debug, Deserialize)]
 pub struct Item {
     pub id: String,
-    /// 本文の区間の digest（trace を含めない。根拠の付け足しを本文の変更に数えないため）。
+    /// 項目の digest（doc_check が本文の区間と項目自身の trace から取る。この run で付けた trace も項目の変更に数えるため）。
     pub digest: String,
     /// 区間の本文に現れる、自分以外の項目の ID。
     #[serde(default)]
