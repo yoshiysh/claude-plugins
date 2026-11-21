@@ -242,7 +242,7 @@ pub fn analyze_diagnostics(
             code: "MODEL_UNLOADED".to_string(),
             summary: "モデルは現在アンロード状態です（次のリクエスト時に自動ロードされますが 15〜135 秒待ちます）。".to_string(),
             evidence: "GET /v1/models returned empty data: []".to_string(),
-            remediation: "常駐させる場合は idle_unload_s=0 で起動: tools/claude-strata --restart-server".to_string(),
+            remediation: "常駐させる場合は WSL の ~/.local/share/strata/install/strata-<model>.json の idle_unload_s を 0 にして再起動してください（キーが無ければ再起動時に 0 が入ります）: tools/claude-strata --restart-server".to_string(),
         }),
         ApiHealth::Loaded(_) => {}
     }
@@ -262,7 +262,7 @@ pub fn analyze_diagnostics(
             code: "ENGINE_SILENCE_OR_SIGKILL".to_string(),
             summary: "プリフィル中の無応答監視（engine_silence_s）または SIGKILL (exit code -9) によりエンジンが強制終了されました。".to_string(),
             evidence: silence_lines.into_iter().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"),
-            remediation: "engine_silence_s=0 を親プロセスへ反映するためサーバーを再起動してください: tools/claude-strata --restart-server".to_string(),
+            remediation: "WSL の ~/.local/share/strata/install/strata-<model>.json の engine_silence_s を 0 にして再起動してください（キーが無ければ再起動時に 0 が入ります）: tools/claude-strata --restart-server".to_string(),
         });
     }
 
@@ -327,7 +327,7 @@ pub fn analyze_diagnostics(
                 code: "CONFIG_SILENCE_TIMEOUT_ACTIVE".to_string(),
                 summary: format!("engine_silence_s が {} 秒に設定されています（長めのプリフィルで切れる原因になります）。", s),
                 evidence: format!("engine_silence_s={}", s),
-                remediation: "tools/claude-strata --restart-server で engine_silence_s=0 を適用してください。".to_string(),
+                remediation: "WSL の ~/.local/share/strata/install/strata-<model>.json の engine_silence_s を 0 にしてから tools/claude-strata --restart-server で再起動してください。".to_string(),
             });
         }
     }
@@ -338,7 +338,7 @@ pub fn analyze_diagnostics(
                 code: "CONFIG_IDLE_UNLOAD_ACTIVE".to_string(),
                 summary: format!("idle_unload_s が {} 秒に設定されています（アイドル後にモデル再ロードが発生します）。", u),
                 evidence: format!("idle_unload_s={}", u),
-                remediation: "常駐維持する場合は tools/claude-strata --idle-unload 0 --restart-server を使用してください。".to_string(),
+                remediation: "常駐維持する場合は WSL の ~/.local/share/strata/install/strata-<model>.json の idle_unload_s を 0 にしてから tools/claude-strata --restart-server で再起動してください。".to_string(),
             });
         }
     }
@@ -546,12 +546,12 @@ pub fn evaluate_health(
 
     if let Some(v) = engine_silence_s {
         if v != 0 {
-            warnings.push(format!("engine_silence_s={} (0 が推奨)", v));
+            warnings.push(format!("engine_silence_s={} (0 が推奨。install config で設定)", v));
         }
     }
     if let Some(v) = idle_unload_s {
         if v != 0 {
-            warnings.push(format!("idle_unload_s={} (0 が推奨)", v));
+            warnings.push(format!("idle_unload_s={} (0 が推奨。install config で設定)", v));
         }
     }
 
@@ -559,7 +559,7 @@ pub fn evaluate_health(
         let next = if matches!(api_health, ApiHealth::Unloaded) {
             Some("tools/claude-strata --health --warmup または初回リクエストで自動ロード".to_string())
         } else {
-            Some("tools/claude-strata --restart-server".to_string())
+            Some("WSL の ~/.local/share/strata/install/strata-<model>.json を確認してから tools/claude-strata --restart-server".to_string())
         };
         return (HealthStatus::Degraded, warnings, next);
     }
