@@ -2311,6 +2311,8 @@ async function resetEntry() {
     Object.entries(carried).every(([key, ids]) => KEEP_KEYS.includes(key) && Array.isArray(ids) && ids.length && ids.every((id) => typeof id === 'string' && id))
   if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk && carriedOk) {
     if (FIXED_KEYS.length) state.fixed_sha = shas
+    // entry_digest: 入口（checks/entry.json）の digest。doc_check はこれで既存の指摘を決めるので、監査の doc の値と照らす（entryMoved）。
+    if (typeof rc.entry_digest === 'string' && rc.entry_digest) state.entry_digest = rc.entry_digest
     const all = Object.values(carried).flat()
     const editable = Object.entries(carried).filter(([key]) => !FIXED_KEYS.includes(key)).flatMap(([, ids]) => ids)
     if (all.length) state.open_tbd = uniq([...(state.open_tbd || []), ...all])
@@ -2318,6 +2320,14 @@ async function resetEntry() {
     return null
   }
   return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')
+}
+
+// entryMoved: 段 1 の入口で reset が返した entry_digest と、監査の doc_check の entry_digest が違えば、入口が書き換わっている。
+// 入口はどの指摘を blocking から外すかを決めるので、書き換わったまま数えると、生成者が自分の指摘を既存の指摘にできる。
+function entryMoved(docCheck) {
+  if (!state.entry_digest) return null
+  if (docCheck && docCheck.entry_digest === state.entry_digest) return null
+  return `監査の doc_check の入口（checks/entry.json）の digest が段 1 の reset の値 ${state.entry_digest} と違います（${docCheck ? docCheck.entry_digest || '無い' : 'doc_check の stdout が無い'}）。既存の指摘を決める入口が書き換わっているので、数えた blocking を信用できません。段 1 からやり直してください`
 }
 
 // FIXED_FLAG・fixedMoved: 監査の snapshot に固定の文書の sha256 を返させ、段 1 の入口の値と照合する。固定の文書を書く役はいないので、
@@ -2726,6 +2736,8 @@ async function stage5() {
   if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
   const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
+  const entry1 = entryMoved(docCheck)
+  if (entry1) return blocked(entry1, null)
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
   noteAudited(audited, base)
@@ -2946,6 +2958,8 @@ async function stage8() {
   noteAudited(audited, `audited-${round}`)
   const findings = recordFindings(allPlan, allResults)
   const docCheck = parseStdout(d.doc_check)
+  const entryN = entryMoved(docCheck)
+  if (entryN) return blocked(entryN, null)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
   const prev = pendingView(state.pending, state.item_routes)
   const carried = prev.findings.filter((f) => state.revised.unapplied.includes(f.id))

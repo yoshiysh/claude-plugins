@@ -100,3 +100,14 @@ fn fixed_doc_without_entry_is_never_changed() {
     assert!(r.changed.is_empty());
     assert!(r.impact.is_empty());
 }
+
+#[test]
+fn items_of_a_removed_doc_are_removed() {
+    let f = facts(
+        r#"{"entry":{"specifications/old":{"SP-OLD-001":"x"}},
+            "docs":[{"key":"specifications/a","items":[{"id":"SP-A-001","digest":"y","refs":["SP-OLD-001"]}]}]}"#,
+    );
+    let r = impact(&f);
+    assert_eq!(r.removed, vec!["SP-OLD-001"]);
+    assert_eq!(r.impact, vec!["SP-A-001", "SP-OLD-001"]);
+}

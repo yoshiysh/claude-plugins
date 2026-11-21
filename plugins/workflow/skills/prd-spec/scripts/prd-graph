@@ -14,7 +14,7 @@ stale() {
 
 if stale; then
   if ! command -v cargo >/dev/null 2>&1; then
-    echo "prd-graph: ${BIN_PATH} が無く、cargo もありません。Rust の toolchain を入れてから再実行してください（https://rustup.rs）" >&2
+    echo "prd-graph: ${BIN_PATH} が無いか crate の source より古く、作り直す cargo がありません。Rust の toolchain を入れてから再実行してください（https://rustup.rs）" >&2
     exit 3
   fi
   cargo build --quiet --release --locked --manifest-path "${CRATE_DIR}/Cargo.toml" >&2

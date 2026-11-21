@@ -1353,6 +1353,45 @@ class CarriedTbd(_Workspace):
         self.assertFalse(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"))
         self.assertEqual((again["preexisting_findings"], again["blocking"]), (0, out["blocking"] + 2))
 
+    def _entry_ws(self):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答などを返さなければならない。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        reset = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        return ws, reset
+
+    def _put_trace(self, ws, items):
+        meta = ws / "specifications-auth.meta.json"
+        meta.write_text(json.dumps({"tbd": [], "trace": [{"item_id": i, "kind": "flow", "ref": "F-003"} for i in items]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+
+    def test_この_runで付けたtraceは本文が同じでも項目の変更に数える(self):
+        # 入口の直後は trace が空なので、trace を付けた項目はこの run が触った項目である。trace が原因の指摘（発生源・flow の参照）を隠さない。
+        ws, _ = self._entry_ws()
+        self._put_trace(ws, ["SP-AUTH-001"])
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertEqual(json.loads((ws / out["impact"]["path"]).read_text())["changed"], ["SP-AUTH-001"])
+        found = {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+        self.assertFalse(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"))
+        self.assertTrue(found["ST-NO-EVIDENCE-SP-AUTH-002"].get("preexisting"))
+
+    def test_同じIDの見出しの2つ目の区間の改訂も項目の変更に数える(self):
+        ws, _ = self._entry_ws()
+        doc = ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("## トレーサビリティ表", "#### SP-AUTH-001 ログイン処理（続き）\n\n記録を残さなければならない。\n\n## トレーサビリティ表"))
+        before = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertEqual(json.loads((ws / before["impact"]["path"]).read_text())["changed"], ["SP-AUTH-001"])
+
+    def test_resetを流し直しても入口は同じでdocの入口のdigestと一致する(self):
+        ws, reset = self._entry_ws()
+        entry = (ws / "checks/entry.json").read_bytes()
+        again = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self.assertEqual(((ws / "checks/entry.json").read_bytes(), again["entry_digest"]), (entry, reset["entry_digest"]))
+        self._intake(ws)
+        self.assertEqual(_ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")["entry_digest"], reset["entry_digest"])
+        self.assertEqual(_ok(ws, "doc", "--doc", "specifications/auth", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")["impact"]["path"], "checks/impact.specifications__auth.json", "--doc ごとに分ける")
+
     def test_入口の無いrunはprd_graphを呼ばず全ての指摘を数える(self):
         out = _ok(self.ws, "doc", "--open-tbd", "")
         self.assertNotIn("impact", out)
@@ -1373,7 +1412,10 @@ class CarriedTbd(_Workspace):
         after = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
         no_evidence = lambda o: [f for f in json.loads((ws / o["path"]).read_text())["findings"] if "NO-EVIDENCE" in f["id"]]
         self.assertEqual((no_evidence(after), after["blocking"] + after["preexisting_findings"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
-        self.assertEqual(after["preexisting_findings"], 3, "reset の後は何も変えていないので、項目に帰属する指摘は既存の指摘になる")
+        self.assertEqual(after["preexisting_findings"], 1, "reset の後は何も変えていないので、項目の本文だけで決まる指摘は既存の指摘になる")
+        self.assertEqual(sorted(f["id"] for f in json.loads((ws / after["path"]).read_text())["findings"] if f["id"].startswith("ST-TBD-ASSERT-") and not f.get("preexisting")),
+                         ["ST-TBD-ASSERT-requirements/auth-TBD-RAUTH-001-PR-AUTH-002", "ST-TBD-ASSERT-requirements/auth-TBD-RAUTH-002-PR-AUTH-003"],
+                         "開いている TBD は prd-graph の事実に無いので、TBD に触れる断定は既存の指摘にしない")
         self.assertEqual(_ok(ws, "tree-digest")["stray"]["count"], 0)
 
     def test_写しの形が違えばresetは何も消さない(self):

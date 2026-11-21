@@ -78,12 +78,11 @@ pub fn impact(facts: &Facts) -> Impact {
             }
         }
     }
-    for doc in &facts.docs {
-        if let Some(base) = facts.entry.get(&doc.key) {
-            for id in base.keys() {
-                if !current.contains(id.as_str()) {
-                    removed.insert(id.clone());
-                }
+    // 入口にあって今は無い項目。文書ごと消すか改名した文書の項目も含める。
+    for base in facts.entry.values() {
+        for id in base.keys() {
+            if !current.contains(id.as_str()) {
+                removed.insert(id.clone());
             }
         }
     }

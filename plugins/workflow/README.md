@@ -60,3 +60,4 @@ resume の live E2E は未検証です。workspace の検証範囲と上限は r
 このプラグインの `skills/` 配下がスキルの実体です。
 リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。
 `workflows/` 配下は名前付き workflow で、`workflows/prd-spec.js` は `prd-spec` が名前 `/workflow:prd-spec-run` で呼ぶ段の制御の script です。
+`crates/` 配下は同梱の Rust の CLI です。`crates/prd-graph` は、`prd-spec` が既存の文書を改訂する run で影響の範囲を決めるのに使います。初回に `skills/prd-spec/scripts/prd-graph` が cargo で作るので、その run には Rust の toolchain（と、初回の依存の取得に crates.io への接続）が要ります。

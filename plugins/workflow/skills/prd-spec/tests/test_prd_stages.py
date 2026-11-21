@@ -147,7 +147,7 @@ const resetWorld = (keep, fixed) => {
   persist()
   const keys = (x) => (x ? x.split(',').sort() : [])
   const fixedKeys = spec.reset_fixed || keys(fixed)
-  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: fixedKeys, carried_tbd: spec.carried_tbd || {}, ...(spec.reset_no_fixed_sha ? {} : { fixed_sha256: fixedShas(fixedKeys, null) }) })
+  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: fixedKeys, carried_tbd: spec.carried_tbd || {}, ...(spec.reset_no_fixed_sha ? {} : { fixed_sha256: fixedShas(fixedKeys, null) }), ...(spec.entry_digest ? { entry_digest: spec.entry_digest } : {}) })
 }
 const setFlow = (x) => {
   touch('flow')
@@ -473,7 +473,9 @@ function respond(prompt, label) {
         size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json`, files: listed((spec.size_over_at || {})[stage] || 0, 'size') },
         swept: { count: (spec.swept_at || {})[stage] || 0, path: `checks/audited-${n}.swept.json` },
       }
-      const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {} })
+      // entry_digest_at: 監査の段（r<n>）ごとの doc の entry_digest。無ければ reset の値（spec.entry_digest）をそのまま返す。
+      const entryDigest = Object.hasOwn(spec.entry_digest_at || {}, stage) ? spec.entry_digest_at[stage] : spec.entry_digest
+      const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {}, ...(entryDigest ? { entry_digest: entryDigest } : {}) })
       const fixedFlag = /doc_check\.mjs snapshot [^`]* --fixed (\S+?)`/.exec(prompt)
       if (fixedFlag) found.fixed_sha256 = fixedShas(fixedFlag[1].split(','), stage)
       if (n === 1) out.designated = { doc_check: docCheck, audited: JSON.stringify({ digest: H('a1'), ...found }) }
@@ -1551,6 +1553,19 @@ class Stages(unittest.TestCase):
             with self.subTest(name):
                 res = run({"args": a, "units": units, "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
                 self.assertEqual((res["status"], res["gate"]), ("needs_answers", "g1"), res.get("reason"))
+
+    def test_監査のdocの入口のdigestがresetの値と違えば止める(self):
+        # 入口（checks/entry.json）はどの指摘を blocking から外すかを決める。書き換わったまま数えると、生成者が自分の指摘を既存の指摘にできる。
+        spec = {**self._expand(), "entry_digest": "e1"}
+        ok = run(spec)["result"]
+        self.assertNotEqual(ok["status"], "blocked", ok.get("reason"))
+        for stage, got in (("r1", "e2"), ("r2", "e2"), ("r1", None)):
+            with self.subTest(stage=stage, got=got):
+                finding = {"id": "r1-im-specifications__x-001", "doc": "specifications/x", "item_id": "SP-X-001"}
+                r = run({**spec, "entry_digest_at": {stage: got}, "findings": {"implementer:r1": [finding]}, "writer_changed": ["SP-X-001"]})["result"]
+                self.assertEqual(r["status"], "blocked")
+                self.assertIn("checks/entry.json", r["reason"])
+                self.assertIsNone(r.get("next_args"), "段をやり直しても同じ入口なので再開させない")
 
     def test_固定の文書のsha256を返さないresetと基準の無い再開は止める(self):
         r = run({**self._expand(), "reset_no_fixed_sha": True})

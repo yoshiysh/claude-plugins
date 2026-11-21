@@ -2349,7 +2349,8 @@ function wsReset(ws, opts) {
   }
   const carriedIds = Object.fromEntries(Object.entries(carried).map(([key, tbd]) => [key, tbd.map((t) => t.id).sort()]))
   const entry = writeEntry(ws, keep.filter((k) => !fixed.includes(k)))
-  return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed), entry: Object.keys(entry).sort() }
+  const keys = Object.keys(entry).sort()
+  return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed), entry: keys, entry_digest: keys.length ? digestOf(entry) : null }
 }
 
 // ENTRY_FILE・writeEntry: 段 1 の入口（reset の直後）の、既存の文書の項目ごとの本文の digest。doc は、ここから変わらず影響の範囲
@@ -2357,43 +2358,46 @@ function wsReset(ws, opts) {
 // trace が無く（agent-contracts.md の「entry が existing のとき」）、直すには根拠を捏造するしかないため。固定の文書は書き換えないので
 // 入れない。新しく書く文書は入口を持たず、全ての項目が変わった項目に数える。
 const ENTRY_FILE = 'checks/entry.json'
-function itemTextDigests(markdown, kind) {
-  return Object.fromEntries(itemSections(markdown, kind).filter((s) => s.id && s.key === s.id).map((s) => [s.id, digestOf({ text: s.text })]))
+// itemDigests: 項目 ID ごとの、本文の区間と項目自身の trace を合わせた digest。trace を含めるのは、この run で付けた trace が原因の指摘
+// （発生源・flow の参照）を既存の指摘にしないため（入口の reset の直後は trace が空なので、trace を付けた項目は変わった項目になる）。
+// 同じ ID の見出しが 2 つ以上あれば、その全ての区間をまとめて 1 つの digest にする（2 つ目以降の区間の改訂を取りこぼさない）。
+function itemDigests(d) {
+  const trace = d.meta && Array.isArray(d.meta.trace) ? d.meta.trace : []
+  const byId = new Map()
+  for (const s of itemSections(d.markdown, d.kind)) if (s.id) byId.set(s.id, [...(byId.get(s.id) || []), s])
+  return new Map([...byId].map(([id, secs]) => [id, { secs, digest: digestOf({ text: secs.map((s) => s.text), trace: trace.filter((t) => t && t.item_id === id) }) }]))
 }
 function writeEntry(ws, keys) {
   const entry = {}
-  for (const key of keys) {
-    const [kind] = key.split('/')
-    entry[key] = itemTextDigests(fs.readFileSync(path.join(ws, docFileOf(key)), 'utf8'), kind)
-  }
+  for (const d of workspaceDocs(ws).filter((x) => keys.includes(x.key))) entry[d.key] = Object.fromEntries([...itemDigests(d)].map(([id, v]) => [id, v.digest]))
   if (keys.length) writeCheck(ws, 'entry.json', entry)
   return entry
 }
 
 // ITEM_LOCAL: 指摘の帰属先の項目の本文か trace だけで決まる検査の ID の接頭辞。
 const ITEM_LOCAL = ['ST-NO-EVIDENCE-', 'ST-REQ-NO-ORIGIN-', 'ST-MODAL-', 'ST-AMBIGUOUS-']
+// NEVER_PREEXISTING: 項目に帰属するが、prd-graph の事実に無いもの（開いている TBD の集合・flow の要素）に依存する検査。影響の範囲で
+// この run が原因でないと言えないので、既存の指摘にしない。
+const NEVER_PREEXISTING = ['ST-TBD-ASSERT-', 'ST-FLOW-UNKNOWN-REF-']
 
 // GRAPH_BIN: 影響の範囲を決める Rust の CLI の wrapper（plugins/workflow/crates/prd-graph が正本）。本文の解析は doc_check に 1 つだけ置き、
 // prd-graph には解析済みの事実だけを渡す。
 const GRAPH_BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), 'prd-graph')
-function impactOf(ws, docs, entry) {
+function impactOf(ws, docs, entry, name) {
   const ids = new RegExp(`${ID_IN_TEXT.requirements.source}|${ID_IN_TEXT.specifications.source}`, 'g')
   const facts = {
     entry,
     docs: docs.map((d) => ({
       key: d.key,
       fixed: Boolean(d.fixed),
-      items: itemSections(d.markdown, d.kind)
-        .filter((s) => s.id && s.key === s.id)
-        .map((s) => ({ id: s.id, digest: digestOf({ text: s.text }), refs: [...new Set(s.text.match(ids) || [])].filter((x) => x !== s.id).sort() })),
+      items: [...itemDigests(d)].map(([id, v]) => ({ id, digest: v.digest, refs: [...new Set(v.secs.flatMap((s) => s.text.match(ids) || []))].filter((x) => x !== id).sort() })),
       links: d.traceability || [],
     })),
   }
   const r = spawnSync(GRAPH_BIN, ['impact'], { input: JSON.stringify(facts), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   if (r.error || r.status !== 0) throw new Error(`prd-graph impact が失敗しました（exit ${r.status}）: ${(r.error && r.error.message) || String(r.stderr || '').trim()}`)
   const out = JSON.parse(r.stdout)
-  writeCheck(ws, 'impact.json', out)
-  return out
+  return { ...out, path: writeCheck(ws, name, out) }
 }
 
 // place: S0 が既存文書を W に置く。文書と、その隣の開いている TBD の写しを 1 回でまとめて逐語で写す（写しを別の手順にすると置き忘れが起き、
@@ -3944,12 +3948,15 @@ function wsDoc(ws, opts) {
   // 項目の本文と trace だけで決まる検査（ITEM_LOCAL）は、本文が変わらなければ改訂で生じないので、影響の範囲の中でも既存の指摘にする。
   // 項目どうしの関係を見る検査は、隣の項目の改訂で生じうるので、影響の範囲（変えた項目とその 1 hop 先）の外のものだけを既存の指摘にする。
   const entry = readJsonFile(path.join(ws, ENTRY_FILE))
-  const impact = entry ? impactOf(ws, docs, entry) : null
+  const metaOf = new Map(wsDocs.map((d) => [d.key, d.meta]))
+  const impactName = opts.doc.length ? `impact.${selected.map(indexName).join('+')}.json` : 'impact.json'
+  const impact = entry ? impactOf(ws, docs.map((d) => ({ ...d, meta: metaOf.get(d.key) })), entry, impactName) : null
   if (impact) {
     const hit = new Set(impact.impact)
     const changed = new Set(impact.changed)
     for (const f of expanded.findings) {
       if (!entry[f.document] || !Object.hasOwn(entry[f.document], f.location) || changed.has(f.location)) continue
+      if (NEVER_PREEXISTING.some((p) => f.id.startsWith(p))) continue
       if (ITEM_LOCAL.some((p) => f.id.startsWith(p)) || !hit.has(f.location)) f.preexisting = true
     }
   }
@@ -3983,7 +3990,7 @@ function wsDoc(ws, opts) {
     degraded,
     fixed_findings: expanded.findings.length - counted.length - preexisting,
     preexisting_findings: preexisting,
-    ...(impact ? { impact: { changed: impact.changed.length, removed: impact.removed.length, items: impact.impact.length, path: 'checks/impact.json' } } : {}),
+    ...(impact ? { impact: { changed: impact.changed.length, removed: impact.removed.length, items: impact.impact.length, path: impact.path }, entry_digest: digestOf(entry) } : {}),
     not_checked: expanded.not_checked.length,
     path: writeCheck(ws, name, { ...body, digest }),
     digest,
