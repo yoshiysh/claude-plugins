@@ -7,7 +7,7 @@ agent / pipeline / parallel / log / phase を stub にして prd-spec.js を nod
 押さえること（設計書 §4 の「移すテスト」）:
 - 問い 0 件なら 1 回の run で done になる（resolver の段 3 も段 6 も起動しない。3v は必ず起動する）
 - 段 3・3b・6 などのゲート（開いた順に g1, g2, …）で needs_answers になり、next_args をそのまま渡すと続きの段から走る
-- 改稿と監査は収束（blocking 0・進展なし）か上限（MAX_AUDIT_PASSES）で止まり、最後のパスの監査を飛ばさない
+- 改稿と監査は収束（blocking 0）か上限（MAX_AUDIT_PASSES）で止まり、最後のパスの監査を飛ばさない
 - writer の申告に無い変更 ID があれば、変更の起きた文書に監査が追加で起動する
 - 任意の from から再実行すると、その段から進む。要る state が無ければ止まる
 - 応答しなかった agent を「0 件」として扱わず、blocked にして、その段からの next_args を返す
@@ -3298,8 +3298,8 @@ class FlowRecheck(unittest.TestCase):
         mutated = run(spec, patch=[("      pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),\n", "")])
         self.assertNotIn(line, self._prompt(mutated, "resolver:6"))
         # 変異: decision の指摘の項目の flow refs を持たないと、要素から引けない。
-        bundles_only = ("  for (const f of all.filter((x) => (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {",
-                        "  for (const f of all.filter((x) => x.route !== 'decision' && (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {")
+        bundles_only = ("  for (const f of all) {\n    const ids = uniq((refs[f.doc] || {})[f.item_id])",
+                        "  for (const f of all.filter((x) => x.route !== 'decision')) {\n    const ids = uniq((refs[f.doc] || {})[f.item_id])")
         self.assertNotIn(line, self._prompt(run(spec, patch=[bundles_only]), "resolver:6"))
 
     def test_未裁定の論点は生成者の申告でなくverifierが数えた組とOで確かめる(self):
@@ -4375,10 +4375,34 @@ class FindingRoutes(unittest.TestCase):
                              {"id": "r3-gr-requirements__x-003", "item_id": "PR-X-003"}],
         }})
 
-    def test_前のパスと逆向きの指摘はdecisionになり段6に届く(self):
+    def test_前のパスと逆向きの指摘はdecisionになり裁定に届く(self):
+        # r3 は最後のパスの監査なので、逆向きの指摘は段 6 ではなく輪を出た後の resolver に届く。
         r = self._reversal("relax")
-        self.assertIn("route が decision の指摘 r3-gr-requirements__x-001", self._prompt(r, "resolver:6"))
-        self.assertFalse(has(self._reversal("tighten")["labels"], "resolver:6"))
+        self.assertIn("route が decision の指摘 r3-gr-requirements__x-001", self._prompt(r, "resolver:final"))
+        same = self._reversal("tighten")
+        self.assertFalse(has(same["labels"], "resolver:6"))
+        self.assertNotIn("r3-gr-requirements__x-001", self._prompt(same, "resolver:final"))
+
+    def test_2パス目の段6に前のパスと逆向きの指摘が届く(self):
+        # r1 に向きのある指摘、r2 に逆向きの指摘を置くと、2 パス目の段 6 に decision として届く（パスは別の項目の blocking で進める）。
+        def run2(r2_direction):
+            return run({"args": args(), "findings": {
+                "implementer:r1": [{"id": "r1-im-requirements__x-001", "direction": "tighten", "blocking": False},
+                                   {"id": "r1-im-requirements__x-002", "item_id": "PR-X-002"}],
+                "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": r2_direction, "blocking": False},
+                                 {"id": "r2-gr-requirements__x-003", "item_id": "PR-X-003"}],
+            }})
+        self.assertIn("route が decision の指摘 r2-gr-requirements__x-001", self._prompt(run2("relax"), "resolver:6"))
+        self.assertFalse(has(run2("tighten")["labels"], "resolver:6"))
+
+    def test_改稿で当て損ねた指摘は持ち越して上限で輪を出たらcarried_blockingに載る(self):
+        findings = {"implementer:r1": [{"id": "r1-im-requirements__x-001"}],
+                    "grounding:r2": [{"id": "r2-gr-requirements__x-002", "item_id": "PR-X-002"}],
+                    "grounding:r3": [{"id": "r3-gr-requirements__x-003", "item_id": "PR-X-003"}]}
+        # 最後のパスの改稿が r2 の指摘を当て損ねると、その後に段 7 が無いので、持ち越したまま輪を出る。
+        res = run({"args": args(), "findings": findings, "unapplied_seq": [[], ["r2-gr-requirements__x-002"]]})["result"]
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        self.assertEqual(res["carried_blocking"], ["r2-gr-requirements__x-002"])
 
     def test_段8の監査に同じ項目への前のパスの指摘のIDが入る(self):
         r = self._reversal("relax")
@@ -4839,14 +4863,14 @@ class Gates(unittest.TestCase):
         self.assertIn(f"const LIMIT_WHY = `依頼者に聞ける回数の上限（MAX_GATES = ${{MAX_GATES}}）に達した`", src)
         self.assertIn("const canAsk = () => (entryState.gates || 0) < MAX_GATES", src, "聞けるかは段の入口の数で決める")
 
-    def test_3パス目以降の段6の問いもゲートで聞く(self):
-        findings = new_item_each_round(3)
-        findings["grounding:r3"][0]["route"] = "decision"
+    def test_最後のパスの段6の問いもゲートで聞く(self):
+        findings = new_item_each_round(MAX_AUDIT_PASSES)
+        findings[f"grounding:r{MAX_AUDIT_PASSES}"][0]["route"] = "decision"
         r = run({"args": args(), "findings": findings, "questions_at": {"6": ["RS-020"]}})
-        self.assertEqual([l for l in r["labels"] if l.startswith("resolver:6")], ["resolver:6"], "段 6 は 3 パス目で初めて起動し、問いを保持規則に変えない")
+        self.assertEqual([l for l in r["labels"] if l.startswith("resolver:6")], ["resolver:6"], "段 6 は最後のパスで初めて起動し、問いを保持規則に変えない")
         res = r["result"]
         self.assertEqual((res["status"], res["gate"], res["question_ids"]), ("needs_answers", "g1", ["RS-020"]), res.get("reason"))
-        self.assertEqual((res["next_args"]["from"], res["next_args"]["state"]["pass"], res["next_args"]["state"]["gates"]), ("3a'", 3, 1))
+        self.assertEqual((res["next_args"]["from"], res["next_args"]["state"]["pass"], res["next_args"]["state"]["gates"]), ("3a'", MAX_AUDIT_PASSES, 1))
 
     def test_3bの後の3aで出た続きの問いは次のゲートで聞く(self):
         g1 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
@@ -4950,7 +4974,7 @@ class Gates(unittest.TestCase):
         g1 = run({"args": args(), "findings": findings, "about": about, "questions_at": {"6": ["RS-010"]}})["result"]
         self.assertLess(g1["next_args"]["state"]["gates"], MAX_GATES, "段 6 は聞ける段")
         spec = {"args": g1["next_args"], "findings": findings, "about": about, "ruled_at": {"3a'": ["RS-010"]}, "questions_at": {"6": ["RS-011"]}}
-        by_about = ("  orderHolds([], [...toHold.map((id) => `finding:${id}`), ...reasked])\n", "  orderHolds([], toHold.map((id) => `finding:${id}`))\n")
+        by_about = ("  orderHolds([], [...reasked])\n", "  orderHolds([], [])\n")
         by_hold_left = ("  orderHolds(ids)\n  const label = `resolver:${stage}-hold`\n", "  const label = `resolver:${stage}-hold`\n")
         r = run(spec, patch=[by_about])
         self.assertNotIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0))
@@ -4988,21 +5012,16 @@ class Convergence(unittest.TestCase):
         self.assertIn("route が decision の指摘 r2-gr-requirements__x-001", second)
         self.assertNotIn("r2-gr-requirements__x-001", nth_prompt(r, "writer:U-1:revise", 1))
 
-    def test_decisionの後の再発はholdを指示しholdの後は尽きてno_progressで止まる(self):
-        r = self._recurring(3)
-        self.assertIn("再発が続いた項目の指摘（hold にする）: r3-gr-requirements__x-001", nth_prompt(r, "resolver:6", 2))
-        self.assertEqual(r["result"]["item_routes"], {self.KEY: "hold"})
-        stuck = self._recurring(4)
+    def test_裁定の後の再発は上限で輪を出て残りの裁定に回る(self):
+        # 2 パス（MAX_AUDIT_PASSES）では、再発した項目は毎回 decision に回り、最後の r3 の後は段 6 に戻らず輪を出る。
+        stuck = self._recurring(MAX_AUDIT_PASSES + 1)
         res = stuck["result"]
-        self.assertEqual((res["status"], res["stop_reason"], res["item_routes"], res["passes"]), ("blocked", "no_progress", {self.KEY: "exhausted"}, 3))
+        self.assertEqual((res["status"], res["stop_reason"], res["item_routes"], res["passes"]), ("blocked", "pass_limit", {self.KEY: "decision"}, MAX_AUDIT_PASSES))
         self.assertIn("resolver:final", stuck["labels"])
-        self.assertEqual(res["remaining_blocking"], ["r4-gr-requirements__x-001"])
-        self.assertIn(f"尽きた項目: {self.KEY}", res["reason"])
+        self.assertEqual(res["remaining_blocking"], [f"r{MAX_AUDIT_PASSES + 1}-gr-requirements__x-001"])
+        self.assertIn(f"残った指摘: r{MAX_AUDIT_PASSES + 1}-gr-requirements__x-001", res["reason"], "理由に残った指摘を全件載せる")
+        self.assertIn(f"route が decision の指摘 r{MAX_AUDIT_PASSES + 1}-gr-requirements__x-001", nth_prompt(stuck, "resolver:final", 0))
         self.assertIsNone(res["next_args"])
-
-    def test_尽きた項目があっても新しいTBDがあれば進展なしにしない(self):
-        res = self._recurring(4, new_tbd_revise=["TBD-X-001"])["result"]
-        self.assertEqual((res["stop_reason"], res["item_routes"]), ("pass_limit", {self.KEY: "exhausted"}), "新しい TBD は段 6 が閉じうる")
 
     def test_改稿に回すものが無いままblockingが残ればdoneにせずno_progressで止まる(self):
         r = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}})
@@ -5010,42 +5029,6 @@ class Convergence(unittest.TestCase):
         self.assertEqual((res["status"], res["stop_reason"], res["remaining_blocking"]), ("blocked", "no_progress", ["r1-cd-all-001"]), "段 6 が何も裁定しなかった")
         self.assertFalse(has(r["labels"], "writer:U-1:revise"))
         self.assertIn("resolver:final", r["labels"])
-
-    def test_尽きた項目の指摘は監査されなくても残り次のパスで消えない(self):
-        # PR-X-001 は r4 で尽き、同じ r4 の PR-X-002 で 4 パス目に進む。4 パス目の改稿は PR-X-002 だけを変え、r5 は何も出さない。
-        seq = [["PR-X-001"], ["PR-X-001"], ["PR-X-001"], ["PR-X-002"]]
-        r = self._recurring(4, extra={4: [{"id": "r4-gr-requirements__x-002", "item_id": "PR-X-002"}]},
-                            writer_changed_seq=seq, diff={f"r{i + 2}": c for i, c in enumerate(seq)})
-        res = r["result"]
-        self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "no_progress", MAX_AUDIT_PASSES))
-        self.assertEqual(res["remaining_blocking"], ["r4-gr-requirements__x-001"])
-        self.assertIn(f"尽きた項目: {self.KEY}", res["reason"])
-
-    def _exhausted_cd(self, seq, diff, r5=None):
-        # r1〜r4 の crossDoc が PR-X-001 に毎回違う向きの blocking を出して尽き、r4 の PR-X-002 で 4 パス目に進む。
-        findings = {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": self.DIRECTIONS[0]}]}
-        for k in range(2, 5):
-            findings[f"crossDoc:r{k}"] = [{"id": f"r{k}-cd-all-001", "direction": self.DIRECTIONS[k - 1]}]
-        findings["grounding:r4"] = [{"id": "r4-gr-requirements__x-002", "item_id": "PR-X-002"}]
-        findings.update(r5 or {})
-        rulings = {f"RS-01{k}": {"finding": f"r{k + 1}-cd-all-001"} for k in range(4)}
-        return run({"args": args(), "findings": findings, "ruled_seq_at": {"6": [[rs] for rs in rulings]}, "about": rulings,
-                    "writer_changed_seq": seq, "diff": diff})["result"]
-
-    def test_尽きた項目は指摘を出した役が再監査して指摘しなければ落ちる(self):
-        seq = [["PR-X-001"]] * 3 + [["PR-X-001", "PR-X-002"]]
-        res = self._exhausted_cd(seq, {f"r{i + 2}": c for i, c in enumerate(seq)})
-        self.assertEqual((res["status"], res["item_routes"]), ("done", {self.KEY: "exhausted"}))
-
-    def test_尽きた項目は指摘を出した役が再監査しなければ他の役が監査しても落ちない(self):
-        # 4 パス目の申告は PR-X-002 だけで、PR-X-001 の変更は申告に無い。追加の監査は implementer と grounding で（grounding は PR-X-001 に別の指摘を出す）、crossDoc は見ていない。
-        seq = [["PR-X-001"]] * 3 + [["PR-X-002"]]
-        diff = {f"r{i + 2}": c for i, c in enumerate(seq)}
-        diff["r5"] = ["PR-X-001", "PR-X-002"]
-        other = {"grounding:r5:requirements/x:extra": [{"id": "r5-grx-requirements__x-001", "blocking": False}]}
-        res = self._exhausted_cd(seq, diff, other)
-        self.assertEqual((res["status"], res["stop_reason"], res["remaining_blocking"]), ("blocked", "no_progress", ["r4-cd-all-001"]))
-        self.assertEqual(res["carried_blocking"], ["r4-cd-all-001"], "最後のパスの監査が出した指摘ではない")
 
     def test_doc_checkのblockingだけが残るときは上限まで回す(self):
         fixed = run({"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}]}, "doc_blocking_at": {"r2": 1}})["result"]
@@ -5078,7 +5061,8 @@ class Convergence(unittest.TestCase):
         self.assertNotIn("r2-gr-requirements__x-001", nth_prompt(r, "writer:U-1:revise", 1))
         turned = self._reraise([{"id": "r3-gr-requirements__x-001", "direction": "relax"}])
         self.assertEqual(turned["result"]["item_routes"], {}, "r2 の再出は blocking に数えていないので、r3 は再発ではない")
-        self.assertIn("route が decision の指摘 r3-gr-requirements__x-001", nth_prompt(turned, "resolver:6", 1), "再出と逆向きの指摘は裁定に逆らうので writer に回さない")
+        # r3 は最後のパスの監査なので、逆向きの指摘は輪を出た後の resolver に届く。
+        self.assertIn("route が decision の指摘 r3-gr-requirements__x-001", nth_prompt(turned, "resolver:final", 0), "再出と逆向きの指摘は裁定に逆らうので writer に回さない")
         self.assertFalse(any("r3-gr-requirements__x-001" in x["prompt"] for x in turned["prompts"] if x["label"].startswith("writer:")))
         bundled = self._reraise([], r1_writer=True)["result"]
         self.assertEqual(bundled["item_routes"], {self.KEY: "decision"}, "同じパスで writer の指摘も渡した項目の変更は、裁定を当てただけとは言えない")
@@ -5101,9 +5085,10 @@ class Convergence(unittest.TestCase):
             with self.subTest(name):
                 r = run({**spec, **extra})
                 res = r["result"]
-                self.assertEqual((res["status"], res["passes"]), ("done", 3))
+                # r3 は最後のパスの監査なので、blocking に数えた指摘は改稿に回らず、残った blocking として輪を出る。
+                self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", MAX_AUDIT_PASSES))
                 self.assertFalse(any(found in n for n in res["notices"]), res["notices"])
-                self.assertIn(found, nth_prompt(r, "writer:U-1:revise", 2))
+                self.assertIn(found, res["remaining_blocking"])
         same = run({**spec, "writer_changed_seq": [["PR-X-001"], ["PR-X-002"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-002"]}, "doc_blocking_at": {"r1": 1}})["result"]
         self.assertIn("監査 r2: 既裁定の再出（再発に数えない）: r2-gr-requirements__x-001 ← RS-010", same["notices"],
                       "裁定を渡したパスの変更は、doc_check の直しと混ざっていても裁定を当てたのと見分けられないので再出にする")
@@ -5318,7 +5303,7 @@ class NextArgsBudget(unittest.TestCase):
                 self.assertLess(self._size(res), NEXT_ARGS_MAX_CHARS)
 
     def test_最後のパスの途中で止まったnext_argsも上限に収まる(self):
-        # 3 項目が毎パス再発して尽きるまで経路を変え、別の項目にも毎パス blocking が出て進む。最後のパスの監査役が応答しない。
+        # 3 項目が毎パス再発して裁定に回り、別の項目にも毎パス blocking が出て進む。最後のパスの監査役が応答しない。
         units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
         items = [f"PR-CLEANUP-BRANCHES-{i:03d}" for i in range(1, 4)]
         finding = lambda k, n, item: {"id": f"r{k}-gr-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item}
@@ -5331,7 +5316,7 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
         state = res["next_args"]["state"]
         self.assertEqual(state["pass"], MAX_AUDIT_PASSES)
-        self.assertEqual(state["item_routes"], {f"{self.DOC}#{it}": "exhausted" for it in items})
+        self.assertEqual(state["item_routes"], {f"{self.DOC}#{it}": "decision" for it in items}, "2 パスでは 1 回目の再発の経路（decision）まで")
         self.assertLess(self._chars(res["next_args"]), NEXT_ARGS_MAX_CHARS)
 
     def test_段8で裁定を持って止まったnext_argsも上限に収まる(self):

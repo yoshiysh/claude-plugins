@@ -87,7 +87,6 @@ PROMPT_CLUES = [
     ("opens", "settle の後の未裁定の O-（R6b）", "- まだ裁定の無い open: "),
     ("opens", "組の再検査（O- とまとめた呼び出し）", "- まだ裁定の無い組（"),
     ("main-resolver", "収束のループの経路の変更（R6、再発した項目）", "再発した項目（項目: 前のパスの指摘 ← その裁定）: "),
-    ("main-resolver", "収束のループの経路の変更（R6、hold の指示）", "再発が続いた項目の指摘（hold にする）: "),
     ("rework-resolver", "差し戻し（v1 の不合格）", "（差し戻し）"),
     ("crossdoc-reaudit", "crossDoc の再監査（scopedAuditPlan が当てた項目）", "範囲を絞った監査: 対象は項目 "),
 ]
@@ -101,7 +100,7 @@ COVERING_TESTS = [
     "RerunFromTheSameStage.test_止まったrunが書いて検証していないものは再実行が検証してから段を出る",
     "ReflectIn3b.test_g1の後の3aはsettleを起動せず反映を3b_reframeに渡し3bvが1回で検証する",
     "FlowFixerRoutes.test_重い段の経路でもlabelは重ならない",
-    "Convergence.test_decisionの後の再発はholdを指示しholdの後は尽きてno_progressで止まる",
+    "Convergence.test_裁定の後の再発は上限で輪を出て残りの裁定に回る",
     "FailedHolds.test_settleのverifierに落ちた保持規則も変換せずに書き直させる",
     "FlowRecheck.test_差し戻しの後も落ちた要素は同じcycleの検証の裁定をsettleで写せば進む",
     "FindingRoutes.test_段6のゲートの後の3aでは段6で写した指摘を写し直さない",

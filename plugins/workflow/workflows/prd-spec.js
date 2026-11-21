@@ -50,8 +50,9 @@ const ROLE_FILES = {
   flowCheck: 'flow-check',
 }
 
-// 上限は暴走を止めるためだけに置く。止まる条件は収束（残りが 0 か、減らなくなった）で、回数で打ち切ると連鎖が途中で止まるだけで項目は直らない。
-const MAX_AUDIT_PASSES = 4
+// 改稿と監査のパスの上限。1 パス目で網羅し、2 パス目は変えた範囲の見直しにする。残った指摘は、輪を出た後の resolver が保持規則と Issue の
+// 文案にし、理由に全件を載せる。
+const MAX_AUDIT_PASSES = 2
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
 // 依頼者を止める回数の上限。最初のゲートは初稿の監査の後に開き（collecting）、そこまでに出た問いをまとめて聞く。その後に聞けるのは、
@@ -234,11 +235,11 @@ const ownItems = (ids, state) =>
 
 // findingItems: 段 6 の指摘の pointedGrounds の items。route が decision の再発した項目（裁定し直す項目）では、前のパスでその項目の指摘を閉じた
 // 裁定を指さない（改稿で直らなかった裁定を「食い違うな」と指すと、項目の次元をまとめて裁定し直す代わりに保持規則へ寄る。その裁定は decide の
-// 再発した項目の行で別に渡る）。route が hold の項目はその行に載らないので外さない。
+// 再発した項目の行で別に渡る）。
 function findingItems(ids, state) {
   const pending = state.pending || {}
   const itemOf = Object.fromEntries(pendingFindings(pending).map((f) => [f.id, itemKey(f)]))
-  const before = (id) => ((state.item_routes || {})[itemOf[id]] === 'decision' && (pending.recurring || {})[itemOf[id]]) || []
+  const before = (id) => (pending.recurring || {})[itemOf[id]] || []
   return (ids || []).map((id) => ({ key: `finding:${id}`, self: Object.entries(state.about || {}).filter(([, k]) => before(id).some((x) => k === `finding:${x}`)).map(([rs]) => rs) }))
 }
 
@@ -360,9 +361,9 @@ function pendingFindings(p) {
   return Object.entries((p || {}).findings || {}).flatMap(([doc, items]) => Object.entries(items).flatMap(([item_id, fs]) => Object.entries(fs).map(([id, f]) => ({ id, doc, item_id, ...FINDING_DEFAULTS, ...f }))))
 }
 
-function pendingView(p, routes) {
+function pendingView(p) {
   const findings = pendingFindings(p)
-  const part = partitionFindings(findings.filter((f) => (routes || {})[itemKey(f)] !== 'exhausted'))
+  const part = partitionFindings(findings)
   const flow = (p || {}).flow || {}
   return {
     ...p,
@@ -408,11 +409,11 @@ function reRaised(prevFindings, prevAgain, findings, state, changed) {
     if (f && ids && ids.length) ruled[key(f)] = uniq([...(ruled[key(f)] || []), ...ids])
   }
   for (const f of prevFindings || []) add(f, rulings[f && f.id])
-  // このパスの段 6 に渡した decision の指摘の裁定は、この段 7 で渡した。それ以外（前のパスの再出・尽きた項目の持ち越し）の裁定は前に渡し終えている。
-  const decided = new Set(pendingView(state.pending, state.item_routes).decision)
+  // このパスの段 6 に渡した decision の指摘の裁定は、この段 7 で渡した。それ以外（前のパスの再出）の裁定は前に渡し終えている。
+  const decided = new Set(pendingView(state.pending).decision)
   const given = new Set((prevFindings || []).filter((f) => f && decided.has(f.id) && rulings[f.id]).map(key))
   for (const f of prevAgain || []) add(f, f && f.rulings)
-  const bundled = new Set(pendingView(state.pending, state.item_routes).bundles.map(itemKey))
+  const bundled = new Set(pendingView(state.pending).bundles.map(itemKey))
   const onlyRuling = (f) => !((changed || {})[f.doc] || []).includes(f.item_id) || (!bundled.has(itemKey(f)) && given.has(key(f)))
   return (findings || [])
     .filter((f) => f && f.id && ruled[key(f)] && onlyRuling(f))
@@ -427,11 +428,11 @@ function recurringItems(prevFindings, findings, again) {
   return uniq([...blockingItems(findings)].filter((k) => before.has(k)))
 }
 
-// routeRecurring: 回数で打ち切らず、改稿で直らない項目の経路を decision → hold → 尽きた、と進める。
-function routeRecurring(recurring, state) {
-  const nextOf = { decision: 'hold', hold: 'exhausted', exhausted: 'exhausted' }
+// routeRecurring: 改稿で直らない項目（再発）は writer に回さず、裁定（decision）に回す。裁定の後にまた再発した項目は、MAX_AUDIT_PASSES で
+// 輪を出た後の finalHold が保持規則と Issue の文案にする。
+function routeRecurring(recurring) {
   const out = {}
-  for (const k of recurring || []) out[k] = nextOf[(state.item_routes || {})[k]] || 'decision'
+  for (const k of recurring || []) out[k] = 'decision'
   return out
 }
 
@@ -2747,7 +2748,7 @@ async function stage5() {
 }
 
 // recurring: 再発した項目と、その項目への前のパスの指摘（段 6 に渡す）。again: 既裁定の再出。経路にも blocking にも入れず、次のパスの
-// 照合のために裁定の ID だけを持ち越す。尽きた項目の指摘は経路に回さず、blocking には残す。
+// 照合のために裁定の ID だけを持ち越す。
 function setPending(findings, docCheck, carried, opt = {}) {
   const drop = new Set((opt.again || []).map((x) => x.id))
   const recurring = opt.recurring || {}
@@ -2756,7 +2757,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const refs = (docCheck && docCheck.flow_refs) || {}
   // decision の指摘の項目も持つ: 段 6 の指された根拠（pointedGrounds）が、項目の trace が指す要素の検証の裁定を引く。
   const flow = {}
-  for (const f of all.filter((x) => (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {
+  for (const f of all) {
     const ids = uniq((refs[f.doc] || {})[f.item_id])
     if (ids.length) flow[f.doc] = { ...(flow[f.doc] || {}), [f.item_id]: ids }
   }
@@ -2779,7 +2780,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
 // 渡し直すと、同じ論点に 2 つ目の裁定を put させることになり、doc_check が拒んで段が止まる。回答待ちの問いは、裁定に回すものが無くても
 // 聞くか保持規則にする。
 async function stage6() {
-  const decision = unruled(pendingView(state.pending, state.item_routes).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
+  const decision = unruled(pendingView(state.pending).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
   const tbd = unruled((state.new_tbd || []).map((id) => `tbd:${id}`), 'tbd').map((k) => k.slice(4))
   const allowQuestions = ASKS[6]()
   const reasked = new Set(answeredRecurrences(decision).map((id) => `finding:${id}`))
@@ -2815,16 +2816,13 @@ function answeredRecurrences(decision) {
 
 function decide(decision, tbd, allowQuestions, reasked) {
   const rec = state.pending.recurring || {}
-  const routeOf = (k) => (state.item_routes || {})[k]
-  const redecide = Object.keys(rec).filter((k) => routeOf(k) === 'decision')
-  const toHold = uniq(pendingFindings(state.pending).filter((f) => rec[itemKey(f)] && routeOf(itemKey(f)) === 'hold').map((f) => f.id))
-  orderHolds([], [...toHold.map((id) => `finding:${id}`), ...reasked])
+  const redecide = Object.keys(rec)
+  orderHolds([], [...reasked])
   return resolveCycle('6', {
     phase: 'Decide',
     task: [
       `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、meta の新しい TBD（保存した文書から引き継いだ TBD を含む） ${list(tbd)}。`,
       redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOfFindings(rec[k]))}`).join(' / ')}` : '',
-      toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
       reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
       pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),
       waitingNote('resolver'),
@@ -2838,7 +2836,7 @@ function decide(decision, tbd, allowQuestions, reasked) {
 }
 
 async function stage7() {
-  const p = pendingView(state.pending, state.item_routes)
+  const p = pendingView(state.pending)
   const routesByUnit = {}
   for (const { unit, id } of state.routes || []) routesByUnit[unit] = uniq([...(routesByUnit[unit] || []), id])
   const applied = new Set(state.applied_routes || [])
@@ -2855,7 +2853,7 @@ async function stage7() {
     }))
     .filter((t) => t.bundles.length || t.routes.length || p.doc_blocking > 0 || (newSettled.length && !anyRoutes))
   if (!targets.length) {
-    // blocking が残ったまま 9 へ進むと、止まる条件を通らずに done になる（尽きた項目・段 6 が裁定しなかった指摘）。
+    // blocking が残ったまま 9 へ進むと、止まる条件を通らずに done になる（段 6 が裁定しなかった指摘）。
     if (p.blocking.length) return finalHold(p.blocking.length, [], 'no_progress', '改稿に回せる指摘も裁定も無いまま blocking が残った', '7')
     log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')
     return '9'
@@ -2961,7 +2959,7 @@ async function stage8() {
   const entryN = entryMoved(docCheck)
   if (entryN) return blocked(entryN, null)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
-  const prev = pendingView(state.pending, state.item_routes)
+  const prev = pendingView(state.pending)
   const carried = prev.findings.filter((f) => state.revised.unapplied.includes(f.id))
   const changed = { ...changes }
   for (const doc of extraDocs) changed[doc] = uniq([...(changed[doc] || []), ...extra[doc]])
@@ -2971,28 +2969,18 @@ async function stage8() {
     state.notices = [...(state.notices || []), line]
     log(line)
   }
-  // 指摘ごとの役は持たず roles_by_item で代える（next_args の上限に収めるため）。
-  const reaudited = (f) => (state.roles_by_item[f.item_id] || []).every((role) => allPlan.some((p) => p.role === role && (p.doc === 'all' || p.doc === f.doc) && (p.items || []).includes(f.item_id)))
-  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reaudited(f))
   const recurring = recurringItems(prev.findings, [...findings, ...carried], again)
-  state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring, state) }
+  state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring) }
   const recurPrev = {}
   for (const k of recurring) recurPrev[k] = uniq(prev.findings.filter((f) => itemKey(f) === k).map((f) => f.id))
   // 既裁定の再出も直前のパスの指摘なので、逆向きの判定には入れる（外すと、裁定に逆らう向きの指摘が writer に届く）。
-  setPending(findings, docCheck, [...carried, ...stuck], { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
+  setPending(findings, docCheck, carried, { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
   // 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になる。blocking と同じく
   // もう 1 パスの理由にする。
   const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
-  const now = pendingView(state.pending, state.item_routes)
+  const now = pendingView(state.pending)
   const blocking = now.blocking.length + now.doc_blocking + newTbd.length
   if (!blocking) return '9'
-  // 新しい TBD は段 6 が閉じうるので、残っていれば進展なしにしない。
-  const items = uniq(now.findings.filter((f) => f.blocking).map(itemKey))
-  // 指摘の blocking が無く doc_check の blocking だけが残るときは、writer が直せるので上限まで回す。
-  const exhausted = items.length > 0 && items.every((k) => state.item_routes[k] === 'exhausted')
-  if (!newTbd.length && exhausted && now.doc_blocking >= (prev.doc_blocking || 0)) {
-    return finalHold(blocking, newTbd, 'no_progress', '残った blocking の項目がすべて経路を変え尽くし（尽きた項目）、doc_check の blocking も減らなかった', '8')
-  }
   if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit', `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した`, '8')
   state.pass += 1
   log(`blocking が ${blocking} 件残った（新しい TBD ${newTbd.length} 件を含む。経路を変えた項目 ${list(recurring)}）。段 6 → 7 → 8 をもう 1 パス回します（${state.pass}/${MAX_AUDIT_PASSES}）`)
@@ -3002,7 +2990,7 @@ async function stage8() {
 // finalHold: 改稿と監査の輪を出たので文書に反映せず、決定が要るものを保持規則と Issue の文案に変える。
 async function finalHold(blocking, newTbd, stopReason, why, stage) {
   phase('Report')
-  const p = pendingView(state.pending, state.item_routes)
+  const p = pendingView(state.pending)
   const decision = p.decision
   const routes = state.item_routes || {}
   const label = 'resolver:final'
@@ -3042,9 +3030,9 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
   const flowLeft = fc && (fc.findings || fc.stale_refs.length)
     ? `。保持規則への変換の後の flow に残ったもの（flow の指摘: ${list(flowFindings(fc).map((x) => `${x.at}（${x.code}）`))} / 覆された決定を引く要素: ${list(fc.stale_refs.map((x) => `${x.el}（${x.ref}）`))}）`
     : ''
-  const byRoute = (route) => list(Object.keys(routes).filter((k) => (routes[k] === 'exhausted') === (route === 'exhausted')))
+  const rerouted = list(Object.keys(routes))
   const noDrafts = r ? '' : `。${threw || `${label} が応答しなかった（${NOT_RUN_WHY}）`}ので、残った論点の保持規則と Issue の文案はありません`
-  return blocked(`${why}。blocking が ${blocking} 件残りました（尽きた項目: ${byRoute('exhausted')} / 経路を変えた項目: ${byRoute('rerouted')}）${flowLeft}${noDrafts}`, null, report)
+  return blocked(`${why}。blocking が ${blocking} 件残りました（残った指摘: ${list(p.blocking)} / 再発で裁定に回した項目: ${rerouted}）${flowLeft}${noDrafts}`, null, report)
 }
 
 // stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。

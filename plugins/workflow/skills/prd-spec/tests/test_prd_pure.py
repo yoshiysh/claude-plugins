@@ -235,12 +235,6 @@ class Pure(unittest.TestCase):
         # 変異: 前のパスの裁定を除かないと、RS-050 を指す。
         keep = ("self: Object.entries(state.about || {}).filter(([, k]) => before(id).some((x) => k === `finding:${x}`)).map(([rs]) => rs)", "self: []")
         self.assertIn("RS-050", self._pointed(items, state, mutate=keep)["finding:r2-im-x-004"])
-        # 経路が hold の項目は decide の再発した項目の行に載らないので、前の裁定はここで指す。
-        held = {**state, "item_routes": {"requirements/x#PR-X-001": "hold"}}
-        self.assertIn("RS-050", self._pointed(items, held)["finding:r2-im-x-004"])
-        # 変異: 経路を見ないと、hold の項目でも前の裁定が誰にも渡らない。
-        any_route = ("(state.item_routes || {})[itemOf[id]] === 'decision' && ", "")
-        self.assertNotIn("RS-050", self._pointed(items, held, mutate=any_route)["finding:r2-im-x-004"])
 
     def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
         state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"]}
@@ -309,8 +303,6 @@ class Pure(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(again(st, now, changed), [])
         self.assertEqual([x["id"] for x in again(state, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "writer の指摘を渡さずに裁定を渡した項目の変更は裁定を当てただけ")
-        stuck = {**state, "item_routes": {"requirements/a#PR-A-001": "exhausted"}}
-        self.assertEqual(again(stuck, [self._f("n1")], {"requirements/a": ["PR-A-001"]}), [], "段 6 に渡さなかった（尽きた項目の）指摘の裁定はこのパスで渡していない")
         carried = {**state, "pending": {"findings": decided, "carried": ["p1"]}}
         self.assertEqual([x["id"] for x in again(carried, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "持ち越しでも段 6 に渡して裁定した指摘の裁定はこのパスで渡した")
         prev_again = [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}]
@@ -318,18 +310,16 @@ class Pure(unittest.TestCase):
         self.assertEqual([x["id"] for x in chained({})], ["m1"], "前のパスの再出が持ち越した裁定でも数えない")
         self.assertEqual(chained({"requirements/a": ["PR-A-001"]}), [], "前のパスの再出だけが持つ裁定はこのパスで渡していないので、変わった項目は当てただけではない")
 
-    def test_pendingViewは束とdecisionとblockingを指摘から導き尽きた項目を経路から外す(self):
+    def test_pendingViewは束とdecisionとblockingを指摘から導く(self):
         f = lambda route, blocking=True: {"blocking": blocking, "route": route, "direction": "tighten", "origin": "text"}
         p = {"findings": {"requirements/a": {"PR-A-001": {"w1": f("writer"), "d1": f("decision")}, "PR-A-002": {"w2": f("writer", False)}, "PR-A-003": {"w3": f("writer")}}},
              "flow": {"requirements/a": {"PR-A-001": ["F-001"]}}, "doc_blocking": 0}
-        v = value(f"pendingView({json.dumps(p)}, {{'requirements/a#PR-A-003': 'exhausted'}})")
-        self.assertEqual([(b["item_id"], b["findings"], b.get("flow")) for b in v["bundles"]], [("PR-A-001", ["w1"], ["F-001"]), ("PR-A-002", ["w2"], None)])
+        v = value(f"pendingView({json.dumps(p)})")
+        self.assertEqual([(b["item_id"], b["findings"], b.get("flow")) for b in v["bundles"]], [("PR-A-001", ["w1"], ["F-001"]), ("PR-A-002", ["w2"], None), ("PR-A-003", ["w3"], None)])
         self.assertEqual((v["decision"], sorted(v["blocking"]), v["doc_blocking"]), (["d1"], ["d1", "w1", "w3"], 0))
 
-    def test_routeRecurringはdecisionからholdを経て尽きた項目にする(self):
-        routes = {"k2": "decision", "k3": "hold", "k4": "exhausted"}
-        self.assertEqual(value(f"routeRecurring(['k1', 'k2', 'k3', 'k4'], {{item_routes: {json.dumps(routes)}}})"),
-                         {"k1": "decision", "k2": "hold", "k3": "exhausted", "k4": "exhausted"})
+    def test_routeRecurringは再発した項目を全てdecisionにする(self):
+        self.assertEqual(value("routeRecurring(['k1', 'k2'])"), {"k1": "decision", "k2": "decision"})
 
     def _rework(self, counts, limit=3):
         # counts[0] は最初の返り値の件数、counts[n] は n 回目の差し戻しの件数（None は stdout が無い）。
