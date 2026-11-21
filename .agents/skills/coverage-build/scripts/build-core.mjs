@@ -1,19 +1,26 @@
 // 台帳の決定的な部分: 単位・hash・次の 1 手・受け入れ・振り返りのグラフ・層への戻し・coverage-audit の取り込み。
-// 役の出力の静的な照合は build-step.js の <checks> 区間が正本で、ここはそれを読み込んで使う（写しを持たない）。
+// 役の出力の静的な照合と結果の形は build-step.js の <checks> 区間が正本で、ここはそれを読み込んで使う（写しを持たない）。
+// 役の提出（submit）の照合はここで行う（Workflow source は照合しない。設計「台帳と見たの記録」の B2・B5）。
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 const SRC = readFileSync(new URL('./build-step.js', import.meta.url), 'utf8')
 export const C = new Function(`${SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))}
-return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, VAGUE_WORDS, AUDIT_LAYERS, LAYERS, LAYER_MAP, canon, norm, argsSum, quoteProblem, waves, checkArch, checkSpec, checkIntents, checkExam, checkJudge, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
-const WSRC = readFileSync(new URL('./build-write.js', import.meta.url), 'utf8')
-const wl = WSRC.indexOf('const LIMITS')
-export const WRITE_LIMITS = new Function(`${WSRC.slice(wl, WSRC.indexOf('\n', wl))}; return LIMITS`)()
+return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, VAGUE_WORDS, AUDIT_LAYERS, LAYERS, LAYER_MAP, canon, norm, quoteProblem, waves, checkArch, checkSpec, checkIntents, checkExam, checkJudge, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles,
+  GOAL_SCHEMA, ARCH_SCHEMA, SPEC_SCHEMA, WRITE_SCHEMA, INTENTS_SCHEMA, EXAM_SCHEMA, JUDGE_SCHEMA, RESULT_SCHEMAS, shapeProblems }`)()
 
-export const MAX_ATTEMPTS = 2 // 同じ段・単位の欠け（返らない・照合に落ちる）の上限。run をまたいで数える
+// 同じ担当（目標の照合・方式設計・単位の詳細設計・テスト・実装・振り返りの計画、意図ごとの実行と検証）の欠け（提出されない・照合に落ちる）の上限。
+// 照合に落ちた提出は同じ体が出し直すので、1 回の呼び出しの中の出し直しも数える。run をまたいで数える。
+export const MAX_ATTEMPTS = 2
+// 1 体に詰める単位の、読むファイルの本文のバイト数（UTF-8）の上限。「1 体の文脈に収まらない」を判じる唯一の線で、詳細設計・テスト・実装の役が
+// 何単位を 1 体で受け持つかをこれだけで決める（設計 docs/design/coverage-ledger-method.md「モデルと費用」の起動の原則。coverage-audit の UNIT_MAX_BYTES と同じ考え方の線）。
+// 根拠: 役のモデル（roles.json の sonnet・opus）の文脈は 200k token。指示・目標・台帳から引く入力・出力・推論に 3/4 を残し、単位のファイルの本文には
+// 1/4（50k token）までを当てる。token あたりのバイト数は、日本語（1 字 3 バイト）で 2〜3 バイト、英語・コードで 3〜4 バイトと置き、少ない側の 2 バイトで
+// 見積もる: 50k × 2 = 100,000 バイト。比率は実測していない（run の記録の token で見直す）。2 つのスキルは互いのファイルを読まないので、値を import しない。
+export const UNIT_MAX_BYTES = 100000
 export const DRY_ROUNDS = 2 // 振り返りで新しい原因が受理されない周がこの回数続いたら止める
 export const RETRO_MAX_ROUNDS = 2 // 1 回の振り返りの周の上限
-const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数続いたら止める
+const MAX_FAIL_STREAK = 2 // 提出が 1 件も無い呼び出し（全ての役が欠けた・担当に手を付けずに返った）がこの回数続いたら止める
 const DEFAULT_CONFIG = { max_cycles: 2, max_agents_total: 400, max_unit_rounds: 2 }
 const RANK = { 目標: 0, 設計: 1, 実装: 2 } // 上流ほど小さい。進め方は成果物の層でなく、報告だけにする
 // 成果物でなく進め方の出来事（原因が確かめられなければ進め方として報告に回す）。
@@ -31,8 +38,8 @@ export function newLedger({ mode, repo, goal, goalItems, request, decisions, cri
   return {
     version: 1, rev: 0, mode, repo, cycle: 1, goal: { text: goal, items: goalItems, checked: false, problems: [] }, request, decisions, criteria, constraints, inputs, targets, checks,
     config: { ...DEFAULT_CONFIG, ...config }, roles, arch: null, need_arch: mode !== 'review', arch_rounds: 0, arch_causes: [], units: {}, audits: {}, baseline: null,
-    checks_run: null, events: [], facts: [], intents: [], retro: { rounds: 0, dry: 0, due: false }, human: [], answers: [], notes: [], routes: [], pending_redo: null,
-    attempts: {}, env_attempts: {}, fail_streak: 0, agents: [], calls: [], hints_read: [], pending: null, stopped: null, audit_frame: null, audit_events_seen: [], audit_groups: {},
+    checks_run: null, events: [], facts: [], intents: [], retro: { rounds: 0, dry: 0, due: false, open: null }, human: [], answers: [], notes: [], routes: [], pending_redo: null,
+    attempts: {}, env_attempts: {}, fail_streak: 0, agents: [], calls: [], call_seq: 0, hints_read: [], pending: null, stopped: null, audit_frame: null, audit_events_seen: [], audit_groups: {},
   }
 }
 
@@ -154,7 +161,7 @@ export function route(L) {
     else human('実装の欠陥だが、どの単位のものか決まらない')
   }
   const plan = { arch: redo.arch, design: [...redo.design], tests: [...redo.tests], impl: [...redo.impl], causes: Object.fromEntries(causes) }
-  L.retro = { rounds: 0, dry: 0, due: false }
+  L.retro = { rounds: 0, dry: 0, due: false, open: null }
   if (!plan.arch && !plan.design.length && !plan.tests.length && !plan.impl.length) return
   // やり直すと周が上限を超えるなら、当てずに保留して人間に返す（answer で当て、dismiss で捨てる）。
   if (L.cycle + 1 > cycleLimit(L)) {
@@ -201,17 +208,17 @@ const answered = (L, id) => L.answers.some((a) => a.id === id)
 // cycles#<周> は保留が残る間だけ開いている（dismiss は周を進めないので、捨てた後に同じ id がまた立ちうる）。
 const open = (L, h) => (h.id.startsWith('cycles#') ? !!L.pending_redo && L.pending_redo.id === h.id : !answered(L, h.id))
 export const testsTodo = (L) => unitList(L).filter((u) => u.kind === 'code' && !u.need_design && u.design_hash && u.tests_for !== u.design_hash)
-export function implTodo(L) {
-  const ready = (u) => !u.need_design && u.design_hash && u.impl_for !== u.design_hash && (u.kind === 'doc' || u.tests_for === u.design_hash)
-    && u.depends_on.every((d) => L.units[d] && L.units[d].impl_for === L.units[d].design_hash)
-  return unitList(L).filter(ready)
-}
+// 実装を待つ単位（設計とテストが済み、実装が今の設計に無い）。依存がそろっているか（depsDone）は問わない。
+export const implPending = (L) => unitList(L).filter((u) => !u.need_design && u.design_hash && u.impl_for !== u.design_hash && (u.kind === 'doc' || u.tests_for === u.design_hash))
+// 依存する単位の実装が全て今の設計に済んでいるか。実装の担当はこれがそろった単位だけを claim で渡す。
+export const depsDone = (L, u) => u.depends_on.every((d) => L.units[d] && L.units[d].impl_for === L.units[d].design_hash)
+export const implTodo = (L) => implPending(L).filter((u) => depsDone(L, u))
 
 // 次の 1 手か停止を、台帳と今のファイルの hash（keys）だけから決める。
 export function decide(L, { keys = {}, missing = [] } = {}) {
   const stop = (kind, reasons, extra = {}) => ({ stop: kind, reasons, ...extra })
   if (missing.length) return stop('blocked', [`読めないファイル: ${missing.join(', ')}`], { cause: 'input' })
-  if (L.fail_streak >= MAX_FAIL_STREAK) return stop('blocked', [`全ての役が欠けた呼び出しが ${L.fail_streak} 回続いた`], { cause: 'failure' })
+  if (L.fail_streak >= MAX_FAIL_STREAK) return stop('blocked', [`提出が 1 件も無い呼び出しが ${L.fail_streak} 回続いた`], { cause: 'failure' })
   if (L.agents.length >= L.config.max_agents_total) return stop('limit', [`起動数が上限 ${L.config.max_agents_total} に達した（${L.agents.length}）`])
   if (L.goal.problems.length) return stop('needs_input', ['依頼文・決定の記録が求める成果のうち、目標・基準・制約のどの項目も受け止めていないものがある'], { goal_gaps: L.goal.problems })
   const stuck = Object.entries(L.attempts).filter(([, n]) => n >= MAX_ATTEMPTS).map(([k]) => k)
@@ -220,182 +227,203 @@ export function decide(L, { keys = {}, missing = [] } = {}) {
   if (human.length) return stop('needs_input', ['人間が決める欠陥がある（目標・方針の層、層を決められない、やり直しの上限、周の上限）'], { human })
   const openQ = arr(L.arch && L.arch.questions).filter((q) => !answered(L, q.id))
   if (openQ.length) return stop('needs_input', ['利用者への質問がある'], { questions: openQ })
-  // 枠に入らなかった意図が残る間は、巡・dry の上限や原因の被覆に依らず carry の呼び出しを続ける（上限は次の巡の計画役を起動するかにだけ効く）。
-  if (L.retro.due) return queuedIntents(L).length || !retroConcluded(L) ? { step: 'retro' } : { step: 'route' }
+  // 振り返りの段は、確かめる意図があれば実行役、結論の受理を待つ意図があれば検証役、どちらも無く原因を辿りきれていなければ計画役（次の巡）。
+  if (L.retro.due) {
+    if (queuedIntents(L).length) return { step: 'retro', task: 'exam' }
+    if (examinedIntents(L).length) return { step: 'retro', task: 'judge' }
+    return retroConcluded(L) ? { step: 'route' } : { step: 'retro', task: 'plan' }
+  }
+  const design = { step: 'design', task: !L.goal.checked ? 'goal' : L.need_arch ? 'arch' : 'spec' }
   const audited = (p) => L.audits[p] && L.audits[p].imported === keys[p]
-  if (L.mode === 'review' && !L.goal.checked) return { step: 'design' } // 目標の照合だけ（照合はこのスキルの 1 か所で行い、coverage-audit には照合済みとして渡す）
+  if (L.mode === 'review' && !L.goal.checked) return design // 目標の照合だけ（照合はこのスキルの 1 か所で行い、coverage-audit には照合済みとして渡す）
   if (L.mode === 'review') return audited('review') ? stop('complete', ['対象を検査し、振り返りで戻す先の層を決めた（確かめるだけで直さない）']) : { step: 'audit', phase: 'review' }
   // update: 目標の固定 → 現状の検査 → 設計。現状の検査は 1 度だけ（実装で対象が変わった後に、変わった対象を現状として検査し直さない）。
-  if (L.mode === 'update' && !L.goal.checked) return { step: 'design' }
+  if (L.mode === 'update' && !L.goal.checked) return design
   if (L.mode === 'update' && !L.audits.baseline) return { step: 'audit', phase: 'baseline' }
-  if (!L.goal.checked || L.need_arch || unitList(L).some((u) => u.need_design)) return { step: 'design' }
+  if (!L.goal.checked || L.need_arch || unitList(L).some((u) => u.need_design)) return design
   if (!audited('design')) return { step: 'audit', phase: 'design' }
-  if (testsTodo(L).length) return { step: 'tests' }
-  if (implTodo(L).length) return { step: 'implement' }
+  if (testsTodo(L).length) return { step: 'tests', task: 'tests' }
+  if (implTodo(L).length) return { step: 'implement', task: 'implement' }
   if (unitList(L).some((u) => u.impl_for !== u.design_hash)) return stop('blocked', ['実装の残った単位があるのに、依存が揃わず進めない'], { cause: 'failure' })
   if (L.checks.length && (!L.checks_run || L.checks_run.key !== keys.impl)) return { step: 'checks' }
   if (!audited('impl')) return { step: 'audit', phase: 'impl' }
   return stop('complete', ['全ての単位を設計・実装し、設計レビューと実装レビューを通し、戻す欠陥が残っていない'])
 }
 
-// 起動の前に最悪の起動数を見積もる。
-export function estimate(step, args) {
-  if (step === 'design') return C.LIMITS.maxAgents
-  if (step === 'retro') return C.LIMITS.maxAgents
-  return args.tasks.length
-}
-
-// readText(path) は読めるファイルの本文か null、readable() は premises の path に使ってよい path の一覧（入力・対象は絶対 path、単位が持つ既にあるファイルは repo からの相対 path）。
-// どちらも呼ぶたびに今の台帳から決める（同じ呼び出しの方式設計で単位が持つファイルが変わる）。
-export function ingestDesign(L, res, args, readText, readable) {
-  const bump = (k, text, unit = null) => { L.attempts[k] = (L.attempts[k] || 0) + 1; addEvent(L, { stage: 'design', kind: 'rejected_output', text, unit }) }
-  // 目標の照合: 照合役が挙げた成果の引用・項目の id を照らし、どの項目にも受け止められていない成果があれば人間に返す。
-  if (args.goalBrief) {
-    const g = res.goal_check
-    const p = C.checkGoalMap(g, args.goalIds, goalSources(L))
-    if (p.length) bump('goal', `目標の照合: ${p.join(' / ')}`)
-    else {
-      delete L.attempts.goal
-      L.goal.problems = C.goalGaps(g)
-      L.goal.checked = !L.goal.problems.length
-    }
-  }
-  if (args.arch) {
-    const a = res.arch && res.arch.result
-    const p = a ? C.checkArch(a, args.arch.ctx) : ['方式設計が返らなかった']
-    if (a && !p.length) for (const r of a.inputs_read) { const t = readText(r.path); for (const q of r.quotes) { const e = t == null ? '入力が読めない' : C.quoteProblem(q, t); if (e) p.push(`入力 ${r.path}: ${e}`) } }
-    if (p.length) { bump('arch', `方式設計: ${p.join(' / ')}`); return }
-    delete L.attempts.arch
-    const ids = a.units.map((u) => u.id)
-    for (const id of Object.keys(L.units)) if (!ids.includes(id)) { addEvent(L, { stage: 'design', kind: 'unit_removed', text: `単位 ${id} が方式設計から消えた（持っていたファイルは残る）` }); delete L.units[id] }
-    for (const u of a.units) {
-      const old = L.units[u.id] || { spec: '', acceptance: [], behaviors: [], partitions: [], cases: [], premises: [], unverified: [], allowed_optional: [], design_hash: null, tests_for: null, impl_for: null, tests_hash: {}, impl_hash: {}, rounds: 0, causes: [] }
-      L.units[u.id] = { ...old, ...unitFields(u), need_design: true }
-    }
-    L.arch = { units: ids, inputs_read: a.inputs_read, inputs_not_read: a.inputs_not_read, questions: a.questions, contracts: a.contracts, copies: a.copies }
-    for (const r of a.inputs_not_read) addEvent(L, { stage: 'design', kind: 'input_not_read', text: `入力 ${r.path} を読まずに設計した（${r.reason}）` })
-    L.need_arch = false
-  }
-  for (const s of arr(res.specs)) {
-    const u = L.units[s.unit_id]
-    if (!u || !u.need_design) continue
-    const r = s.result
-    const p = r ? C.checkSpec(r, u, { rowIds: rowIdsOf(L, u.id), readable: readable() }) : ['詳細設計が返らなかった']
-    if (r && !p.length) for (const x of r.premises) { const t = readText(x.path); const e = t == null ? '読めない' : C.quoteProblem(x.quote, t); if (e) p.push(`前提 ${x.path}: ${e}`) }
-    if (p.length) { bump(`design:${u.id}`, `${u.id} の詳細設計: ${p.join(' / ')}`, u.id); continue }
-    delete L.attempts[`design:${u.id}`]
-    Object.assign(u, {
-      spec: r.spec, acceptance: r.acceptance.map((t, i) => ({ id: `${u.id}A${i + 1}`, text: t })), behaviors: r.behaviors, partitions: r.partitions, cases: r.cases,
-      premises: r.premises, unverified: r.unverified, allowed_optional: r.allowed_optional, need_design: false,
-    })
-    u.design_hash = designHash(u, L)
-  }
-}
-
-// 書き込みの段の照合: 呼び出しの前後の hash で、受け持ちの外の変更と、書くはずのファイルの欠けを見る。
-export function ingestWrite(L, res, args, before, after) {
-  const stage = args.stage
-  const allowed = new Set(args.tasks.flatMap((t) => t.paths))
-  const outside = Object.keys({ ...before, ...after }).filter((p) => before[p] !== after[p] && !allowed.has(p))
-  if (outside.length) addEvent(L, { stage, kind: 'write_outside', text: `受け持ちの外のファイルが変わった: ${outside.join(', ')}（この呼び出しの単位を全て受け付けない）` })
-  const rows = new Map(arr(res.results).map((r) => [r.unit_id, r.result]))
-  for (const t of args.tasks) {
-    const u = L.units[t.unit_id]
-    if (!u) continue
-    const r = rows.get(t.unit_id)
-    const p = []
-    if (!r) p.push('返らなかった')
-    else {
-      if (r.unit_id !== t.unit_id) p.push(`unit_id が違う: ${r.unit_id}`)
-      for (const w of arr(r.written)) if (!t.paths.includes(w)) p.push(`受け持ちの外を書いたと申告した: ${w}`)
-    }
-    for (const f of t.paths) if (after[f] == null) p.push(`${f} が無い`)
-    if (stage === 'implement') for (const f of u.tests) if (after[f] !== u.tests_hash[f]) p.push(`テストのファイル ${f} がテストの担当の書いた内容と違う`)
-    if (outside.length) p.push('受け持ちの外のファイルが変わった呼び出し')
-    const k = `${stage}:${u.id}`
-    if (p.length) { L.attempts[k] = (L.attempts[k] || 0) + 1; addEvent(L, { stage, kind: r ? 'rejected_output' : 'agent_missing', unit: u.id, text: `${u.id}: ${p.join(' / ')}` }); continue }
-    delete L.attempts[k]
-    const pick = (fs) => Object.fromEntries(fs.map((f) => [f, after[f]]))
-    if (stage === 'tests') Object.assign(u, { tests_for: u.design_hash, tests_hash: pick(u.tests) })
-    else Object.assign(u, { impl_for: u.design_hash, impl_hash: pick(u.paths) })
-    if (arr(r.unresolved).length) addEvent(L, { stage, kind: 'unresolved', unit: u.id, test: stage === 'tests', text: `${u.id} が果たせなかったこと: ${r.unresolved.join(' / ')}` })
-  }
-}
-
-// 振り返りの意図のうち、計画役の呼び出しで起動の枠に入らず、次の呼び出しの carry に回るもの（意図の順）。
+// 振り返りの意図のうち、実行役がまだ確かめていないもの（今の周、意図の順）と、実行役が支持して検証役の受理を待つもの。
 export const queuedIntents = (L) => L.intents.filter((i) => i.cycle === L.cycle && i.status === 'queued')
-// 振り返りの根拠に使える id（台帳の due の出来事と事実）。Workflow は args の known の範囲で照らし、CLI はこの一覧で正確に照らす。
-// due の出来事が持つ群の id（出来事の順に、重なりを除く）。
+export const examinedIntents = (L) => L.intents.filter((i) => i.cycle === L.cycle && i.status === 'examined')
+// 振り返りの根拠に使える id（台帳の due の出来事・事実・due の出来事が持つ群の id。群は出来事の順に、重なりを除く）。
 export const dueGroups = (L) => [...new Set(dueEvents(L).flatMap((e) => arr(e.groups)))]
 export const knownIds = (L) => new Set([...dueEvents(L).map((e) => e.id), ...L.facts.map((f) => f.id), ...dueGroups(L)])
+// 振り返りの巡を閉じる: 計画役が出した意図が全て確かめ終わったら（実行役と検証役の担当が残らない）、その巡で原因が受理されたかで dry を数える。
+export function settleRetro(L) {
+  const o = L.retro.open
+  if (!o || L.intents.some((i) => i.round === o.round && ['queued', 'examined'].includes(i.status))) return
+  L.retro.dry = L.facts.length > o.facts ? 0 : L.retro.dry + 1
+  L.retro.open = null
+}
 
-// 実行役の結果から意図の status を決め、受理なら事実を足す。受理したら true。
-function examine(L, it, x, readText) {
-  let status = 'queued'
-  let why = ''
-  let added = false
-  if (x) {
-    const ep = C.checkExam(x.exam)
-    if (ep.length) { status = 'rejected'; why = ep.join(' / ') }
-    else if (x.exam.verdict !== 'supported') status = x.exam.verdict
-    else {
-      for (const e of x.exam.evidence) { const t = readText(e.path); const q = t == null ? '読めないか、読める範囲の外' : C.quoteProblem(e.quote, t); if (q) ep.push(`${e.path}: ${q}`) }
-      if (ep.length) { status = 'rejected'; why = ep.join(' / ') }
-      else if (C.checkJudge(x.judge).length || !x.judge.accept) { status = 'refuted'; why = x.judge ? x.judge.reason : '検証役が返らなかった' }
-      else {
-        status = 'accepted'
-        L.facts.push({ id: `F${L.facts.length + 1}`, cycle: L.cycle, basis: it.basis, cause: x.exam.cause, layer: x.exam.layer, evidence: x.exam.evidence, intent: it.id })
-        added = true
-      }
+// ---------------- 担当の提出の照合（CLI の submit が呼ぶ） ----------------
+// 担当の種類（task.kind）ごとの役と段。next はここから行と担当を作り、submit は種類で照合を選ぶ。役の名前は roles.json の key。
+export const TASK_ROLE = { goal: 'goal_checker', arch: 'architect', spec: 'unit_designer', tests: 'test_writer', implement: 'implementer', plan: 'retro_planner', exam: 'retro_examiner', judge: 'retro_verifier' }
+// 試行の鍵（stuck の id。answer --id attempts:<鍵> で戻す）。意図ごとの実行と検証は、意図の試行（tries）に数え、上限で意図を閉じる（止めない）。
+export const attemptKey = (t) => ({ goal: 'goal', arch: 'arch', spec: `design:${t.unit}`, tests: `tests:${t.unit}`, implement: `implement:${t.unit}`, plan: 'retro' })[t.kind] || null
+// 照合に落ちた提出を出来事にするときの見出し。
+export const taskTitle = (t) => ({ goal: '目標の照合', arch: '方式設計', spec: `${t.unit} の詳細設計`, tests: `${t.unit}`, implement: `${t.unit}`, plan: '振り返りの計画', exam: `${t.intent} の実行`, judge: `${t.intent} の検証` })[t.kind]
+
+// 目標の照合: 照合役が挙げた成果の引用・項目の id を照らす。受理したら、どの項目にも受け止められていない成果を goal.problems に置く（decide が人間に返す）。
+function submitGoal(L, rep) {
+  const p = C.checkGoalMap(rep, goalIds(L), goalSources(L))
+  if (p.length) return p
+  L.goal.problems = C.goalGaps(rep)
+  L.goal.checked = !L.goal.problems.length
+  return []
+}
+// 方式設計: 形・不変条件と、入力の引用を照らす。受理したら単位を作り直す。ctx.inputs は読んだかを申告する入力、readText(path) は読めるファイルの本文か null。
+// fresh(rel) は、呼び出しを開いた後に書かれたファイル（開いた時に照らしていなかったもの）か。方式設計が新しく単位に持たせたファイルのうち、
+// この呼び出しの中で書かれたもの（方式設計の役が書いたもの）は、書く段の担当が書き直すまで受けない（tainted）。
+function submitArch(L, a, { inputs, readText, fresh = () => false }) {
+  const p = C.checkArch(a, { coverIds: coverIds(L), inputs })
+  if (!p.length) for (const r of a.inputs_read) { const t = readText(r.path); for (const q of r.quotes) { const e = t == null ? '入力が読めない' : C.quoteProblem(q, t); if (e) p.push(`入力 ${r.path}: ${e}`) } }
+  if (p.length) return p
+  const ids = a.units.map((u) => u.id)
+  for (const id of Object.keys(L.units)) if (!ids.includes(id)) { addEvent(L, { stage: 'design', kind: 'unit_removed', text: `単位 ${id} が方式設計から消えた（持っていたファイルは残る）` }); delete L.units[id] }
+  for (const u of a.units) {
+    const old = L.units[u.id] || { spec: '', acceptance: [], behaviors: [], partitions: [], cases: [], premises: [], unverified: [], allowed_optional: [], design_hash: null, tests_for: null, impl_for: null, tests_hash: {}, impl_hash: {}, rounds: 0, causes: [] }
+    L.units[u.id] = { ...old, ...unitFields(u), need_design: true }
+    const written = [...u.paths, ...u.tests].filter(fresh)
+    if (written.length) {
+      Object.assign(L.units[u.id], { tests_for: null, tests_hash: {}, impl_for: null, impl_hash: {}, tainted: [...new Set([...arr(L.units[u.id].tainted), ...written])] })
+      addEvent(L, { stage: 'design', kind: 'write_outside', unit: u.id, text: `方式設計の呼び出しの中で、単位 ${u.id} が持つファイルが書かれた: ${written.join(', ')}（書く段の担当が書き直すまでテストと実装を受け付けない）` })
     }
   }
-  Object.assign(it, { status, why })
-  return added
+  L.arch = { units: ids, inputs_read: a.inputs_read, inputs_not_read: a.inputs_not_read, questions: a.questions, contracts: a.contracts, copies: a.copies }
+  for (const r of a.inputs_not_read) addEvent(L, { stage: 'design', kind: 'input_not_read', text: `入力 ${r.path} を読まずに設計した（${r.reason}）` })
+  L.need_arch = false
+  return []
 }
-
-// 振り返りの 1 回の呼び出しの受け入れ。原因（事実）は、実行役の引用が本文に逐語であり、別の検証役が受理したものだけ。
-// 計画役の呼び出しは巡を 1 つ進め、枠に入らなかった意図を queued で残す。carry の呼び出しは巡を進めず、意図を足さず、carry の意図の status だけを書き換える。
-export function ingestRetro(L, res, args, readText) {
-  const exams = new Map(arr(res.exams).map((x) => [x.index, x]))
-  if (arr(args.carry).length) {
-    let added = 0
-    args.carry.forEach((id, i) => {
-      const it = L.intents.find((x) => x.id === id && x.status === 'queued')
-      if (it && examine(L, it, exams.get(i), readText)) added += 1
-    })
-    if (added) L.retro.dry = 0
-    return
-  }
-  L.retro.rounds += 1
-  const p = res.intents ? C.checkIntents(res.intents, knownIds(L)) : ['意図が返らなかった']
-  if (p.length) { L.attempts.retro = (L.attempts.retro || 0) + 1; addEvent(L, { stage: 'retro', kind: 'rejected_output', text: `振り返りの計画: ${p.join(' / ')}` }); }
-  else delete L.attempts.retro
-  const intents = p.length ? [] : arr(res.intents.intents)
-  let added = 0
-  intents.forEach((raw, i) => {
-    const it = { id: `I${L.intents.length + 1}`, cycle: L.cycle, ...raw, status: 'queued', why: '' }
-    L.intents.push(it)
-    if (examine(L, it, exams.get(i), readText)) added += 1
+// 詳細設計: 形・結びと、前提の引用を照らす。readable は premises の path に使ってよい一覧。
+function submitSpec(L, u, r, { readText, readable }) {
+  if (!u.need_design) return ['単位の設計が既に済んだか、方式設計が変わった後の担当']
+  const p = C.checkSpec(r, u, { rowIds: rowIdsOf(L, u.id), readable })
+  if (!p.length) for (const x of r.premises) { const t = readText(x.path); const e = t == null ? '読めない' : C.quoteProblem(x.quote, t); if (e) p.push(`前提 ${x.path}: ${e}`) }
+  if (p.length) return p
+  Object.assign(u, {
+    spec: r.spec, acceptance: r.acceptance.map((t, i) => ({ id: `${u.id}A${i + 1}`, text: t })), behaviors: r.behaviors, partitions: r.partitions, cases: r.cases,
+    premises: r.premises, unverified: r.unverified, allowed_optional: r.allowed_optional, need_design: false,
   })
-  L.retro.dry = added ? 0 : L.retro.dry + 1
+  u.design_hash = designHash(u, L)
+  return []
+}
+// 書き込み: 呼び出しを開いた時と今の hash で、受け持ちの外の変更（outside）・書くはずのファイルの欠け・テストのファイルの変更を見る。
+// after は今の hash（repo からの相対 path → hash か null）。
+// before は呼び出しを開いた時の hash。書かない段の役が書いたファイル（u.tainted）は、この呼び出しで中身が書き直されていなければ受けない。
+function submitWrite(L, stage, u, t, r, { after, outside, before = {} }) {
+  const p = []
+  for (const f of t.paths) if (arr(u.tainted).includes(f) && (before[f] ?? null) === (after[f] ?? null)) p.push(`${f} は書かない段の役が書いた中身のまま（受け持ちの担当が書き直す）`)
+  if (r.unit_id !== u.id) p.push(`unit_id が違う: ${r.unit_id}`)
+  for (const w of arr(r.written)) if (!t.paths.includes(w)) p.push(`受け持ちの外を書いたと申告した: ${w}`)
+  for (const f of t.paths) if (after[f] == null) p.push(`${f} が無い`)
+  if (stage === 'implement') for (const f of u.tests) if (after[f] !== u.tests_hash[f]) p.push(`テストのファイル ${f} がテストの担当の書いた内容と違う`)
+  if (outside.length) p.push(`受け持ちの外のファイルが変わった: ${outside.join(', ')}`)
+  if (p.length) return p
+  const pick = (fs) => Object.fromEntries(fs.map((f) => [f, after[f]]))
+  if (arr(u.tainted).length) u.tainted = u.tainted.filter((f) => !t.paths.includes(f))
+  if (stage === 'tests') Object.assign(u, { tests_for: u.design_hash, tests_hash: pick(u.tests) })
+  else Object.assign(u, { impl_for: u.design_hash, impl_hash: pick(u.paths) })
+  if (arr(r.unresolved).length) addEvent(L, { stage, kind: 'unresolved', unit: u.id, test: stage === 'tests', text: `${u.id} が果たせなかったこと: ${r.unresolved.join(' / ')}` })
+  return []
+}
+// 振り返りの計画: 根拠の id を台帳の id で照らす。受理したら巡を 1 つ進め、意図を queued で足す（実行役の担当になる）。
+function submitPlan(L, rep) {
+  const p = C.checkIntents(rep, knownIds(L))
+  if (p.length) return p
+  L.retro.rounds += 1
+  L.retro.open = { round: L.retro.rounds, facts: L.facts.length }
+  for (const raw of arr(rep.intents)) L.intents.push({ id: `I${L.intents.length + 1}`, cycle: L.cycle, round: L.retro.rounds, basis: raw.basis, hypothesis: raw.hypothesis, layer: raw.layer, look_at: raw.look_at, status: 'queued', why: '', exam: null, tries: 0 })
+  return []
+}
+// 振り返りの実行: 支持した結論は、evidence の path が振り返りの読めるファイルの一覧（looks）にあり、引用がその本文に逐語であるときだけ受け、
+// 検証役の受理を待つ（examined）。
+function submitExam(L, it, x, { readText, looks }) {
+  if (it.status !== 'queued') return ['意図が既に確かめ終わった']
+  const p = C.checkExam(x)
+  if (!p.length && x.verdict === 'supported') {
+    for (const e of x.evidence) {
+      const t = looks.includes(e.path) ? readText(e.path) : null
+      const q = t == null ? '読めないか、振り返りの読めるファイルの一覧の外' : C.quoteProblem(e.quote, t)
+      if (q) p.push(`${e.path}: ${q}`)
+    }
+  }
+  if (p.length) return p
+  Object.assign(it, { status: x.verdict === 'supported' ? 'examined' : x.verdict, exam: x })
+  return []
+}
+// 振り返りの検証: 受理なら原因（事実）を足す。原因は、実行役の引用が本文に逐語であり、別の検証役が受理したものだけ。
+function submitJudge(L, it, j) {
+  if (it.status !== 'examined') return ['意図が検証を待っていない']
+  const p = C.checkJudge(j)
+  if (p.length) return p
+  if (!j.accept) { Object.assign(it, { status: 'refuted', why: j.reason }); return [] }
+  it.status = 'accepted'
+  L.facts.push({ id: `F${L.facts.length + 1}`, cycle: L.cycle, basis: it.basis, cause: it.exam.cause, layer: it.exam.layer, evidence: it.exam.evidence, intent: it.id })
+  return []
+}
+// 担当の結果を照らし、受理なら台帳に書く。結果の形（schema）を先に照らし、合わなければ照合の式に渡さない。返すのは拒む理由（空なら受理）。
+// ctx は { inputs, readText, readable, looks, after, outside, before, fresh }（CLI がファイルから作る）。
+export function submitTask(L, t, rep, ctx) {
+  if (rep == null) return ['結果の JSON が読めない']
+  const shape = C.shapeProblems(rep, C.RESULT_SCHEMAS[TASK_ROLE[t.kind]])
+  if (shape.length) return shape
+  const u = t.unit ? L.units[t.unit] : null
+  const it = t.intent ? L.intents.find((x) => x.id === t.intent) : null
+  if (t.unit && !u) return [`単位 ${t.unit} が方式設計から消えた`]
+  if (t.intent && !it) return [`意図 ${t.intent} が台帳に無い`]
+  if (t.kind === 'goal') return submitGoal(L, rep)
+  if (t.kind === 'arch') return submitArch(L, rep, ctx)
+  if (t.kind === 'spec') return submitSpec(L, u, rep, ctx)
+  if (t.kind === 'tests' || t.kind === 'implement') return submitWrite(L, t.kind, u, t, rep, ctx)
+  if (t.kind === 'plan') return submitPlan(L, rep)
+  if (t.kind === 'exam') return submitExam(L, it, rep, ctx)
+  return submitJudge(L, it, rep)
+}
+// 意図ごとの担当が試行の上限に達したとき、意図を判定できずに開示して閉じる（undecided。退けた rejected・refuted と区別する）。止めずに振り返りを進める。
+// 閉じる前の状態（undecided_from）を残し、環境の失敗の分を戻す再開で待ちに戻せるようにする。
+export function dropIntent(L, t, reason) {
+  const it = L.intents.find((x) => x.id === t.intent)
+  if (it && ['queued', 'examined'].includes(it.status)) Object.assign(it, { status: 'undecided', undecided_from: it.status, why: reason })
 }
 
-// coverage-audit の指摘の id（枡#hash、枡は 資産|観点|回）から path を取る。資産の id は path#<中身の位置>
-// （Markdown は 見出しの経路/<ブロックの種類><序数>・_frontmatter、JS は宣言の名前、他は c<n>。長い範囲は /c<n>、重なりは ~<k>）で、位置の側に # を含まない。
-// 振り返りの資産（retro:c<周>:<段>）は対象のファイルでないので null（照合済みの印のある台帳は作らないが、形として受ける）。
-export function findingPath(id) {
-  const cell = String(id).slice(0, String(id).lastIndexOf('#'))
-  const asset = cell.split('|')[0]
-  if (asset.startsWith('retro:') || !asset.includes('#')) return null
-  return asset.slice(0, asset.lastIndexOf('#'))
+// 単位の並び（ids の順）で前から、読むファイルの本文のバイト数の和が UNIT_MAX_BYTES に収まる所まで 1 体に詰める（next-fit。前に戻って詰めない）。
+// 詰め方を並びの順だけで決める（決定的。何を近いとするかの判断を置かない）。bytesOf(id) は単位のバイト数。
+export function packUnits(ids, bytesOf) {
+  const out = []
+  let cur = null
+  for (const id of ids) {
+    const n = bytesOf(id)
+    if (cur && cur.bytes + n <= UNIT_MAX_BYTES) { cur.ids.push(id); cur.bytes += n; continue }
+    cur = { ids: [id], bytes: n }
+    out.push(cur)
+  }
+  return out.map((x) => x.ids)
 }
 
-// coverage-audit の status の出力を取り込む。終わった検査だけを受け、引用を今の本文に照らし、指摘を単位と層へ結ぶ。
+// coverage-audit の確定指摘の path。指摘は 1 つ以上の path（paths）を持ち、引用（quote）は先頭の path の単位の本文にある。
+// paths の無い指摘（coverage-audit の振り返りなど、対象のファイルでないもの）は null。
+export function findingPath(f) {
+  const ps = arr(f && f.paths).filter((p) => typeof p === 'string' && p)
+  return ps.length ? ps[0] : null
+}
+
+// coverage-audit の status（stateDir/status-<段>.json の中身）を取り込む。終わった検査だけを受け、引用を今の本文に照らし、指摘を単位と層へ結ぶ。
+// 指摘は path・義務（obligation）・確信度（confidence）・原因の層（layer）・出どころ（origin）と、再レビューでの出どころの分類（provenance）を持つ。
+// 参考（references。義務に結べないもの）は指摘にせず、開示の一覧として残す。試行の上限で判定できずに閉じた意図（undecided）を含む complete も受け、意図の id を出来事にする。
 export function importAudit(L, status, phase, { readText, unitOfPath }) {
   const st = status && status.stopped
   if (!st || !['complete', 'needs_input'].includes(st.stop)) throw new Error(`coverage-audit が終わっていない（stopped: ${st ? st.stop : 'なし'}）。coverage-audit の「止まったとき」に従ってから取り込む`)
   if (status.pending != null) throw new Error('coverage-audit の呼び出しが途中にある（stopped は前の停止の記録）。coverage-audit を止まるまで回してから取り込む')
-  if (arr(status.coverage && status.coverage.pending).length) throw new Error(`coverage-audit に読み終えていない枡が ${status.coverage.pending.length} 件ある。coverage-audit を続けてから取り込む`)
+  if (arr(status.coverage && status.coverage.pending).length) throw new Error(`coverage-audit に読み終えていない単位が ${status.coverage.pending.length} 件ある。coverage-audit を続けてから取り込む`)
   const stage = `${phase}_review`
   // coverage-audit の群の id は段の始まりごとに数え直されるので、build の周と段を前に付けて別の群にする。
   const auditGroups = new Map(arr(status.groups).map((g) => [g.id, g]))
@@ -405,21 +433,28 @@ export function importAudit(L, status, phase, { readText, unitOfPath }) {
     if (!(id in L.audit_groups)) L.audit_groups[id] = { root_cause: src ? src.root_cause : null, layer: src ? C.LAYER_MAP[src.layer] || null : null }
     return id
   })
-  const base = { findings: [], unverifiable: [], not_seen: arr(status.skip).map((s) => s.cell) }
+  const base = {
+    findings: [], unverifiable: [],
+    not_seen: arr(status.skip).map((s) => (s && s.reason ? `${s.unit}（${s.reason}）` : s && s.unit)).filter(Boolean),
+    references: arr(status.references).map((r) => ({ id: r.id, path: r.path, claim: r.claim, quote: r.quote })),
+  }
   for (const f of arr(status.findings && status.findings.confirmed)) {
-    const path = findingPath(f.id)
+    const path = findingPath(f)
     if (path === null) { addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit の進め方の指摘 ${f.id}: ${f.claim}` }); continue }
     const t = readText(path)
     const q = t == null ? '対象が読めない' : C.quoteProblem(f.quote, t)
     const layer = C.LAYER_MAP[f.layer]
     if (q || !layer) { addEvent(L, { stage, kind: 'import_mismatch', text: `${f.id}: ${q || `層が不正: ${f.layer}`}` }); continue }
+    const others = arr(f.paths).slice(1)
+    const where = others.length ? `${path} ほか ${others.join('、')}` : path
+    const extra = { ...(f.obligation ? { obligation: f.obligation } : {}), ...(f.confidence ? { confidence: f.confidence } : {}), ...(f.origin ? { origin: f.origin } : {}), ...(f.provenance ? { provenance: f.provenance } : {}) }
     if (phase === 'baseline') {
-      base.findings.push({ id: f.id, path, layer, claim: f.claim, quote: f.quote })
-      if (layer === '目標') L.human.push({ id: `B${L.human.length + 1}`, reason: '現状の検査で目標・方針の層の欠陥が出た（設計に進まない）', text: `${f.claim}（${path}: ${f.quote}）` })
+      base.findings.push({ id: f.id, path, paths: arr(f.paths), layer, claim: f.claim, quote: f.quote, ...extra })
+      if (layer === '目標') L.human.push({ id: `B${L.human.length + 1}`, reason: '現状の検査で目標・方針の層の欠陥が出た（設計に進まない）', text: `${f.claim}（${where}: ${f.quote}）` })
       continue
     }
     const m = unitOfPath(path)
-    addEvent(L, { stage, kind: 'finding', layer, unit: m.unit, test: m.test, text: `${f.claim}（${path}: 「${f.quote}」）`, ref: f.id, groups: groupsOf(f) })
+    addEvent(L, { stage, kind: 'finding', layer, unit: m.unit, test: m.test, text: `${f.claim}（${where}: 「${f.quote}」）`, ref: f.id, groups: groupsOf(f), ...extra })
   }
   for (const f of arr(status.findings && status.findings.unverifiable)) {
     if (phase === 'baseline') base.unverifiable.push(f)
@@ -431,7 +466,15 @@ export function importAudit(L, status, phase, { readText, unitOfPath }) {
     L.audit_events_seen.push(e.id)
     addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit の出来事 ${e.id} [${e.stage}/${e.kind}]: ${e.text}`, ref: e.id })
   }
+  // 試行の上限で判定できずに開示して閉じた意図。出来事に意図の id が出ていなければ、ここで 1 回だけ出来事にする（黙って完了に含めない）。
+  for (const u of arr(status.undecided)) {
+    const key = `${phase}:undecided:${u.id}`
+    if (!u || !u.id || L.audit_events_seen.includes(key)) continue
+    L.audit_events_seen.push(key)
+    if (arr(status.events).some((e) => e && String(e.text).includes(u.id))) continue
+    addEvent(L, { stage, kind: 'audit_internal', text: `coverage-audit が判定できずに開示して閉じた意図 ${u.id} [${u.kind}]: ${u.reason || '理由なし'}`, ref: u.id })
+  }
   if (phase === 'baseline') L.baseline = base
-  else for (const c of base.not_seen) addEvent(L, { stage, kind: 'not_seen', text: `見ていない枡（開示）: ${c}` })
+  else for (const c of base.not_seen) addEvent(L, { stage, kind: 'not_seen', text: `見ていない単位（開示）: ${c}` })
   return base
 }

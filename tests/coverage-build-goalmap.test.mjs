@@ -21,7 +21,7 @@ test('<goalmap> 区間は 2 つのスキルで同じ文', () => {
 })
 
 // ---- 目標の照合役への指示に、引用の規則を載せる（単位 P1）----
-// 規則の文の正本は <goalmap> 区間の 1 か所。区間は CITE_MIN から字数を作り、両スキルの goal_checker の prompt が埋め込む。
+// 規則の文の正本は <goalmap> 区間の 1 か所。区間は CITE_MIN から字数を作り、coverage-build の goal_checker と、目標の照合も担う coverage-audit の planner の prompt が埋め込む。
 
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const BUILD_STEP = '.agents/skills/coverage-build/scripts/build-step.js'
@@ -51,15 +51,18 @@ async function auditGoalPrompt(t, text = src(AUDIT_WF)) {
   const state = path.join(d, 'state')
   const r = auditHarness.cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--target', path.join(d, 'doc.md'))
   assert.equal(r.code, 0, JSON.stringify(r))
+  // 照合済みの印が無い台帳の最初の呼び出しは、計画の段（目標の照合も担う計画役の行が 1 つ）。
   const n = auditHarness.cli('next', '--state', state)
   assert.equal(n.step, 'plan', JSON.stringify(n))
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  assert.ok(!args.goalChecked, '照合を流す呼び出し')
+  assert.deepEqual(args.workers.map((w) => w.role), ['planner'])
   const log = []
-  await bodyOf(text)(auditHarness.mockAgent({}, log), parallel, pipeline, () => {}, () => {}, args, undefined)
-  const hit = log.filter((x) => x.label === 'goal-check')
-  assert.equal(hit.length, 1, '目標の照合役は 1 体')
-  return hit[0].raw
+  // 役は起動の prompt を残すだけ（台帳と読み書きしない）。prompt に載る規則の文だけを見る。
+  const agentFn = async (prompt, opts) => { log.push({ label: opts.label, prompt }); return { notes: [] } }
+  await bodyOf(text)(agentFn, parallel, pipeline, () => {}, () => {}, args, undefined)
+  const hit = log.filter((x) => x.label.startsWith('planner-'))
+  assert.equal(hit.length, 1, '目標の照合も担う計画役は 1 体')
+  return hit[0].prompt
 }
 
 // 規則が伝えること（合格条件 1）。語句は計画の文（unit-goalcheck-quote.md）のとおり。
@@ -74,8 +77,8 @@ const RULE_PARTS = [
 // 規則の各部を述べる文（句点か改行で区切った 1 文）を並べる。2 つの prompt で同じ並びになる。
 const ruleSentence = (prompt) => RULE_PARTS.map(([re]) => prompt.split(/[。\n]/).find((x) => re.test(x)) || '').join('\n')
 
-for (const [name, get, file] of [['coverage-build の designStage', buildGoalPrompt, BUILD_STEP], ['coverage-audit の planStage', auditGoalPrompt, AUDIT_WF]]) {
-  test(`${name} の goal_checker の prompt に、引用の規則（12 字以上・短い引用は 1 件の全体だけ・1 件の定義）が載る`, async (t) => {
+for (const [name, get, file] of [['coverage-build の designStage の goal_checker', buildGoalPrompt, BUILD_STEP], ['coverage-audit の plan の段の planner', auditGoalPrompt, AUDIT_WF]]) {
+  test(`${name} の prompt に、引用の規則（12 字以上・短い引用は 1 件の全体だけ・1 件の定義）が載る`, async (t) => {
     const prompt = await get(t)
     for (const [re, what] of RULE_PARTS) assert.match(prompt, re, `規則の文に「${what}」が無い`)
     assert.match(prompt, /決定の記録の短い行[^。]*全体/, '決定の記録の短い行は、その行の全体を引く')
@@ -95,7 +98,7 @@ for (const [name, get, file] of [['coverage-build の designStage', buildGoalPro
   })
 }
 
-test('両スキルの goal_checker の prompt の規則の文は同じ', async (t) => {
+test('coverage-build の goal_checker と coverage-audit の planner の prompt の規則の文は同じ', async (t) => {
   const a = ruleSentence(await buildGoalPrompt(t))
   const b = ruleSentence(await auditGoalPrompt(t))
   assert.ok(!a.split('\n').includes('') && a === b, `規則の文が食い違う:\n${a}\n${b}`)

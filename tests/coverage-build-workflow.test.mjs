@@ -1,28 +1,26 @@
-// coverage-build の 2 つの Workflow source が Codex の runner（dynamic-workflow-runner の runtime）でも動くことを、偽の backend で確かめる。
-// 偽の backend は担当と同じく束（brief）の写しを読む。実際の Codex の worker が stateDir を読めるかは、このテストでは確かめていない。
+// coverage-build の Workflow source（build-step.js の 1 つ）が Codex の runner（dynamic-workflow-runner の runtime）でも動くことを、偽の backend で確かめる。
+// 偽の backend の役は、prompt の claim の命令で台帳から担当を取り、query・submit で読み書きする（CLI は同じ process で呼ぶ）。
+// 実際の Codex の worker が stateDir の CLI を流して result_path を書けるかは、このテストでは確かめていない。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
-import { C, WRITE_LIMITS } from '../.agents/skills/coverage-build/scripts/build-core.mjs'
-import { SOURCES, drive, mockAgent, runWorkflow, setup, tmp } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
+import { C } from '../.agents/skills/coverage-build/scripts/build-core.mjs'
+import { SOURCE, drive, mockAgent, runWorkflow, setup, tmp } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
 
-const TEXT = { step: readFileSync(SOURCES.step, 'utf8'), write: readFileSync(SOURCES.write, 'utf8') }
-const META = { step: readSourceMetadata(TEXT.step), write: readSourceMetadata(TEXT.write) }
-const ROLES = JSON.parse(readFileSync(path.join(path.dirname(SOURCES.step), 'roles.json'), 'utf8'))
+const TEXT = readFileSync(SOURCE, 'utf8')
+const META = readSourceMetadata(TEXT)
+const ROLES = JSON.parse(readFileSync(path.join(path.dirname(SOURCE), 'roles.json'), 'utf8'))
 
-test('meta: limits の写しが本体と一致し、書く source と書かない source の権限が分かれる', () => {
-  assert.deepEqual({ ...META.step.limits }, bodyLiteral(TEXT.step, 'LIMITS'))
-  assert.deepEqual({ ...META.step.limits }, { ...C.LIMITS })
-  assert.deepEqual({ ...META.write.limits }, bodyLiteral(TEXT.write, 'LIMITS'))
-  assert.deepEqual({ ...META.write.limits }, { ...WRITE_LIMITS })
-  assert.deepEqual([...META.step.requirements], ['read-only', 'fresh-thread'])
-  assert.deepEqual([...META.write.requirements], ['fresh-thread', 'workspace-write'])
-  const sum = (t) => t.slice(t.indexOf('// <sum>'), t.indexOf('// </sum>'))
-  assert.equal(sum(TEXT.write), sum(TEXT.step), 'args の照合の式は 2 つの source で同じ文')
+test('meta: limits の写しが本体と一致し、どの段も同じ 1 つの source で workspace-write を求める（役は全て result_path を書いて submit を流す）', () => {
+  assert.deepEqual({ ...META.limits }, bodyLiteral(TEXT, 'LIMITS'))
+  assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
+  assert.deepEqual([...META.requirements], ['fresh-thread', 'workspace-write'])
+  assert.ok(!META.requirements.includes('read-only'), '役が台帳の外の result_path を書くので read-only は成り立たない')
+  assert.deepEqual(META.phases.map((p) => p.title), ['design', 'tests', 'implement', 'retro'])
   for (const role of ['goal_checker', 'architect', 'unit_designer', 'test_writer', 'implementer', 'retro_planner', 'retro_examiner', 'retro_verifier']) {
     assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort && ROLES[role].why, `roles.json に ${role} の model・effort・理由がある`)
   }
@@ -31,30 +29,22 @@ test('meta: limits の写しが本体と一致し、書く source と書かな�
 })
 
 const backend = (agentFn, caps) => ({ capabilities: caps, run: (prompt, options) => agentFn(prompt, options) })
-function viaRunner(t) {
-  return (args, agentFn) => {
-    const write = ['tests', 'implement'].includes(args.stage)
-    const kind = write ? 'write' : 'step'
-    const caps = write ? ['read-only', 'fresh-thread', 'workspace-write'] : ['read-only', 'fresh-thread']
-    return Workflow({ scriptPath: SOURCES[kind], args }, { backend: backend(agentFn, caps), runDir: path.join(tmp(t), 'run'), trustedSource: true, ...META[kind].limits })
-  }
+function viaRunner(t, caps = ['read-only', 'fresh-thread', 'workspace-write']) {
+  return (args, agentFn) => Workflow({ scriptPath: SOURCE, args }, { backend: backend(agentFn, caps), runDir: path.join(tmp(t), 'run'), trustedSource: true, ...META.limits })
 }
 
-test('runner: create の流れが 2 つの source で最後まで回る', async (t) => {
+test('runner: create の流れが 1 つの source で最後まで回る', async (t) => {
   const { state } = setup(t, { checks: [['node', '-e', 'process.exit(0)']] })
   const { stop, steps } = await drive(state, mockAgent(), { run: viaRunner(t) })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.deepEqual([...new Set(steps.map((s) => s.step))], ['design', 'audit', 'tests', 'implement', 'checks'])
   assert.ok(steps.filter((s) => s.res).every((s) => s.res.tokens === null), 'runner では消費量を読めないので null')
+  assert.ok(steps.filter((s) => s.res).every((s) => Object.keys(s.res).sort().join() === 'agents,tokens'), '返り値は agents と tokens だけ')
 })
 
-test('runner: 書き込みの権限が無い backend では書く source を拒否する', async (t) => {
+test('runner: 書き込みの権限が無い backend では、書かない段（design）から source を拒否する', async (t) => {
   const { state } = setup(t)
-  const reject = (args, agentFn) => {
-    if (!['tests', 'implement'].includes(args.stage)) return viaRunner(t)(args, agentFn)
-    return Workflow({ scriptPath: SOURCES.write, args }, { backend: backend(agentFn, ['read-only', 'fresh-thread']), runDir: path.join(tmp(t), 'run'), trustedSource: true, ...META.write.limits })
-  }
-  await assert.rejects(drive(state, mockAgent(), { run: reject }), /workspace-write/)
+  await assert.rejects(drive(state, mockAgent(), { run: viaRunner(t, ['read-only', 'fresh-thread']) }), /workspace-write/)
 })
 
 // ---- 呼び出しごとの消費量を、差で記録する（単位 P12）----
@@ -85,7 +75,7 @@ const ledgerOf = (state) => JSON.parse(readFileSync(path.join(state, 'build.json
 
 const buildRun = (budget) => (args, fn) => runWorkflow(args, fn, { budget })
 
-test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の差で、累計を入れず、台帳の calls と tokens_note に同じ差が残る（書かない source と書く source の両方）', async (t) => {
+test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の差で、累計を入れず、台帳の calls と tokens_note に同じ差が残る（書かない段と書く段の両方）', async (t) => {
   const { state } = setup(t, { checks: [['node', '-e', 'process.exit(0)']] })
   const m = metered()
   const consumed = []
@@ -99,7 +89,7 @@ test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の�
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const called = steps.filter((s) => s.res)
   assert.ok(called.length >= 4)
-  assert.ok(['design', 'tests', 'implement'].every((k) => called.some((s) => s.step === k)), '書かない source と書く source の両方を通る')
+  assert.ok(['design', 'tests', 'implement'].every((k) => called.some((s) => s.step === k)), '書かない段と書く段の両方を通る')
   assert.equal(consumed.length, called.length)
   assert.deepEqual(called.map((s) => s.res.tokens), consumed, 'tokens は呼び出しの中で増えた分')
   assert.ok(consumed.some((c) => c > 0))

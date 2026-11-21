@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { C } from './build-core.mjs'
-import { drive, mockAgent, setup, tmp } from './test-harness.mjs'
+import { defaultResult, drive, mockAgent, setup, tmp } from './test-harness.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const STEP_SRC = readFileSync(path.join(HERE, 'build-step.js'), 'utf8')
@@ -61,8 +61,9 @@ test('ARCH_SCHEMA: contracts・copies を必須の配列に、単位は test_use
   const { state } = setup(t)
   let schema = null
   const over = { architect: (p, opts) => { schema = opts.schema; return undefined } }
-  await drive(state, mockAgent(over), { maxSteps: 1 })
-  assert.ok(schema, '方式設計の役に schema が渡る')
+  await drive(state, mockAgent(over), { maxSteps: 2 })
+  assert.ok(schema, '方式設計の役の結果の形がある')
+  assert.equal(schema, C.ARCH_SCHEMA, '方式設計の役の結果の形は <checks> 区間の ARCH_SCHEMA（prompt に載り、submit が照らす）')
   for (const k of ['units', 'inputs_read', 'inputs_not_read', 'questions', 'contracts', 'copies']) assert.ok(schema.required.includes(k), `${k} が必須`)
   assert.equal(schema.properties.contracts.type, 'array')
   assert.equal(schema.properties.copies.type, 'array')
@@ -87,9 +88,7 @@ test('既定の mockAgent の方式設計は contracts・copies・各単位の t
   const d = tmp(t)
   const material = path.join(d, 'material.md')
   writeFileSync(material, '材料の本文の行。値は入力に 1 を足して返す。\n')
-  const briefPath = path.join(d, 'brief.md')
-  writeFileSync(briefPath, `## 受け入れ基準\n- AC1: 値を返す\n## 固定した制約\n- D1: 依存を足さない\n## 入力\n- ${material}\n`)
-  const r = await mockAgent()(`まず Read で ${briefPath} を全て読む`, { label: 'architect' })
+  const r = defaultResult('architect', { cover_ids: ['AC1', 'D1'], input_paths: [material] })
   assert.deepEqual(r.contracts, [])
   assert.deepEqual(r.copies, [])
   assert.ok(r.units.every((u) => Array.isArray(u.test_uses) && u.test_uses.length === 0))
@@ -299,7 +298,7 @@ test('方式設計の役の prompt: contracts・copies・test_uses・粒度の 4
   const { state } = setup(t)
   let prompt = ''
   const over = { architect: (p) => { prompt = p; return undefined } }
-  await drive(state, mockAgent(over), { maxSteps: 1 })
+  await drive(state, mockAgent(over), { maxSteps: 2 })
   assert.ok(prompt, '方式設計の役が呼ばれる')
   // 1. contracts: 作る側が返しうる全ての値を行にし、使う単位ごとの扱いを書く
   assert.ok(prompt.includes('contracts'))

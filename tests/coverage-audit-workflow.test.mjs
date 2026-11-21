@@ -1,114 +1,128 @@
-// coverage-audit の Workflow source が Codex の runner（dynamic-workflow-runner の runtime）でも動くことを、偽の backend で確かめる。
-// 偽の backend は担当と同じく写しのファイルを読む。実際の Codex の worker が stateDir の写しを読めるかは、このテストでは確かめていない。
+// coverage-audit の Workflow source（coverage-audit.js）を、本物の CLI と偽の役で流して確かめる。
+// 役の偽物は blackboard-fixture.mjs（計画の段は plan-roles.mjs）で、prompt の claim の命令から台帳と読み書きする。
+// Codex の runner（dynamic-workflow-runner の runtime）でも流す。偽の役は担当の写しを読むが、実際の Codex の worker が stateDir の写しを読めるかは確かめていない。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { C } from '../.agents/skills/coverage-audit/scripts/ledger-core.mjs'
-import { WF, cli, drive, evidenceOf, mockAgent, runWorkflow, tmp } from '../.agents/skills/coverage-audit/scripts/test-harness.mjs'
+import { LAUNCHER } from '../.agents/skills/coverage-audit/scripts/ledger-cli.mjs'
+import { CLI, ROLES, WF, argOf, behave, cli, cliArgvOf, driveScript, project, runScript, scriptAgent, shellWords, tmp } from '../.agents/skills/coverage-audit/scripts/blackboard-fixture.mjs'
+import { planAct } from '../.agents/skills/coverage-audit/scripts/plan-roles.mjs'
 
 const META = readSourceMetadata(readFileSync(WF, 'utf8'))
-const ROLES = JSON.parse(readFileSync(path.join(path.dirname(WF), 'roles.json'), 'utf8'))
-
 const backend = (agentFn) => ({ capabilities: ['read-only', 'fresh-thread', 'workspace-write'], run: (prompt, options) => agentFn(prompt, options) })
 const viaRunner = (t) => (args, agentFn) => Workflow({ scriptPath: WF, args }, { backend: backend(agentFn), runDir: path.join(tmp(t), 'run'), trustedSource: true, ...META.limits })
 
-function reviewSetup(t) {
-  const d = tmp(t)
-  writeFileSync(path.join(d, 'doc.md'), '# 文書\n\n## 一つ目の節\nこの節は一つ目の主張を述べる本文の行である。\n\n## 二つ目の節\nこの節は二つ目の主張を述べる本文の行である。\n')
-  writeFileSync(path.join(d, 'goal.md'), '- G1: 文書を観点ごとに確かめた指摘の一覧 〔request: 文書を観点ごとにレビューしてほしい〕\n')
-  writeFileSync(path.join(d, 'request.md'), '文書を観点ごとにレビューしてほしい')
-  writeFileSync(path.join(d, 'lenses.json'), JSON.stringify([{ id: 'L1', name: '主張と根拠', procedure: '主張ごとに根拠を対応づける' }]))
-  const state = path.join(d, 'state')
-  assert.equal(cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--target', path.join(d, 'doc.md'), '--lenses', path.join(d, 'lenses.json')).code, 0)
-  return state
+const DOC = '# 文書\n\n## 一つ目の節\nこの節は一つ目の主張を述べる本文の行である。\n\n## 二つ目の節\nこの節は二つ目の主張を述べる本文の行である。\n'
+const Q2 = 'この節は二つ目の主張を述べる本文の行である。'
+const ledgerOf = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
+// 束ねの意図（確認役が取る）の偽物: 確定した指摘の事実（basis）の全件を 1 つの群に入れる。
+const GROUPING = {
+  group: (task, ctx) => { const q = ctx.query(task); return { groups: [{ id: 'g1', root_cause: '根の原因', layer: '実装', keys: q.basis.map((f) => f.id) }], unassigned: [] } },
 }
+// doc.md に 1 件の指摘を書くファイルの段（layer は原因の層）。
+const oneFinding = (layer = '実装') => ({ facts: (p) => (path.basename(p) === 'doc.md' ? { findings: [{ claim: '主張に根拠が無い', quote: Q2, severity: 'LOW', layer }] } : {}) })
 
-test('meta: limits の写しが本体と一致し、最悪の起動数が maxAgents に収まる', () => {
+test('meta: limits の写しが本体と一致し、runner の要件は今のまま。段は CLI の段の名前', () => {
   assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
   assert.deepEqual([...META.requirements], ['fresh-thread', 'workspace-write'])
-  assert.equal(C.PER_CELL, undefined, '枡ごとの起動数 PER_CELL は無い（review の起動数は workers の行の数）')
-  assert.ok(1 + 4 + 2 <= C.LIMITS.maxAgents, 'plan の固定部分（目標・計画役 2 体とやり直し・統合とやり直し）が収まる')
-  for (const role of ['goal_checker', 'planner_a', 'planner_b', 'integrator', 'unit_verifier', 'reader_1', 'verifier', 'grouper', 'refuter_a', 'refuter_b']) {
-    assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort, `roles.json に ${role} の model と effort がある`)
+  assert.equal(C.PER_CELL, undefined, '枡ごとの起動数 PER_CELL は無い（1 回の起動数は workers の行の数）')
+  assert.deepEqual(META.phases.map((p) => p.title), ['plan', 'unit_verify', 'full_review', 'file', 'global', 'retro'], '目標の照合・統合・束ね・反証の段は無い（照合は計画役、束ねは全体の段の意図）。全文レビューは計画の段の後・ファイルの段の前')
+  for (const gone of ['argsSum', 'checkRead', 'checkVerify', 'settleVerdict', 'checkLensReview', 'LENS_QUESTIONS', 'checkAppliesTo']) assert.equal(C[gone], undefined, `${gone} は無い`)
+})
+
+test('roles: 計画役・観点の検証役・全文レビューの役・読む役・判定役・確認役だけがあり、判断を出す役と確かめる役は別のモデル（計画役と観点の検証役、判定役と確認役）', () => {
+  for (const role of ['planner', 'unit_verifier', 'full_reviewer', 'file_reader', 'global_judge', 'confirmer']) {
+    assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort && ROLES[role].why, `roles.json に ${role} の model・effort・理由がある`)
   }
-  assert.notEqual(ROLES.planner_a.model, ROLES.planner_b.model, '独立な計画役は別のモデル')
-  // p 回目の読む役（reader_p、無ければ reader_1）と検証役（verifier_p、無ければ verifier）は別のモデル。
-  for (const p of [1, 2, 3].filter((n) => n === 1 || ROLES[`reader_${n}`])) {
-    const r = ROLES[`reader_${p}`] || ROLES.reader_1
-    const v = ROLES[`verifier_${p}`] || ROLES.verifier
-    assert.notEqual(r.model, v.model, `${p} 回目の読む役と検証役は別のモデル`)
+  for (const gone of ['lens_reviewer', 'goal_checker', 'planner_a', 'planner_b', 'integrator', 'alias_judge', 'grouper', 'refuter_a', 'refuter_b']) assert.equal(ROLES[gone], undefined, `${gone} は無い`)
+  assert.notEqual(ROLES.unit_verifier.model, ROLES.planner.model, '観点の検証役は計画役と別のモデル')
+  assert.notEqual(ROLES.confirmer.model, ROLES.global_judge.model, '確認役は判定役と別のモデル')
+})
+
+// ---- CLI の入口（args で CLI の置き場を運ばないので、stateDir に CLI が書く）----
+
+test('入口: init と next が stateDir/ledger-cli.mjs に、本物の CLI を絶対パスで import して流すだけの入口を書き直し、prompt の claim はそれを指す', async (t) => {
+  const { state } = project(t, { 'doc.md': DOC })
+  const file = path.join(state, LAUNCHER)
+  const want = `// 生成物: ${LAUNCHER} が init・next のたびに書き直す。本物の CLI を流すだけ。\nimport { runMain } from ${JSON.stringify(pathToFileURL(CLI).href)}\nrunMain(process.argv.slice(2))\n`
+  assert.equal(readFileSync(file, 'utf8'), want, 'init が書く')
+  // 古い置き場の path が残っていても、next が書き直す。
+  writeFileSync(file, 'import "/old/place/ledger-cli.mjs"\n')
+  const n = cli('next', '--state', state)
+  assert.equal(n.code, 0, JSON.stringify(n))
+  assert.equal(readFileSync(file, 'utf8'), want, 'next が書き直す')
+  // 入口を子プロセスで流すと、本物の CLI と同じ出力になる。
+  const viaLauncher = spawnSync(process.execPath, [file, 'status', '--state', state], { encoding: 'utf8' })
+  const direct = spawnSync(process.execPath, [CLI, 'status', '--state', state], { encoding: 'utf8' })
+  assert.equal(viaLauncher.status, 0, viaLauncher.stderr)
+  assert.equal(viaLauncher.stdout, direct.stdout)
+  // Workflow の prompt の claim の命令は、この入口を指す。
+  const log = []
+  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  await runScript(args, scriptAgent(behave(), log))
+  assert.ok(log.length > 0)
+  for (const x of log) {
+    const line = x.prompt.split('\n').find((l) => l.includes(' claim --state '))
+    assert.equal(shellWords(line)[1], file, `claim は stateDir の入口を流す: ${line}`)
+    assert.equal(argOf(x.claim, 'state'), state)
   }
 })
 
-test('roles: 観点の精査役 lens_reviewer は opus、unit_verifier は sonnet で統合役と別のモデル、refuter_a は sonnet・refuter_b は opus', () => {
-  assert.ok(ROLES.lens_reviewer && ROLES.lens_reviewer.effort && ROLES.lens_reviewer.why, 'roles.json に lens_reviewer の model・effort・理由がある')
-  assert.equal(ROLES.lens_reviewer.model, 'opus')
-  assert.equal(ROLES.unit_verifier.model, 'sonnet')
-  assert.notEqual(ROLES.unit_verifier.model, ROLES.integrator.model, '観点の検証役は統合役と別のモデル')
-  assert.equal(ROLES.refuter_a.model, 'sonnet')
-  assert.equal(ROLES.refuter_b.model, 'opus')
-  assert.notEqual(ROLES.refuter_a.model, ROLES.grouper.model, 'refuter_a は束ね役と別のモデル')
-})
+// ---- runner（Codex）でも流れる ----
 
-test('runner: review の流れが最後まで回り、全ての枡を確かめて完了する', async (t) => {
-  const state = reviewSetup(t)
-  const { stop, steps } = await drive(state, mockAgent(), { run: viaRunner(t) })
+test('runner: ファイルの段と全体の段が最後まで回り、全ての単位を読んで完了する。1 回の起動数は workers の行の数', async (t) => {
+  const { state } = project(t, { 'doc.md': DOC })
+  const { stop, steps } = await driveScript(state, scriptAgent(behave()), { runWf: viaRunner(t) })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.equal(stop.coverage.settled, 2) // 2 資産 × 利用者の観点 L1 × k=1
-  // review の 1 回の起動数は workers の行の数（2 × k × N）で、maxAgents に収まる。
-  for (const s of steps.filter((x) => x.step === 'review')) {
+  assert.equal(stop.coverage.seen, stop.coverage.units)
+  for (const s of steps) {
     assert.equal(s.res.agents.length, s.args.workers.length)
     assert.ok(s.args.workers.length <= C.LIMITS.maxAgents)
   }
 })
 
-test('runner: 照合に落ちる枡の提出は拒否され、出し直しても落ちれば試行の上限で開示に倒す', async (t) => {
-  const state = reviewSetup(t)
-  const bad = mockAgent({ read: (p, o) => (o.label.includes('一つ目の節/p1|L1') ? { cell_id: 1 } : undefined) })
-  const { stop } = await drive(state, bad, { run: viaRunner(t) })
-  assert.equal(stop.stop, 'complete')
-  assert.equal(stop.disclosed.length, 1)
-  assert.ok(stop.disclosed[0].includes('一つ目の節/p1|L1'))
+test('runner: 照合に落ちる提出は拒否され、出し直しても落ちれば試行の上限で開示に倒す', async (t) => {
+  const { state, paths } = project(t, { 'doc.md': DOC, 'other.md': '# 別\n\nこの文書は別の単位の本文として置く行である。\n' })
+  const bad = behave({ file: (task) => (task.unit.path === paths['doc.md'] ? { seen: [] } : undefined) })
+  const { stop } = await driveScript(state, scriptAgent(bad), { runWf: viaRunner(t) })
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  assert.deepEqual(stop.coverage.disclosed, [paths['doc.md']])
+  assert.ok(ledgerOf(state).events.some((e) => e.kind === 'rejected_file'))
 })
 
-test('runner: 計画・読み・振り返り・束ねが回り、上の層の欠陥は needs_input で返す', async (t) => {
-  const state = reviewSetup(t)
-  const once = { done: false }
-  const agentFn = mockAgent({
-    read: (p, o) => {
-      if (once.done || !o.label.includes('二つ目の節/p1|L1')) return undefined
-      once.done = true
-      return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '目標に効かない', quote: 'この節は二つ目の主張を述べる本文の行である。', severity: 'LOW', layer: '要求' }], outside_notes: ['観点の外の気づき'], none_reason: '' }
-    },
-  })
-  const { stop, steps } = await drive(state, agentFn, { run: viaRunner(t) })
-  assert.equal(stop.stop, 'needs_input', '要求の層の欠陥は利用者に返す')
-  assert.equal(stop.upper.length, 1)
-  assert.deepEqual([...new Set(steps.map((s) => s.step))], ['plan', 'review', 'group'])
+test('runner: 計画・観点の検証・ファイル・全体（束ねを含む）が回り、上の層の欠陥は needs_input で返す。tokens は null', async (t) => {
+  const { state } = project(t, { 'doc.md': DOC }, { lenses: null })
+  const { stop, steps } = await driveScript(state, scriptAgent(planAct({ ...oneFinding('要求'), ...GROUPING })), { runWf: viaRunner(t) })
+  assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
+  assert.equal(stop.upper.length, 1, '要求の層の欠陥は利用者に返す')
+  const stages = new Set(steps.map((s) => s.args.stage))
+  for (const k of ['plan', 'unit_verify', 'file', 'global']) assert.ok(stages.has(k), `${k} が回る: ${[...stages]}`)
+  assert.ok(ledgerOf(state).groups.some((g) => g.root_cause === '根の原因'), '束ねは全体の段の意図として回る')
   assert.ok(steps.every((s) => s.res.tokens === null), 'runner では消費量を読めないので null')
-  const status = cli('status', '--state', state)
-  assert.equal(status.outside_notes.length, 1)
 })
 
-// ---- 本文を引く役に、引用の規則を伝える（単位 P8）----
+// ---- 本文を引く役に、引用の規則を伝える ----
 // 規則の文の正本は <checks> 区間の QUOTE_RULE の 1 か所。quoteProblem で照らす引用を返す役の prompt だけが埋め込む。
-// 目標の照合役（goal-check）には <goalmap> 区間の CITE_RULE だけが載り、食い違う規則が 2 つ並ばない。
+// 目標の照合役には <goalmap> 区間の CITE_RULE だけが載り、食い違う規則が 2 つ並ばない。
 
 const AUDIT_SRC = readFileSync(WF, 'utf8')
 const CHECKS = (src) => src.slice(src.indexOf('// <checks>'), src.indexOf('// </checks>'))
 const quoteRuleOf = (src = AUDIT_SRC) => new Function(`${CHECKS(src)}\nreturn { QUOTE_RULE, QUOTE_MIN }`)()
 
-test('QUOTE_RULE: <checks> 区間にあり、引用は 12 字以上・短い引用は全体か 1 行の全体・見出しだけは証拠にならない・1 要素でも合わなければ提出ごと拒まれる、を伝える', () => {
+test('QUOTE_RULE: <checks> 区間にあり、引用は 12 字以上・短い引用は全体か 1 行の全体・見出しだけは証拠にならない・1 つでも合わなければ提出ごと拒まれる、を伝える', () => {
   const { QUOTE_RULE, QUOTE_MIN } = quoteRuleOf()
   assert.equal(typeof QUOTE_RULE, 'string')
   assert.equal(QUOTE_MIN, 12)
   assert.match(QUOTE_RULE, /12 字以上/, '引用は 12 字以上')
   assert.match(QUOTE_RULE, /短い引用[^。]*本文の全体[^。]*本文の空でない 1 行の全体[^。]*だけ/, '短い引用は、本文の全体か、本文の空でない 1 行の全体を引くときだけ')
   assert.match(QUOTE_RULE, /見出し[^。]*だけ[^。]*証拠にならない/, '見出しの行だけの引用は証拠にならない')
-  assert.match(QUOTE_RULE, /evidence の 1 要素でも[^。]*提出ごと[^。]*拒/, 'evidence の 1 要素でも合わなければ提出ごと拒まれる')
+  assert.match(QUOTE_RULE, /引用の 1 つでも[^。]*提出ごと[^。]*拒/, '引用の 1 つでも合わなければ提出ごと拒まれる')
 })
 
 test('QUOTE_RULE: 字数は QUOTE_MIN から作る（QUOTE_MIN を変えると規則の字数が変わる）', () => {
@@ -117,12 +131,11 @@ test('QUOTE_RULE: 字数は QUOTE_MIN から作る（QUOTE_MIN を変えると�
   const { QUOTE_RULE } = quoteRuleOf(changed)
   assert.match(QUOTE_RULE, /15 字以上/)
   assert.doesNotMatch(QUOTE_RULE, /12 字/, '規則の文に字数を直に書かない')
-  // 規則の字数の文は <checks> 区間の外に写しを持たない（prompt の側に「12 字以上」を書かない）。
   assert.ok(!AUDIT_SRC.replace(CHECKS(AUDIT_SRC), '').replace(/\/\/.*$/gm, '').match(/12 字以上/), '区間の外に規則の文の写しが無い')
 })
 
 test('QUOTE_RULE: COMMON には入れず、CLI（ledger-core）の読み込みの一覧にも足さない', () => {
-  const common = AUDIT_SRC.slice(AUDIT_SRC.indexOf('const COMMON = '), AUDIT_SRC.indexOf('// ---------------- plan'))
+  const common = AUDIT_SRC.slice(AUDIT_SRC.indexOf('const COMMON = '), AUDIT_SRC.indexOf('const loop = '))
   assert.ok(common.includes('## 共通の前提'))
   assert.ok(!common.includes('QUOTE_RULE'), 'COMMON は全ての役に載るので規則を入れない')
   assert.equal(C.QUOTE_RULE, undefined, 'CLI は QUOTE_RULE を使わない')
@@ -130,48 +143,41 @@ test('QUOTE_RULE: COMMON には入れず、CLI（ledger-core）の読み込み�
   assert.ok(!core.includes('QUOTE_RULE'), 'ledger-core の return の一覧に足さない')
 })
 
-test('quoteProblem の判定は変わらない（短い引用は全体か 1 行の全体だけ・見出しだけは拒む・1 要素でも落ちれば読みの照合に落ちる）', () => {
+test('quoteProblem の判定は変わらない（短い引用は全体か 1 行の全体だけ・見出しだけは拒む）', () => {
   const text = '# 文書\n\n## 一つ目の節についての長い見出しの行\n短い行\nこの節は一つ目の主張を述べる本文の行である。\n'
   assert.equal(C.quoteProblem('この節は一つ目の主張を述べる本文の行である。', text), null)
   assert.equal(C.quoteProblem('短い行', text), null, '空でない 1 行の全体は受け付ける')
   assert.match(C.quoteProblem('一つ目', text), /字未満/, '行の一部の短い引用は拒む')
   assert.match(C.quoteProblem('## 一つ目の節についての長い見出しの行', text), /見出し/, '見出しだけの引用は拒む')
   assert.equal(C.quoteProblem('# 文書', '# 文書'), null, '本文の全体なら見出しでも短くても受け付ける')
-  const asset = { text, blocks: [[0, 4]], need: 1 }
-  const ok = { evidence: ['この節は一つ目の主張を述べる本文の行である。'], findings: [], none_reason: 'x' }
-  assert.deepEqual(C.checkRead(ok, asset), [])
-  const bad = { ...ok, evidence: [...ok.evidence, '一つ目'] }
-  assert.ok(C.checkRead(bad, asset).some((x) => /evidence\[1\]/.test(x)), '1 要素でも合わなければ照合に落ちる')
 })
 
-// 計画・観点の精査・観点の検証・読む役・検証役・束ね・反証が回る run を流し、役ごとの prompt（Workflow が渡した文）を集める。
-async function promptsByLabel(t) {
-  const d = tmp(t)
-  writeFileSync(path.join(d, 'doc.md'), '# 文書\n\n## 一つ目の節\nこの節は一つ目の主張を述べる本文の行である。\n\n## 二つ目の節\nこの節は二つ目の主張を述べる本文の行である。\n')
-  writeFileSync(path.join(d, 'goal.md'), '- G1: 文書を観点ごとに確かめた指摘の一覧 〔request: 文書を観点ごとにレビューしてほしい〕\n')
-  writeFileSync(path.join(d, 'request.md'), '文書を観点ごとにレビューしてほしい')
-  const state = path.join(d, 'state')
-  assert.equal(cli('init', '--state', state, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--target', path.join(d, 'doc.md')).code, 0)
+// 計画（目標の照合を含む）・観点の検証・ファイルの段・全体の段（名寄せ・主語の照合・確認・束ねを含む）・振り返りが回る run を流し、役ごとの prompt を集める。
+const QA = 'この文書は台帳の lock を取ってから書き込むことを保証する。'
+const QB = 'この文書は lock が書き込みを直列にすることを前提にする。'
+async function promptsByRole(t) {
+  const { state } = project(t, { 'a.md': `# A\n\n## 保証\n${QA}\n`, 'b.md': `# B\n\n## 前提\n${QB}\n` }, {
+    lenses: null, goalChecked: false, criteria: null, goal: '- G1: 対象の文書を観点ごとに確かめた指摘の一覧 〔request: 対象の文書を観点ごとにレビューしてほしい〕\n',
+  })
+  const facts = (p) => (path.basename(p) === 'a.md'
+    ? { guarantees: [{ subject: '台帳の lock', quote: QA, confidence: 'high' }], findings: [{ claim: '指摘', quote: QA, severity: 'HIGH' }] }
+    : { premises: [{ subject: 'lock', quote: QB, confidence: 'high' }] })
+  const subject = (task, ctx) => {
+    const locs = ctx.query(task).basis.filter((f) => f.quote).map((f) => ({ unit: f.unit, quote: f.quote }))
+    return { verdict: 'conflict', quote: locs[0].quote, findings: [{ claim: '主語の照合が足した矛盾', locations: locs, obligation: 'G1', confidence: 'high', severity: 'HIGH', layer: '方式設計' }] }
+  }
   const log = []
-  const once = { done: false }
-  const agentFn = mockAgent({
-    read: (p, o) => {
-      if (once.done || !o.label.includes('二つ目の節/p1|')) return undefined
-      once.done = true
-      return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '主張に根拠が無い', quote: 'この節は二つ目の主張を述べる本文の行である。', severity: 'LOW', layer: '実装' }], outside_notes: [], none_reason: '' }
-    },
-  }, log)
-  const { stop } = await drive(state, agentFn, { maxSteps: 40 })
-  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  const pick = (re) => log.filter((x) => re.test(x.label)).map((x) => x.raw)
+  const { stop } = await driveScript(state, scriptAgent(planAct({ facts, subject, ...GROUPING }), log), { maxSteps: 60 })
+  assert.ok(['complete', 'needs_input'].includes(stop.stop), JSON.stringify(stop))
+  const by = (...roles) => log.filter((x) => roles.some((r) => x.label.startsWith(`${r}-`))).map((x) => x.prompt)
   return {
-    quoting: { 'review の読む役の worker': pick(/^worker-read-/), 'review の検証役の worker': pick(/^worker-verify-/), '観点の精査役（N1・N2）': pick(/^lens-review-/), '観点の検証役（Q1〜Q3）': pick(/^verify-unit-/) },
-    others: { '目標の照合役': pick(/^goal-check/), '計画役': pick(/^plan-[AB]/), '統合役': pick(/^integrate/), '束ね役': pick(/^group/), '反証役': pick(/^refute-/) },
+    quoting: { 観点の検証役: by('unit_verifier'), 読む役: by('file_reader'), 判定役: by('global_judge'), 確認役: by('confirmer') },
+    others: { 計画役: by('planner') },
   }
 }
 
-test('prompt: quoteProblem で引用を照らす 4 つの役（読む役・検証役の worker、観点の精査役、観点の検証役）に QUOTE_RULE が 1 回ずつ載る', async (t) => {
-  const { quoting } = await promptsByLabel(t)
+test('prompt: quoteProblem で引用を照らす役（観点の検証役・読む役と振り返り・判定役・確認役）に QUOTE_RULE が 1 回ずつ載る', async (t) => {
+  const { quoting } = await promptsByRole(t)
   const { QUOTE_RULE } = quoteRuleOf()
   for (const [who, prompts] of Object.entries(quoting)) {
     assert.ok(prompts.length > 0, `${who} が起動していない`)
@@ -179,74 +185,65 @@ test('prompt: quoteProblem で引用を照らす 4 つの役（読む役・検�
   }
 })
 
-test('prompt: 引用を照らさない役（目標の照合役・計画役・統合役・束ね役・反証役）には QUOTE_RULE が載らず、目標の照合役には CITE_RULE だけが載る', async (t) => {
-  const { others } = await promptsByLabel(t)
+test('prompt: 本文の引用を照らさない役（目標の照合も担う計画役）には QUOTE_RULE が載らず、CITE_RULE だけが載る', async (t) => {
+  const { others } = await promptsByRole(t)
   const { QUOTE_RULE } = quoteRuleOf()
   for (const [who, prompts] of Object.entries(others)) {
     assert.ok(prompts.length > 0, `${who} が起動していない`)
     for (const p of prompts) assert.ok(!p.includes(QUOTE_RULE), `${who} の prompt に QUOTE_RULE が載っている`)
   }
-  for (const p of others['目標の照合役']) {
-    assert.match(p, /引用元の 1 件の全体/, '目標の照合役には引用元の規則（CITE_RULE）が載る')
+  for (const p of others['計画役']) {
+    assert.match(p, /引用元の 1 件の全体/, '計画役には引用元の規則（CITE_RULE）が載る')
     assert.doesNotMatch(p, /見出し[^。]*だけ[^。]*証拠にならない/, '見出しの規則は引用元には当てはまらず、2 つの規則が並ばない')
   }
 })
 
-test('prompt: 読む役の結果の形から「見出しの行だけは証拠にならない」の括弧書きを外し、見出しの規則は QUOTE_RULE の 1 か所にする', async (t) => {
-  const { quoting } = await promptsByLabel(t)
+test('prompt: 読む役の結果の形に見出しの規則の写しを置かず、見出しの規則は QUOTE_RULE の 1 か所にする。読む役には query を流させない', async (t) => {
+  const { quoting } = await promptsByRole(t)
   const { QUOTE_RULE } = quoteRuleOf()
-  const reads = quoting['review の読む役の worker']
+  const reads = quoting['読む役']
   assert.ok(reads.length > 0)
   for (const p of reads) {
-    assert.ok(!p.includes('見出しの行だけは証拠にならない'), '結果の形に QUOTE_RULE と重なる括弧書きが残っている')
     assert.equal((p.match(/証拠にならない/g) || []).length, (QUOTE_RULE.match(/証拠にならない/g) || []).length, '見出しの規則を述べる文が QUOTE_RULE の外にある')
-    assert.match(p, /evidence/, '結果の形の evidence の指示は残る')
-    assert.match(p, /区画名・行番号・説明・括弧を付けない/, '括弧書きだけを外し、evidence の書き方の指示は残す')
+    assert.match(p, /seen/, '結果の形の seen の指示がある')
+    assert.equal(cliArgvOf(p, 'query'), null, 'ファイルの段の役の prompt に query の命令を置かない')
   }
   assert.ok(!AUDIT_SRC.includes('見出しの行だけは証拠にならない'), 'source に括弧書きが残っていない')
 })
 
-// ---- 呼び出しごとの消費量を、差で記録する（単位 P12）----
-// native は budget.spent()（run 全体の累計）を注入する。各 source は本体の始めと返す直前に読み、tokens にその差を入れる。
-// 累計をそのまま入れると、呼び出しごとの費用が読めず、呼び出し間の比べ方が成り立たない。
-// budget.spent() が何を数えるか（司令塔・担当の入力・出力のどれか）は確かめていない。ここでは同じ量の差どうしだけを比べる。
+// ---- 呼び出しごとの消費量を、差で記録する ----
+// native は budget.spent()（run 全体の累計）を注入する。source は本体の始めと返す直前に読み、tokens にその差を入れる。
 const BASE = 10_000_000
 const COST = 100
 const DIFF_NOTE = 'この呼び出しの budget.spent() の差'
-
-// 読んでも進まず、担当の起動ごとに COST だけ進む計器。1 回の呼び出しの消費量は担当の起動数 × COST になる。
+// 読んでも進まず、担当の起動ごとに COST だけ進む計器。
 function metered() {
   const m = { v: BASE, spent: () => m.v }
   m.agent = (fn) => (...a) => { m.v += COST; return fn(...a) }
   return m
 }
-// 読むたびに step だけ進む計器。始めと返す直前の 2 回の読みの差は step になる。
 function ticking(step = 1000) {
   const m = { v: BASE, spent: () => { m.v += step; return m.v } }
   return m
 }
-// 読むたびに列の次の値を返す計器（最後の値は繰り返す）。
 function sequence(...vals) {
   let i = 0
   return { spent: () => vals[Math.min(i++, vals.length - 1)] }
 }
-const ledgerOf = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
-
-const auditRun = (budget) => (args, fn) => runWorkflow(args, fn, { budget })
+const auditRun = (budget) => (args, fn) => runScript(args, fn, { budget })
 
 test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の差で、累計を入れず、台帳の calls と tokens_note に同じ差が残る', async (t) => {
-  const state = reviewSetup(t)
+  const { state } = project(t, { 'doc.md': DOC })
   const m = metered()
   const consumed = []
-  const run = async (args, fn) => {
+  const runWf = async (args, fn) => {
     const before = m.v
     const res = await auditRun(m)(args, m.agent(fn))
     consumed.push(m.v - before)
     return res
   }
-  const { stop, steps } = await drive(state, mockAgent(), { run })
+  const { stop, steps } = await driveScript(state, scriptAgent(behave()), { runWf })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.ok(['plan', 'review'].every((k) => steps.some((s) => s.step === k)))
   assert.equal(consumed.length, steps.length)
   assert.deepEqual(steps.map((s) => s.res.tokens), consumed, 'tokens は呼び出しの中で増えた分')
   assert.ok(consumed.some((c) => c > 0))
@@ -257,30 +254,21 @@ test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の�
 })
 
 test('tokens: 読むたびに進む計器でも、始めと返す直前の 2 回の読みの差になる', async (t) => {
-  const state = reviewSetup(t)
-  const m = ticking(1000)
-  const { stop, steps } = await drive(state, mockAgent(), { run: auditRun(m) })
+  const { state } = project(t, { 'doc.md': DOC })
+  const { stop, steps } = await driveScript(state, scriptAgent(behave()), { runWf: auditRun(ticking(1000)) })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.ok(steps.length >= 2)
   assert.ok(steps.every((s) => s.res.tokens === 1000), JSON.stringify(steps.map((s) => s.res.tokens)))
   assert.ok(ledgerOf(state).calls.every((c) => c.tokens === 1000 && c.tokens_note === DIFF_NOTE))
 })
 
-test('tokens: 束ねの段（group）も差で返す', async (t) => {
-  const state = reviewSetup(t)
-  const once = { done: false }
-  const agentFn = mockAgent({
-    read: (p, o) => {
-      if (once.done || !o.label.includes('二つ目の節/p1|L1')) return undefined
-      once.done = true
-      return { cell_id: o.label.slice(5).split('（')[0], evidence: evidenceOf(p), findings: [{ claim: '目標に効かない', quote: 'この節は二つ目の主張を述べる本文の行である。', severity: 'LOW', layer: '要求' }], outside_notes: [], none_reason: '' }
-    },
-  })
-  const m = ticking(1000)
-  const { steps } = await drive(state, agentFn, { run: auditRun(m) })
-  const group = steps.filter((s) => s.step === 'group')
-  assert.ok(group.length >= 1, JSON.stringify(steps.map((s) => s.step)))
-  assert.ok(group.every((s) => s.res.tokens === 1000))
+test('tokens: 束ねの意図を取る全体の段の呼び出しも差で返す', async (t) => {
+  const { state } = project(t, { 'doc.md': DOC })
+  const { steps } = await driveScript(state, scriptAgent(behave({ ...oneFinding(), ...GROUPING })), { runWf: auditRun(ticking(1000)) })
+  assert.ok(steps.some((s) => s.args.stage === 'global' && s.args.workers.some((w) => w.role === 'confirmer')), JSON.stringify(steps.map((s) => s.args.stage)))
+  assert.ok(ledgerOf(state).groups.length >= 1, '束ねの群がある')
+  assert.ok(steps.every((s) => s.res.tokens === 1000))
+  assert.ok(ledgerOf(state).calls.every((c) => c.tokens === 1000 && c.tokens_note === DIFF_NOTE))
 })
 
 for (const [name, budget] of [
@@ -290,8 +278,8 @@ for (const [name, budget] of [
   ['返す直前に読めない', sequence(BASE, undefined)],
 ]) {
   test(`tokens: ${name}ときは null で、台帳の tokens_note は読めない経路のまま`, async (t) => {
-    const state = reviewSetup(t)
-    const { steps } = await drive(state, mockAgent(), { run: auditRun(budget), maxSteps: 1 })
+    const { state } = project(t, { 'doc.md': DOC })
+    const { steps } = await driveScript(state, scriptAgent(behave()), { runWf: auditRun(budget), maxSteps: 1 })
     assert.equal(steps.length, 1)
     assert.equal(steps[0].res.tokens, null, '片方でも読めなければ、累計を差として入れず null')
     const c = ledgerOf(state).calls[0]
@@ -299,3 +287,14 @@ for (const [name, budget] of [
     assert.match(c.tokens_note, /読めない/)
   })
 }
+
+test('args の検査: 段・workers の形が壊れた args では役を起動せず、返り値は {agents: [], tokens} だけ', async () => {
+  const started = []
+  const fn = async (p, o) => { started.push(o.label); return { notes: [] } }
+  for (const a of [{ state: '/s', callId: 'c', stage: 'review', workers: [] }, { state: '/s', callId: 'c', stage: 'file', workers: [{ id: 'f1' }] }]) {
+    const r = await runScript(a, fn)
+    assert.deepEqual(Object.keys(r).sort(), ['agents', 'tokens'])
+    assert.deepEqual(r.agents, [])
+  }
+  assert.deepEqual(started, [])
+})

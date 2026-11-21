@@ -29,11 +29,11 @@ function setup(t, phase = null) {
 const finding = (cell, over = {}) => ({
   cell, cycle: 1, claim: CLAIM, quote: QUOTE, severity: 'MEDIUM', layer: '設計', verdict: 'confirmed', verdict_reason: '本文で確かめた', status: 'current', ...over,
 })
-// fs: [[id, 指摘], …]、groups: 群（id・status・keys など）。
+// fs: [[id, 指摘], …]、groups: 群（id・keys など）。群は事実から導いた束ねの群の写し（L.groups）で、反証の状態は持たない。
 function put(state, fs, groups = []) {
   const L = ledger(state)
   for (const [id, f] of fs) L.findings[id] = f
-  for (const g of groups) L.groups.push({ cycle: 1, root_cause: '空の入力の扱いを使う側が書いていない', layer: '設計', pattern: '', votes: [], ...g })
+  for (const g of groups) L.groups.push({ cycle: 1, root_cause: '空の入力の扱いを使う側が書いていない', layer: '設計', ...g })
   writeFileSync(ledgerFile(state), JSON.stringify(L, null, 1))
 }
 const status = (state) => {
@@ -166,7 +166,7 @@ test('P7-1: 今の段の指摘（status が current）だけを数える。古�
   assert.deepEqual(f.ids, [`${a}|L1|p1#aaaa000001`])
 })
 
-test('P7-3: 確定指摘の各件は、ids のどれかを keys に含む、反証されていない群の id を groups に持つ', (t) => {
+test('P7-3: 確定指摘の各件は、ids のどれかを keys に含む群の id を groups に持つ（束ねに反証は無いので、群は全て載る）', (t) => {
   const { state, a, b } = setup(t)
   const [i1, i2, i3] = [`${a}|L1|p1#aaaa000001`, `${a}|L2|p1#aaaa000002`, `${a}|L3|p1#aaaa000003`]
   const j1 = `${b}|L1|p1#bbbb000001`
@@ -175,16 +175,13 @@ test('P7-3: 確定指摘の各件は、ids のどれかを keys に含む、反�
     [j1, finding(`${b}|L1|p1`)],
   ], [
     // i2（まとめた件の 2 番目の id）だけを keys に持つ群も、その件に載る。
-    { id: 'G1-g1', status: 'kept', keys: [i2, i3] },
-    // 反証された群は載せない。
-    { id: 'G1-g2', status: 'refuted', keys: [i1] },
-    // 検証していない（unverified）群・既存の型に結んだ群は、反証されていないので載せる。
-    { id: 'G1-g3', status: 'unverified', keys: [i1] },
-    { id: 'G1-g4', status: 'linked', keys: [i1], extends: 'T1' },
+    { id: 'G1-g1', keys: [i2, i3] },
+    { id: 'G1-g3', keys: [i1] },
   ])
   const s = status(state)
   const byFirst = Object.fromEntries(s.findings.confirmed.map((f) => [f.id, f]))
-  assert.deepEqual([...byFirst[i1].groups].sort(), ['G1-g1', 'G1-g3', 'G1-g4'], JSON.stringify(byFirst[i1]))
+  assert.deepEqual([...byFirst[i1].groups].sort(), ['G1-g1', 'G1-g3'], JSON.stringify(byFirst[i1]))
+  assert.ok(s.groups.every((g) => !('status' in g) && !('extends' in g) && !('lateral' in g)), '群は反証の状態・横展開の欄を持たない')
   assert.deepEqual(byFirst[i3].groups, ['G1-g1'])
   assert.deepEqual(byFirst[j1].groups, [], '群に含まれない指摘は空の配列')
 })
@@ -193,7 +190,7 @@ test('P7-3: 群の keys が、まとめた件の複数の id を含んでも、�
   const { state, a } = setup(t)
   const [i1, i2] = [`${a}|L1|p1#aaaa000001`, `${a}|L2|p1#aaaa000002`]
   put(state, [[i1, finding(`${a}|L1|p1`)], [i2, finding(`${a}|L2|p1`)]],
-    [{ id: 'G1-g1', status: 'kept', keys: [i1, i2] }, { id: 'G1-g2', status: 'kept', keys: [i2] }])
+    [{ id: 'G1-g1', keys: [i1, i2] }, { id: 'G1-g2', keys: [i2] }])
   const [f] = status(state).findings.confirmed
   assert.deepEqual([...f.groups].sort(), ['G1-g1', 'G1-g2'])
 })
@@ -201,7 +198,7 @@ test('P7-3: 群の keys が、まとめた件の複数の id を含んでも、�
 test('P7-3: groups の id は status の groups の id のまま', (t) => {
   const { state, a } = setup(t)
   const i1 = `${a}|L1|p1#aaaa000001`
-  put(state, [[i1, finding(`${a}|L1|p1`)]], [{ id: 'G2-g7', status: 'kept', keys: [i1] }])
+  put(state, [[i1, finding(`${a}|L1|p1`)]], [{ id: 'G2-g7', keys: [i1] }])
   const s = status(state)
   assert.ok(s.groups.some((g) => g.id === 'G2-g7'))
   assert.deepEqual(s.findings.confirmed[0].groups, ['G2-g7'])
@@ -216,7 +213,7 @@ test('P7-3: 群が 1 つも無ければ、各件の groups は空の配列', (t)
 test('P7: phases の今の段の findings も、上の階層の findings と同じ形（ids・groups を持つ）', (t) => {
   const { state, a } = setup(t, 'design')
   const i1 = `${a}|L1|p1#aaaa000001`
-  put(state, [[i1, finding(`${a}|L1|p1`)], [`${a}|L2|p1#aaaa000002`, finding(`${a}|L2|p1`)]], [{ id: 'G1-g1', status: 'kept', keys: [i1] }])
+  put(state, [[i1, finding(`${a}|L1|p1`)], [`${a}|L2|p1#aaaa000002`, finding(`${a}|L2|p1`)]], [{ id: 'G1-g1', keys: [i1] }])
   const s = status(state)
   assert.equal(s.phase, ledger(state).phase)
   assert.deepEqual(s.phases[s.phase].findings, s.findings)

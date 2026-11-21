@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { C } from './build-core.mjs'
-import { drive, mockAgent, runWorkflow, setup } from './test-harness.mjs'
+import { defaultResult, drive, mockAgent, setup } from './test-harness.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const STEP_SRC = readFileSync(path.join(HERE, 'build-step.js'), 'utf8')
@@ -92,8 +92,9 @@ test('SPEC_SCHEMA: behaviors・partitions・premises・unverified・allowed_opti
   const { state } = setup(t)
   let schema = null
   const over = { design: (p, opts) => { schema = schema || opts.schema; return undefined } }
-  await drive(state, mockAgent(over), { maxSteps: 1 })
-  assert.ok(schema, '詳細設計の役に schema が渡る')
+  await drive(state, mockAgent(over), { maxSteps: 3 })
+  assert.ok(schema, '詳細設計の役の結果の形がある')
+  assert.equal(schema, C.SPEC_SCHEMA, '詳細設計の役の結果の形は <checks> 区間の SPEC_SCHEMA（prompt に載り、submit が照らす）')
   for (const k of ['unit_id', 'spec', 'acceptance', 'cases', 'behaviors', 'partitions', 'premises', 'unverified', 'allowed_optional']) {
     assert.ok(schema.required.includes(k), `${k} が必須`)
   }
@@ -119,9 +120,8 @@ test('SPEC_SCHEMA: behaviors・partitions・premises・unverified・allowed_opti
 })
 
 test('既定の mockAgent の詳細設計は新しい欄を空に近い形で返し、checkSpec を通る（rowIds が空の単位）', async () => {
-  const mock = mockAgent()
   for (const [id, unit] of [['U1', CODE], ['U2', DOC]]) {
-    const r = await mock('x', { label: `design-${id}` })
+    const r = defaultResult('unit_designer', { unit: { id } })
     assert.deepEqual(r.behaviors, [{ text: '値を返す', accepts: [1], rows: [] }])
     for (const k of ['partitions', 'premises', 'unverified', 'allowed_optional']) assert.deepEqual(r[k], [], k)
     assert.deepEqual(r.cases[0].accepts, [1])
@@ -366,8 +366,8 @@ test('allowed_optional: 許した引用の理由と引用は返り値に残り�
 const designPrompt = async (t) => {
   const { state } = setup(t)
   const log = []
-  await drive(state, mockAgent({}, log), { maxSteps: 1 })
-  const hit = log.find((x) => x.label.startsWith('design-'))
+  await drive(state, mockAgent({}, log), { maxSteps: 3 })
+  const hit = log.find((x) => x.role === 'unit_designer')
   assert.ok(hit, '詳細設計の役が呼ばれる')
   return hit.prompt
 }
@@ -410,8 +410,7 @@ test('詳細設計の役の prompt: 語の一覧は <checks> 区間の VAGUE_WOR
   assert.ok(region.includes('なるべく'), '区間に語がある')
   const edited = `${STEP_SRC.slice(0, start)}${region.replaceAll('なるべく', 'ほどほどに')}${STEP_SRC.slice(end)}`
   const body = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', edited.replace(/^export const meta = /, 'const meta = '))
-  const args = { stage: 'design', roles: { unit_designer: { model: 'm', effort: 'low' } }, snapDir: '/x/', units: [{ unit_id: 'U1', brief: { path: 'b.md', hash: 'h' } }], unitDefs: { U1: { id: 'U1', kind: 'code', rows: [] } } }
-  args.argsSum = C.argsSum(args)
+  const args = { state: '/x/state', callId: 'c1', stage: 'design', workers: [{ id: 'd1', role: 'unit_designer', model: 'm', effort: 'low' }] }
   const prompts = []
   const agent = async (prompt) => { prompts.push(prompt); return null }
   const parallel = (ts) => Promise.all(ts.map((x) => Promise.resolve().then(x).catch(() => null)))
@@ -421,94 +420,4 @@ test('詳細設計の役の prompt: 語の一覧は <checks> 区間の VAGUE_WOR
   assert.ok(p, '詳細設計の役の prompt が作られる')
   assert.ok(p.includes('ほどほどに'), '差し替えた語が prompt に載る')
   assert.ok(!p.includes('なるべく'), '古い語が prompt に残らない')
-})
-
-// ---------------- 8. Workflow の中の checkSpec（rowIds の作り方） ----------------
-const BRIEF = { path: 'b.md', hash: 'h' }
-const ROLES = { unit_designer: { model: 'm', effort: 'low' }, architect: { model: 'm', effort: 'low' } }
-const withSum = (a) => ({ ...a, argsSum: C.argsSum(a) })
-const designOnlyArgs = (unitDefs) => withSum({ stage: 'design', callId: 'c1', roles: ROLES, snapDir: '/x/', units: Object.keys(unitDefs).map((id) => ({ unit_id: id, brief: BRIEF })), unitDefs })
-// 役ごとの返り値を、ラベルの頭（やり直しの前）で決める。
-const agentBy = (byLabel) => async (prompt, opts) => {
-  const head = opts.label.split('（')[0]
-  const f = byLabel[head]
-  if (!f) throw new Error(`想定しない役: ${opts.label}`)
-  return typeof f === 'function' ? f(prompt, opts) : f
-}
-const specOf = (id, mut) => { const r = id === 'U2' ? docBase() : base(); mut && mut(r); return r }
-const readSpec = (res, id) => res.specs.find((s) => s.unit_id === id)
-
-test('Workflow: 詳細設計だけの呼び出しは、args の unitDefs[<id>].rows から rowIds を作って checkSpec を呼ぶ', async () => {
-  const args = designOnlyArgs({ U1: { id: 'U1', kind: 'code', rows: ['X1-1', 'X1-2'] } })
-  const ok = await runWorkflow(args, agentBy({ 'design-U1': specOf('U1', (r) => { r.premises = [] }) }))
-  assert.deepEqual(readSpec(ok, 'U1').problems, [])
-  // 行 X1-2 を受ける振る舞いが無ければ、rowIds が使われている証拠として欠けになる。
-  const lacking = await runWorkflow(args, agentBy({ 'design-U1': specOf('U1', (r) => { r.premises = []; r.behaviors[1].rows = [] }) }))
-  assert.ok(readSpec(lacking, 'U1').problems.some((x) => /X1-2/.test(x)), `欠けが行 X1-2 を名指しする: ${JSON.stringify(readSpec(lacking, 'U1').problems)}`)
-  // args に無い行を挙げる振る舞いも欠け。
-  const unknown = await runWorkflow(designOnlyArgs({ U1: { id: 'U1', kind: 'code', rows: ['X1-1'] } }), agentBy({ 'design-U1': specOf('U1', (r) => { r.premises = [] }) }))
-  assert.ok(readSpec(unknown, 'U1').problems.length > 0, 'rowIds に無い行 X1-2 を挙げる振る舞い')
-})
-
-test('Workflow: premises の path の実在は照らさない（readable を渡さない。CLI の ingest が照らす）', async () => {
-  const args = designOnlyArgs({ U1: { id: 'U1', kind: 'code', rows: ['X1-1', 'X1-2'] } })
-  const res = await runWorkflow(args, agentBy({ 'design-U1': specOf('U1', (r) => { r.premises = [{ claim: '前提', path: '/どこにも無い/file.md', quote: '逐語の引用の文' }] }) }))
-  assert.deepEqual(readSpec(res, 'U1').problems, [])
-  const empty = await runWorkflow(args, agentBy({ 'design-U1': specOf('U1', (r) => { r.premises = [{ claim: '前提', path: '/どこにも無い/file.md', quote: '' }] }) }))
-  assert.ok(readSpec(empty, 'U1').problems.length > 0, 'quote の空は Workflow でも欠け')
-})
-
-test('Workflow: 欠けは 1 回だけやり直しに渡し、直せばその返り値を使う（決めきらない語を含む返り値が直る）', async () => {
-  const args = designOnlyArgs({ U1: { id: 'U1', kind: 'code', rows: ['X1-1', 'X1-2'] } })
-  let n = 0
-  const agent = async (prompt, opts) => {
-    n++
-    const bad = !opts.label.includes('やり直し')
-    return specOf('U1', (r) => { r.premises = []; if (bad) r.spec = '入力を受け取り、必要に応じて結果を返す。' })
-  }
-  const res = await runWorkflow(args, agent)
-  assert.equal(n, 2)
-  assert.deepEqual(readSpec(res, 'U1').problems, [])
-})
-
-const archReturn = () => ({
-  units: [
-    { id: 'U1', kind: 'code', title: '計算', responsibility: '値を計算する', paths: ['src/a.mjs'], tests: ['test/a.test.mjs'], test_uses: [], depends_on: [], covers: ['AC1'] },
-    { id: 'U2', kind: 'doc', title: '説明', responsibility: '使い方を書く', paths: ['docs/a.md'], tests: [], test_uses: [], depends_on: ['U1'], covers: ['AC1'] },
-  ],
-  inputs_read: [],
-  inputs_not_read: [],
-  questions: [],
-  contracts: [{ id: 'X1', subject: '計算の結果', producer: 'U1', consumers: ['U2'], rows: [
-    { value: '正常', producer_does: '値を返す', handling: [{ unit: 'U2', does: '値を書く' }] },
-    { value: '失敗', producer_does: 'null を返す', handling: [{ unit: 'U2', does: '失敗を書く' }] },
-  ] }],
-  copies: [],
-})
-const withArch = () => withSum({ stage: 'design', callId: 'c2', roles: ROLES, snapDir: '/x/', units: [], unitDefs: {}, arch: { brief: BRIEF, ctx: { coverIds: ['AC1'], inputs: [] }, unitBrief: BRIEF } })
-
-test('Workflow: 方式設計と同じ呼び出しなら、方式設計の結果の contracts から rowIds を作る（作る単位も使う単位も受ける）', async () => {
-  const noPrem = (r) => { r.premises = [] }
-  const u1 = (mut) => specOf('U1', (r) => { noPrem(r); mut && mut(r) })
-  const u2 = (mut) => specOf('U2', (r) => { r.behaviors = [{ text: '値を書く', accepts: [1], rows: ['X1-1'] }, { text: '失敗を書く', accepts: [1], rows: ['X1-2'] }]; mut && mut(r) })
-  const ok = await runWorkflow(withArch(), agentBy({ architect: archReturn(), 'design-U1': u1(), 'design-U2': u2() }))
-  assert.deepEqual(readSpec(ok, 'U1').problems, [], '作る単位 U1 は X1-1・X1-2 を受ける')
-  assert.deepEqual(readSpec(ok, 'U2').problems, [], '使う単位 U2 は X1-1・X1-2 を受ける')
-  // 使う単位が行 X1-2 を受けないと、その単位だけが欠け。
-  const lackU2 = await runWorkflow(withArch(), agentBy({ architect: archReturn(), 'design-U1': u1(), 'design-U2': u2((r) => { r.behaviors[1].rows = [] }) }))
-  assert.deepEqual(readSpec(lackU2, 'U1').problems, [])
-  assert.ok(readSpec(lackU2, 'U2').problems.some((x) => /X1-2/.test(x)), `U2 の欠けが行 X1-2 を名指しする: ${JSON.stringify(readSpec(lackU2, 'U2').problems)}`)
-  // 作る単位が行を受けないと、作る単位が欠け。
-  const lackU1 = await runWorkflow(withArch(), agentBy({ architect: archReturn(), 'design-U1': u1((r) => { r.behaviors[0].rows = [] }), 'design-U2': u2() }))
-  assert.ok(readSpec(lackU1, 'U1').problems.some((x) => /X1-1/.test(x)), `U1 の欠けが行 X1-1 を名指しする: ${JSON.stringify(readSpec(lackU1, 'U1').problems)}`)
-  assert.deepEqual(readSpec(lackU1, 'U2').problems, [])
-})
-
-test('Workflow: 方式設計と同じ呼び出しで、行を持たない単位は rows が空の振る舞いだけで通る', async () => {
-  const arch = archReturn()
-  arch.contracts = []
-  const own = (id) => specOf(id, (r) => { r.premises = []; r.behaviors.forEach((b) => { b.rows = [] }) })
-  const res = await runWorkflow(withArch(), agentBy({ architect: arch, 'design-U1': own('U1'), 'design-U2': own('U2') }))
-  assert.deepEqual(readSpec(res, 'U1').problems, [])
-  assert.deepEqual(readSpec(res, 'U2').problems, [])
 })
