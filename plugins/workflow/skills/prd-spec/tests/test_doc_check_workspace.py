@@ -252,6 +252,21 @@ class SnapshotAndDiff(_Workspace):
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class DocChecks(_Workspace):
+    def test_prd_graphの静的な検査の指摘がdocに届く(self):
+        # 決定が名指す項目に決定の trace が無い・略記の ID。どちらも監査役が言い直していた型で、prd-graph check が拾う。
+        dec = self.ws / "decisions.json"
+        body = json.loads(dec.read_text())
+        body["decisions"].append({**body["decisions"][0], "id": "D-004", "value": "SP-AUTH-001 は監査の記録を残す"})
+        dec.write_text(json.dumps(body, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        doc = self.ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("応答を返さなければならない。", "応答を返さなければならない。UTH003 と同じ形にする。UTH002 は PR と SP のどちらの略記か決まらない。"))
+        out = _ok(self.ws, "doc")
+        found = {f["id"]: f for f in json.loads((self.ws / out["path"]).read_text())["findings"]}
+        self.assertEqual(found["ST-DECISION-UNAPPLIED-D-004"]["location"], "SP-AUTH-001")
+        self.assertEqual(found["ST-ABBREV-ID-SP-AUTH-001-UTH003"]["document"], "specifications/auth")
+        self.assertIn("PR-AUTH-003", found["ST-ABBREV-ID-SP-AUTH-001-UTH003"]["fix"])
+        self.assertNotIn("ST-ABBREV-ID-SP-AUTH-001-UTH002", found, "当たる ID が 2 つ以上なら拾わない")
+
     def test_既定の_fixture_で拾うものと拾わないもの(self):
         out = _ok(self.ws, "doc")
         ids = _findings(self.ws)
@@ -1330,7 +1345,7 @@ class CarriedTbd(_Workspace):
         ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
         reset = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
         self.assertEqual(reset["entry"], ["specifications/auth"], "固定の文書は書き換えないので入口を持たない")
-        self.assertEqual(sorted(json.loads((ws / "checks/entry.json").read_text())["specifications/auth"]), ["SP-AUTH-001", "SP-AUTH-002"])
+        self.assertEqual(sorted(k for k in json.loads((ws / "checks/entry.json").read_text())["specifications/auth"] if k.startswith("SP-")), ["SP-AUTH-001", "SP-AUTH-002"])
         self._intake(ws)
         # writer が SP-AUTH-002 だけを改訂し、その項目の trace だけを申告した。
         doc = ws / "specifications-auth.md"
@@ -1392,7 +1407,29 @@ class CarriedTbd(_Workspace):
         self.assertEqual(_ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")["entry_digest"], reset["entry_digest"])
         self.assertEqual(_ok(ws, "doc", "--doc", "specifications/auth", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")["impact"]["path"], "checks/impact.specifications__auth.json", "--doc ごとに分ける")
 
-    def test_入口の無いrunはprd_graphを呼ばず全ての指摘を数える(self):
+    def test_変わらない節の略記は既存の指摘で当てていない決定は既存の指摘にしない(self):
+        # 略記は区間の本文で決まるので、変わらない節なら改訂の誤りではない。決定の未反映は改訂していないこと自体が誤りなので数える。
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答を返さなければならない。UTH003 に従う。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        dec = ws / "decisions.json"
+        body = json.loads((self.ws / "decisions.json").read_text())
+        body["decisions"].append({**body["decisions"][0], "id": "D-004", "value": "SP-AUTH-002 は承認を記録する"})
+        dec.write_text(json.dumps(body, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        found = {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+        self.assertTrue(found["ST-ABBREV-ID-SP-AUTH-001-UTH003"].get("preexisting"))
+        self.assertFalse(found["ST-DECISION-UNAPPLIED-D-004"].get("preexisting"))
+        # 覆された決定は当てなくてよい。
+        res = ws / "resolutions.json"
+        res.write_text(json.dumps({"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w", "supersedes": "D-004"}]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        again = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertNotIn("ST-DECISION-UNAPPLIED-D-004", [f["id"] for f in json.loads((ws / again["path"]).read_text())["findings"]])
+
+    def test_入口の無いrunは影響の範囲を求めず全ての指摘を数える(self):
         out = _ok(self.ws, "doc", "--open-tbd", "")
         self.assertNotIn("impact", out)
         self.assertEqual(out["preexisting_findings"], 0)

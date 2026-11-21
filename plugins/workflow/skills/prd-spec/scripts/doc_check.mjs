@@ -1711,6 +1711,51 @@ const WORKSPACE_TEXT = {
     issue: '不可逆な操作が該当なのに、kind が invariant の決定も未決も無い。破壊的な工程が縛りを挙げられず、flow の検査を通れない。',
     fix: `依頼文が失ってはならないものを述べていれば、その逐語を quote にした kind が invariant の決定にする。述べていなければ kind が invariant の O- を ${ledgerOf('open').file()} に足す。`,
   }),
+  // prd-graph check（Rust）が返す静的な検査。引数の並びは crates/prd-graph/src/checks.rs の各検査が正本。
+  DECISION_UNAPPLIED: (itemId, decisionId, items) => ({
+    id: `ST-DECISION-UNAPPLIED-${decisionId}`,
+    location: itemId,
+    quote: decisionId,
+    issue: `決定 ${decisionId} が名指す項目（${items.join('・')}）を持つ文書の、どの項目にも節にも、その決定の trace が無い。決定が本文に入っていないか、入れたのに根拠を申告していない。`,
+    fix: `${decisionId} の値を名指す項目の本文に当て、当てた項目か節の trace に { kind: "decision", ref: "${decisionId}" } を申告する。`,
+  }),
+  ABBREV_ID: (where, token, id) => ({
+    id: `ST-ABBREV-ID-${where}-${token}`,
+    location: where,
+    quote: token,
+    issue: `「${token}」は ${id} の略記に見える。略記は参照先の実在の検査を素通りするので、読み手も機械もどの項目を指すかを確かめられない。`,
+    fix: `「${token}」を「${id}」に書き換える。別の項目を指すなら、その項目 ID を正しい形で書く。`,
+  }),
+  DOC_FLOW_TABLE: (itemId, flowId, name, docValues, flowValues) => ({
+    id: `ST-DOC-FLOW-TABLE-${itemId}-${flowId}-${name}-${docValues}`,
+    location: itemId,
+    quote: `${name} = ${docValues}`,
+    issue: `項目 ${itemId} の条件「${name}」の値（${docValues}）が、trace が指す流れの判断 ${flowId} の入力の値（${flowValues}）と違う。同じ判断に流れと本文が別の値を定めている。`,
+    fix: `本文の「> 条件の値:」と表を ${flowId} の値の集合に揃える。流れの側が誤っているなら、その要素を直す役（flow-framer）へ戻す。`,
+  }),
+  GLOSSARY_BACKREF: (where, term, specId) => ({
+    id: `ST-GLOSSARY-BACKREF-${where}-${term}-${specId}`,
+    location: where,
+    quote: term,
+    issue: `用語表の「${term}」は定義を ${specId} に置くと示すが、${specId} の本文にその語が無い。読み手が定義を辿れない。`,
+    fix: `${specId} の本文に「${term}」の定義を書くか、用語表の行の参照先を定義のある項目に直す。`,
+  }),
+  HOLD_PROPAGATION: (itemId, heldId, rs) => ({
+    id: `ST-HOLD-PROPAGATION-${itemId}-${rs}`,
+    location: itemId,
+    quote: heldId,
+    severity: 'degraded',
+    issue: `この run で変えた項目 ${itemId} が、保持規則 ${rs} の触れる項目 ${heldId} を参照するが、${rs} も「裁定が下るまで」の文も持たない。保持中の論点を断定していないかを確かめる。`,
+    fix: `${itemId} が ${heldId} の保持中の論点に触れるなら、${rs} の保持規則に従う文にする。触れないなら直さない。`,
+  }),
+  FIELD_SPELLING: (itemId, field, n) => ({
+    id: `ST-FIELD-SPELLING-${itemId}-${field}-${n}`,
+    location: itemId,
+    quote: field,
+    severity: 'degraded',
+    issue: `項目 ${itemId} は \`${field}\` の要素を日本語の名前で ${n} 項目と述べるが、同じ文にキーの綴りが無い。実装者がキーの名前を決められない。`,
+    fix: `要素のキーをコードスパンで並べる（例: \`{a, b}\`）。`,
+  }),
   AMBIGUOUS: (docKey, itemId, word, quote) => ({
     id: `ST-AMBIGUOUS-${docKey}-${itemId}-${word}`,
     location: itemId,
@@ -2361,10 +2406,14 @@ const ENTRY_FILE = 'checks/entry.json'
 // itemDigests: 項目 ID ごとの、本文の区間と項目自身の trace を合わせた digest。trace を含めるのは、この run で付けた trace が原因の指摘
 // （発生源・flow の参照）を既存の指摘にしないため（入口の reset の直後は trace が空なので、trace を付けた項目は変わった項目になる）。
 // 同じ ID の見出しが 2 つ以上あれば、その全ての区間をまとめて 1 つの digest にする（2 つ目以降の区間の改訂を取りこぼさない）。
+// ID を持たない節（検証方法・用語定義など）も `<文書キー>§<見出し>` の key で入れる。表だけの改訂や、表にある既存の略記を分けるため。
 function itemDigests(d) {
   const trace = d.meta && Array.isArray(d.meta.trace) ? d.meta.trace : []
   const byId = new Map()
-  for (const s of itemSections(d.markdown, d.kind)) if (s.id) byId.set(s.id, [...(byId.get(s.id) || []), s])
+  for (const s of itemSections(d.markdown, d.kind)) {
+    const key = s.id || `${d.key}${s.key}`
+    byId.set(key, [...(byId.get(key) || []), s])
+  }
   return new Map([...byId].map(([id, secs]) => [id, { secs, digest: digestOf({ text: secs.map((s) => s.text), trace: trace.filter((t) => t && t.item_id === id) }) }]))
 }
 function writeEntry(ws, keys) {
@@ -2374,11 +2423,12 @@ function writeEntry(ws, keys) {
   return entry
 }
 
-// ITEM_LOCAL: 指摘の帰属先の項目の本文か trace だけで決まる検査の ID の接頭辞。
-const ITEM_LOCAL = ['ST-NO-EVIDENCE-', 'ST-REQ-NO-ORIGIN-', 'ST-MODAL-', 'ST-AMBIGUOUS-']
+// ITEM_LOCAL: 指摘の帰属先の項目の本文か trace だけで決まる検査の ID の接頭辞。ST-ABBREV-ID- は、区間の本文と全ての文書の ID の集合
+// （当たる ID が 1 つか）で決まる。区間が変わらなければ改訂の誤りではないので、ここに入れる。
+const ITEM_LOCAL = ['ST-NO-EVIDENCE-', 'ST-REQ-NO-ORIGIN-', 'ST-MODAL-', 'ST-AMBIGUOUS-', 'ST-ABBREV-ID-']
 // NEVER_PREEXISTING: 項目に帰属するが、prd-graph の事実に無いもの（開いている TBD の集合・flow の要素）に依存する検査。影響の範囲で
 // この run が原因でないと言えないので、既存の指摘にしない。
-const NEVER_PREEXISTING = ['ST-TBD-ASSERT-', 'ST-FLOW-UNKNOWN-REF-']
+const NEVER_PREEXISTING = ['ST-TBD-ASSERT-', 'ST-FLOW-UNKNOWN-REF-', 'ST-DECISION-UNAPPLIED-', 'ST-DOC-FLOW-TABLE-']
 
 // GRAPH_BIN: 影響の範囲を決める Rust の CLI の wrapper（plugins/workflow/crates/prd-graph が正本）。本文の解析は doc_check に 1 つだけ置き、
 // prd-graph には解析済みの事実だけを渡す。
@@ -2390,7 +2440,8 @@ function impactOf(ws, docs, entry, name) {
     docs: docs.map((d) => ({
       key: d.key,
       fixed: Boolean(d.fixed),
-      items: [...itemDigests(d)].map(([id, v]) => ({ id, digest: v.digest, refs: [...new Set(v.secs.flatMap((s) => s.text.match(ids) || []))].filter((x) => x !== id).sort() })),
+      // ID を持たない節（表など）は変わったかだけを見て、辺を持たせない。表は多くの ID を並べるので、辺にすると 1 行の改訂が全ての項目に波及する。
+      items: [...itemDigests(d)].map(([id, v]) => ({ id, digest: v.digest, refs: v.secs[0].id ? [...new Set(v.secs.flatMap((s) => s.text.match(ids) || []))].filter((x) => x !== id).sort() : [] })),
       links: d.traceability || [],
     })),
   }
@@ -2399,6 +2450,63 @@ function impactOf(ws, docs, entry, name) {
   const out = JSON.parse(r.stdout)
   return { ...out, path: writeCheck(ws, name, out) }
 }
+
+// graphCheck: 優先度 1 の静的な検査（prd-graph check）に事実を渡し、指摘を doc_check の compact の形で返す。文書の構造の解析
+// （区間・表・「> 条件の値:」・本文中の ID・用語表の行）はここで doc_check の解析を使って済ませ、Rust には解析済みの値を渡す。
+// Rust の側が文字を読むのは、略記の ID と欄の数の検査だけ。
+function graphCheck(docs, ledgers, flow, impact) {
+  const ids = new RegExp(`${ID_IN_TEXT.requirements.source}|${ID_IN_TEXT.specifications.source}`, 'g')
+  const idsOf = (text, self) => [...new Set(String(text).match(ids) || [])].filter((x) => x !== self).sort()
+  const trace = (d) => (d.meta && Array.isArray(d.meta.trace) ? d.meta.trace : []).filter((t) => t && t.item_id).map((t) => ({ item_id: t.item_id, kind: String(t.kind || ''), ref: t.ref == null ? null : String(t.ref) }))
+  const changed = impact ? impact.changed : docs.filter((d) => !d.fixed).flatMap((d) => d.ids)
+  const conditionsOf = (sec) =>
+    quoteParagraphs(sec)
+      .map((p) => /^条件の値\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(p))
+      .filter(Boolean)
+      .map((m) => ({ name: m[1].trim(), values: splitAxis(m[2]) }))
+  // 用語表: 見出しに「用語」を含む節の表の行のうち、定義の所在を「定義は <ID>」と示すもの。
+  const glossaryOf = (d, secs) =>
+    secs
+      .filter((sec) => !sec.id && /用語/.test(String(sec.lines[0] || '')))
+      .flatMap((sec) =>
+        tablesOf(sec).flatMap((t) =>
+          t.rows.flatMap((r) => {
+            const term = String(r.cells[0] || '').replace(/^`|`$/g, '').trim()
+            const def = r.cells.slice(1).find((c) => String(c).includes('定義は'))
+            const target = def ? (String(def).slice(String(def).indexOf('定義は')).match(ids) || [])[0] : null
+            return term && target ? [{ section: `${d.key}${sec.key}`, term, target }] : []
+          })
+        )
+      )
+  // 覆された決定は無効（契約の「決定の台帳」）。手段の層の決定は要求文書に書かないので、名指す要求 ID を外す。
+  const superseded = supersededIds(ledgers.resolutions)
+  const facts = {
+    docs: docs.map((d) => {
+      const secs = itemSections(d.markdown, d.kind)
+      return {
+        key: d.key,
+        fixed: Boolean(d.fixed),
+        sections: secs.map((sec) => ({ key: sec.id ? sec.key : `${d.key}${sec.key}`, id: sec.id, body: sec.lines.slice(1).join('\n'), ids: idsOf(sec.lines.slice(1).join('\n'), sec.id), conditions: conditionsOf(sec) })),
+        trace: trace(d),
+        glossary: glossaryOf(d, secs),
+      }
+    }),
+    decisions: listOf(ledgers.decisions, 'decisions')
+      .filter((x) => x && x.id && !superseded.has(String(x.id)))
+      .map((x) => ({ id: String(x.id), named: idsOf(`${x.value || ''} ${x.quote || ''}`).filter((id) => !(x.layer === '手段' && id.startsWith('PR-'))) })),
+    flow: listOf(flow, 'elements').filter((e) => e && e.type === 'decision' && Array.isArray(e.inputs)).map((e) => ({ id: String(e.id), inputs: e.inputs.filter((i) => i && i.name && Array.isArray(i.values)).map((i) => ({ name: String(i.name), values: i.values.map(String) })) })),
+    holds: listOf(ledgers.resolutions, 'resolutions').filter((r) => r && r.ruling === 'hold' && r.hold && Array.isArray(r.hold.item_ids)).map((r) => ({ id: String(r.id), item_ids: r.hold.item_ids.map(String) })),
+    changed,
+  }
+  const r = spawnSync(GRAPH_BIN, ['check'], { input: JSON.stringify(facts), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  if (r.error || r.status !== 0) throw new Error(`prd-graph check が失敗しました（exit ${r.status}）: ${(r.error && r.error.message) || String(r.stderr || '').trim()}`)
+  const found = JSON.parse(r.stdout).findings
+  const unknown = found.filter((f) => !GRAPH_CODES.includes(f.code))
+  if (unknown.length) throw new Error(`prd-graph check が知らない種別を返しました: ${[...new Set(unknown.map((f) => f.code))].join(', ')}`)
+  return found.map((f) => ({ c: f.code, d: f.doc, a: f.args }))
+}
+// GRAPH_CODES: prd-graph check が返す種別（文面は WORKSPACE_TEXT）。crates/prd-graph/src/checks.rs の Finding.code と一致させる。
+const GRAPH_CODES = ['DECISION_UNAPPLIED', 'ABBREV_ID', 'DOC_FLOW_TABLE', 'GLOSSARY_BACKREF', 'HOLD_PROPAGATION', 'FIELD_SPELLING']
 
 // place: S0 が既存文書を W に置く。文書と、その隣の開いている TBD の写しを 1 回でまとめて逐語で写す（写しを別の手順にすると置き忘れが起き、
 // 次の保存で写しの無い文書として正本を上書きするか消す）。隣に写しが無ければ、前に置いた W の写しを消す。
@@ -3942,15 +4050,17 @@ function wsDoc(ws, opts) {
   const kept = structural.findings
     .map((g) => (g.c === 'UNDECLARED_TBD' ? { ...g, a: g.a.filter((a) => !open.has(a[0])) } : g))
     .filter((g) => g.a.length)
-  const all = [...kept, ...groupCompact(workspaceExtraCompact(docs, openTbd.ids))]
+  const entry = readJsonFile(path.join(ws, ENTRY_FILE))
+  const metaOf = new Map(wsDocs.map((d) => [d.key, d.meta]))
+  const withMeta = docs.map((d) => ({ ...d, meta: metaOf.get(d.key) }))
+  const impactName = opts.doc.length ? `impact.${selected.map(indexName).join('+')}.json` : 'impact.json'
+  const impact = entry ? impactOf(ws, withMeta, entry, impactName) : null
+  const graph = graphCheck(withMeta, ledgers, flow, impact)
+  const all = [...kept, ...groupCompact([...workspaceExtraCompact(docs, openTbd.ids), ...graph])]
   const expanded = expandWorkspace({ findings: opts.doc.length ? all.filter((g) => selected.includes(g.d)) : all, not_checked: structural.not_checked })
   // 既存の指摘: 入口から本文が変わっていない項目に帰属する指摘のうち、改訂が原因になりえないもの。報告には残すが blocking に数えない。
   // 項目の本文と trace だけで決まる検査（ITEM_LOCAL）は、本文が変わらなければ改訂で生じないので、影響の範囲の中でも既存の指摘にする。
   // 項目どうしの関係を見る検査は、隣の項目の改訂で生じうるので、影響の範囲（変えた項目とその 1 hop 先）の外のものだけを既存の指摘にする。
-  const entry = readJsonFile(path.join(ws, ENTRY_FILE))
-  const metaOf = new Map(wsDocs.map((d) => [d.key, d.meta]))
-  const impactName = opts.doc.length ? `impact.${selected.map(indexName).join('+')}.json` : 'impact.json'
-  const impact = entry ? impactOf(ws, docs.map((d) => ({ ...d, meta: metaOf.get(d.key) })), entry, impactName) : null
   if (impact) {
     const hit = new Set(impact.impact)
     const changed = new Set(impact.changed)

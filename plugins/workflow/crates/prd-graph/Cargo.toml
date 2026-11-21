@@ -2,6 +2,8 @@
 name = "prd-graph"
 version = "0.1.0"
 edition = "2024"
+# let chains（if let … && …）を使う。
+rust-version = "1.88"
 description = "prd-spec の静的な層: 項目と参照の事実から影響の範囲を決める"
 publish = false
 

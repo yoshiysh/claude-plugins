@@ -227,11 +227,22 @@ class FindingText(unittest.TestCase):
         # workspace モードだけの種別は WORKSPACE_TEXT に、--lint だけが出す種別は LINT_TEXT に置く。3 つの表は重ならず、和が CLI の使う種別と一致する。
         cli = DOC_CHECK.read_text()
         used = set(re.findall(r"push\(\{ c: '([A-Z_]+)'", cli))
+        # prd-graph check（Rust）が返す種別は GRAPH_CODES に列挙し、doc_check は知らない種別を拒否する。
+        used |= set(re.findall(r"'([A-Z_]+)'", re.search(r"^const GRAPH_CODES = \[(.*)\]$", cli, re.M).group(1)))
         table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "FINDING_TEXT"), re.M))
         ws_table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "WORKSPACE_TEXT"), re.M))
         lint_table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "LINT_TEXT"), re.M))
         self.assertFalse(table & ws_table or table & lint_table or ws_table & lint_table)
         self.assertEqual(used, table | ws_table | lint_table)
+
+
+class GraphCodes(unittest.TestCase):
+    def test_GRAPH_CODESはprd_graphが返す種別とちょうど一致する(self):
+        # doc_check は知らない種別を拒否する。Rust の側に種別を足して GRAPH_CODES に足し忘れると、run の中で doc が止まる。
+        rust = (SKILL.parents[1] / "crates" / "prd-graph" / "src" / "checks.rs").read_text()
+        cli = DOC_CHECK.read_text()
+        listed = set(re.findall(r"'([A-Z_]+)'", re.search(r"^const GRAPH_CODES = \[(.*)\]$", cli, re.M).group(1)))
+        self.assertEqual(set(re.findall(r'code: "([A-Z_]+)"', rust)), listed)
 
 
 class ScriptHoldsNoBody(unittest.TestCase):

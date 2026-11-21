@@ -196,7 +196,7 @@ Claude Code で Workflow ツールが無いときは、有効にする方法（P
 `disableWorkflows` の設定か環境変数 `CLAUDE_CODE_DISABLE_WORKFLOWS`）を伝えて終える。runner には回さない（runner は Codex の前提で、
 Claude Code の中で混ぜると W を 2 つの経路で書く）。
 
-既存の文書を改訂する run（entry が existing）は、影響の範囲を決める `scripts/prd-graph`（Rust）を使う。binary が無いか crate の source より古ければ cargo で作り直すので、Rust の toolchain が要る（初回は crates.io から依存を取る。無ければ doc_check が理由を出して止まる）。
+doc_check は静的な検査と、既存の文書を改訂する run（entry が existing）の影響の範囲に `scripts/prd-graph`（Rust）を使う。binary が無いか crate の source より古ければ cargo で作り直すので、Rust の toolchain（1.88 以上）が要る（初回は crates.io から依存を取る。無ければ doc_check が理由を出して止まる）。
 
 1 run の agent は 25 体を超えることが多く、本家の進捗の行に `Large workflow` の警告が出ることがある（体数と費用の実測は
 `references/telemetry.md`）。

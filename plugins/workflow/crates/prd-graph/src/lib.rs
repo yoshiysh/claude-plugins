@@ -4,6 +4,8 @@
 //! トレーサビリティ表の紐付け）と、段 1 の入口で残した項目の digest を受け取り、
 //! 変わった項目と影響の範囲を決定的に返す。本文の解析はしない（解析の正本は doc_check に 1 つだけ置く）。
 
+pub mod checks;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
