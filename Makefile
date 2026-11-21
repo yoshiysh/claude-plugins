@@ -28,7 +28,11 @@ REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 
 NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
-.PHONY: test test-static-and-python test-node-traceability test-node-other portability references check runtime-deps traceability traceability-complete
+.PHONY: test test-static-and-python test-node-traceability test-node-other test-rust portability references check runtime-deps traceability traceability-complete
+
+# plugin が同梱する Rust の crate（plugins/<plugin>/crates/<name>）。一覧は毎回導出する。crates/strata は plugin の外にあり対象外。
+PLUGIN_CRATES := $(patsubst %/Cargo.toml,%,$(wildcard $(PLUGINS_DIR)/*/crates/*/Cargo.toml))
+CARGO ?= cargo
 
 # Pinned runtime dependencies are installed before discovery executes Node tests.
 $(RUNTIME_STAMP): $(RUNTIME_DIR)/package-lock.json
@@ -63,6 +67,14 @@ test-node-traceability: runtime-deps
 	@echo "── Node tests (traceability)"
 	@$(NODE_FOR_TESTS) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
 
+test-rust:
+	@set -e; for c in $(PLUGIN_CRATES); do \
+		echo "── Rust $$c"; \
+		$(CARGO) fmt --manifest-path $$c/Cargo.toml --check; \
+		$(CARGO) clippy --manifest-path $$c/Cargo.toml --all-targets --locked -q -- -D warnings; \
+		$(CARGO) test --manifest-path $$c/Cargo.toml --locked -q; \
+	done
+
 test-node-other: runtime-deps
 	@if [ -n "$(NODE_TEST_FILES)" ]; then \
 		echo "── Node tests (other)"; \
@@ -72,7 +84,7 @@ test-node-other: runtime-deps
 # 合否ゲート。3 つを同時に走らせて全ての終了を待ち、1 つでも失敗したら失敗する。
 # runtime-deps を先に満たすのは、3 つのサブ make が同じ node_modules へ npm ci を並列に流さないため。
 # レシピに $(MAKE) を字句どおり書くのは、make -n test でもこの行を実行してサブ make に -n を渡すため。
-TEST_TARGETS := test-static-and-python test-node-traceability test-node-other
+TEST_TARGETS := test-static-and-python test-node-traceability test-node-other test-rust
 test: runtime-deps
 	@$(SHELL) scripts/run_make_targets.sh '$(MAKE)' $(TEST_TARGETS)
 

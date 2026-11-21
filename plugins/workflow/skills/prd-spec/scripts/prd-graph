@@ -1,0 +1,23 @@
+#!/bin/bash
+# prd-graph の wrapper: release の binary が無いか crate の source より古ければ cargo で作り、引数と標準入力をそのまま渡す。
+# cargo が無ければ理由を出して止まる（推定で代わりの結果を返さない）。crate の正本は plugins/workflow/crates/prd-graph。
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CRATE_DIR="$(cd "${SCRIPT_DIR}/../../../crates/prd-graph" && pwd -P)"
+BIN_PATH="${CRATE_DIR}/target/release/prd-graph"
+
+stale() {
+  [ ! -x "${BIN_PATH}" ] && return 0
+  [ -n "$(find "${CRATE_DIR}/src" "${CRATE_DIR}/Cargo.toml" "${CRATE_DIR}/Cargo.lock" -newer "${BIN_PATH}" -print -quit 2>/dev/null)" ]
+}
+
+if stale; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "prd-graph: ${BIN_PATH} が無く、cargo もありません。Rust の toolchain を入れてから再実行してください（https://rustup.rs）" >&2
+    exit 3
+  fi
+  cargo build --quiet --release --locked --manifest-path "${CRATE_DIR}/Cargo.toml" >&2
+fi
+
+exec "${BIN_PATH}" "$@"

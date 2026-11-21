@@ -237,7 +237,7 @@ class SnapshotAndDiff(_Workspace):
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
         doc = stdout_body(r.stdout)
-        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
+        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "preexisting_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
         del doc["flow_refs"]
         self.assertNotIn("PR-AUTH", json.dumps(doc))
@@ -1322,6 +1322,43 @@ class CarriedTbd(_Workspace):
         out = _ok(ws, "index", "--req-dir", "docs/requirements", "--open-tbd", "TBD-RAUTH-002")
         self.assertEqual((out["open_tbd_files"], out["open_tbd_clear"]), ([], ["requirements/auth"]))
 
+    def test_入口から変わらない既存の項目の機械検査は既存の指摘としてblockingに数えない(self):
+        # 改訂していない既存の項目には trace が無い。数えると、根拠を捏造しない限り blocking が 0 にならない（実 run で 117 件が残った）。
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答などを返さなければならない。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        reset = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self.assertEqual(reset["entry"], ["specifications/auth"], "固定の文書は書き換えないので入口を持たない")
+        self.assertEqual(sorted(json.loads((ws / "checks/entry.json").read_text())["specifications/auth"]), ["SP-AUTH-001", "SP-AUTH-002"])
+        self._intake(ws)
+        # writer が SP-AUTH-002 だけを改訂し、その項目の trace だけを申告した。
+        doc = ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("PR-AUTH-002 と PR-AUTH-009 を実現する。", "PR-AUTH-002 と PR-AUTH-009 を実現する。承認を記録しなければならない。"))
+        meta = ws / "specifications-auth.meta.json"
+        meta.write_text(json.dumps({"tbd": [], "trace": [{"item_id": "SP-AUTH-002", "kind": "flow", "ref": "F-003"}]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        found = {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+        self.assertTrue(found["ST-NO-EVIDENCE-SP-AUTH-001"].get("preexisting"), "改訂していない項目の trace の無さは既存の指摘")
+        self.assertTrue(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"), "改訂前からある曖昧語も既存の指摘")
+        self.assertEqual(json.loads((ws / "checks/impact.json").read_text())["changed"], ["SP-AUTH-002"])
+        self.assertEqual(out["preexisting_findings"], 2)
+        counted = [i for i, f in found.items() if not f.get("preexisting") and f["document"] == "specifications/auth"]
+        self.assertEqual(out["blocking"], len(counted))
+        # 同じ項目を改訂したら、その項目の指摘は今回の改訂の分として数える。
+        doc.write_text(doc.read_text().replace("応答などを返さなければならない。", "応答などを必ず返さなければならない。"))
+        again = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        found = {f["id"]: f for f in json.loads((ws / again["path"]).read_text())["findings"]}
+        self.assertFalse(found["ST-NO-EVIDENCE-SP-AUTH-001"].get("preexisting"), "改訂した項目は trace を申告しなければならない")
+        self.assertFalse(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"))
+        self.assertEqual((again["preexisting_findings"], again["blocking"]), (0, out["blocking"] + 2))
+
+    def test_入口の無いrunはprd_graphを呼ばず全ての指摘を数える(self):
+        out = _ok(self.ws, "doc", "--open-tbd", "")
+        self.assertNotIn("impact", out)
+        self.assertEqual(out["preexisting_findings"], 0)
+        self.assertFalse((self.ws / "checks/impact.json").exists())
+
     def test_書き換えてよい既存文書の写しはtraceを未検査のままmetaのtbdになりstrayに出ない(self):
         repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
         ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
@@ -1335,7 +1372,8 @@ class CarriedTbd(_Workspace):
         self._intake(ws)
         after = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
         no_evidence = lambda o: [f for f in json.loads((ws / o["path"]).read_text())["findings"] if "NO-EVIDENCE" in f["id"]]
-        self.assertEqual((no_evidence(after), after["blocking"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
+        self.assertEqual((no_evidence(after), after["blocking"] + after["preexisting_findings"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
+        self.assertEqual(after["preexisting_findings"], 3, "reset の後は何も変えていないので、項目に帰属する指摘は既存の指摘になる")
         self.assertEqual(_ok(ws, "tree-digest")["stray"]["count"], 0)
 
     def test_写しの形が違えばresetは何も消さない(self):

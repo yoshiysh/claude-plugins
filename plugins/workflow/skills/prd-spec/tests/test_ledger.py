@@ -300,14 +300,16 @@ class FreshRunReset(_Workspace):
         out = _ok(self.ws, "reset", *self.KEEP, *self.FIXED)
         kept = {"input.md", "precedent.json", "requirements-auth.md", "specifications-auth.md", "requirements-auth.meta.json", "tmp/writer__U-1__draft/gen.py", "notes.txt"}
         after = self._files()
-        self.assertEqual(set(after), kept)
+        self.assertEqual(set(after), kept | {"checks/entry.json"}, "reset は固定でない残した文書の入口を書く")
+        self.assertEqual(out["entry"], ["specifications/auth"])
+        after.pop("checks/entry.json")
         self.assertEqual({k: after[k] for k in kept - {"requirements-auth.meta.json"}}, {k: before[k] for k in kept - {"requirements-auth.meta.json"}}, "S0 が書いたものと所有表の外は触らない")
         self.assertEqual(after["requirements-auth.meta.json"], self._s0_meta())
         self.assertEqual((out["kept"], out["fixed"]), (["requirements/auth", "specifications/auth"], ["requirements/auth"]))
         self.assertEqual(out["removed"], sorted(["answers", "checks", "decisions.json", "findings", "flow.json", "open.json", "plan.json", "questions.json", "questions.md", "report.md",
                                                  "requirements-billing.md", "requirements-billing.meta.json", "resolutions.json", "specifications-auth.meta.json", "tx"]))
         self.assertEqual(_ok(self.ws, "reset", *self.KEEP, *self.FIXED)["removed"], [], "流し直しても同じ W になる")
-        self.assertEqual(self._files(), after)
+        self.assertEqual({k: v for k, v in self._files().items() if k != "checks/entry.json"}, after)
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が行う"}]})
 
     def test_resetとsnapshotは固定の文書の本文とmetaのsha256を同じ値で返し書き換えで変わる(self):

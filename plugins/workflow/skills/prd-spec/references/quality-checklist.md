@@ -17,7 +17,7 @@
 | 5 | 全項目に ID があり、仕様項目→要求 ID の紐付けが 100% | 機械（表と突合） | traceability.md §1–3 |
 | 6 | 要求文書に、仕様書へ回すもの（名指しされていない手段を含む。名指しされた手段は §11.4 のとおり要求一覧の制約）と `prd-and-spec.md` §5「書きすぎとは何か（上限）」が書かないとする内部の実現の選択が無い | 目視（§11.4 の順で `layer` を決めてから判定テストを当てる） | prd-and-spec.md §11・§5 |
 | 7 | スコープ外の節が非空である | 機械（見出し照合） | document-structure.md |
-| 8 | 全要求に meta の `trace` の根拠があり、引用が原本に実在し、認められた根拠原本以外の出所が無い | 機械（ID と trace の突合 `ST-NO-EVIDENCE`、trace が発生源に届くか `ST-REQ-NO-ORIGIN`）＋引用の照合 | question-policy.md・fixed-premises.md・prd-and-spec.md §11.1 |
+| 8 | 全要求（entry が existing の run では、入口から変えた項目と新しい項目）に meta の `trace` の根拠があり、引用が原本に実在し、認められた根拠原本以外の出所が無い | 機械（ID と trace の突合 `ST-NO-EVIDENCE`、trace が発生源に届くか `ST-REQ-NO-ORIGIN`）＋引用の照合 | question-policy.md・fixed-premises.md・prd-and-spec.md §11.1 |
 | 9 | 必須の内容項目が揃い、分割文書で対象外となる常設章は「この文書では対象外」と明記されている（条件付きの章は該当時だけ置き、「リスクと影響」表は判定根拠列付き） | 見出し照合 | document-structure.md §1・§2・§3・§7 |
 | 10 | 本文が規範だけで構成され（根拠句・決定ログ・経緯・未確定事項の章が無い）、決まっていない論点は保持規則として書かれている | 機械（`ST-NON-NORMATIVE`）＋目視 | document-structure.md §4 |
 | 11 | 改修案件で、保持すべき既存挙動が明示されている（該当時のみ） | 目視 | requirement-writing-rules.md §7 |
