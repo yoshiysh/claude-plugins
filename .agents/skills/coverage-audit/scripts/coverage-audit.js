@@ -317,16 +317,18 @@ const COMMON = `
 // 全文レビューは query で目標と読む範囲だけを引き、事実は引かない）。
 const STEP_QUERY = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。事実の id で細部を引き直すときは --fact <事実の id> を足す（何度でもよい）。原文は写しで開く。索引の行・担当の unit・事実・指摘の場所が持つ写しの file を、start から end の行の範囲のうち要る箇所だけ Read で開く（対象の本体は開かない）'
 const STEP_INPUTS = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。--fact は付けない（この段は他の役の書き込みを読まず、CLI も拒む）。inputs の units の単位ごとに、写しの file を start から end の行の範囲の全文で Read で読む（offset=start, limit=end - start + 1。対象の本体は開かない）'
+// 全体の段: claim は意図の束を返す。ターンのたびに伸びた文脈を読み直すのが費用の元なので、束の入力を 1 回の query で引き、結果を全て書いてから 1 回 submit する（設計の決定 16）。
+const STEP_BATCH = '取った全ての担当の入力を、1 回の query で引く。命令は claim と同じ --state・--call・--worker に、担当ごとの --task <担当の id> を全て足した query（例: node … query --state … --call … --worker … --task <id1> --task <id2>）。出力の tasks は --task の順に担当ごとの入力（--task が 1 つなら 1 件の形のまま）。事実の id で細部を引き直すときは --fact <事実の id> を足す（何度でもよい）。原文は写しで開く。事実・指摘の場所・単位の索引が持つ写しの file を、start から end の行の範囲のうち判定に要る箇所だけ Read で開く（対象の本体は開かない）'
 const STEP_NONE = 'その担当の unit の file を、start から end の行の範囲だけ Read で読む（offset=start, limit=end - start + 1）。この段は query を流さない（他の役の書き込みを読まず、独立に読む。CLI も拒む）'
 const loop = (w, query) => `
 ### 担当を取る命令（この行をそのまま Bash で流す。出力は JSON）
 node ${sq(cliOf(A.state))} claim --state ${sq(A.state)} --call ${sq(A.callId)} --worker ${sq(w.id)}
 ### 手順
 1. 取る命令を流す。出力が done: true なら、手順を終えて返り値を返す。命令が終了状態 2 で拒まれたら（呼び出しが閉じたなど）、error を notes に書いて終える。
-2. 出力の tasks の担当ごとに、${query === 'inputs' ? STEP_INPUTS : query ? STEP_QUERY : STEP_NONE}。
+2. ${query === 'batch' ? STEP_BATCH : `出力の tasks の担当ごとに、${query === 'inputs' ? STEP_INPUTS : query ? STEP_QUERY : STEP_NONE}`}。
 3. 担当の kind の節（下の「結果の形」）に従って判断し、結果の JSON を担当の result_path に Write ツールで書く。
-4. 担当の result_path に書けたら、その都度 claim の出力の submit_cmd をそのまま Bash で流す（全ての担当を書き終えるのを待たない。時間の上限に当たっても、出した担当は台帳に残る）。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当（後で書いて流し直せばよい）。
-   ok が false の担当だけ、problems の理由を読んで直した結果を result_path に書き直し、同じ submit_cmd を流し直す（落ちた担当のファイルは CLI が消す）。dropped が true の担当は諦める。
+4. ${query === 'batch' ? '取った全ての担当の result_path を書いてから、claim の出力の submit_cmd を 1 回だけ Bash で流す（担当ごとに流さない。やり取りの回数を増やすと、そのたびに伸びた文脈を読み直す）。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当。' : '担当の result_path に書けたら、その都度 claim の出力の submit_cmd をそのまま Bash で流す（全ての担当を書き終えるのを待たない。時間の上限に当たっても、出した担当は台帳に残る）。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当（後で書いて流し直せばよい）。'}
+   ok が false の担当だけ、problems の理由を読んで直した結果を result_path に書き直し、${query === 'batch' ? '書き直した担当の全てを書いてから' : ''}同じ submit_cmd を流し直す（落ちた担当のファイルは CLI が消す。受理された担当は書き直さない）。dropped が true の担当は諦める。
 5. 1 に戻る。claim が done を返すまで繰り返す。出し終えていない担当があると、claim は同じ担当を返す。それを直せないときは notes に書いて終える。
 前の担当の判断を次の担当に持ち込まない。担当ごとに、その担当の入力だけから判断する。
 ### 返り値
@@ -342,8 +344,8 @@ ${READ_RESULT}
 - guarantees: この単位が保証していること { subject, quote, confidence, obligation? }（subject は主語の名前。他の単位と照らす鍵になるので、本文の呼び方で短く書く）。
 - premises: この単位が前提にしていること（他の所で満たされるはずのこと）{ subject, quote, confidence, obligation? }。
 引用は全てその担当の単位の本文から取る。同じ担当の束の他の単位の本文を引いた提出は拒まれる。単位をまたぐ食い違いに気づいたら、気づいた側の単位の前提（相手の単位が満たすべきこと）として書く（またぐ指摘は全体の段が判定する）。`
-const FACTS_NOTE = `入力は query の basis（意図の根拠の事実）と related（関係する事実）と omitted（載せなかった件数）・omitted_ids（載せなかった事実の id。上限を超えた件数は omitted_more）。事実は id・type・unit・quote と、原文を開く写しの file・start・end などを持つ（ファイルをまたぐ指摘は locations の要素ごとに持つ）。omitted が 0 でなければ、要る細部を --fact <id> で引き直す。原文は、事実の写しの file を start から end の範囲のうち要る箇所だけ Read で開く。目標の判定の担当は、units（単位の索引）の写しの file と start〜end も開ける。引用は、引く事実の unit（単位の id。大きいファイルを分けた単位は <path>#<位置>）の本文から取る（CLI はその単位の本文で照らす）。前の役の主張を正しいと仮定しない。`
-const JUDGE_FINDING = `findings（足す指摘）の要素は { claim, locations: [{ unit, quote }], obligation, confidence, severity, layer }。unit は事実の unit（単位の id）、quote はその単位の本文の逐語の引用、obligation は義務の id、confidence は high・medium・low、severity は ${SEV_LIST}、layer は原因の層（${LAYER_LIST}）。`
+const FACTS_NOTE = `入力は担当ごとに、query の basis（意図の根拠の事実）と related（関係する事実）と omitted（載せなかった件数）・omitted_ids（載せなかった事実の id。上限を超えた件数は omitted_more）と、あれば same_location（同じ箇所の指摘の組: 全文レビューの指摘とファイルの段の指摘で、同じ単位の引用が包含し合う事実の id の組。相手の事実は related にある）。same_location の組は、同じ欠陥を述べているかを判定の材料にする（主張が違う組もある）。重なっていること自体を、指摘を落とす理由にしない。事実は id・type・unit・quote と、原文を開く写しの file・start・end などを持つ（ファイルをまたぐ指摘は locations の要素ごとに持つ）。omitted が 0 でなければ、要る細部を --fact <id> で引き直す。原文は、事実の写しの file を start から end の範囲のうち要る箇所だけ Read で開く。目標の判定の担当は、units（単位の索引）の写しの file と start〜end も開ける。引用は、引く事実の unit（単位の id。大きいファイルを分けた単位は <path>#<位置>）の本文から取る（CLI はその単位の本文で照らす）。前の役の主張を正しいと仮定しない。`
+const JUDGE_FINDING = `findings（足す指摘）の要素は { claim, locations: [{ unit?, quote }], obligation, confidence, severity, layer }。quote は単位の本文の逐語の引用。unit（事実の unit・単位の id）は、同じ引用が複数の単位にあるときだけ書けばよい（1 つの単位にしか無ければ CLI が引き当て、複数にあれば候補を挙げて拒む）。obligation は義務の id（goal の担当では CLI が担当の項目にするので書かなくてよい）、confidence は high・medium・low、severity は ${SEV_LIST}、layer は原因の層（${LAYER_LIST}）。`
 const GLOBAL_GUIDE = `${FACTS_NOTE}
 #### kind: alias（名寄せ。主語の組が同じものを指すか）
 { same: yes|no|unsure, confidence: high|medium|low, quote }。basis の事実の本文の呼び方と使われ方だけで判じ、決められなければ unsure にする。quote は判断の決め手の逐語の引用。
@@ -354,7 +356,7 @@ const GLOBAL_GUIDE = `${FACTS_NOTE}
 #### kind: premise（前提が他の単位で満たされているか）
 { verdict: satisfied|unsatisfied, quote, findings? }。満たす保証があれば satisfied にして、その逐語の引用を付ける。無ければ unsatisfied にして、満たされていないことの指摘を findings に足す。${JUDGE_FINDING}
 #### kind: goal（目標・受け入れ基準の項目 1 つが支えられているか）
-{ verdict: supported|gap, quote, support?, findings? }。担当と query の出力の units（単位の索引: id・path・写しの file と start〜end）で、項目を支える箇所を探す。related が空でも、omitted_ids の事実を --fact で引き直して支えにでき、units の写しを開いて引用できる。supported なら、支えの事実の id（basis・related・omitted_ids にある id だけ）を support に挙げる。gap なら抜けの指摘を findings に足し、locations の unit には units の id を書く。${JUDGE_FINDING}
+{ verdict: supported|gap, quote, support?, findings? }。担当と query の出力の units（単位の索引: id・path・写しの file と start〜end）で、項目を支える箇所を探す。related が空でも、omitted_ids の事実を --fact で引き直して支えにでき、units の写しを開いて引用できる。supported なら、支えの事実の id（basis・related・omitted_ids にある id だけ）を support に挙げる。gap なら抜けの指摘を findings に足す（unit を書くときは units の id）。${JUDGE_FINDING}
 #### kind: confirm（全体の段が足した指摘、全文レビューの指摘への判定、落とした指摘の確認）
 { verdict: agree|disagree, reason, quote, obligation?, layer? }。basis の対象の指摘と、それへの判定を、本文に当たって確かめる。判定が正しければ agree、誤りなら disagree（落とした指摘への disagree はその指摘を復活させる。全文レビューの指摘を残した判定への disagree は、その指摘を確定させない）。落とす判定ほど厳しく見る。決め手の逐語の引用を付ける（合わない引用の判定は検証不能として扱われる）。復活させる指摘が原因の層を持たなければ layer（${LAYER_LIST}）を、義務に結ばれていなければ obligation を付ける。
 #### kind: group（束ね。確認が全て閉じた後の、全体の段の最後の意図）
@@ -390,7 +392,7 @@ query の inputs の lenses（観点の本文の配列）の観点ごとに、�
 結果は { lenses: [{ unit_id: <観点の id>, answers: [{ question: Q1|Q2|Q3, goal_index?, goal_id?, answer: yes|no, quote }] }] }（inputs の lenses の観点ごとにちょうど 1 つ）。quote はその観点の本文（name・procedure・goals の part）からの逐語の引用（yes なら根拠の箇所、no なら足りない手続きの箇所）。inputs の index は手続きが何に当たるかを見るためで、単位の本文は読まない。` },
   full_review: { query: 'inputs', text: FULL_REVIEW_GUIDE },
   file: { query: false, text: FILE_GUIDE },
-  global: { query: true, text: GLOBAL_GUIDE },
+  global: { query: 'batch', text: GLOBAL_GUIDE },
   retro: { query: false, text: `#### kind: retro（振り返り。この検査の進め方の出来事を読む）
 担当の unit は、この検査の出来事（拒否・返らなかった役・判定できなかった意図・不明の名寄せなど）を 1 行 1 件で並べた写し。担当の lenses（振り返りの観点）で、進め方の悪かった所を探す。対象のファイルの欠陥は探さない（振り返りの指摘は対象の指摘とは別の欄に出る）。結果の形はファイルの段と同じ。
 ${READ_RESULT}

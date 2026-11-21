@@ -193,14 +193,18 @@ test(`試行の上限（全体の段）: 意図の提出が MAX_ATTEMPTS 回落�
 })
 
 test('試行の上限（提出しない役）: 取ったまま提出されない意図も試行に数え、MAX_ATTEMPTS 回で undecided にして complete まで進む', async (t) => {
+  // 束で取るので、同じ呼び出しで他の意図を出した役の取り残しは試行に数えずに手放す（設計「完了と止める条件」）。数えるのは、その意図を取った役が 1 件も出さなかった呼び出しだけ。
   const { state } = project(t, FILES)
   await passPlan(state)
   const target = { id: null, calls: new Set() }
   const a = act({ goal: (task, ctx) => { if (task.intent.item !== 'AC1') return undefined; target.id = task.intent.id; target.calls.add(ctx.call); return null } })
-  const { stop } = await drive(state, a)
+  const { stop, calls } = await drive(state, a)
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.equal(st(state).intents.find((i) => i.id === target.id).state, 'undecided')
-  assert.equal(target.calls.size, core.MAX_ATTEMPTS, `取ったまま出さなかった呼び出しの数が上限に達したら、もう取らせない: ${target.calls.size}`)
+  const heldIdle = calls.filter((c) => target.calls.has(c.args.callId) && c.workers.some((w) => w.claims.some((cl) => (cl.tasks || []).some((x) => x.intent && x.intent.id === target.id)) && !w.submits.some((s) => (s.out.results || []).length)))
+  assert.equal(heldIdle.length, core.MAX_ATTEMPTS, `取ったまま 1 件も出さなかった呼び出しの数が上限に達したら、もう取らせない: ${heldIdle.length}（取った呼び出し ${target.calls.size}）`)
+  const last = [...target.calls].at(-1)
+  assert.ok(heldIdle.some((c) => c.args.callId === last), '最後に取った呼び出しは、1 件も出さなかった呼び出し（上限に達した後は取らせない）')
 })
 
 test('指摘の判定（残す）: ファイルの段の指摘ごとに finding の意図を作り、残すと確定する（確認に回さない）。確定した指摘は path・義務・確信度・原因の層・出どころを持つ', async (t) => {

@@ -554,6 +554,20 @@ export function board(L) {
   }
   return { facts, intents, byId, findings, groups: bundles }
 }
+// 同じ箇所の指摘の組: 全文レビューの指摘の場所と、ファイルの段の指摘が同じ単位で、正規化した引用が包含し合う組（[全文レビューの指摘, ファイルの段の指摘] の id）。
+// 包含は照合で決まるので CLI が求め、同じ欠陥かは役が判じる（まとめず、出どころを残す。設計「役と制御の境界」）。facts は今の根拠の事実。
+export function sameLocationPairs(facts) {
+  const fs = [...facts].filter((f) => f.type === 'finding')
+  const contains = (x, y) => !!x && !!y && (x.includes(y) || y.includes(x))
+  const out = []
+  for (const a of fs.filter((f) => f.origin === FULL_REVIEW)) {
+    for (const b of fs.filter((f) => f.origin === 'file')) {
+      const qb = C.norm(b.quote || '')
+      if ((a.locations || []).some((l) => l.unit === b.unit && contains(C.norm(l.quote || ''), qb))) out.push([a.id, b.id])
+    }
+  }
+  return out
+}
 // 束ねの群の id: 判定の周と、役が付けた群の id（answer --id で指す）。
 const groupId = (j, g) => `G${j.cycle}-${g.id}`
 

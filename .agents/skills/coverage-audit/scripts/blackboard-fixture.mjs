@@ -6,7 +6,9 @@
 // - claim  --state S --call C --worker W            → { ok, done: true } | { ok, tasks: [Task], submit_cmd }
 //   Task = { id, kind, result_path, unit?: { id, path, file, start, end }, lenses?: [{ id, name, procedure }], obligations?: [{ id, text }], intent?: { id, kind } }
 //   kind は file・retro・alias・subject・finding・premise・goal・confirm・group と、計画の段の plan・unit_verify、全文レビューの full_review
+//   lenses はファイルの段と振り返りの担当だけが持つ。全体の段の claim は意図の束（量は UNIT_MAX_BYTES まで）を返す（束の形は batch-fixture.mjs が固定する）
 // - query  --state S --call C --worker W --task T [--fact F ...] → { ok, basis: [Fact], related: [Fact], omitted: [id] } | { ok, facts: [Fact] }
+//   全体の段は --task を複数受け、{ ok, tasks: [1 件の形から ok を除いたもの], facts? } を返す（batch-fixture.mjs）
 //   Fact = { id, type, unit, path, quote, subject?, claim?, obligation?, ... }。omitted は載せなかった事実の件数（数）。ファイルの段の担当は終了状態 2 で拒む
 //   goal の意図の related は、その項目の id を obligation に持つ事実だけ（結ばれていない保証は返さず、件数を omitted に宣言する）
 // - submit --state S --call C --worker W            → { ok, results: [{ task, ok, problems, dropped }], missing: [task id] }

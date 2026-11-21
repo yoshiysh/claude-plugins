@@ -8,14 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   ALIAS_ANSWERS, C, CONFIDENCES, MAX_ATTEMPTS, VERDICTS, addEvent, board, calibration, checkFileResult, coverage, currentFindings, decide, factsOf, goalIds, goalSources,
   lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, packUnits, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, retroTodo, sha, splitAssets,
-  startPhase, staticFacts, targetLenses, unitTextOf, carriedRead, provenance, runMetrics, FULL_REVIEW, syncFullReview, fullReviewStatus,
+  startPhase, staticFacts, unitTextOf, carriedRead, provenance, runMetrics, FULL_REVIEW, syncFullReview, fullReviewStatus, UNIT_MAX_BYTES, sameLocationPairs,
 } from './ledger-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WORKFLOW = path.join(HERE, 'coverage-audit.js')
 
 class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }
-const MULTI = ['target', 'fact']
+const MULTI = ['target', 'fact', 'task']
 const KNOWN = {
   init: ['state', 'goal', 'request', 'decisions', 'criteria', 'goal-checked', 'target', 'constraints', 'lenses', 'roles', 'seeds', 'max-cycles', 'max-agents-total', 'phase', 'link'],
   reframe: ['state', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'target', 'phase', 'link', 'lenses'],
@@ -368,15 +368,33 @@ const intentTaskId = (intent, call) => `${intent}@${call}`
 const unitIndex = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => ({ id, path: a.path, file: a.snap, start: a.start, end: a.end }))
 // query が返す載せなかった事実の id の上限（B6: 要約は上限と宣言を持つ）。超えた分の件数は omitted_more で宣言する。
 const OMITTED_IDS_MAX = 200
+// 全体の段と確認の担当は観点の一覧を使わない（観点はファイルの段の読みの手続き）ので、担当に載せない。
 function intentTask(L, dir, call, w, it) {
   const tid = intentTaskId(it.id, call)
   const hs = hintsOf(dir, L.pending.hints)
   return {
     id: tid, kind: it.kind, result_path: resultPath(dir, call, w.id, tid), intent: { id: it.id, kind: it.kind, ...(it.item ? { item: it.item } : {}) },
-    lenses: targetLenses(L).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure })), obligations: obligations(L),
+    obligations: obligations(L),
     ...(it.kind === 'goal' ? { units: unitIndex(L) } : {}), ...(hs.length ? { hints: hs } : {}),
   }
 }
+// query が返す意図 1 件の入力（B1）。claim の束の量もこの形で測るので、query と claim はこの 1 か所から作る。
+// same_location は同じ箇所の指摘の組（全文レビューとファイルの段の指摘で、同じ単位の引用が包含し合うもの）。指摘の判定と確認は対象の指摘を含む組、
+// 束ねは根拠の中の組を持つ。組の相手の事実は related に足し、basis（意図の根拠）には入れない。同じ欠陥かは役が判じるので、まとめない。
+function intentEntry(L, B, it, tid, pairs) {
+  const pub = (ids) => ids.map((x) => B.facts.get(x)).filter(Boolean).map((f) => publicFact(L, f))
+  const target = it.kind === 'finding' ? it.basis[0] : it.kind === 'confirm' ? it.target : null
+  const same = it.kind === 'group' ? pairs.filter((p) => p.every((x) => it.basis.includes(x))) : target ? pairs.filter((p) => p.includes(target)) : []
+  const partners = [...new Set(same.flat())].filter((x) => !it.basis.includes(x) && !it.related.includes(x))
+  const ids = it.omitted_ids || []
+  return {
+    task: tid, kind: it.kind, intent: { id: it.id, kind: it.kind, ...(it.item ? { item: it.item } : {}) }, basis: pub(it.basis), related: pub([...it.related, ...partners]),
+    omitted: it.omitted, omitted_ids: ids.slice(0, OMITTED_IDS_MAX), ...(ids.length > OMITTED_IDS_MAX ? { omitted_more: ids.length - OMITTED_IDS_MAX } : {}),
+    ...(it.kind === 'goal' ? { units: unitIndex(L) } : {}), ...(same.length ? { same_location: same } : {}),
+  }
+}
+// 束の量: query が返す根拠・関係する事実・単位の索引のバイト数（設計「全体の段と確認」。上限は UNIT_MAX_BYTES で、新しい線を置かない）。
+const entryBytes = (e) => Buffer.byteLength(JSON.stringify({ basis: e.basis, related: e.related, ...(e.units ? { units: e.units } : {}) }))
 // 意図の試行: 根拠の鍵が変われば数え直す。上限で判定できなかった意図（undecided）として理由つきで閉じる。
 function bumpIntent(L, it, reason, stage = 'global') {
   const a = L.intent_attempts[it.id] && L.intent_attempts[it.id].key === it.key ? L.intent_attempts[it.id] : { key: it.key, n: 0 }
@@ -400,11 +418,20 @@ function quoteIn(L, q, units) {
 }
 const isStr = (s) => typeof s === 'string' && s.trim().length > 0
 // 場所（単位と逐語の引用）の照合。allowed を渡すと、その単位（全文レビューの読む範囲）の外の場所を拒む。
+// unit を省いた場所は、引用が逐語で載る単位が探す範囲（allowed か、振り返りを除く対象の全ての単位）に 1 つだけなら、その単位を場所に書き込む
+// （照合で決まるので役に書かせない。設計「役と制御の境界」）。複数にあれば、候補の単位を挙げて unit を求めて拒む。
 function locationProblems(L, where, f, allowed = null) {
   const p = []
   const locs = Array.isArray(f && f.locations) ? f.locations : []
   if (!locs.length) p.push(`${where}: locations（単位と引用）が無い`)
   locs.forEach((l, k) => {
+    if (l && typeof l === 'object' && (l.unit === undefined || l.unit === null || l.unit === '')) {
+      const scope = allowed || Object.keys(L.assets).filter((id) => !L.assets[id].retro)
+      const hits = scope.filter((u) => !quoteIn(L, l.quote, [u]))
+      if (hits.length === 1) l.unit = hits[0]
+      else if (hits.length > 1) { p.push(`${where}.locations[${k}]: 引用が複数の単位にあるので unit（単位の id）を書く。候補: ${hits.join(', ')}`); return }
+      else { p.push(`${where}.locations[${k}]: unit を省いた引用が、どの単位の本文にも逐語で無い: ${quoteIn(L, l.quote, scope)}`); return }
+    }
     if (!l || !L.assets[l.unit] || L.assets[l.unit].retro) { p.push(`${where}.locations[${k}]: 単位が台帳に無い: ${l && l.unit}`); return }
     if (allowed && !allowed.includes(l.unit)) { p.push(`${where}.locations[${k}]: 読む範囲の外の単位: ${l.unit}`); return }
     const e = quoteIn(L, l.quote, [l.unit])
@@ -467,6 +494,8 @@ function intentProblems(L, B, it, rep) {
     if (!s.length) p.push('supported には支えの事実の id（support）が要る')
     for (const id of s) if (!visible.includes(id)) p.push(`support に根拠・関係する事実に無い id: ${id}`)
   }
+  // 目標の判定が足す指摘の義務は、意図の項目で決まる（役が書いた値は上書きする）。
+  if (it.kind === 'goal' && Array.isArray(rep.findings)) for (const f of rep.findings) if (f && typeof f === 'object') f.obligation = it.item
   if (ADDS_FINDINGS.includes(it.kind) && rep.findings !== undefined) p.push(...globalFindingProblems(L, rep.findings))
   return p
 }
@@ -635,13 +664,30 @@ function closeCall(L, { env = false, lost = false } = {}) {
     bump(L, t.akey, env)
     addEvent(L, 'plan', `missing_${t.kind}`, `${t.id}: 担当が提出されなかった`, t.id)
   }
-  // 取ったまま提出されなかった意図は試行に数え、上限で判定できなかった意図として閉じる。
+  // 取ったまま提出されなかった意図（設計「完了と止める条件」の試行の数え方）:
+  // - その呼び出しで 1 件以上出した役（受理か拒否かを問わない）の取り残しは、試行に数えずに手放す（拒否は submitIntent が既に数えている）。
+  // - 1 件も出さなかった役が 2 件以上の束を持っていたら、試行に数えずに手放し、その役の種類の次の束の上限をその束の量の半分にする
+  //   （1 回だけの submit では時間切れがほぼ 0 件の提出で起きるので、同じ束を繰り返して全てを判定できなかった意図にしない）。
+  // - 1 件の束で 0 件のまま閉じたときだけ試行に数え、上限で判定できなかった意図として閉じる。
+  // その種類で 1 件以上の提出があった呼び出しの後は、束の上限を UNIT_MAX_BYTES に戻す。
   if (P.step === 'global') {
     const B = board(L)
-    for (const [id, c] of Object.entries(P.intent_claims || {})) {
-      if (c.done) continue
+    const sent = (wid) => ((P.worker_submits || {})[wid] || 0) > 0
+    const roleOf = (wid) => (P.workers.find((x) => x.id === wid) || {}).role
+    const held = Object.entries(P.intent_claims || {}).filter(([id, c]) => !c.done && B.byId.get(id) && B.byId.get(id).state === 'open')
+    const heldOf = (wid) => held.filter(([, c]) => c.worker === wid)
+    L.bundle_caps = L.bundle_caps || {}
+    const roleSent = new Set(P.workers.filter((w) => sent(w.id)).map((w) => w.role))
+    for (const r of roleSent) delete L.bundle_caps[r]
+    for (const w of P.workers) {
+      const hs = heldOf(w.id)
+      if (roleSent.has(w.role) || hs.length < 2) continue
+      L.bundle_caps[w.role] = Math.floor(hs.reduce((n, [, c]) => n + (c.bytes || 0), 0) / 2)
+    }
+    for (const [id, c] of held) {
       const it = B.byId.get(id)
-      if (!it || it.state !== 'open') continue
+      if (sent(c.worker)) { addEvent(L, 'global', 'missing_intent', `${id}: 意図を取ったまま提出しなかった（同じ呼び出しで他の意図を出した役なので、試行に数えずに手放した）`, id); continue }
+      if (heldOf(c.worker).length >= 2) { addEvent(L, 'global', 'missing_intent', `${id}: 束を取ったまま 1 件も提出しなかった（試行に数えずに手放し、${roleOf(c.worker)} の次の束の上限を半分にした）`, id); continue }
       addEvent(L, 'global', 'missing_intent', `${id}: 意図を取ったまま提出しなかった`, id)
       bumpIntent(L, it, '取ったまま提出されなかった')
     }
@@ -731,7 +777,7 @@ function fileTask(L, dir, call, w, id) {
 const boundTask = (dir, call, t) => ({ id: t.id, kind: t.kind, result_path: resultPath(dir, call, t.worker, t.id), ...(t.lenses ? { lenses: t.lenses } : {}) })
 
 // claim: ファイルの段と振り返りは、行に結んだ詰め合わせの単位を全て取る（出し終えていない単位を持っていれば、それだけを同じ形で返す）。
-// 全体の段は、自分の種類の開いた意図を 1 つ取る。計画の段は、行に結んだ担当を返す。
+// 全体の段は、自分の種類の開いた意図を束で取る（量は query が返す入力のバイト数の和で UNIT_MAX_BYTES まで）。計画の段は、行に結んだ担当を返す。
 // 取る物が無ければ done。返す前に結果の path の古いファイルを消す。
 function cmdClaim(o) {
   const dir = path.resolve(need(o, 'state'))
@@ -753,15 +799,30 @@ function cmdClaim(o) {
       const ids = Object.keys(L.assets).filter((k) => L.assets[k].claim && L.assets[k].claim.call === call && L.assets[k].claim.worker === w.id)
       if (ids.length) tasks = ids.map((id) => fileTask(L, dir, call, w, id))
     } else if (P.step === 'global') {
-      // 出し終えていない意図を持っていればそれを返し、無ければ自分の種類の開いた意図を 1 つ取る（取る順は意図の並び）。
+      // 出し終えていない意図を持っていればそれだけを返す（新しい意図を混ぜない）。無ければ自分の種類の開いた意図を、意図の並びの順で前から、
+      // query が返す入力の量の和が UNIT_MAX_BYTES に収まる所まで束で取る（next-fit。1 件だけで超える意図は単独の束。設計の決定 16）。
       const B = board(L)
-      let id = Object.keys(P.intent_claims).find((k) => P.intent_claims[k].worker === w.id && !P.intent_claims[k].done)
-      if (id && (!B.byId.get(id) || B.byId.get(id).state !== 'open')) { P.intent_claims[id].done = true; id = null }
-      if (!id) {
-        const it = B.intents.find((i) => i.state === 'open' && (P.kinds[w.id] || []).includes(i.kind) && !P.intent_claims[i.id])
-        if (it) { id = it.id; P.intent_claims[id] = { worker: w.id, done: false } }
+      const ids = []
+      for (const k of Object.keys(P.intent_claims).filter((x) => P.intent_claims[x].worker === w.id && !P.intent_claims[x].done)) {
+        const it = B.byId.get(k)
+        if (!it || it.state !== 'open') P.intent_claims[k].done = true
+        else ids.push(k)
       }
-      if (id) tasks = [intentTask(L, dir, call, w, B.byId.get(id))]
+      if (!ids.length) {
+        // 上限は、前の呼び出しで束を取って 0 件のまま閉じた役の種類なら、その束の量の半分（closeCall が台帳に置く）。無ければ UNIT_MAX_BYTES。
+        const cap = (L.bundle_caps || {})[w.role] ?? UNIT_MAX_BYTES
+        const pairs = sameLocationPairs(B.facts.values())
+        let bytes = 0
+        for (const it of B.intents.filter((i) => i.state === 'open' && (P.kinds[w.id] || []).includes(i.kind) && !P.intent_claims[i.id])) {
+          const n = entryBytes(intentEntry(L, B, it, intentTaskId(it.id, call), pairs))
+          if (ids.length && bytes + n > cap) break
+          ids.push(it.id)
+          bytes += n
+          // 意図ごとの量を取りの記録に置く（0 件のまま閉じた束の量を closeCall が足し直す）。
+          P.intent_claims[it.id] = { worker: w.id, done: false, bytes: n }
+        }
+      }
+      if (ids.length) tasks = ids.map((id) => intentTask(L, dir, call, w, B.byId.get(id)))
     } else {
       const t = P.tasks.find((x) => x.worker === w.id && !x.done)
       if (t) { t.claimed = true; tasks = [boundTask(dir, call, t)] }
@@ -778,17 +839,19 @@ function cmdClaim(o) {
 
 // query: 担当が読む入力を台帳から引く（B1）。ファイルの段と振り返りの担当は拒む（他の役の書き込みを読まず、独立に読む）。
 // 計画の段の担当には、その担当が要る文（目標・依頼文・索引・案・欠陥・回答・観点）だけを返す。--fact は今の根拠の事実を id で引く。
+// 全体の段は --task を複数受け、取った束の意図の入力を --task の順に tasks で 1 回で返す（--task が 1 つなら 1 件の形）。どれかが担当に無ければ拒む。
 function cmdQuery(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => {
     const L = load(dir)
     const w = pendingWorker(L, o)
     const P = L.pending
-    const tid = need(o, 'task')
-    if (READ_STEPS.includes(P.step) || tid.startsWith('file:')) throw new Fail('ファイルの段と振り返りの担当は query できない（他の役の書き込みを読まない。B1）')
+    const tids = need(o, 'task')
+    if (READ_STEPS.includes(P.step) || tids.some((x) => x.startsWith('file:'))) throw new Fail('ファイルの段と振り返りの担当は query できない（他の役の書き込みを読まない。B1）')
     // 全文レビューの担当: 目標と読む範囲の単位の一覧だけを返す。事実（他の役の書き込み・前の run の指摘と判定）は引けない（B1）。
     if (P.step === FULL_REVIEW) {
       if (o.fact) throw new Fail('全文レビューの担当は --fact で事実を引けない（他の役の書き込みを読まない。B1）')
+      const tid = oneTask(tids)
       const t = P.tasks.find((x) => x.id === tid && x.worker === w.id)
       if (!t) throw new Fail(`この worker の担当に無い: ${tid}`)
       return { ok: true, task: t.id, kind: t.kind, inputs: fullReviewInputs(L) }
@@ -797,24 +860,27 @@ function cmdQuery(o) {
     const facts = (o.fact || []).map((id) => { if (!B.facts.has(id)) throw new Fail(`今の根拠に無い事実: ${id}`); return publicFact(L, B.facts.get(id)) })
     if (P.step === 'global') {
       // 意図の根拠と関係する事実だけを返す（B1）。前の判定は今の根拠から外れているので返さない。載せなかった件数は omitted で宣言する。
-      const id = Object.keys(P.intent_claims).find((k) => intentTaskId(k, P.call_id) === tid && P.intent_claims[k].worker === w.id)
-      if (!id) throw new Fail(`この worker が取った意図の担当に無い: ${tid}`)
-      const it = B.byId.get(id)
-      if (!it) throw new Fail(`意図が今の根拠から外れた: ${id}（next からやり直す）`)
-      const pub = (ids) => ids.map((x) => B.facts.get(x)).filter(Boolean).map((f) => publicFact(L, f))
-      const ids = it.omitted_ids || []
-      return {
-        ok: true, task: tid, kind: it.kind, intent: { id: it.id, kind: it.kind, ...(it.item ? { item: it.item } : {}) }, basis: pub(it.basis), related: pub(it.related),
-        omitted: it.omitted, omitted_ids: ids.slice(0, OMITTED_IDS_MAX), ...(ids.length > OMITTED_IDS_MAX ? { omitted_more: ids.length - OMITTED_IDS_MAX } : {}),
-        ...(it.kind === 'goal' ? { units: unitIndex(L) } : {}), ...(o.fact ? { facts } : {}),
-      }
+      const its = tids.map((tid) => {
+        const id = Object.keys(P.intent_claims).find((k) => intentTaskId(k, P.call_id) === tid && P.intent_claims[k].worker === w.id)
+        if (!id) throw new Fail(`この worker が取った意図の担当に無い: ${tid}`)
+        const it = B.byId.get(id)
+        if (!it) throw new Fail(`意図が今の根拠から外れた: ${id}（next からやり直す）`)
+        return [tid, it]
+      })
+      const pairs = sameLocationPairs(B.facts.values())
+      const entries = its.map(([tid, it]) => intentEntry(L, B, it, tid, pairs))
+      if (entries.length === 1) return { ok: true, ...entries[0], ...(o.fact ? { facts } : {}) }
+      return { ok: true, tasks: entries, ...(o.fact ? { facts } : {}) }
     }
+    const tid = oneTask(tids)
     const t = P.tasks.find((x) => x.id === tid && x.worker === w.id)
     if (!t) throw new Fail(`この worker の担当に無い: ${tid}`)
     return { ok: true, task: t.id, kind: t.kind, inputs: inputsOf(L, dir, t), ...(o.fact ? { facts } : {}) }
   })
 }
 const item = (c) => ({ id: c.id, text: c.text })
+// 全体の段の外の担当は、--task を 1 つだけ受ける。
+const oneTask = (tids) => { if (tids.length !== 1) throw new Fail(`この段の担当は --task を 1 つだけ受ける: ${tids.length} 個`); return tids[0] }
 // 全文レビューの入力: 目標（冒頭の文・項目・基準・制約）と、読む範囲の単位（id・path・写しの file と範囲）。観点・索引・ヒント・事実は載せない。
 const fullReviewInputs = (L) => ({
   goal: L.goal.text, items: L.goal.items.map(item), criteria: L.criteria.map(item), constraints: L.constraints.map(item),
@@ -882,7 +948,13 @@ function cmdSubmit(o) {
         results.push({ task: t.id, ok: !r.problems.length, problems: r.problems, dropped: r.dropped, ...(r.notes ? { notes: r.notes } : {}) })
       }
     }
-    if (results.length) { P.submits += results.length; P.accepted = (P.accepted || 0) + results.filter((x) => x.ok).length; save(dir, L) }
+    if (results.length) {
+      P.submits += results.length
+      P.accepted = (P.accepted || 0) + results.filter((x) => x.ok).length
+      // 役ごとの提出の数（受理か拒否かを問わない）。取ったまま出さなかった意図の数え方に使う（closeCall）。
+      P.worker_submits = { ...(P.worker_submits || {}), [w.id]: ((P.worker_submits || {})[w.id] || 0) + results.length }
+      save(dir, L)
+    }
     return { ok: true, results, missing }
   })
 }
