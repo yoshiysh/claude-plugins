@@ -338,15 +338,20 @@ node ${sq(cliOf(A.state))} claim --state ${sq(A.state)} --call ${sq(A.callId)} -
 const READ_RESULT = `- seen: 観点ごとにちょうど 1 つ { lens, answer, quote }。answer は found（指摘がある）・checked（手続きで確かめ、指摘が無い）・not_applicable（この単位に手続きが列挙するものが無い）。どの answer にも、確かめた箇所の逐語の引用を quote に付ける。
 - findings: 観点に当たる欠陥ごとに { lens, claim, quote, obligation, confidence, severity, layer }。obligation は結ぶ義務の id（結べないものは findings に入れず references に書く）。confidence は high・medium・low。severity は ${SEV_LIST}。layer は直すべき原因の層（${LAYER_LIST}。本文の層とは限らない）。重さで絞らない。found の観点は指摘を 1 つ以上持つ。
 - references: 義務に結べない気づき { claim, quote }。`
+// 抜けを数える前の判断。ファイルの段・全文レビュー・全体の段（足す・判定する・確かめる）で同じ文を共有する。
+const BOUNDARY_RULE = `#### 境界の答えを抜けと数えない
+対象が、ある責務を対象の外（別の層・別の部品・呼ぶ側）に明示して預けている所と、対象に含めないと明示している所は、その境界の答えであって抜けではない。預け先の中身が対象に無いことは、検査の範囲の外のことである。抜けとして数えるのは、目標・要求・仕様がその責務を対象の中で果たすことを求めているときだけで、その求めを claim に逐語で引く（求めが単位の本文にあれば、その箇所も引用の場所に足す）。預け方や範囲の外し方が目標・要求・仕様と食い違うなら、抜けでなく食い違いとして指摘する。正しい対象を、要求に満たないと判じる誤りが起きやすいため。`
 const FILE_GUIDE = `#### kind: file（1 つの単位の全文を、全ての観点で読む）
 claim は、文脈に収まる分の単位を詰めた担当を返す。担当ごとに 1 つの単位で、全ての担当を読む。担当の lenses（観点の一覧。手続きは「何を列挙し、何と照らすか」）、obligations（義務: 目標・受け入れ基準の id と本文）、hints（利用者のヒント。あれば取り込む）を使う。単位の全文を読んでから、観点ごとに手続きで確かめる。結果は単位ごとに書く。
 ${READ_RESULT}
 - guarantees: この単位が保証していること { subject, quote, confidence, obligation? }（subject は主語の名前。他の単位と照らす鍵になるので、本文の呼び方で短く書く）。
 - premises: この単位が前提にしていること（他の所で満たされるはずのこと）{ subject, quote, confidence, obligation? }。
-引用は全てその担当の単位の本文から取る。同じ担当の束の他の単位の本文を引いた提出は拒まれる。単位をまたぐ食い違いに気づいたら、気づいた側の単位の前提（相手の単位が満たすべきこと）として書く（またぐ指摘は全体の段が判定する）。`
+引用は全てその担当の単位の本文から取る。同じ担当の束の他の単位の本文を引いた提出は拒まれる。単位をまたぐ食い違いに気づいたら、気づいた側の単位の前提（相手の単位が満たすべきこと）として書く（またぐ指摘は全体の段が判定する）。
+${BOUNDARY_RULE}`
 const FACTS_NOTE = `入力は担当ごとに、query の basis（意図の根拠の事実）と related（関係する事実）と omitted（載せなかった件数）・omitted_ids（載せなかった事実の id。上限を超えた件数は omitted_more）と、あれば same_location（同じ箇所の指摘の組: 全文レビューの指摘とファイルの段の指摘で、同じ単位の引用が包含し合う事実の id の組。相手の事実は related にある）。same_location の組は、同じ欠陥を述べているかを判定の材料にする（主張が違う組もある）。重なっていること自体を、指摘を落とす理由にしない。事実は id・type・unit・quote と、原文を開く写しの file・start・end などを持つ（ファイルをまたぐ指摘は locations の要素ごとに持つ）。omitted が 0 でなければ、要る細部を --fact <id> で引き直す。原文は、事実の写しの file を start から end の範囲のうち要る箇所だけ Read で開く。目標の判定の担当は、units（単位の索引）の写しの file と start〜end も開ける。引用は、引く事実の unit（単位の id。大きいファイルを分けた単位は <path>#<位置>）の本文から取る（CLI はその単位の本文で照らす）。前の役の主張を正しいと仮定しない。`
 const JUDGE_FINDING = `findings（足す指摘）の要素は { claim, locations: [{ unit?, quote }], obligation, confidence, severity, layer }。quote は単位の本文の逐語の引用。unit（事実の unit・単位の id）は、同じ引用が複数の単位にあるときだけ書けばよい（1 つの単位にしか無ければ CLI が引き当て、複数にあれば候補を挙げて拒む）。obligation は義務の id（goal の担当では CLI が担当の項目にするので書かなくてよい）、confidence は high・medium・low、severity は ${SEV_LIST}、layer は原因の層（${LAYER_LIST}）。`
 const GLOBAL_GUIDE = `${FACTS_NOTE}
+${BOUNDARY_RULE}主語の照合と前提の消化では、この規則で境界の答えと判じた明示（目標・要求・仕様がその責務を対象の中で果たすことを求めておらず、預け方が求めと食い違わないもの）だけを consistent・satisfied にし、その明示の文を quote にする。求めと食い違うなら conflict・unsatisfied にし、この規則の食い違いの指摘を findings に足す。
 #### kind: alias（名寄せ。主語の組が同じものを指すか）
 { same: yes|no|unsure, confidence: high|medium|low, quote }。basis の事実の本文の呼び方と使われ方だけで判じ、決められなければ unsure にする。quote は判断の決め手の逐語の引用。
 #### kind: subject（2 つ以上の単位にまたがる主語の照合）
@@ -358,7 +363,7 @@ const GLOBAL_GUIDE = `${FACTS_NOTE}
 #### kind: goal（目標・受け入れ基準の項目 1 つが支えられているか）
 { verdict: supported|gap, quote, support?, findings? }。担当と query の出力の units（単位の索引: id・path・写しの file と start〜end）で、項目を支える箇所を探す。related が空でも、omitted_ids の事実を --fact で引き直して支えにでき、units の写しを開いて引用できる。supported なら、支えの事実の id（basis・related・omitted_ids にある id だけ）を support に挙げる。gap なら抜けの指摘を findings に足す（unit を書くときは units の id）。${JUDGE_FINDING}
 #### kind: confirm（全体の段が足した指摘、全文レビューの指摘への判定、落とした指摘の確認）
-{ verdict: agree|disagree, reason, quote, obligation?, layer? }。basis の対象の指摘と、それへの判定を、本文に当たって確かめる。判定が正しければ agree、誤りなら disagree（落とした指摘への disagree はその指摘を復活させる。全文レビューの指摘を残した判定への disagree は、その指摘を確定させない）。落とす判定ほど厳しく見る。決め手の逐語の引用を付ける（合わない引用の判定は検証不能として扱われる）。復活させる指摘が原因の層を持たなければ layer（${LAYER_LIST}）を、義務に結ばれていなければ obligation を付ける。
+{ verdict: agree|disagree, reason, quote, obligation?, layer? }。basis の対象の指摘と、それへの判定を、本文に当たって確かめる。判定が正しければ agree、誤りなら disagree（落とした指摘への disagree はその指摘を復活させる。全文レビューの指摘を残した判定への disagree は、その指摘を確定させない）。落とす判定ほど厳しく見る。境界や対象の中の抜けを主張する指摘への判定は、上の「境界の答えを抜けと数えない」に照らし、対象にその責務の明示の預けや範囲の外しが無いかを本文で探してから判じる。明示があり、対象の中で果たすことを求める目標・要求・仕様の逐語が無ければ、全体の段が足した判定と残した判定には disagree、落とした判定には agree。その逐語があれば、落とした判定には disagree（復活）。決め手の逐語の引用を付ける（合わない引用の判定は検証不能として扱われる）。復活させる指摘が原因の層を持たなければ layer（${LAYER_LIST}）を、義務に結ばれていなければ obligation を付ける。
 #### kind: group（束ね。確認が全て閉じた後の、全体の段の最後の意図）
 query の basis（確定した指摘の事実）を根本原因で束ねる。症状でなく原因で束ね、全ての事実の id をちょうど 1 つの群に入れる（入れられないものは unassigned）。重さで絞らない。
 結果は { groups: [{ id, root_cause, layer, keys: [事実の id] }], unassigned: [事実の id] }。layer は直すべき層（${LAYER_LIST}）。`
@@ -376,7 +381,8 @@ query の inputs は goal（目標の冒頭の文）・items（目標の項目�
 結果は { findings, references }。
 - findings: 欠陥ごとに { claim, locations: [{ unit, quote }], obligation, confidence, severity, layer }。locations は 1 つ以上で、複数の単位を引用してよい（単位をまたぐ欠陥は関わる単位ごとに場所を書く）。unit は inputs の units の id（読む範囲の外の単位を引いた提出は拒まれる）、quote はその単位の本文の逐語の引用。obligation は結ぶ義務の id（items か criteria の id。結べないものは findings に入れず references に書く）。confidence は high・medium・low。severity は ${SEV_LIST}。layer は直すべき原因の層（${LAYER_LIST}。本文の層とは限らない）。
 - references: 義務に結べない気づき { claim, locations: [{ unit, quote }] }。
-- 保証・前提（guarantees・premises）と観点ごとの見た（seen）は書かない（保証・前提を書いた提出は拒まれる）。`
+- 保証・前提（guarantees・premises）と観点ごとの見た（seen）は書かない（保証・前提を書いた提出は拒まれる）。
+${BOUNDARY_RULE}`
 const GUIDES = {
   plan: { query: true, text: `#### kind: plan（計画役。目標の照合と観点の計画を 1 体で担う）
 結果は { lenses, questions, constraint_map } に、次の 2 つを要るときだけ足す。
