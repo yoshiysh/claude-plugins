@@ -1,5 +1,5 @@
 // 単位 4・5 の実装レビュー（HIGH）の回帰テスト。設計 docs/design/coverage-ledger-method.md の次の決定を確かめる。
-// - H1「段の構成」: ファイルの段は 1 単位に 1 体（1 つの呼び出しで 1 worker に 1 単位だけ。起動数は未読の単位の数、上限は maxAgents と予算）。
+// - H1「段の構成」: ファイルの段は文脈に収まる分の単位を 1 体に詰める（起動数は詰め合わせの数、上限は maxAgents と予算）。
 // - H2「全体の段と確認」: 目標の判定の意図は、義務に結ばれた事実が無くても、単位の索引と載せなかった事実の id から判定できる。
 // - H3「観点の定義と持ち主」: 観点は呼ぶ側・仕組みの標準（通読）・計画役の提案の和。観点を渡しても計画役は提案として流れる。
 import test from 'node:test'
@@ -17,28 +17,30 @@ const THREE = {
 }
 
 // ---------------- H1 ----------------
-test('H1: ファイルの段は 1 つの呼び出しで 1 worker に 1 単位だけを渡し、起動数は未読の単位の数（workers の設定に縛られない）', async (t) => {
+test('H1: ファイルの段は文脈に収まる分の単位を 1 体に詰め、起動数は詰め合わせの数（workers の設定に縛られない）', async (t) => {
   const { state } = project(t, THREE)
-  assert.equal(cli('config', '--state', state, '--workers', '1').code, 0)
+  assert.equal(cli('config', '--state', state, '--workers', '2').code, 0)
   const { stop, calls } = await drive(state, behave())
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const files = calls.filter((c) => c.args.stage === 'file')
   assert.equal(files.length, 1, '3 単位を 1 回の呼び出しで読む')
-  assert.equal(files[0].args.workers.length, 3, '起動数は未読の単位の数')
+  assert.equal(files[0].args.workers.length, 1, '小さい対象は 1 つの詰め合わせ（workers 2 でも 1 体）')
   const per = new Map()
-  for (const task of claimedTasks(files).filter((x) => x.kind === 'file')) per.set(task.worker, new Set([...(per.get(task.worker) || []), task.id]))
-  assert.ok([...per.values()].every((s) => s.size === 1), `1 worker が 2 つ以上の単位を読んだ: ${JSON.stringify([...per].map(([w, s]) => [w, [...s]]))}`)
+  for (const task of claimedTasks(files).filter((x) => x.kind === 'file')) per.set(task.worker, new Set([...(per.get(task.worker) || []), task.unit.id]))
+  assert.deepEqual([...per.values()].map((x) => x.size), [3], `1 体が詰め合わせの 3 単位を読む: ${JSON.stringify([...per].map(([w, x]) => [w, [...x]]))}`)
 })
 
-test('H1: ファイルの段の起動数は残りの予算（max-agents-total）に収め、残りの単位は次の呼び出しに回す', async (t) => {
-  const { state } = project(t, THREE)
-  // 計画の段（計画役 2 体・統合・観点の検証）を済ませる（4 体）。
-  const { calls } = await drive(state, planAct(), { maxSteps: 3 })
-  assert.deepEqual(calls.map((c) => c.args.stage), ['plan', 'integrate', 'unit_verify'])
-  assert.equal(cli('config', '--state', state, '--max-agents-total', '6').code, 0)
+// 1 つで UNIT_MAX_BYTES の半分を超える本文（どの 2 つも 1 つの詰め合わせに収まらない）。
+const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
+test('H1: ファイルの段の起動数（詰め合わせの数）は残りの予算（max-agents-total）に収め、残りの詰め合わせは次の呼び出しに回す', async (t) => {
+  const { state } = project(t, { 'a.md': bigDoc('A'), 'b.md': bigDoc('B'), 'c.md': bigDoc('C') })
+  // 計画の段（計画役 1 体・観点の検証役 1 体）を済ませる（2 体）。
+  const { calls } = await drive(state, planAct(), { maxSteps: 2 })
+  assert.deepEqual(calls.map((c) => c.args.stage), ['plan', 'unit_verify'])
+  assert.equal(cli('config', '--state', state, '--max-agents-total', '4').code, 0)
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'file', JSON.stringify(n))
-  assert.equal(n.estimate_agents, 2, '見積もりは残りの予算（6 - 4）に収めた起動数')
+  assert.equal(n.estimate_agents, 2, '見積もりは残りの予算（4 - 2）に収めた起動数（詰め合わせは 3 つ）')
   assert.equal(JSON.parse(readFileSync(n.args_path, 'utf8')).workers.length, 2)
 })
 
@@ -95,7 +97,6 @@ test('H3: 観点を渡しても、仕組みの標準の観点（通読）を常�
   const given = []
   const act = planAct({
     plan: (q) => { given.push(q.given_lenses); return undefined },
-    integrate: (q) => undefined,
   })
   const { stop, calls } = await drive(state, act)
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))

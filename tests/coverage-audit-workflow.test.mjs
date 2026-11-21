@@ -21,10 +21,9 @@ const viaRunner = (t) => (args, agentFn) => Workflow({ scriptPath: WF, args }, {
 const DOC = '# 文書\n\n## 一つ目の節\nこの節は一つ目の主張を述べる本文の行である。\n\n## 二つ目の節\nこの節は二つ目の主張を述べる本文の行である。\n'
 const Q2 = 'この節は二つ目の主張を述べる本文の行である。'
 const ledgerOf = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
-// 束ね役・反証役の偽物: 全件を 1 つの群に入れ（型にしない）、反証しない。
+// 束ねの意図（確認役が取る）の偽物: 確定した指摘の事実（basis）の全件を 1 つの群に入れる。
 const GROUPING = {
-  group: (task, ctx) => { const q = ctx.query(task).inputs; return { groups: [{ id: 'g1', root_cause: '根の原因', layer: '実装', keys: q.items.map((x) => x.key), pattern: '', applies_to: [] }], unassigned: [] } },
-  refute: (task) => ({ group_id: task.group, refuted: false, reason: '確かめられない' }),
+  group: (task, ctx) => { const q = ctx.query(task); return { groups: [{ id: 'g1', root_cause: '根の原因', layer: '実装', keys: q.basis.map((f) => f.id) }], unassigned: [] } },
 }
 // doc.md に 1 件の指摘を書くファイルの段（layer は原因の層）。
 const oneFinding = (layer = '実装') => ({ facts: (p) => (path.basename(p) === 'doc.md' ? { findings: [{ claim: '主張に根拠が無い', quote: Q2, severity: 'LOW', layer }] } : {}) })
@@ -33,19 +32,17 @@ test('meta: limits の写しが本体と一致し、runner の要件は今のま
   assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
   assert.deepEqual([...META.requirements], ['fresh-thread', 'workspace-write'])
   assert.equal(C.PER_CELL, undefined, '枡ごとの起動数 PER_CELL は無い（1 回の起動数は workers の行の数）')
-  assert.deepEqual(META.phases.map((p) => p.title), ['goal_check', 'plan', 'integrate', 'unit_verify', 'file', 'global', 'group', 'refute'])
+  assert.deepEqual(META.phases.map((p) => p.title), ['plan', 'unit_verify', 'file', 'global', 'retro'], '目標の照合・統合・束ね・反証の段は無い（照合は計画役、束ねは全体の段の意図）')
   for (const gone of ['argsSum', 'checkRead', 'checkVerify', 'settleVerdict', 'checkLensReview', 'LENS_QUESTIONS', 'checkAppliesTo']) assert.equal(C[gone], undefined, `${gone} は無い`)
 })
 
-test('roles: 計画の段の役は独立な 2 体が別のモデル、観点の検証役は統合役と別のモデル、反証役 2 体は別のモデルで a は束ね役と別', () => {
-  for (const role of ['goal_checker', 'planner_a', 'planner_b', 'integrator', 'unit_verifier', 'file_reader', 'alias_judge', 'global_judge', 'confirmer', 'grouper', 'refuter_a', 'refuter_b']) {
+test('roles: 計画役・観点の検証役・読む役・判定役・確認役だけがあり、判断を出す役と確かめる役は別のモデル（計画役と観点の検証役、判定役と確認役）', () => {
+  for (const role of ['planner', 'unit_verifier', 'file_reader', 'global_judge', 'confirmer']) {
     assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort && ROLES[role].why, `roles.json に ${role} の model・effort・理由がある`)
   }
-  assert.equal(ROLES.lens_reviewer, undefined, '観点の精査役（N1・N2）は無い')
-  assert.notEqual(ROLES.planner_a.model, ROLES.planner_b.model, '独立な計画役は別のモデル')
-  assert.notEqual(ROLES.unit_verifier.model, ROLES.integrator.model, '観点の検証役は統合役と別のモデル')
-  assert.notEqual(ROLES.refuter_a.model, ROLES.refuter_b.model)
-  assert.notEqual(ROLES.refuter_a.model, ROLES.grouper.model, 'refuter_a は束ね役と別のモデル')
+  for (const gone of ['lens_reviewer', 'goal_checker', 'planner_a', 'planner_b', 'integrator', 'alias_judge', 'grouper', 'refuter_a', 'refuter_b']) assert.equal(ROLES[gone], undefined, `${gone} は無い`)
+  assert.notEqual(ROLES.unit_verifier.model, ROLES.planner.model, '観点の検証役は計画役と別のモデル')
+  assert.notEqual(ROLES.confirmer.model, ROLES.global_judge.model, '確認役は判定役と別のモデル')
 })
 
 // ---- CLI の入口（args で CLI の置き場を運ばないので、stateDir に CLI が書く）----
@@ -99,13 +96,14 @@ test('runner: 照合に落ちる提出は拒否され、出し直しても落ち
   assert.ok(ledgerOf(state).events.some((e) => e.kind === 'rejected_file'))
 })
 
-test('runner: 計画・ファイル・全体・束ね・反証が回り、上の層の欠陥は needs_input で返す。tokens は null', async (t) => {
+test('runner: 計画・観点の検証・ファイル・全体（束ねを含む）が回り、上の層の欠陥は needs_input で返す。tokens は null', async (t) => {
   const { state } = project(t, { 'doc.md': DOC }, { lenses: null })
   const { stop, steps } = await driveScript(state, scriptAgent(planAct({ ...oneFinding('要求'), ...GROUPING })), { runWf: viaRunner(t) })
   assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
   assert.equal(stop.upper.length, 1, '要求の層の欠陥は利用者に返す')
   const stages = new Set(steps.map((s) => s.args.stage))
-  for (const k of ['plan', 'integrate', 'unit_verify', 'file', 'global', 'group']) assert.ok(stages.has(k), `${k} が回る: ${[...stages]}`)
+  for (const k of ['plan', 'unit_verify', 'file', 'global']) assert.ok(stages.has(k), `${k} が回る: ${[...stages]}`)
+  assert.ok(ledgerOf(state).groups.some((g) => g.root_cause === '根の原因'), '束ねは全体の段の意図として回る')
   assert.ok(steps.every((s) => s.res.tokens === null), 'runner では消費量を読めないので null')
 })
 
@@ -154,7 +152,7 @@ test('quoteProblem の判定は変わらない（短い引用は全体か 1 行�
   assert.equal(C.quoteProblem('# 文書', '# 文書'), null, '本文の全体なら見出しでも短くても受け付ける')
 })
 
-// 目標の照合・計画・観点の検証・ファイルの段・全体の段（名寄せ・主語の照合・確認を含む）・束ね・反証が回る run を流し、役ごとの prompt を集める。
+// 計画（目標の照合を含む）・観点の検証・ファイルの段・全体の段（名寄せ・主語の照合・確認・束ねを含む）・振り返りが回る run を流し、役ごとの prompt を集める。
 const QA = 'この文書は台帳の lock を取ってから書き込むことを保証する。'
 const QB = 'この文書は lock が書き込みを直列にすることを前提にする。'
 async function promptsByRole(t) {
@@ -173,12 +171,12 @@ async function promptsByRole(t) {
   assert.ok(['complete', 'needs_input'].includes(stop.stop), JSON.stringify(stop))
   const by = (...roles) => log.filter((x) => roles.some((r) => x.label.startsWith(`${r}-`))).map((x) => x.prompt)
   return {
-    quoting: { 観点の検証役: by('unit_verifier'), 読む役: by('file_reader'), 名寄せの役: by('alias_judge'), 全体の段の役: by('global_judge'), 確認の役: by('confirmer') },
-    others: { 目標の照合役: by('goal_checker'), 計画役: by('planner_a', 'planner_b'), 統合役: by('integrator'), 束ね役: by('grouper'), 反証役: by('refuter_a', 'refuter_b') },
+    quoting: { 観点の検証役: by('unit_verifier'), 読む役: by('file_reader'), 判定役: by('global_judge'), 確認役: by('confirmer') },
+    others: { 計画役: by('planner') },
   }
 }
 
-test('prompt: quoteProblem で引用を照らす役（観点の検証役・読む役・名寄せ・全体の段・確認）に QUOTE_RULE が 1 回ずつ載る', async (t) => {
+test('prompt: quoteProblem で引用を照らす役（観点の検証役・読む役と振り返り・判定役・確認役）に QUOTE_RULE が 1 回ずつ載る', async (t) => {
   const { quoting } = await promptsByRole(t)
   const { QUOTE_RULE } = quoteRuleOf()
   for (const [who, prompts] of Object.entries(quoting)) {
@@ -187,15 +185,15 @@ test('prompt: quoteProblem で引用を照らす役（観点の検証役・読�
   }
 })
 
-test('prompt: 本文の引用を照らさない役（目標の照合役・計画役・統合役・束ね役・反証役）には QUOTE_RULE が載らず、目標の照合役には CITE_RULE だけが載る', async (t) => {
+test('prompt: 本文の引用を照らさない役（目標の照合も担う計画役）には QUOTE_RULE が載らず、CITE_RULE だけが載る', async (t) => {
   const { others } = await promptsByRole(t)
   const { QUOTE_RULE } = quoteRuleOf()
   for (const [who, prompts] of Object.entries(others)) {
     assert.ok(prompts.length > 0, `${who} が起動していない`)
     for (const p of prompts) assert.ok(!p.includes(QUOTE_RULE), `${who} の prompt に QUOTE_RULE が載っている`)
   }
-  for (const p of others['目標の照合役']) {
-    assert.match(p, /引用元の 1 件の全体/, '目標の照合役には引用元の規則（CITE_RULE）が載る')
+  for (const p of others['計画役']) {
+    assert.match(p, /引用元の 1 件の全体/, '計画役には引用元の規則（CITE_RULE）が載る')
     assert.doesNotMatch(p, /見出し[^。]*だけ[^。]*証拠にならない/, '見出しの規則は引用元には当てはまらず、2 つの規則が並ばない')
   }
 })
@@ -264,11 +262,11 @@ test('tokens: 読むたびに進む計器でも、始めと返す直前の 2 回
   assert.ok(ledgerOf(state).calls.every((c) => c.tokens === 1000 && c.tokens_note === DIFF_NOTE))
 })
 
-test('tokens: 束ねの段（group）も差で返す', async (t) => {
+test('tokens: 束ねの意図を取る全体の段の呼び出しも差で返す', async (t) => {
   const { state } = project(t, { 'doc.md': DOC })
   const { steps } = await driveScript(state, scriptAgent(behave({ ...oneFinding(), ...GROUPING })), { runWf: auditRun(ticking(1000)) })
-  const group = steps.filter((s) => s.args.stage === 'group')
-  assert.ok(group.length >= 1, JSON.stringify(steps.map((s) => s.args.stage)))
+  assert.ok(steps.some((s) => s.args.stage === 'global' && s.args.workers.some((w) => w.role === 'confirmer')), JSON.stringify(steps.map((s) => s.args.stage)))
+  assert.ok(ledgerOf(state).groups.length >= 1, '束ねの群がある')
   assert.ok(steps.every((s) => s.res.tokens === 1000))
   assert.ok(ledgerOf(state).calls.every((c) => c.tokens === 1000 && c.tokens_note === DIFF_NOTE))
 })

@@ -8,10 +8,9 @@ import { cli as auditCli, driveScript as auditDrive, scriptAgent } from '../.age
 import { planAct } from '../.agents/skills/coverage-audit/scripts/plan-roles.mjs'
 import { cli, drive, mockAgent, setup } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
 
-// coverage-audit の束ね役・反証役の偽物: 全件を 1 つの群に入れ（型にしない）、反証しない。
+// coverage-audit の束ねの意図（確認役が取る）の偽物: 確定した指摘の事実（basis）の全件を 1 つの群に入れる。
 const GROUPING = {
-  group: (task, ctx) => { const q = ctx.query(task).inputs; return { groups: [{ id: 'g1', root_cause: '根の原因', layer: '詳細設計', keys: q.items.map((x) => x.key), pattern: '', applies_to: [] }], unassigned: [] } },
-  refute: (task) => ({ group_id: task.group, refuted: false, reason: '確かめられない' }),
+  group: (task, ctx) => { const q = ctx.query(task); return { groups: [{ id: 'g1', root_cause: '根の原因', layer: '詳細設計', keys: q.basis.map((f) => f.id) }], unassigned: [] } },
 }
 
 test('設計レビュー: coverage-audit の status を取り込み、指摘を単位と層へ結ぶ', async (t) => {
@@ -112,8 +111,8 @@ const GX = 'c1:design:G2-XX'
 const RC_GS = '値の決め方を設計が書いていない'
 const RC_XX = '境界の約束の行が詳細設計に写されていない'
 const ledgerOf = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
-// coverage-audit の status の群。status の groups の形（id・status・layer・root_cause・lateral）のまま。
-const auditGroup = (id, root_cause, layer = '詳細設計', status = 'confirmed') => ({ id, status, layer, root_cause, lateral: false })
+// coverage-audit の status の群。status の groups の形（id・layer・root_cause・keys。束ねに反証と横展開は無い）のまま。
+const auditGroup = (id, root_cause, layer = '詳細設計') => ({ id, layer, root_cause, keys: [] })
 const G1 = auditGroup('G1-GS', RC_GS)
 const G2 = auditGroup('G2-XX', RC_XX)
 // fs: [{ claim, groups? }]。groups は status の確定指摘の `groups`（群の id の配列）。groups の無い件は欄ごと持たない。

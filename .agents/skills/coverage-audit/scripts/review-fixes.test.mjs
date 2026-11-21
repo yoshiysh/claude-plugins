@@ -1,5 +1,5 @@
 // 単位 1〜3 の実装レビュー（HIGH）の回帰テスト。台帳の事実を直接組んで board（ledger-core）の導出を確かめ、照合は CLI の流れで確かめる。
-// H1 横展開の指摘の確定の経路、H2 落とした指摘の確認が検証不能のとき、H3 前提が満たされていない判定の持ち越し、H4 確定した指摘の原因の層。
+// H1 ファイルの段の指摘の確定の経路（横展開をやめた後も、指摘の判定の 1 つだけ）、H2 落とした指摘の確認が検証不能のとき、H3 前提が満たされていない判定の持ち越し、H4 確定した指摘の原因の層。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { board, newLedger, readsSig } from './ledger-core.mjs'
@@ -12,37 +12,38 @@ function mk() {
   return L
 }
 const judge = (L, it, verdict, extra = {}) => L.facts.push({ id: `J${L.facts.length}`, type: 'judgment', intent: it.id, kind: it.kind, key: it.key, phase: PH, verdict, added: [], ...extra })
-// 横展開の意図が指摘 FLAT（重い指摘）を足した台帳。
-function lateralLedger() {
+// ファイルの段が指摘 FF（重い指摘）を書いた台帳。
+function fileLedger() {
   const L = mk()
-  L.lateral_types = [{ id: 'lat-G1-1', applies_to: ['b'], findings: [] }]
-  const lat = board(L).intents.find((i) => i.kind === 'lateral')
-  L.facts.push({ id: 'JL', type: 'judgment', intent: lat.id, kind: 'lateral', key: lat.key, phase: PH, verdict: 'found', added: ['FLAT'] })
-  L.facts.push({ id: 'FLAT', type: 'finding', origin: 'lateral', judgment: 'JL', claim: 'c', quote: 'q', unit: 'b', path: 'b', obligation: 'G1', layer: '実装', confidence: 'high', severity: 'HIGH' })
+  L.facts.push({ id: 'FF', type: 'finding', origin: 'file', unit: 'b', path: 'b', read: 'Rb', claim: 'c', quote: 'q', obligation: 'G1', layer: '実装', confidence: 'high', severity: 'HIGH', lens: 'L1' })
   return L
 }
 
-test('H1 横展開の指摘: 確定に至る経路は指摘の判定の 1 つだけで、added の確認にかけない。落とした後の確認の disagree だけが復活させ、agree なら落ちたまま', () => {
+test('H1 ファイルの段の指摘: 確定に至る経路は指摘の判定の 1 つだけで、added の確認にかけない。落とした後の確認の disagree だけが復活させ、agree なら落ちたまま', () => {
   for (const [confirmVerdict, kept] of [['disagree', true], ['agree', false]]) {
-    const L = lateralLedger()
+    const L = fileLedger()
     let B = board(L)
-    assert.ok(!B.intents.some((i) => i.kind === 'confirm' && i.mode === 'added'), '横展開の指摘を added の確認にかけない')
-    const fi = B.intents.find((i) => i.kind === 'finding' && i.basis[0] === 'FLAT')
-    assert.ok(fi, '横展開の指摘は指摘の判定にかける')
+    assert.ok(!B.intents.some((i) => i.kind === 'confirm' && i.mode === 'added'), 'ファイルの段の指摘を added の確認にかけない')
+    const fi = B.intents.find((i) => i.kind === 'finding' && i.basis[0] === 'FF')
+    assert.ok(fi, 'ファイルの段の指摘は指摘の判定にかける')
     judge(L, fi, 'drop')
     B = board(L)
-    const ci = B.intents.find((i) => i.kind === 'confirm' && i.target === 'FLAT')
+    const ci = B.intents.find((i) => i.kind === 'confirm' && i.target === 'FF')
     assert.equal(ci.mode, 'dropped')
     judge(L, ci, confirmVerdict)
     B = board(L)
-    assert.equal(B.findings.list.some((f) => f.id === 'FLAT' && f.verdict === 'confirmed'), kept, `落とした後の確認が ${confirmVerdict}`)
+    assert.equal(B.findings.list.some((f) => f.id === 'FF' && f.verdict === 'confirmed'), kept, `落とした後の確認が ${confirmVerdict}`)
   }
-  // 残す判定なら確定し、同じ対象に added の確認の意図が別にできて逆に読まれることは無い。
-  const L = lateralLedger()
+  // 残す判定なら確定し、同じ対象に added の確認の意図が別にできて逆に読まれることは無い。確認の意図が無いので、次は束ねの意図だけが開く。
+  const L = fileLedger()
   judge(L, board(L).intents.find((i) => i.kind === 'finding'), 'keep')
-  const B = board(L)
-  assert.ok(B.findings.list.some((f) => f.id === 'FLAT' && f.verdict === 'confirmed'))
+  let B = board(L)
+  assert.ok(B.findings.list.some((f) => f.id === 'FF' && f.verdict === 'confirmed'))
   assert.ok(!B.intents.some((i) => i.kind === 'confirm'))
+  assert.ok(!B.intents.some((i) => i.kind === 'group'), '開いた意図（目標の判定）がある間は束ねの意図を作らない')
+  judge(L, B.intents.find((i) => i.kind === 'goal'), 'supported', { support: ['FF'] })
+  B = board(L)
+  assert.deepEqual(B.intents.filter((i) => i.state === 'open').map((i) => [i.kind, i.basis]), [['group', ['FF']]], 'ほかの意図が全て閉じたら束ねの意図が開き、根拠は確定した指摘')
 })
 
 test('H2 落とした指摘の確認が検証不能（逐語でない引用）なら、黙って消さず検証不能の指摘として出す', () => {

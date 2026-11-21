@@ -7,10 +7,10 @@ import { readFileSync } from 'node:fs'
 const SRC = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
-return { LIMITS, LAYERS, SEVERITIES, norm, fenceMask, quoteProblem, unitKey, unitText, checkGoals, checkPlan, checkUnitVerdict, unitDefects, checkGroups, groupKeys, UPPER, linkOnly, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
+return { LIMITS, LAYERS, SEVERITIES, norm, fenceMask, quoteProblem, unitKey, unitText, checkGoals, checkPlan, checkUnitVerdict, unitDefects, checkGroups, UPPER, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
 
 export const MAX_ATTEMPTS = 2 // 同じ単位・担当・段の欠け（返らない・照合に落ちる）の上限。run をまたいで数える
-const PLAN_ROUNDS = 2 // 欠陥を直す統合のやり直しの上限
+const PLAN_ROUNDS = 2 // 観点の検証の欠陥を直す計画のやり直しの上限
 const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数続いたら止める
 // 単位の本文のバイト数（UTF-8）の上限。「1 体の文脈に収まらない」を判じる唯一の線で、規模による分岐や調整した数値の線をほかに置かない
 // （設計 docs/design/coverage-ledger-method.md の決定 9・11）。モデルの文脈の容量から決める物理的な上限として扱う（この定数で判じる形は利用者の承認済み）。
@@ -18,8 +18,10 @@ const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数
 // 単位の本文には 1/4（50k token）までを当てる。token あたりのバイト数は前提として、英語・コードで 3〜4 バイト、日本語（1 字 3 バイト）で
 // 2〜3 バイトと置き、記号の多い本文も見込んで少ない側の 2 バイトで見積もる: 50k × 2 = 100,000 バイト。比率は実測していない（run の記録の token で見直す）。
 export const UNIT_MAX_BYTES = 100000
-// workers: ファイルの段の 1 回の呼び出しで起動する worker の数の上限（読む単位の数より多くは起動しない）。
-const DEFAULT_CONFIG = { max_cycles: 2, max_agents_total: 600, workers: 4 }
+// workers: 全体の段の 1 回の呼び出しで、役（判定役・確認役）ごとに起動する体数の上限（開いた意図の数より多くは起動しない）。
+// 既定は 1 体で、1 体が claim を繰り返して意図を順に処理する（設計「モデルと費用」の起動の原則）。--workers は上書きとして残す。
+// max_cycles: 今の回の始まりから数えた周の上限（安全網）。run の中の周は 1 つで、周を足すのは止まった後に対象が変わって読み直す回だけ。
+const DEFAULT_CONFIG = { max_cycles: 2, max_agents_total: 600, workers: 1 }
 
 // 仕組みの標準の観点（設計「観点の定義と持ち主」）。呼ぶ側の観点と計画役の提案に常に足す（和集合）。標準の 1 つは観点を絞らない通読にし、
 // 固定した観点の外の欠陥を落とす副作用を和らげる。origin は standard（振り返りの観点の skill と分ける）。
@@ -236,10 +238,12 @@ export function newLedger({ goal, goalItems, checkedBy = null, phase = null, lin
     // assets: 単位（id → path・範囲・hash・写し・状態・試行・受理した読み）。facts: ファイルの段が足した事実（足すだけ。今の根拠は単位の受理した読みから導く）。
     version: 2, rev: 0, cycle: 1, phase, link, phase_start: { cycle: 1, agents: 0, events: 0 }, phase_records: {}, goal: { text: goal, items: goalItems, checked: !!checkedBy, checked_by: checkedBy, problems: [] }, request, decisions, criteria, constraints,
     config: { ...DEFAULT_CONFIG, ...config }, roles, targets, seeds: seeds || [],
-    call_seq: 0, plan: null, plan_drafts: null, plan_rounds: 0, plan_defects: [], plan_seq: 0, plan_problems: [], verified_units: [], answers: [], answered: [],
+    call_seq: 0, plan: null, plan_rounds: 0, plan_defects: [], plan_seq: 0, plan_problems: [], verified_units: [], answers: [], answered: [],
     lenses: [...(lenses || []).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...STANDARD_LENSES.map((l) => ({ ...l, origin: 'standard' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
     attempts: {}, env_attempts: {}, fail_streak: 0,
-    assets: {}, facts: [], static: [], intent_attempts: {}, lateral_types: [], grouping: null, findings: {}, events: [], groups: [], retro_cycles: [], group_cycles: [], saturation: [],
+    // retro_findings: 振り返りの指摘（対象の指摘・事実・意図・群に入れない。status の retro に出す）。retro_made: 振り返りの単位を作った周。
+    // findings・groups は事実から導いた確定した指摘と束ねの群の写し（保存のたびに CLI が書き直す）。
+    assets: {}, facts: [], static: [], intent_attempts: {}, findings: {}, groups: [], events: [], retro_cycles: [], retro_findings: [], retro_made: null, saturation: [],
     calls: [], agents: [], hints_read: [], pending: null,
     // round_start: 今の回（init・reframe か、止まった後に対象が変わって読み直しを始めた周）の始まりの周。これより前の周の読みは持ち越し。
     // run_records: 止まるたびの run の記録（指摘の出どころの内訳・持ち越した読みの数・全体の段で落とした数と確認で復活した数）。
@@ -253,13 +257,13 @@ function resetUnit(a) {
 }
 
 // 段を差し替える（reframe）。今の段の節を呼ぶ側が phase_records に写した後に呼ぶ。
-// 計画・回答・横展開の観点・束ね・試行を捨て、全ての単位を読み直しにし、今の指摘を退かせる（中身が同じでも読み直す）。
+// 計画・回答・試行を捨て、全ての単位を読み直しにし、今の指摘を退かせる（中身が同じでも読み直す）。束ねは今の段の判定から導くので、段が変われば今の群も無くなる。
 // 周を 1 つ進めて段の始まりにする（前の段の周・起動数・出来事を、今の段の上限と status に数えない）。
 // lenses を渡すと、利用者の観点をそれに差し替える（観点の組の版が変わる。単位はどのみち全て読み直しになる）。
 export function startPhase(L, phase, { lenses = null } = {}) {
   Object.assign(L, {
-    phase, plan: null, plan_drafts: null, plan_rounds: 0, plan_defects: [], plan_problems: [], plan_skipped: false, verified_units: [], answers: [], answered: [],
-    groups: [], attempts: {}, env_attempts: {}, fail_streak: 0, pending: null, stopped: null, intent_attempts: {}, lateral_types: [], grouping: null,
+    phase, plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], plan_skipped: false, verified_units: [], answers: [], answered: [],
+    attempts: {}, env_attempts: {}, fail_streak: 0, pending: null, stopped: null, intent_attempts: {},
   })
   L.lenses = L.lenses.filter((l) => l.origin === 'skill' || l.origin === 'user' || l.origin === 'standard')
   if (lenses) L.lenses = [...lenses.map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...L.lenses.filter((l) => l.origin !== 'user')]
@@ -378,11 +382,12 @@ export function factsOf(rep, { unit, path: p, read, cycle }) {
 
 // ---------------- 全体の段: 静的な検査・意図・判定（探索グラフ） ----------------
 // 事実（グラフの点）は CLI が受理したものだけで、意図（次に調べること）は今の根拠の事実から CLI が決定的に作る（設計「全体の段と確認」）。
-// 台帳が持つのは、受理した事実（L.facts。判定も事実）と、意図ごとの試行（L.intent_attempts）と、横展開の型（L.lateral_types）だけで、
-// 意図の一覧と状態・今の根拠・確定した指摘は、それらから毎回導く（B6: 状態は記録から導く）。
-export const INTENT_KINDS = ['alias', 'subject', 'finding', 'premise', 'goal', 'confirm', 'lateral']
+// 台帳が持つのは、受理した事実（L.facts。判定も事実）と、意図ごとの試行（L.intent_attempts）だけで、
+// 意図の一覧と状態・今の根拠・確定した指摘・束ねの群は、それらから毎回導く（B6: 状態は記録から導く）。
+// 束ね（group）は、ほかの意図が全て閉じた後に作る全体の段の最後の意図で、確定した指摘を根拠に持つ。
+export const INTENT_KINDS = ['alias', 'subject', 'finding', 'premise', 'goal', 'confirm', 'group']
 export const VERDICTS = {
-  subject: ['consistent', 'conflict'], finding: ['keep', 'drop'], premise: ['satisfied', 'unsatisfied'], goal: ['supported', 'gap'], confirm: ['agree', 'disagree'], lateral: ['found', 'none'],
+  subject: ['consistent', 'conflict'], finding: ['keep', 'drop'], premise: ['satisfied', 'unsatisfied'], goal: ['supported', 'gap'], confirm: ['agree', 'disagree'],
 }
 export const ALIAS_ANSWERS = ['yes', 'no', 'unsure']
 const intentId = (kind, key) => `${kind}:${sha(JSON.stringify(key)).slice(0, 12)}`
@@ -429,7 +434,7 @@ export function staticFacts(L) {
 }
 
 // ファイルの段の今の根拠の事実（単位の受理した読みが足した事実）。
-export const fileFacts = (L) => L.facts.filter((f) => f.origin === 'file' && (() => { const a = L.assets[f.unit]; return a && a.read && a.read.id === f.read })())
+export const fileFacts = (L) => L.facts.filter((f) => f.origin === 'file' && (() => { const a = L.assets[f.unit]; return a && !a.retro && a.read && a.read.id === f.read })())
 // 今の読みの組（無いことの判定の根拠）: どれかの単位の読みが変われば、無いことの判定を開き直す。
 export const readsSig = (L) => sha(JSON.stringify(Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => [id, a.read ? a.read.id : null]).sort())).slice(0, 16)
 
@@ -466,14 +471,6 @@ export function board(L) {
     byId.set(id, it)
     if (j) { put(j); for (const fid of j.added || []) if (added.has(fid)) put(added.get(fid)) }
     return it
-  }
-  // 横展開: 型ごとに、型の当たる単位を問い直す。根拠は型を作った指摘（今の根拠のもの）、鍵は単位の読み。
-  for (const t of L.lateral_types || []) {
-    for (const u of t.applies_to || []) {
-      const a = L.assets[u]
-      if (!a || a.state !== 'seen') continue
-      add('lateral', [t.id, u], (t.findings || []).filter((x) => facts.has(x)), { type: t.id, unit: u, item: undefined, read: a.read.id })
-    }
   }
   // 主語: 保証と前提の主語を正規化した名前で束ねる。
   const subj = new Map()
@@ -517,17 +514,16 @@ export function board(L) {
     const cands = factsOfNames(ns).filter((f) => f.type === 'guarantee' && f.unit !== p.unit)
     if (cands.length) add('premise', [p.id], [p.id, ...cands.map((f) => f.id)])
   }
-  // 指摘の判定: ファイルの段の指摘・静的な検査の結果・横展開の読みの指摘の 1 件ごと。
-  const base = [...facts.values()].filter((f) => (f.type === 'finding' && (f.origin === 'file' || f.origin === 'lateral')) || f.type === 'static')
+  // 指摘の判定: ファイルの段の指摘・静的な検査の結果の 1 件ごと。
+  const base = [...facts.values()].filter((f) => (f.type === 'finding' && f.origin === 'file') || f.type === 'static')
   for (const f of base) add('finding', [f.id], [f.id])
   // 目標の判定: 目標と受け入れ基準の項目ごと。根拠は持たず、その項目を obligation に持つ事実を関係する事実にする。
   for (const g of [...L.goal.items, ...L.criteria]) add('goal', [g.id], [], { item: g.id })
   // 確認: 全体の段が足した指摘の全件と、落とした指摘（重いものは全件、他は抜き取り）。意図の鍵は対象と種類（added・dropped）の組。
-  // 横展開の読みが足した指摘はファイルの段の指摘と同じく指摘の判定を通るので、added の確認にはかけない（確定に至る経路を 1 つにする）。
   for (const it of [...intents]) {
     const j = it.judgment
     if (!j) continue
-    if (it.kind !== 'lateral') for (const fid of j.added || []) if (facts.has(fid)) add('confirm', ['added', fid], [fid, j.id], { target: fid, mode: 'added' })
+    for (const fid of j.added || []) if (facts.has(fid)) add('confirm', ['added', fid], [fid, j.id], { target: fid, mode: 'added' })
     if (it.kind === 'finding' && j.verdict === 'drop') { const f = facts.get(it.basis[0]); if (f && sampled(f)) add('confirm', ['dropped', f.id], [f.id, j.id], { target: f.id, mode: 'dropped' }) }
   }
   // 関係する事実: 目標の判定は、その項目を obligation に持つ事実だけ。結ばれていない保証は返さず、件数を omitted に宣言する。
@@ -539,11 +535,22 @@ export function board(L) {
     it.omitted = left.length
     it.omitted_ids = left
   }
-  return { facts, intents, byId, findings: deriveFindings(L, facts, intents) }
+  const findings = deriveFindings(L, facts, intents)
+  // 束ね: ほかの意図が全て閉じ（開示して閉じたものを含む）、確定した指摘があれば、確定した指摘の事実を根拠に 1 つ作る。
+  // 根拠の鍵は確定した指摘の組なので、持ち越しで確定した指摘が変われば開き直す。
+  const confirmedIds = findings.list.filter((f) => f.verdict === 'confirmed').map((f) => f.id)
+  let bundles = []
+  if (confirmedIds.length && !intents.some((i) => i.state === 'open')) {
+    const it = add('group', ['group'], confirmedIds)
+    if (it.judgment) bundles = (it.judgment.groups || []).map((g) => ({ id: groupId(it.judgment, g), cycle: it.judgment.cycle, root_cause: g.root_cause, layer: g.layer, keys: [...g.keys] }))
+  }
+  return { facts, intents, byId, findings, groups: bundles }
 }
+// 束ねの群の id: 判定の周と、役が付けた群の id（answer --id で指す）。
+const groupId = (j, g) => `G${j.cycle}-${g.id}`
 
 // 確定した指摘と参考を導く。確定は義務に結ばれたものだけで、結べないものは参考にする。
-// - ファイルの段・静的な検査・横展開の読みの指摘: 指摘の判定が keep なら確定（静的な検査は判定が義務を足したときだけ）。drop で、確認が disagree なら復活して確定。
+// - ファイルの段・静的な検査の指摘: 指摘の判定が keep なら確定（静的な検査は判定が義務を足したときだけ）。drop で、確認が disagree なら復活して確定。
 // - 全体の段が足した指摘: 確認が agree なら確定、disagree なら確定しない。確認の引用が逐語でなければ検証不能。
 // - 落とした指摘の確認が検証不能（逐語でない引用）なら、黙って落とさず検証不能の指摘として出す（落とす側を厳しくする）。
 // - 確定には義務と原因の層が要る。復活のときは、指摘の判定と確認の判定の義務・層も使う。層が無いものは確定にしない（参考にする）。
@@ -577,7 +584,7 @@ function deriveFindings(L, facts, intents) {
     else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment], { dropped: true }))
   }
   for (const f of facts.values()) {
-    if (f.type !== 'finding' || !f.judgment || f.origin === 'lateral') continue
+    if (f.type !== 'finding' || !f.judgment) continue
     const c = confirmOf.get(`added|${f.id}`)
     if (!c || !c.judgment) continue
     if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [c.judgment]))
@@ -595,51 +602,43 @@ export const needPlan = (L) => !L.lenses.some((l) => l.origin === 'user')
 export const planWanted = (L) => !L.plan_skipped
 // 計画の段で取り込む回答: 計画の質問への回答と、計画の欠陥（P<n>）への回答。
 export const planAnswerKinds = ['question', 'plan_defect']
-// ファイルの段で読む単位: 読みの無い（unseen）・試行が上限に届いていない単位（対象から外すファイルは、対象の指定から外す）。
-export const todoUnits = (L) => Object.entries(L.assets).filter(([, a]) => a.state === 'unseen' && a.attempts < MAX_ATTEMPTS).map(([id]) => id)
+// ファイルの段で読む単位: 読みの無い（unseen）・試行が上限に届いていない対象の単位（対象から外すファイルは、対象の指定から外す）。
+const unread = (a) => a.state === 'unseen' && a.attempts < MAX_ATTEMPTS
+export const todoUnits = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro && unread(a)).map(([id]) => id)
+// 振り返りの段で読む単位（出来事の写し）。対象の単位に数えない。
+export const retroTodo = (L) => Object.entries(L.assets).filter(([, a]) => a.retro && unread(a)).map(([id]) => id)
+
+// 詰め合わせ: 単位の並び（ids の順）で前から、本文のバイト数の和が UNIT_MAX_BYTES に収まる所まで 1 つの担当に詰める（next-fit。前に戻って詰めない）。
+// 上限は大きいファイルを分ける基準と同じ 1 つで、新しい線を置かない（設計「段の構成」、決定 9・11・16）。bytesOf(id) は単位の本文のバイト数。
+export function packUnits(ids, bytesOf) {
+  const out = []
+  let cur = null
+  for (const id of ids) {
+    const n = bytesOf(id)
+    if (cur && cur.bytes + n <= UNIT_MAX_BYTES) { cur.ids.push(id); cur.bytes += n; continue }
+    cur = { ids: [id], bytes: n }
+    out.push(cur)
+  }
+  return out.map((x) => x.ids)
+}
 
 export function coverage(L) {
-  const live = Object.entries(L.assets)
+  const live = Object.entries(L.assets).filter(([, a]) => !a.retro)
   const by = (s) => live.filter(([, a]) => a.state === s).map(([id]) => id)
   return { units: live.length, seen: by('seen').length, disclosed: by('disclosed'), pending: by('unseen') }
 }
 
-// この周の振り返りと束ねが済んだ後に読む単位が出た（持ち越しで対象が変わった）ら、次の周を開く。
+// この周の振り返り（coverage-build から呼ばれたときは、作らないことの印）が済んだ後に読む単位か開いた意図が出た（持ち越しで対象が変わった）ら、次の周を開く。
+// run の中では周を足さない（横展開を持たない。設計「完了と止める条件」）。
 export function openCycle(L) {
-  if (L.retro_cycles.includes(L.cycle) && L.group_cycles.includes(L.cycle) && (todoUnits(L).length || board(L).intents.some((i) => i.state === 'open'))) { L.cycle += 1; return true }
+  if (L.retro_cycles.includes(L.cycle) && (todoUnits(L).length || board(L).intents.some((i) => i.state === 'open'))) { L.cycle += 1; return true }
   return false
 }
 
-// 横展開の収束。束ねが新しい型を返したときだけ観点を作り、次の周に進む（新しい型が 0 件なら周を進めず complete に向かう）。
-// 今の周が上限の周（段の始まりから max_cycles 周目）なら、新しい型を展開せずに群だけを残し、needs_input で利用者に返す。
 // 周の上限は、今の回の始まり（round_start。init・reframe か、止まった後に対象が変わって読み直しを始めた周）から数える。
 const roundBase = (L) => Math.max(L.round_start ?? L.phase_start.cycle, L.phase_start.cycle)
-export const atCycleCap = (L) => L.cycle - roundBase(L) + 1 >= L.config.max_cycles
-export const lateralTypeIds = (L) => (L.lateral_types || []).map((t) => t.id)
-// 展開していない新しい型の群: 型があり、既存の型に結ばず、反証されず、横展開の型（意図）が無く、回答の無い群（台帳の欄から導く）。
-export function lateralGroups(L) {
-  const live = new Set((L.lateral_types || []).map((t) => t.id))
-  return L.groups.filter((g) => g.pattern && g.pattern.trim() && !g.extends && g.status !== 'refuted' && !live.has(`lat-${g.id}`) && !L.answers.some((a) => a.id === g.id))
-}
-// 上限を下げた台帳（config --max-cycles）: 上限の周より後の周に当てる横展開の型（上限の周以降の束ねが作った型）を外し、
-// 周を上限の周に戻す。外した型の意図は消え、作った元の群は lateralGroups が返す（展開し直すときのために群に当たる単位を残す）。
-export function capCycles(L) {
-  const cap = roundBase(L) + L.config.max_cycles - 1
-  if (L.cycle <= cap) return false
-  const over = new Set(L.groups.filter((g) => g.cycle >= cap).map((g) => `lat-${g.id}`))
-  const drop = (L.lateral_types || []).filter((t) => over.has(t.id)).map((t) => t.id)
-  if (!drop.length) return false
-  for (const t of L.lateral_types) if (over.has(t.id)) { const g = L.groups.find((x) => `lat-${x.id}` === t.id); if (g) g.applies_to = t.applies_to }
-  L.lateral_types = L.lateral_types.filter((t) => !over.has(t.id))
-  const from = L.cycle
-  L.cycle = cap
-  L.retro_cycles = L.retro_cycles.filter((c) => c <= cap)
-  L.group_cycles = L.group_cycles.filter((c) => c <= cap)
-  addEvent(L, 'control', 'cycle_cap', `周の上限 ${L.config.max_cycles} を超えた周（${from}）の横展開の観点を外し、周 ${cap} に戻した: ${drop.join(', ')}`)
-  return true
-}
 
-// 次の 1 手か停止を、台帳だけから決める。計画の段は役ごとの呼び出し（目標の照合 → 計画役 2 体 → 統合 → 観点の検証）に分ける
+// 次の 1 手か停止を、台帳だけから決める。計画の段は役ごとの呼び出し（計画役 → 観点の検証役）に分ける
 // （1 つの呼び出しの worker は全て同時に起動されるので、前の役の提出を待つ役は次の呼び出しに置く）。
 export function decide(L, { missingTargets = [] } = {}) {
   // 停止には、開いたままの意図と、判定できずに開示して閉じた意図を必ず載せる（上限で止まったことを完了と取り違えない）。
@@ -654,17 +653,17 @@ export function decide(L, { missingTargets = [] } = {}) {
   const spent = L.agents.length - L.phase_start.agents
   if (spent >= L.config.max_agents_total) return stop('limit', [`起動数が上限 ${L.config.max_agents_total} に達した（${spent}）。上限を上げる入力で再開する`])
   if (L.goal.problems.length && !L.goal.checked) return stop('needs_input', ['依頼文・決定の記録が求める成果のうち、目標・基準・制約のどの項目も受け止めていないものがある'], { goal_gaps: L.goal.problems })
-  // 計画の段（目標の照合・計画・観点の検証）の試行の上限は利用者に返す。束ね（group:）は開示して進めるので数えない。
-  const stuck = Object.entries(L.attempts).filter(([k, n]) => n >= MAX_ATTEMPTS && !k.startsWith('group:')).map(([k]) => k)
+  // 計画の段（計画役・観点の検証）の試行の上限は利用者に返す。
+  const stuck = Object.entries(L.attempts).filter(([, n]) => n >= MAX_ATTEMPTS).map(([k]) => k)
   if (stuck.length) return stop('needs_input', ['試行の上限まで欠けた段がある'], { stuck })
-  if (!L.goal.checked) return { step: 'goal_check' }
+  // 目標の照合は計画役が担う（照合済みでなければ、計画の段を流す）。
+  if (!L.goal.checked) return { step: 'plan' }
   const newAnswers = L.answers.filter((a) => !L.answered.includes(a.id) && planAnswerKinds.includes(a.target_kind))
   if (planWanted(L)) {
-    if (L.plan_defects.length && L.plan_rounds >= PLAN_ROUNDS && !newAnswers.length) return stop('needs_input', [`計画の欠陥が統合のやり直し ${PLAN_ROUNDS} 回で消えない`], { plan_defects: L.plan_defects })
-    if (!L.plan) return { step: L.plan_drafts && L.plan_drafts.closed && Object.keys(L.plan_drafts.drafts).length ? 'integrate' : 'plan' }
-    if (L.plan_defects.length || newAnswers.length) return { step: 'integrate' }
+    if (L.plan_defects.length && L.plan_rounds >= PLAN_ROUNDS && !newAnswers.length) return stop('needs_input', [`計画の欠陥が計画のやり直し ${PLAN_ROUNDS} 回で消えない`], { plan_defects: L.plan_defects })
+    if (!L.plan || L.plan_defects.length || newAnswers.length) return { step: 'plan' }
     const lenses = L.plan.lenses || []
-    // 観点の検証（Q1〜Q3）を通っていない観点を検証する。当てる単位を選ばないので、観点の精査（N1・N2）は持たない。
+    // 観点の検証（Q1〜Q3）を通っていない観点を検証する（観点が変わらなければ検証し直さない）。当てる単位を選ばないので、観点の精査（N1・N2）は持たない。
     const unverified = lenses.filter((u) => !L.verified_units.includes(C.unitKey(u)))
     if (unverified.length) return { step: 'unit_verify', lenses: unverified.map((u) => u.id) }
   }
@@ -673,48 +672,43 @@ export function decide(L, { missingTargets = [] } = {}) {
   const todo = todoUnits(L)
   if (todo.length) return { step: 'file', units: todo }
   const B = board(L)
-  // 全体の段: 開いた意図が 0 になるまで（受理された事実から CLI が意図を足す）。
+  // 全体の段: 開いた意図が 0 になるまで（受理された事実から CLI が意図を足す。束ねは最後の意図）。
   const open = B.intents.filter((i) => i.state === 'open')
   if (open.length) return { step: 'global', intents: open.map((i) => i.id) }
-  if (!L.retro_cycles.includes(L.cycle)) return { step: 'retro' }
-  if (!L.group_cycles.includes(L.cycle)) return { step: L.grouping && L.grouping.cycle === L.cycle ? 'refute' : 'group' }
+  // 振り返り（単独で呼ばれたときだけ。対象の指摘と分ける）。next が単位を作り、読む単位が無くなったら済みの印を付ける。
+  if (!L.retro_cycles.includes(L.cycle)) return { step: 'retro', units: retroTodo(L) }
   // ここまで来たら、この周にやることは無い。
   const cov = coverage(L)
   const answered = (id) => L.answers.some((a) => a.id === id)
   const cur = B.findings.list
   const upper = cur.filter((f) => f.verdict === 'confirmed' && C.UPPER.includes(f.layer) && !answered(f.id))
-  const upperGroups = L.groups.filter((g) => g.status !== 'refuted' && C.UPPER.includes(g.layer) && !answered(g.id))
+  const upperGroups = B.groups.filter((g) => C.UPPER.includes(g.layer) && !answered(g.id))
   const unverifiable = cur.filter((f) => f.verdict === 'unverifiable' && !answered(f.id))
-  const lateral = lateralGroups(L)
   if (!cov.units) return stop('blocked', ['単位が 0 件（対象が空か、全て除いた）'], { cause: 'target' })
   if (!cov.seen) return stop('blocked', ['読みを受け付けた単位が 1 つも無い（全ての役が欠けたか、照合に落ち続けた）'], { cause: 'failure', disclosed: cov.disclosed })
-  if (upper.length || upperGroups.length || unverifiable.length || lateral.length) {
+  if (upper.length || upperGroups.length || unverifiable.length) {
     return stop('needs_input', [
       ...(upper.length || upperGroups.length ? ['上の層（方針・要求）が原因の欠陥・束は、呼ぶ側が直す前に利用者が判断する'] : []),
       ...(unverifiable.length ? [`検証不能の指摘 ${unverifiable.length} 件`] : []),
-      ...(lateral.length ? [`横展開が周の上限 ${L.config.max_cycles} で収束しない（展開していない新しい型の群 ${lateral.length} 件）。群ごとに、展開せずに記録するかを利用者が判断する`] : []),
-    ], { upper: upper.map((f) => f.id), upper_groups: upperGroups.map((g) => g.id), unverifiable: unverifiable.map((f) => f.id), lateral_groups: lateral.map((g) => g.id) })
+    ], { upper: upper.map((f) => f.id), upper_groups: upperGroups.map((g) => g.id), unverifiable: unverifiable.map((f) => f.id) })
   }
   return stop('complete', ['全ての単位を見たか見られなかった理由を開示し、開いた意図が 0 になった'], { disclosed: cov.disclosed })
 }
 
-// 振り返りの単位: まだ振り返っていない出来事を、段ごとに 1 行 1 件で並べ、本文が UNIT_MAX_BYTES に収まるよう行の境目で前から詰めて単位に分ける。
-// 本文は呼び出し側が写しに書く。
+// 振り返りの単位: まだ振り返っていない出来事を、全ての段にわたって 1 行 1 件で並べ、本文が UNIT_MAX_BYTES に収まるよう行の境目で前から詰めて単位に分ける。
+// 単位は振り返りの役 1 体が全て読む（収まらない分だけ詰め合わせが増える）。本文は呼び出し側が写しに書く。
 export function retroAssets(L) {
   const ev = L.events.filter((e) => !e.retro)
   for (const e of ev) e.retro = L.cycle
-  const out = []
-  for (const s of [...new Set(ev.map((e) => e.stage))].sort()) {
-    const lines = ev.filter((e) => e.stage === s).map((e) => `[${e.id}] (${e.kind}) ${String(e.text).replace(/\s*\n\s*/g, ' / ')}`)
-    const size = byteSizer(lines)
-    const chunks = pack(lines.map((_, k) => ({ start: k, end: k + 1 })), size, (x) => [x])
-    for (let n = 0; n < chunks.length; n++) {
-      const text = lines.slice(chunks[n].start, chunks[n].end).join('\n')
-      const id = `retro:c${L.cycle}:${s}${chunks.length > 1 ? `/c${n + 1}` : ''}`
-      out.push({ id, path: id, heading: s, trail: [], kind: 'retro', start: 1, end: text.split('\n').length, text, hash: sha(text).slice(0, 16), retro: true })
-    }
-  }
-  return out
+  if (!ev.length) return []
+  const lines = ev.map((e) => `[${e.id}] (${e.stage}/${e.kind}) ${String(e.text).replace(/\s*\n\s*/g, ' / ')}`)
+  const size = byteSizer(lines)
+  const chunks = pack(lines.map((_, k) => ({ start: k, end: k + 1 })), size, (x) => [x])
+  return chunks.map((c, n) => {
+    const text = lines.slice(c.start, c.end).join('\n')
+    const id = `retro:c${L.cycle}${chunks.length > 1 ? `/c${n + 1}` : ''}`
+    return { id, path: id, heading: 'retro', trail: [], kind: 'retro', start: 1, end: text.split('\n').length, text, hash: sha(text).slice(0, 16), retro: true }
+  })
 }
 
 // ---------------- 再レビューの記録（設計「再レビューと持ち越し」「測り方」の run の指標） ----------------

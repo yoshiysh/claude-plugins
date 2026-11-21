@@ -1,6 +1,6 @@
-// 単位 4 のテスト: 役（ファイルの段・名寄せ・全体の段・確認）と Workflow script（coverage-audit.js・roles.json）。
+// 単位 4 のテスト: 役（ファイルの段・全体の段の判定役・確認役）と Workflow script（coverage-audit.js・roles.json）。
 // 設計「台帳と見たの記録」の B3（返り値は agents と tokens だけ）・B4（args は {state, callId, stage, workers} だけ）・B5（集約は CLI）と、
-// 「モデルと費用」の役の組（ファイルの段と全体の段は同じ組、名寄せは Haiku と低い effort、確認は全体の段と別のモデルで effort を上げる）。
+// 「モデルと費用」の役の組（ファイルの段と全体の段は同じ組、名寄せは判定役が担う、確認は全体の段と別のモデルで effort を上げる）。
 // 本物の source を native と同じ注入と、Codex の runner（dynamic-workflow-runner の runtime）の両方で流す。役は偽物で、prompt の claim の命令から台帳と読み書きする。
 // tokens のテストだけは今の実装でも通る回帰の守り（呼び出しごとの差を返す仕組みを残す）。
 import test from 'node:test'
@@ -36,10 +36,10 @@ async function fullRun(t, { runWf } = {}) {
   return { state, log, ...r }
 }
 
-test('roles.json: ファイルの段・名寄せ・全体の段・確認の役がある。全体の段はファイルの段と同じ組、名寄せは haiku と low、確認は全体の段と別のモデルで effort が上', () => {
-  for (const r of ['file_reader', 'alias_judge', 'global_judge', 'confirmer']) assert.ok(ROLES[r] && ROLES[r].model && ROLES[r].effort && ROLES[r].why, `roles.json に ${r} の model・effort・理由が無い`)
+test('roles.json: ファイルの段・全体の段の判定役・確認役がある。判定役はファイルの段と同じ組で名寄せも担い（名寄せの別の役は無い）、確認は判定役と別のモデルで effort が上', () => {
+  for (const r of ['file_reader', 'global_judge', 'confirmer']) assert.ok(ROLES[r] && ROLES[r].model && ROLES[r].effort && ROLES[r].why, `roles.json に ${r} の model・effort・理由が無い`)
   assert.deepEqual([ROLES.global_judge.model, ROLES.global_judge.effort], [ROLES.file_reader.model, ROLES.file_reader.effort])
-  assert.deepEqual([ROLES.alias_judge.model, ROLES.alias_judge.effort], ['haiku', 'low'])
+  assert.equal(ROLES.alias_judge, undefined, '名寄せは判定役が担い、別の小さいモデルの役を起動しない')
   assert.notEqual(ROLES.confirmer.model, ROLES.global_judge.model, '確認は全体の段と別のモデル（落とす判定の盲点を共有しない）')
   assert.ok(EFFORT.indexOf(ROLES.confirmer.effort) > EFFORT.indexOf(ROLES.global_judge.effort), '確認は effort を上げる（落とす側を厳しくする）')
   for (const gone of ['reader_1', 'reader_2', 'verifier', 'verifier_2']) assert.equal(ROLES[gone], undefined, `重ね（k）と枡ごとの検証役の役は無い: ${gone}`)
@@ -84,10 +84,10 @@ test('B1・B3: ファイルの段が書いた指摘の文は、どの役の prom
   assert.ok(queried.some((q) => JSON.stringify(q.out).includes(MARK)), '全体の段の役は query でファイルの段の指摘を引ける')
 })
 
-test('役と担当の種類: file は file_reader、alias は alias_judge、subject・finding・premise・goal は global_judge、confirm は confirmer の worker だけが取る', async (t) => {
+test('役と担当の種類: file は file_reader、alias・subject・finding・premise・goal は global_judge、confirm・group は confirmer の worker だけが取る', async (t) => {
   const { stop, steps, log } = await fullRun(t)
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  const want = { file: 'file_reader', alias: 'alias_judge', subject: 'global_judge', finding: 'global_judge', premise: 'global_judge', goal: 'global_judge', confirm: 'confirmer' }
+  const want = { file: 'file_reader', alias: 'global_judge', subject: 'global_judge', finding: 'global_judge', premise: 'global_judge', goal: 'global_judge', confirm: 'confirmer', group: 'confirmer' }
   const seen = new Set()
   for (const x of log) {
     const s = steps.find((st) => st.args.callId === argOf(x.claim, 'call'))
@@ -97,7 +97,7 @@ test('役と担当の種類: file は file_reader、alias は alias_judge、subj
       if (want[task.kind]) assert.equal(role, want[task.kind], `${task.kind} の担当を ${role} が取った`)
     }
   }
-  for (const k of ['file', 'alias', 'subject', 'finding', 'goal', 'confirm']) assert.ok(seen.has(k), `${k} の担当が取られていない: ${[...seen]}`)
+  for (const k of ['file', 'alias', 'subject', 'finding', 'goal', 'confirm', 'group']) assert.ok(seen.has(k), `${k} の担当が取られていない: ${[...seen]}`)
 })
 
 test('runner: Codex の runner でも同じ流れが complete まで回り、返り値は {agents, tokens} で tokens は null', async (t) => {
@@ -119,7 +119,7 @@ test('tokens（回帰の守り。今の実装でも通る）: 返り値の token
   for (const s of steps) assert.equal(s.res.tokens, 1000, JSON.stringify(s.res))
 })
 
-test('計画の段（利用者が観点を渡さない）: 目標の照合・計画役・統合役などの役も、prompt で内容を受けず claim の命令で担当を取る', async (t) => {
+test('計画の段（利用者が観点を渡さない）: 目標の照合も担う計画役も、prompt で内容を受けず claim の命令で担当を取る', async (t) => {
   const { state } = project(t, FILES, { lenses: null, goalChecked: false, criteria: null, goal: '- G1: 対象の文書を観点ごとに確かめた指摘の一覧 〔request: 対象の文書を観点ごとにレビューしてほしい〕\n' })
   const log = []
   const { steps } = await driveScript(state, scriptAgent(() => null, log), { maxSteps: 1 })

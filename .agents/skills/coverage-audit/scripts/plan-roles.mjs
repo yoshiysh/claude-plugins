@@ -1,17 +1,17 @@
-// テストの道具: 計画の段の役（目標の照合・計画役・統合役・観点の検証役）の偽物。query の inputs から、照合を通る最小の答えを作る。
+// テストの道具: 計画の段の役（計画役・観点の検証役）の偽物。query の inputs から、照合を通る最小の答えを作る。
+// 計画役は目標の照合も担う（inputs に item_ids があるときだけ outcomes を足す）。観点の検証役は計画の版の観点の全て（inputs.lenses）に答える。
 // blackboard-fixture.mjs の behave に、計画の段の種類の振る舞いを足して返す（fixture の既存の形と既定は変えない）。
 import { behave } from './blackboard-fixture.mjs'
 
 export const LENS_PROC = { X1: '主張と根拠を対応づけて食い違いを探す', X2: '用語ごとに定義の文を対応づけ、定義の無い用語を探す', X3: '手順ごとに前提の文を対応づけ、前提の無い手順を探す' }
 // 観点が受け持つ目標の部分: 全ての目標・受け入れ基準の本文の全体。
 export const goalsOfQ = (q) => [...q.items, ...q.criteria].map((g) => ({ id: g.id, part: g.text }))
-// 統合役の欄: 元の観点を source_map に写し（元の観点が計画に無ければ落とす理由を付ける）、欠陥は全て fixed にする。計画役（sources が無い）にはそのまま返す。
+// 計画役の欄: 目標の照合が要る（inputs に item_ids がある）ときは依頼文の全体を引く成果を 1 つ、計画の見直し（defects がある）ときは欠陥を全て fixed にする。
 export function asIntegrated(q, plan) {
-  if (!q.sources) return plan
   return {
     ...plan,
-    source_map: q.sources.map((s) => { const id = s.split(':')[1]; return plan.lenses.some((l) => l.id === id) ? { source: s, merged_into: id, dropped_reason: '' } : { source: s, merged_into: '', dropped_reason: '計画から外した観点' } }),
-    defect_responses: (q.defects || []).map((d) => ({ defect_index: d.index, action: 'fixed', reason: '直した' })),
+    ...(Array.isArray(q.item_ids) && !plan.outcomes ? { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: q.request }], items: q.item_ids }] } : {}),
+    ...(Array.isArray(q.defects) && !plan.defect_responses ? { defect_responses: q.defects.map((d) => ({ defect_index: d.index, action: 'fixed', reason: '直した' })) } : {}),
   }
 }
 // 観点の一覧の計画。spec は { 観点の id: { goals?: (goal) => boolean } }（goals が無ければ全ての目標・基準を受け持つ）。handledBy は全ての基準・制約の受け皿。
@@ -28,15 +28,15 @@ export const unitAnswers = (u, noFor = () => false) => ({
   answers: [{ question: 'Q1' }, { question: 'Q2' }, ...(u.goals || []).map((g, i) => ({ question: 'Q3', goal_index: i, goal_id: g.id }))]
     .map((x) => ({ ...x, answer: noFor(x.question === 'Q3' ? `Q3:${x.goal_index}` : x.question) ? 'no' : 'yes', quote: u.procedure })),
 })
-const PLAN_KINDS = ['goal_check', 'plan', 'integrate', 'unit_verify']
-// 計画の段の役の振る舞いを足した behave。over の計画の段の種類（goal_check・plan・integrate・unit_verify）の関数は (inputs, task) を受け、
+const PLAN_KINDS = ['plan', 'unit_verify']
+// 観点の検証役の答え: 計画の版の観点ごとの答えの組。noFor(lens, key) で no にする問いを選ぶ。
+export const verifyAll = (q, noFor = () => false) => ({ lenses: q.lenses.map((l) => unitAnswers(l, (k) => noFor(l, k))) })
+// 計画の段の役の振る舞いを足した behave。over の計画の段の種類（plan・unit_verify）の関数は (inputs, task) を受け、
 // undefined を返せば既定、null を返せば出さない。それ以外の over（file・facts・意図の種類など）は fixture の behave にそのまま渡す。
 export function planAct(over = {}) {
   const defaults = {
-    goal_check: (q) => ({ outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: q.request }], items: q.item_ids }] }),
     plan: (q) => onePlan(q),
-    integrate: (q) => onePlan(q),
-    unit_verify: (q) => unitAnswers(q.lens),
+    unit_verify: (q) => verifyAll(q),
   }
   const rest = Object.fromEntries(Object.entries(over).filter(([k]) => !PLAN_KINDS.includes(k)))
   const wrap = Object.fromEntries(PLAN_KINDS.map((k) => [k, (task, ctx) => {
@@ -53,8 +53,8 @@ export const noProposal = (q) => asIntegrated(q, {
   lenses: [], questions: [],
   constraint_map: [...q.criteria, ...q.constraints].map((c) => ({ constraint_id: c.id, handled_by: [q.given_lenses[0].id] })),
 })
-export const noProposalAct = (over = {}) => planAct({ plan: noProposal, integrate: noProposal, ...over })
-// 計画の段（計画役 2 体 → 統合）を noProposalAct で流し、計画を受理した所で止める（次の next がファイルの段を開く。ここでは開かない）。
+export const noProposalAct = (over = {}) => planAct({ plan: noProposal, ...over })
+// 計画の段（計画役 1 体）を noProposalAct で流し、計画を受理した所で止める（次の next がファイルの段を開く。ここでは開かない）。
 // 流した呼び出しの記録を返す。
 export async function passPlan(state, { maxSteps = 6 } = {}) {
   const { drive } = await import('./blackboard-fixture.mjs')

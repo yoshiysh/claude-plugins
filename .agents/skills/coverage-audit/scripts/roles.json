@@ -1,14 +1,7 @@
 {
-  "goal_checker": { "model": "sonnet", "effort": "medium", "why": "依頼文と決定の記録から求める成果を引用つきで挙げ、目標・基準・制約の項目へ対応づける。範囲は狭いが、項目を書いた者と別の目で読む" },
-  "planner_a": { "model": "opus", "effort": "high", "why": "観点の一覧を目標と対象から切る判断。B と別のモデルで独立にする" },
-  "planner_b": { "model": "sonnet", "effort": "high", "why": "A と別のモデルで同じ問いを解き、盲点の重なりを減らす" },
-  "integrator": { "model": "opus", "effort": "high", "why": "2 案の調停と欠陥への応答。誤ると全体が崩れる" },
-  "unit_verifier": { "model": "sonnet", "effort": "medium", "why": "観点の本文から、閉じた問い（Q1〜Q3）だけに答える。観点を作った統合役（opus）と別のモデルにし、同じ盲点で yes と答えるのを減らす" },
-  "file_reader": { "model": "opus", "effort": "medium", "why": "ファイルの段で 1 つの単位の全文を読み、指摘の候補・保証と前提・観点ごとの見たを書く。試作でこの組の 1 体の全文の読みが最も良かった。横展開の読み直しも同じ組" },
-  "alias_judge": { "model": "haiku", "effort": "low", "why": "名前の近い主語の組を同じ・別・不明の閉集合で判定する。判断が薄く型が決まり、不明の組は主語の照合で一緒に引くので誤りを後で拾える" },
-  "global_judge": { "model": "opus", "effort": "medium", "why": "全体の段で、意図ごとに引いた事実から指摘を残す・落とす、またぐ矛盾・前提・目標の支えと抜けを判定する。試作で最も良かったファイルの段と同じ組を使う" },
-  "confirmer": { "model": "sonnet", "effort": "high", "why": "全体の段が足した指摘と落とした指摘を確かめる。落とす判定の盲点を共有しないよう全体の段と別のモデルにし、落とす側を厳しくするため effort を上げる" },
-  "grouper": { "model": "opus", "effort": "high", "why": "全件を根本原因で束ね、層と横展開の手続きを決める" },
-  "refuter_a": { "model": "sonnet", "effort": "medium", "why": "束の反証。束ね役（opus）と別のモデルにし、束ねた者と同じ盲点で主張を通さない。b と別のモデル" },
-  "refuter_b": { "model": "opus", "effort": "medium", "why": "束の反証。a と別のモデルにして 2 票の盲点を分ける" }
+  "planner": { "model": "opus", "effort": "medium", "why": "目標の照合（依頼文と決定の記録の求める成果を項目へ対応づける）と観点の計画を 1 体で担い、観点の検証の欠陥に応じて計画を直す。上位のモデルの役は中程度の effort にする" },
+  "unit_verifier": { "model": "sonnet", "effort": "medium", "why": "計画の版の確かめていない観点の全てに、閉じた問い（Q1〜Q3）だけで答える。判断を出す計画役（opus）と別のモデルにし、同じ盲点で yes と答えるのを減らす" },
+  "file_reader": { "model": "opus", "effort": "medium", "why": "ファイルの段で、文脈に収まる分の単位の詰め合わせを全文で読み、指摘の候補・保証と前提・観点ごとの見たを書く。試作でこの組の 1 体の全文の読みが最も良かった。単独で呼ばれたときの振り返りの読みも同じ組" },
+  "global_judge": { "model": "opus", "effort": "medium", "why": "全体の段で、名寄せ・主語の照合・指摘の判定・前提・目標の意図を順に処理する。試作で最も良かったファイルの段と同じ組を使う" },
+  "confirmer": { "model": "sonnet", "effort": "high", "why": "全体の段が足した指摘と落とした指摘を確かめ、確認が全て閉じたら束ねの意図も取る。落とす判定の盲点を共有しないよう判定役（opus）と別のモデルにし、落とす側を厳しくするため effort を上げる" }
 }

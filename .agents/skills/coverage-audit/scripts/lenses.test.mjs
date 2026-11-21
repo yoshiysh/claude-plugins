@@ -56,14 +56,14 @@ test('1. init: 台帳の観点に purpose・layer を固定で入れず、利用
   assert.deepEqual(planned.lenses.filter((l) => l.retro).map((l) => l.id), ['R1', 'R2', 'R3', 'R4'])
 })
 
-// ---------------- 2. 計画役・統合役の説明 ----------------
-test('2. 計画役 A・B と統合役の説明: purpose・layer はスキルが持つので作らない旨の文が無く、目的と層の見方は要るときだけ計画の観点として切る旨がある', async (t) => {
+// ---------------- 2. 計画役の説明 ----------------
+test('2. 計画役の説明: purpose・layer はスキルが持つので作らない旨の文が無く、目的と層の見方は要るときだけ計画の観点として切る旨がある', async (t) => {
   const { state } = setup(t)
   const log = []
   const { stop } = await driveScript(state, scriptAgent(planAct(), log))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   // 役の label は <役の名前>-<worker の id>（Workflow script が workers の行から付ける）。
-  for (const role of ['planner_a', 'planner_b', 'integrator']) {
+  for (const role of ['planner']) {
     const x = log.find((e) => e.label.startsWith(`${role}-`))
     assert.ok(x, `${role} が起動される`)
     const p = x.prompt

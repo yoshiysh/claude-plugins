@@ -5,7 +5,7 @@
 // 固定する形（テストの前提）:
 // - claim  --state S --call C --worker W            → { ok, done: true } | { ok, tasks: [Task], submit_cmd }
 //   Task = { id, kind, result_path, unit?: { id, path, file, start, end }, lenses?: [{ id, name, procedure }], obligations?: [{ id, text }], intent?: { id, kind } }
-//   kind は file・alias・subject・finding・premise・goal・confirm（plan・group などの役は今の結果の形のまま、運び方だけを claim に変える）
+//   kind は file・retro・alias・subject・finding・premise・goal・confirm・group と、計画の段の plan・unit_verify
 // - query  --state S --call C --worker W --task T [--fact F ...] → { ok, basis: [Fact], related: [Fact], omitted: [id] } | { ok, facts: [Fact] }
 //   Fact = { id, type, unit, path, quote, subject?, claim?, obligation?, ... }。omitted は載せなかった事実の件数（数）。ファイルの段の担当は終了状態 2 で拒む
 //   goal の意図の related は、その項目の id を obligation に持つ事実だけ（結ばれていない保証は返さず、件数を omitted に宣言する）
@@ -20,6 +20,7 @@
 //     finding の keep は obligation（義務の項目 id）が付いたときだけ確定し、付かなければ参考に入る（静的な検査の事実も同じ）
 //     subject: consistent|conflict、finding: keep|drop、premise: satisfied|unsatisfied、goal: supported|gap、confirm: agree|disagree
 //     GlobalFinding = { claim, locations: [{ unit, quote }], obligation, confidence, severity, layer }
+//   group:   { groups: [{ id, root_cause, layer, keys: [事実の id] }], unassigned: [事実の id] }（basis は確定した指摘の事実）
 //   confidence は high|medium|low
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -32,8 +33,8 @@ export const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const CLI = path.join(HERE, 'ledger-cli.mjs')
 export const WF = path.join(HERE, 'coverage-audit.js')
 export const ROLES = JSON.parse(readFileSync(path.join(HERE, 'roles.json'), 'utf8'))
-export const INTENT_KINDS = ['alias', 'subject', 'finding', 'premise', 'goal', 'confirm', 'lateral']
-export const INTENT_ID = /^(alias|subject|finding|premise|goal|confirm|lateral):[0-9a-f]+$/
+export const INTENT_KINDS = ['alias', 'subject', 'finding', 'premise', 'goal', 'confirm', 'group']
+export const INTENT_ID = /^(alias|subject|finding|premise|goal|confirm|group):[0-9a-f]+$/
 
 export function tmp(t) {
   const d = mkdtempSync(path.join(tmpdir(), 'coverage-board-'))
@@ -125,7 +126,7 @@ export function behave(over = {}) {
   return (task, ctx) => {
     const o = over[task.kind]
     if (o) { const r = o(task, ctx); if (r !== undefined) return r }
-    if (task.kind === 'file') return fileResult(task, over)
+    if (task.kind === 'file' || task.kind === 'retro') return fileResult(task, over)
     if (!INTENT_KINDS.includes(task.kind)) return null
     const q = ctx.query(task)
     const facts = [...(q.basis || []), ...(q.related || [])]
@@ -136,6 +137,8 @@ export function behave(over = {}) {
     if (task.kind === 'premise') return { verdict: 'satisfied', quote }
     if (task.kind === 'goal') return { verdict: 'supported', support: facts.slice(0, 1).map((f) => f.id), quote }
     if (task.kind === 'confirm') return { verdict: 'agree', reason: '本文が判定を支える', quote }
+    // 束ね: 確定した指摘の全てを 1 つの群に入れる。
+    if (task.kind === 'group') return { groups: [{ id: 'g1', root_cause: '確定した指摘に共通する原因', layer: '実装', keys: (q.basis || []).map((f) => f.id) }], unassigned: [] }
     return null
   }
 }

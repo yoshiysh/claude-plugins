@@ -83,7 +83,8 @@ test('reframe: 目標の冒頭の文・目標・基準・制約・依頼文・�
   assert.equal(L.goal.checked_by, 'coverage-build', '照合済みの印を残す')
   const second = await drive(state, planAct())
   assert.equal(second.stop.stop, 'complete', JSON.stringify(second.stop))
-  assert.ok(!steps(second.calls).includes('goal_check'), '照合済みの目標を照合し直さない')
+  const planQ = second.calls.filter((c) => c.args.stage === 'plan').flatMap((c) => c.workers.flatMap((w) => w.queries.map((q) => q.out.inputs)))
+  assert.ok(planQ.length && planQ.every((q) => !('item_ids' in q)), '照合済みの目標を照合し直さない（計画役に照合の入力を渡さない）')
   assert.deepEqual(unitStates(state), [[doc2, 'seen']], '差し替えた対象の単位だけが残る')
 })
 
@@ -183,25 +184,27 @@ test('振り返り: --goal-checked coverage-build の台帳は振り返りの単
   assert.ok(status(state).events.some((e) => e.kind === 'rejected_file'), '出来事は status の events で返す')
 })
 
-test('振り返り: 印の無い台帳では、同じ出来事から振り返りの単位を作り、振り返りの観点（R1〜R4）でファイルの段が読む', async (t) => {
+test('振り返り: 印の無い台帳では、同じ出来事から振り返りの単位を作り、振り返りの段で振り返りの観点（R1〜R4）の担当として読む。対象の単位に数えない', async (t) => {
   const { state } = project(t, { 'doc.md': DOC }, { goalChecked: false, criteria: null, goal: CITED_GOAL })
-  const goal_check = (task, ctx) => { const q = ctx.query(task).inputs; return { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: q.request }], items: q.item_ids }] } }
-  const r = await drive(state, behave({ goal_check, file: rejectOnce() }))
+  const r = await drive(state, planAct({ file: rejectOnce() }))
   assert.equal(r.stop.stop, 'complete', JSON.stringify(r.stop))
   const retro = Object.entries(ledger(state).assets).filter(([id]) => id.startsWith('retro:'))
   assert.ok(retro.length && retro.every(([, a]) => a.state === 'seen'), JSON.stringify(retro.map(([id, a]) => [id, a.state])))
-  const tasks = r.calls.flatMap((c) => c.workers.flatMap((w) => w.claims.flatMap((cl) => cl.tasks || []))).filter((x) => x.unit && x.unit.id.startsWith('retro:'))
-  assert.ok(tasks.length && tasks.every((x) => x.lenses.map((l) => l.id).join() === 'R1,R2,R3,R4'))
+  const rc = r.calls.filter((c) => c.args.stage === 'retro')
+  assert.equal(rc.length, 1, `振り返りの段は 1 回: ${r.calls.map((c) => c.args.stage)}`)
+  const tasks = rc.flatMap((c) => c.workers.flatMap((w) => w.claims.flatMap((cl) => cl.tasks || [])))
+  assert.ok(tasks.length && tasks.every((x) => x.kind === 'retro' && x.unit.id.startsWith('retro:') && x.lenses.map((l) => l.id).join() === 'R1,R2,R3,R4'), JSON.stringify(tasks.map((x) => [x.kind, x.unit.id])))
+  assert.ok(!r.calls.filter((c) => c.args.stage === 'file').some((c) => c.workers.some((w) => w.claims.some((cl) => (cl.tasks || []).some((x) => x.unit.id.startsWith('retro:'))))), 'ファイルの段は振り返りの単位を読まない')
   assert.ok(!status(state).units.some((u) => u.id.startsWith('retro:')), 'status の units は対象の単位だけ')
+  assert.equal(status(state).coverage.units, 1, '振り返りの単位は対象の単位に数えない')
 })
 
 test('reframe: 前の段の上の層の指摘・群・検証不能の指摘で、今の段を止めない（前の段の節には残る）', async (t) => {
   const { d, state, doc2 } = setup(t)
   const Q = 'この節は一つ目の主張を述べる本文の行である。'
-  const group = (task, ctx) => { const q = ctx.query(task).inputs; return { groups: [{ id: 'g1', root_cause: '方針の根の原因', layer: '方針', keys: q.items.map((x) => x.key), pattern: '', applies_to: [] }], unassigned: [] } }
-  const refute = (task) => ({ group_id: task.group, refuted: false, reason: '記録の事実と合う' })
+  const group = (task, ctx) => { const q = ctx.query(task); return { groups: [{ id: 'g1', root_cause: '方針の根の原因', layer: '方針', keys: q.basis.map((f) => f.id) }], unassigned: [] } }
   const facts = (p) => (path.basename(p) === 'doc.md' ? { findings: [{ claim: '方針の欠陥の主張', quote: Q, layer: '方針' }] } : {})
-  const first = await drive(state, planAct({ facts, group, refute }))
+  const first = await drive(state, planAct({ facts, group }))
   assert.equal(first.stop.stop, 'needs_input', JSON.stringify(first.stop))
   assert.ok(first.stop.upper.length >= 1 && first.stop.upper_groups.length >= 1, JSON.stringify(first.stop))
   assert.equal(reframe(state, frameFiles(d, 'impl', IMPL), [doc2], 'impl').code, 0)

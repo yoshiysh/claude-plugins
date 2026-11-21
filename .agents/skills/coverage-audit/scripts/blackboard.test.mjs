@@ -1,5 +1,5 @@
 // 単位 2 のテスト: claim / submit / query を全ての役に広げ、台帳をブラックボードにする（設計「台帳と見たの記録」の B1〜B6）。
-// ここではファイルの段（1 単位 1 体）と、next の args・ingest・query の規則を確かめる。全体の段の意図は intents.test.mjs（単位 3）、
+// ここではファイルの段（文脈に収まる分の単位を 1 体に詰める）と、next の args・ingest・query の規則を確かめる。全体の段の意図は intents.test.mjs（単位 3）、
 // 本物の Workflow source の返り値と prompt は tests/coverage-audit-blackboard-workflow.test.mjs（単位 4）。
 // 役の結果の形と argv は blackboard-fixture.mjs の先頭にまとめてある。CLI は子プロセス（run）で流し、多くの役を流す所だけ in-process（cli）にする。
 import test from 'node:test'
@@ -65,42 +65,47 @@ test('B4 args: next の args は {state, callId, stage, workers} だけ。worker
   assert.ok(!readFileSync(n.args_path, 'utf8').includes(LENSES[0].procedure), 'args に観点の手続きなど担当が読む文を載せない')
 })
 
-test('claim（ファイルの段）: 1 担当は 1 単位（ファイルの全文の範囲）と全ての観点と義務（目標・受け入れ基準）の一覧。他の単位の本文・id は返さない', async (t) => {
+test('claim（ファイルの段）: 担当は詰め合わせの単位ごとに 1 つ（ファイルの全文の範囲）と全ての観点と義務（目標・受け入れ基準）の一覧。小さい対象は 1 つの詰め合わせで、他の役の書き込み（事実）は返さない', async (t) => {
   const { state, paths } = project(t, FILES, { lenses: TWO_LENSES })
   await passPlan(state)
   const { args } = open(state)
-  const { c, task } = claimFile(state, args)
-  assert.equal(c.tasks.length, 1, 'ファイルの段は 1 担当 1 単位')
-  assert.equal(task.kind, 'file')
-  assert.equal(typeof task.id, 'string')
-  assert.equal(typeof task.result_path, 'string')
-  const own = task.unit.path
-  assert.ok(Object.values(paths).includes(own))
-  assert.equal(task.unit.start, 1)
-  assert.equal(task.unit.end, readFileSync(own, 'utf8').split('\n').length, 'ファイルの全文の範囲')
-  assert.deepEqual(readFileSync(task.unit.file, 'utf8'), readFileSync(own, 'utf8'), '写しは単位の本文')
-  assert.deepEqual(task.lenses.map((l) => l.id), ['L1', 'L2', 'S1'], '観点は一覧で全て渡す（呼ぶ側の観点と標準の観点 S1。当てる単位を選ばない）')
-  assert.deepEqual(task.obligations.map((o) => o.id), OBLIGATIONS)
-  const others = Object.values(paths).filter((p) => p !== own)
-  const out = JSON.stringify(c)
-  for (const p of others) assert.ok(!out.includes(p), `他の単位の path を返さない: ${p}`)
-  assert.ok(!out.includes('台帳の lock を取ってから') || own === paths['a.md'], '他の単位の本文を返さない')
+  assert.equal(args.workers.length, 1, '全体が UNIT_MAX_BYTES 以下なので詰め合わせは 1 つ（1 体）')
+  const { c } = claimFile(state, args)
+  assert.equal(c.tasks.length, Object.keys(FILES).length, '詰め合わせの単位ごとに 1 担当')
+  assert.deepEqual(c.tasks.map((x) => x.unit.path).sort(), Object.values(paths).sort(), '担当は互いに違う単位')
+  for (const task of c.tasks) {
+    assert.equal(task.kind, 'file')
+    assert.equal(typeof task.id, 'string')
+    assert.equal(typeof task.result_path, 'string')
+    const own = task.unit.path
+    assert.equal(task.unit.start, 1)
+    assert.equal(task.unit.end, readFileSync(own, 'utf8').split('\n').length, 'ファイルの全文の範囲')
+    assert.deepEqual(readFileSync(task.unit.file, 'utf8'), readFileSync(own, 'utf8'), '写しは単位の本文')
+    assert.deepEqual(task.lenses.map((l) => l.id), ['L1', 'L2', 'S1'], '観点は一覧で全て渡す（呼ぶ側の観点と標準の観点 S1。当てる単位を選ばない）')
+    assert.deepEqual(task.obligations.map((o) => o.id), OBLIGATIONS)
+    assert.deepEqual(Object.keys(task).filter((k) => !['id', 'kind', 'result_path', 'unit', 'lenses', 'obligations', 'hints'].includes(k)), [], `事実・根拠など他の役の書き込みを返さない: ${Object.keys(task)}`)
+  }
+  assert.equal(new Set(c.tasks.map((x) => x.result_path)).size, c.tasks.length, '結果の path は担当ごとに違う')
 })
 
-test('claim: 並べて流した claim は互いに違う単位を返す（lock で直列にする）', async (t) => {
-  const { state } = project(t, FILES)
+// 1 つで UNIT_MAX_BYTES の半分を超える 3 つのファイル（どの 2 つも 1 つの詰め合わせに収まらない）。
+const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
+test('claim: 詰め合わせが分かれると行も分かれ、並べて流した claim は互いに違う単位を返す（lock で直列にする）', async (t) => {
+  const BIG = { 'a.md': bigDoc('A'), 'b.md': bigDoc('B'), 'c.md': bigDoc('C') }
+  for (const x of Object.values(BIG)) assert.ok(Buffer.byteLength(x) * 2 > core.UNIT_MAX_BYTES && Buffer.byteLength(x) < core.UNIT_MAX_BYTES)
+  const { state } = project(t, BIG)
   await passPlan(state)
   const { args } = open(state)
-  assert.ok(args.workers.length >= 3, `worker が 3 体以上（config の既定）: ${args.workers.length}`)
+  assert.equal(args.workers.length, 3, `詰め合わせが 3 つなので 3 体: ${args.workers.length}`)
   const one = (w) => new Promise((resolve) => {
     const p = spawn(process.execPath, [CLI, 'claim', '--state', state, '--call', args.callId, '--worker', w.id])
     let out = ''
     p.stdout.on('data', (b) => { out += b })
     p.on('close', () => resolve(JSON.parse(out)))
   })
-  const rs = await Promise.all(args.workers.slice(0, 3).map(one))
-  const units = rs.map((r) => r.tasks && r.tasks[0] && r.tasks[0].unit.id)
-  assert.ok(units.every(Boolean), JSON.stringify(rs))
+  const rs = await Promise.all(args.workers.map(one))
+  const units = rs.flatMap((r) => (r.tasks || []).map((x) => x.unit.id))
+  assert.equal(units.length, 3, JSON.stringify(rs).slice(0, 400))
   assert.equal(new Set(units).size, 3, `同じ単位を 2 体に渡さない: ${units}`)
 })
 

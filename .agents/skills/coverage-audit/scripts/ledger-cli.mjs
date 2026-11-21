@@ -6,9 +6,9 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
-  ALIAS_ANSWERS, C, CONFIDENCES, MAX_ATTEMPTS, VERDICTS, addEvent, atCycleCap, board, calibration, capCycles, checkFileResult, coverage, currentFindings, decide, factsOf, goalIds, goalSources, lateralGroups,
-  lateralTypeIds, lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, sha, splitAssets,
-  startPhase, staticFacts, targetLenses, todoUnits, unitTextOf, carriedRead, provenance, runMetrics,
+  ALIAS_ANSWERS, C, CONFIDENCES, MAX_ATTEMPTS, VERDICTS, addEvent, board, calibration, checkFileResult, coverage, currentFindings, decide, factsOf, goalIds, goalSources,
+  lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, packUnits, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, retroTodo, sha, splitAssets,
+  startPhase, staticFacts, targetLenses, unitTextOf, carriedRead, provenance, runMetrics,
 } from './ledger-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -61,7 +61,8 @@ function load(dir) {
   if (!Array.isArray(L.lenses) || L.lenses.some((l) => l.origin === 'skill' && !l.retro)) throw new Fail(`台帳の形式が古い（スキルの観点 purpose・layer を固定で持つ）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!Object.hasOwn(L, 'link')) throw new Fail(`台帳の形式が古い（関係する資産を結ぶ link の欄を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!Array.isArray(L.facts) || L.cells) throw new Fail(`台帳の形式が古い（資産 × 観点の枡を持つ）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
-  if (!L.intent_attempts || !Array.isArray(L.lateral_types)) throw new Fail(`台帳の形式が古い（全体の段の意図の試行と横展開の型を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (!L.intent_attempts) throw new Fail(`台帳の形式が古い（全体の段の意図の試行を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (!Array.isArray(L.retro_findings) || Object.hasOwn(L, 'lateral_types')) throw new Fail(`台帳の形式が古い（横展開の型と束ねの反証を持ち、振り返りの指摘を対象の指摘と分けない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   return L
 }
 function writeAtomic(file, text) {
@@ -124,8 +125,12 @@ export function withLock(dir, fn) {
 }
 // 書き込みは一時ファイルからの rename で 1 回に行う（途中で落ちても壊れた台帳を残さない）。
 function save(dir, L) {
-  // 確定した指摘と検証不能の指摘は、台帳の事実から導いた写しを findings に置く（status・answer・reframe の段の記録が読む）。
-  if (L.facts) L.findings = Object.fromEntries(board(L).findings.list.map((f) => [f.id, { ...f, status: 'current' }]))
+  // 確定した指摘と検証不能の指摘と束ねの群は、台帳の事実から導いた写しを findings・groups に置く（status・answer・reframe の段の記録が読む）。
+  if (L.facts) {
+    const B = board(L)
+    L.findings = Object.fromEntries(B.findings.list.map((f) => [f.id, { ...f, status: 'current' }]))
+    L.groups = B.groups
+  }
   L.rev += 1
   writeAtomic(ledgerPath(dir), JSON.stringify(L, null, 1))
 }
@@ -273,22 +278,24 @@ function cmdReframe(o) {
 
 // ---------------- 呼び出し（next が開き、ingest が閉じる） ----------------
 // args は {state, callId, stage, workers} だけにする（B4）。担当が読む文は args にも prompt にも載せず、役が claim と query で台帳から引く（B1）。
-// 1 つの呼び出しの worker は全て同時に起動されるので、前の役の提出を読む役（統合役・精査役・検証役）は次の呼び出しに置く。
+// 1 つの呼び出しの worker は全て同時に起動されるので、前の役の提出を読む役（観点の検証役・確認役）は次の呼び出しに置く。
 // 段・担当の種類から役の名前への対応は、ここと stageTasks・INTENT_ROLE の 1 か所に置く。役のモデルと effort の組は roles.json だけが持ち、
 // next が workers の行に写す（Workflow script は行の値を使い、役の名前で分岐しない）。
 const FILE_ROLE = 'file_reader'
+// 振り返りの読みはファイルの段と同じ組（出来事の写しを、振り返りの観点で全文読む）。
+const RETRO_ROLE = FILE_ROLE
 const goalItemIds = (L) => [...L.goal.items, ...L.criteria].map((c) => c.id)
 const goalTexts = (L) => Object.fromEntries([...L.goal.items, ...L.criteria].map((c) => [c.id, c.text]))
 // 既にある観点（呼ぶ側と仕組みの標準）。計画役は定義し直せず、制約の受け皿にできる。
 const givenLenses = (L) => L.lenses.filter((l) => l.origin === 'user' || l.origin === 'standard')
 const planCtx = (L) => ({ constraintIds: [...L.criteria, ...L.constraints].map((c) => c.id), lensesGiven: !needPlan(L), givenLensIds: givenLenses(L).map((l) => l.id), goalItemIds: goalItemIds(L), goalTexts: goalTexts(L) })
 // 呼ぶ側の観点があるときの計画役の提案は足すだけなので、試行の上限まで出なければ提案なしで進め、出来事に残す（止めない）。
+// 目標の照合が済んでいなければ飛ばさない（計画役が照合も担うので、飛ばすと照合が抜ける）。
 function skipStuckPlan(L) {
-  if (L.plan_skipped || needPlan(L) || (L.attempts.plan || 0) < MAX_ATTEMPTS) return
+  if (L.plan_skipped || needPlan(L) || !L.goal.checked || (L.attempts.plan || 0) < MAX_ATTEMPTS) return
   L.plan_skipped = true
   delete L.attempts.plan
   delete L.env_attempts.plan
-  L.plan_drafts = null
   addEvent(L, 'plan', 'plan_skipped', `計画役の観点の提案が試行 ${MAX_ATTEMPTS} 回で出なかったので、呼ぶ側と標準の観点（${givenLenses(L).map((l) => l.id).join('・')}）で読み進める`)
 }
 // 計画の照合は Workflow source の checkPlan。観点は一覧で全ての単位に渡すので、当てる単位（applies_to・excluded）は持たない。
@@ -296,7 +303,7 @@ function planProblems(rep, ctx) {
   if (!rep || typeof rep !== 'object') return ['結果が object でない']
   return C.checkPlan(rep, ctx)
 }
-// 計画の欠陥を足す。id は台帳の連番の P<n> で、統合をやり直して欠陥を戻しても前の番号を使い回さない（answer --id P<n> で指す）。
+// 計画の欠陥を足す。id は台帳の連番の P<n> で、計画をやり直して欠陥を戻しても前の番号を使い回さない（answer --id P<n> で指す）。
 function addPlanDefect(L, d) {
   L.plan_seq += 1
   L.plan_defects.push({ id: `P${L.plan_seq}`, ...d })
@@ -308,54 +315,45 @@ function syncPlanLenses(L) {
 }
 // 1 回の呼び出しの起動数は workers ≤ maxAgents に収める。
 function checkWorkers(config) {
-  if (config.workers > C.LIMITS.maxAgents) throw new Fail(`ファイルの段の 1 回の起動数 workers(${config.workers}) が上限 maxAgents ${C.LIMITS.maxAgents} を超える（--workers を下げる）`)
+  if (config.workers > C.LIMITS.maxAgents) throw new Fail(`全体の段の役ごとの起動数 workers(${config.workers}) が上限 maxAgents ${C.LIMITS.maxAgents} を超える（--workers を下げる）`)
 }
-// 段ごとの worker の行と、行に結んだ担当。ファイルの段の担当は結ばず、worker が claim で読む単位を 1 つずつ取る。
-// 計画の段の担当は行に 1 つずつ結ぶ。akey は試行を数える鍵（stuck の id）。
-function stageTasks(L, d) {
+// 段ごとの worker の行と、行に結んだ担当。ファイルの段と振り返りの担当は詰め合わせ（bundles）で行に結び、worker が claim で詰め合わせの単位を取る。
+// 計画の段の担当は行に 1 つずつ結ぶ。akey は試行を数える鍵（stuck の id）。bytesOf(id) は単位の本文のバイト数（詰め合わせに使う）。
+function stageTasks(L, d, bytesOf) {
   const one = (id, role, task) => ({ rows: [{ id, role }], tasks: [{ ...task, worker: id }] })
   if (d.step === 'global') return { ...globalRows(L, board(L)), tasks: [] }
-  if (d.step === 'group') return one('gr1', 'grouper', { id: 'group', kind: 'group', akey: `group:${L.cycle}`, items: confirmedThisCycle(L, board(L)).map((f) => f.id) })
-  if (d.step === 'refute') {
-    const gs = L.grouping.refute.map((id) => L.grouping.groups.find((g) => g.id === id))
-    return {
-      rows: gs.flatMap((g, i) => [{ id: `ra${i + 1}`, role: 'refuter_a' }, { id: `rb${i + 1}`, role: 'refuter_b' }]),
-      tasks: gs.flatMap((g, i) => ['a', 'b'].map((who) => ({ id: `refute:${g.id}:${who}`, kind: 'refute', group: g.id, who, worker: `r${who}${i + 1}` }))),
-    }
+  // ファイルの段と振り返りは、文脈に収まる分の単位を 1 体に詰める（設計「段の構成」、決定 16）。詰め合わせの数が起動数で、maxAgents と残りの予算に収める。残りは次の呼び出しで読む。
+  if (d.step === 'file' || d.step === 'retro') {
+    const packs = packUnits(d.units, bytesOf).slice(0, Math.max(1, Math.min(C.LIMITS.maxAgents, budgetLeft(L))))
+    const tag = d.step === 'file' ? 'f' : 'r'
+    const rows = packs.map((_, i) => ({ id: `${tag}${i + 1}`, role: d.step === 'file' ? FILE_ROLE : RETRO_ROLE }))
+    return { rows, tasks: [], bundles: Object.fromEntries(rows.map((r, i) => [r.id, packs[i]])) }
   }
-  // ファイルの段は 1 単位に 1 体（設計「段の構成」）。起動数は未読の単位の数で、maxAgents と残りの予算に収める。残りは次の呼び出しで読む。
-  if (d.step === 'file') return { rows: Array.from({ length: Math.max(1, Math.min(d.units.length, C.LIMITS.maxAgents, budgetLeft(L))) }, (_, i) => ({ id: `f${i + 1}`, role: FILE_ROLE })), tasks: [] }
-  if (d.step === 'goal_check') return one('g1', 'goal_checker', { id: 'goal_check', kind: 'goal_check', akey: 'goal' })
-  if (d.step === 'plan') return { rows: [{ id: 'pa', role: 'planner_a' }, { id: 'pb', role: 'planner_b' }], tasks: [{ id: 'plan:A', kind: 'plan', who: 'A', worker: 'pa' }, { id: 'plan:B', kind: 'plan', who: 'B', worker: 'pb' }] }
-  if (d.step === 'integrate') {
+  if (d.step === 'plan') {
     const answers = L.answers.filter((a) => !L.answered.includes(a.id) && planAnswerKinds.includes(a.target_kind)).map((a) => a.id)
-    return one('i1', 'integrator', { id: 'integrate', kind: 'integrate', akey: 'plan', again: !!L.plan, answerIds: answers })
+    return one('p1', 'planner', { id: 'plan', kind: 'plan', akey: 'plan', goalCheck: !L.goal.checked, again: !!L.plan, defectCount: L.plan ? L.plan_defects.length : 0, answerIds: answers })
   }
+  // 観点の検証: 計画の版を担当にし、確かめていない観点の全てを 1 体が見る。
   const byId = new Map(((L.plan && L.plan.lenses) || []).map((u) => [u.id, u]))
-  const ids = d.lenses.slice(0, C.LIMITS.maxAgents)
-  return {
-    rows: ids.map((id, i) => ({ id: `uv${i + 1}`, role: 'unit_verifier' })),
-    tasks: ids.map((id, i) => ({ id: `unit_verify:${id}`, kind: 'unit_verify', lens: id, key: C.unitKey(byId.get(id)), akey: `unit:${id}`, worker: `uv${i + 1}` })),
-  }
+  const keys = Object.fromEntries(d.lenses.map((id) => [id, C.unitKey(byId.get(id))]))
+  return one('uv1', 'unit_verifier', { id: `unit_verify:${sha(JSON.stringify(keys)).slice(0, 12)}`, kind: 'unit_verify', lenses: d.lenses, keys, akey: 'unit_verify' })
 }
 
-// ---------------- 全体の段（意図）と束ね・反証 ----------------
-// 意図の種類ごとの役。名寄せは alias_judge、主語の照合・指摘の判定・前提の消化・目標の判定は global_judge、確認は confirmer。
-// 横展開は型を 1 つの単位の全文に当てて読み直すので、ファイルの段と同じ file_reader にする。
-const INTENT_ROLE = { alias: 'alias_judge', subject: 'global_judge', finding: 'global_judge', premise: 'global_judge', goal: 'global_judge', lateral: FILE_ROLE, confirm: 'confirmer' }
-const INTENT_ROWS = [['a', ['alias']], ['g', ['subject', 'finding', 'premise', 'goal']], ['c', ['confirm']], ['x', ['lateral']]]
-// 1 体が 1 つの担当だけを取る種類（横展開は型を 1 つの単位の全文に当てて読み直すので、ファイルの段と同じく 1 単位に 1 体）。
-const ONE_PER_WORKER = ['lateral']
+// ---------------- 全体の段（意図） ----------------
+// 意図の種類ごとの役。名寄せ・主語の照合・指摘の判定・前提の消化・目標の判定は global_judge、確認と束ねは confirmer。
+// 判定役 1 体が判定役の全ての種類の意図を順に処理し、確認役 1 体が確認の意図と、確認が全て閉じた後の束ねの意図を取る（起動の原則）。
+const INTENT_ROLE = { alias: 'global_judge', subject: 'global_judge', finding: 'global_judge', premise: 'global_judge', goal: 'global_judge', confirm: 'confirmer', group: 'confirmer' }
+const INTENT_ROWS = [['g', ['alias', 'subject', 'finding', 'premise', 'goal']], ['c', ['confirm', 'group']]]
 // 今の段の残りの予算（起動数）。1 回の呼び出しの起動数をこれに収める（少なくとも 1）。
 const budgetLeft = (L) => Math.max(1, L.config.max_agents_total - (L.agents.length - L.phase_start.agents))
-// 全体の段の行: 開いた意図のある種類の組ごとに、min(workers, 開いた意図の数) 体。呼び出しの中で受理された事実から増えた意図は、行のある組なら同じ呼び出しで取る。
+// 全体の段の行: 開いた意図のある種類の組ごとに、min(workers, 開いた意図の数) 体（既定は 1 体）。
+// 呼び出しの中で受理された事実から増えた意図は、行のある組なら同じ呼び出しで取る（確認役は確認に続けて束ねを取る）。
 function globalRows(L, B) {
   const open = B.intents.filter((i) => i.state === 'open')
   const rows = []
   const kinds = {}
   for (const [tag, ks] of INTENT_ROWS) {
-    const count = open.filter((i) => ks.includes(i.kind)).length
-    const n = ks.every((k) => ONE_PER_WORKER.includes(k)) ? Math.min(count, C.LIMITS.maxAgents, Math.max(1, budgetLeft(L) - rows.length)) : Math.min(L.config.workers, count)
+    const n = Math.min(L.config.workers, open.filter((i) => ks.includes(i.kind)).length)
     for (let k = 1; k <= n; k++) { rows.push({ id: `${tag}${k}`, role: INTENT_ROLE[ks[0]] }); kinds[`${tag}${k}`] = ks }
   }
   return { rows, kinds }
@@ -367,13 +365,11 @@ const unitIndex = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro).ma
 const OMITTED_IDS_MAX = 200
 function intentTask(L, dir, call, w, it) {
   const tid = intentTaskId(it.id, call)
-  const t = L.lateral_types.find((x) => x.id === it.type)
-  const a = it.unit ? L.assets[it.unit] : null
   const hs = hintsOf(dir, L.pending.hints)
   return {
     id: tid, kind: it.kind, result_path: resultPath(dir, call, w.id, tid), intent: { id: it.id, kind: it.kind, ...(it.item ? { item: it.item } : {}) },
     lenses: targetLenses(L).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure })), obligations: obligations(L),
-    ...(a ? { unit: { id: it.unit, path: a.path, file: a.snap, start: a.start, end: a.end } } : {}), ...(it.kind === 'goal' ? { units: unitIndex(L) } : {}), ...(t ? { type: { id: t.id, pattern: t.pattern, root_cause: t.root_cause } } : {}), ...(hs.length ? { hints: hs } : {}),
+    ...(it.kind === 'goal' ? { units: unitIndex(L) } : {}), ...(hs.length ? { hints: hs } : {}),
   }
 }
 // 意図の試行: 根拠の鍵が変われば数え直す。上限で判定できなかった意図（undecided）として理由つきで閉じる。
@@ -398,8 +394,8 @@ function quoteIn(L, q, units) {
   return first || '引用を照らす単位が無い'
 }
 const isStr = (s) => typeof s === 'string' && s.trim().length > 0
-// 全体の段が足す指摘（GlobalFinding）の照合: 主張・場所（単位と逐語の引用）・義務・確信度・原因の層。onlyUnit を渡すと場所はその単位だけ。
-function globalFindingProblems(L, fs, onlyUnit = null) {
+// 全体の段が足す指摘（GlobalFinding）の照合: 主張・場所（単位と逐語の引用）・義務・確信度・原因の層。
+function globalFindingProblems(L, fs) {
   const p = []
   const ob = obligations(L).map((o) => o.id)
   ;(Array.isArray(fs) ? fs : []).forEach((f, i) => {
@@ -407,7 +403,7 @@ function globalFindingProblems(L, fs, onlyUnit = null) {
     const locs = Array.isArray(f && f.locations) ? f.locations : []
     if (!locs.length) p.push(`findings[${i}]: locations（単位と引用）が無い`)
     locs.forEach((l, k) => {
-      if (!l || !L.assets[l.unit] || (onlyUnit && l.unit !== onlyUnit)) { p.push(`findings[${i}].locations[${k}]: 単位が台帳に無い: ${l && l.unit}`); return }
+      if (!l || !L.assets[l.unit] || L.assets[l.unit].retro) { p.push(`findings[${i}].locations[${k}]: 単位が台帳に無い: ${l && l.unit}`); return }
       const e = quoteIn(L, l.quote, [l.unit])
       if (e) p.push(`findings[${i}].locations[${k}]: ${e}`)
     })
@@ -418,6 +414,8 @@ function globalFindingProblems(L, fs, onlyUnit = null) {
   })
   return p
 }
+// 指摘を足せる意図の種類。
+const ADDS_FINDINGS = ['subject', 'premise', 'goal']
 // 意図の判定の照合。確認は、逐語でない引用では棄却も確定もできず、検証不能として受け取る（設計「全体の段と確認」の確認）。
 function intentProblems(L, B, it, rep) {
   if (!rep || typeof rep !== 'object' || Array.isArray(rep)) return ['結果が object でない']
@@ -425,9 +423,10 @@ function intentProblems(L, B, it, rep) {
   // 目標の判定は、載せなかった事実（omitted_ids。--fact で引き直せる）も支えにできる。
   const visible = [...it.basis, ...it.related, ...(it.kind === 'goal' ? it.omitted_ids || [] : [])]
   const units = [...new Set(visible.map((id) => B.facts.get(id)).filter(Boolean).flatMap((f) => (f.paths && f.locations ? f.locations.map((l) => l.unit) : [f.unit])))]
-  if (it.kind === 'lateral') units.push(it.unit)
   // 目標の判定は、単位の索引の全ての単位の本文で引用を照らす（抜けの場所は、結ばれた事実の無い単位にもありうる）。
   if (it.kind === 'goal') units.push(...Object.keys(L.assets).filter((id) => !L.assets[id].retro))
+  // 束ね: 群の形と、群が持つ事実の id が根拠（確定した指摘）にちょうど 1 回ずつあるか（引用は持たない）。
+  if (it.kind === 'group') return C.checkGroups(rep, it.basis)
   if (it.kind === 'alias') {
     if (!ALIAS_ANSWERS.includes(rep.same)) p.push(`same は ${ALIAS_ANSWERS.join('・')} のどれか: ${rep.same}`)
     if (!CONFIDENCES.includes(rep.confidence)) p.push(`confidence は ${CONFIDENCES.join('・')} のどれか`)
@@ -456,7 +455,7 @@ function intentProblems(L, B, it, rep) {
     if (!s.length) p.push('supported には支えの事実の id（support）が要る')
     for (const id of s) if (!visible.includes(id)) p.push(`support に根拠・関係する事実に無い id: ${id}`)
   }
-  if (['subject', 'premise', 'goal', 'lateral'].includes(it.kind) && rep.findings !== undefined) p.push(...globalFindingProblems(L, rep.findings, it.kind === 'lateral' ? it.unit : null))
+  if (ADDS_FINDINGS.includes(it.kind) && rep.findings !== undefined) p.push(...globalFindingProblems(L, rep.findings))
   return p
 }
 // 受理した判定を事実として足す。足した指摘も事実にし、判定の added に結ぶ。
@@ -464,19 +463,20 @@ function addJudgment(L, B, it, rep, w) {
   const P = L.pending
   const unverifiable = it.kind === 'confirm' && quoteIn(L, rep.quote, it.basis.map((id) => B.facts.get(id)).filter(Boolean).flatMap((f) => (f.locations ? f.locations.map((l) => l.unit) : [f.unit])))
   const jid = `J${sha(JSON.stringify([it.id, it.key, P.call_id, w.id, L.facts.length])).slice(0, 12)}`
-  const fs = ['subject', 'premise', 'goal', 'lateral'].includes(it.kind) && Array.isArray(rep.findings) ? rep.findings : []
+  const fs = ADDS_FINDINGS.includes(it.kind) && Array.isArray(rep.findings) ? rep.findings : []
   const added = fs.map((f) => {
     const locs = f.locations.map((l) => ({ unit: l.unit, path: L.assets[l.unit].path, quote: l.quote }))
-    return { id: `F${sha(JSON.stringify([it.id, it.key, C.norm(f.claim), locs.map((l) => [l.unit, C.norm(l.quote)])])).slice(0, 12)}`, type: 'finding', origin: it.kind, judgment: jid, claim: f.claim, quote: locs[0].quote, unit: locs[0].unit, path: locs[0].path, paths: [...new Set(locs.map((l) => l.path))], locations: locs, obligation: f.obligation, confidence: f.confidence, layer: f.layer, ...(f.severity ? { severity: f.severity } : {}), ...(it.kind === 'lateral' ? { lens: it.type } : {}), cycle: L.cycle }
+    return { id: `F${sha(JSON.stringify([it.id, it.key, C.norm(f.claim), locs.map((l) => [l.unit, C.norm(l.quote)])])).slice(0, 12)}`, type: 'finding', origin: it.kind, judgment: jid, claim: f.claim, quote: locs[0].quote, unit: locs[0].unit, path: locs[0].path, paths: [...new Set(locs.map((l) => l.path))], locations: locs, obligation: f.obligation, confidence: f.confidence, layer: f.layer, ...(f.severity ? { severity: f.severity } : {}), cycle: L.cycle }
   })
   const j = {
-    id: jid, type: 'judgment', intent: it.id, kind: it.kind, key: it.key, phase: L.phase_start.cycle, cycle: L.cycle, verdict: unverifiable ? 'unverifiable' : it.kind === 'alias' ? undefined : rep.verdict,
-    quote: rep.quote, ...(rep.reason ? { reason: rep.reason } : {}), ...(it.kind === 'alias' ? { same: rep.same, confidence: rep.confidence } : {}), ...(Array.isArray(rep.support) ? { support: rep.support } : {}),
+    id: jid, type: 'judgment', intent: it.id, kind: it.kind, key: it.key, phase: L.phase_start.cycle, cycle: L.cycle, verdict: unverifiable ? 'unverifiable' : ['alias', 'group'].includes(it.kind) ? undefined : rep.verdict,
+    quote: rep.quote, ...(it.kind === 'group' ? { groups: rep.groups.map((g) => ({ id: g.id, root_cause: g.root_cause, layer: g.layer, keys: [...g.keys] })), unassigned: [...(rep.unassigned || [])] } : {}), ...(rep.reason ? { reason: rep.reason } : {}), ...(it.kind === 'alias' ? { same: rep.same, confidence: rep.confidence } : {}), ...(Array.isArray(rep.support) ? { support: rep.support } : {}),
     ...(rep.obligation ? { obligation: rep.obligation } : {}), ...(rep.layer ? { layer: rep.layer } : {}), ...((it.kind === 'goal' && rep.verdict === 'gap') || (it.kind === 'premise' && rep.verdict === 'unsatisfied') ? { reads: readsSig(L) } : {}),
     added: added.map((f) => f.id), call: P.call_id, worker: w.id, role: w.role, model: w.model, effort: w.effort,
   }
   L.facts.push(j, ...added.filter((f) => !L.facts.some((x) => x.id === f.id)))
   if (it.kind === 'confirm' && it.mode === 'dropped' && j.verdict === 'disagree') addEvent(L, 'global', 'restored', `${it.target}: 確認が落とした判定を誤りと判じたので復活させた`, it.target)
+  if (it.kind === 'group') L.saturation.push({ cycle: L.cycle, confirmed: it.basis.length, groups: rep.groups.length })
   if (it.kind === 'alias' && rep.same === 'unsure') addEvent(L, 'global', 'alias_unsure', `${it.id}: 名寄せが不明のまま（${(it.names || []).join(' / ')}）`, it.id)
 }
 
@@ -497,44 +497,6 @@ function submitIntent(L, id, w, rep) {
   c.done = true
   return { problems: [], dropped: false }
 }
-// 束ね: この周に確定した指摘を根本原因で束ねる（束ね役 1 体）。群ごとに反証役 2 体の票を CLI が集めて、群の状態を決める。
-const confirmedThisCycle = (L, B) => B.findings.list.filter((f) => f.verdict === 'confirmed' && f.cycle === L.cycle)
-function groupItems(L, ids) {
-  const B = board(L)
-  const keys = C.groupKeys(ids.length)
-  return ids.map((id, i) => { const f = B.findings.list.find((x) => x.id === id) || {}; return { key: keys[i], finding: id, paths: f.paths, claim: f.claim, quote: f.quote, severity: f.severity, layer: f.layer, obligation: f.obligation } })
-}
-// 束ねを諦める（試行の上限）: この周の束ねを開示して閉じ、止めずに進める。
-function giveUpGrouping(L, reason) {
-  L.grouping = null
-  if (!L.group_cycles.includes(L.cycle)) L.group_cycles.push(L.cycle)
-  addEvent(L, 'group', 'group_undecided', `周 ${L.cycle} の束ねを判定できずに開示して閉じた（${reason}）`)
-}
-// 群の票を集めて群を決め、新しい型から横展開の型を作る（上限の周では作らず、群だけを残して needs_input で返す）。
-function finalizeGrouping(L) {
-  const G = L.grouping
-  if (!G) return
-  const keys = C.groupKeys(G.ids.length)
-  const toId = (k) => G.ids[keys.indexOf(k)]
-  const cap = atCycleCap(L)
-  let made = 0
-  for (const gr of G.groups) {
-    const votes = Object.values(G.votes[gr.id] || {})
-    const n = votes.filter((v) => v.refuted).length
-    const status = C.linkOnly(gr) ? 'linked' : !G.refute.includes(gr.id) || votes.length < 2 ? 'unverified' : n === 2 ? 'refuted' : n === 1 ? 'split' : 'kept'
-    const id = `G${G.cycle}-${gr.id}`
-    const ext = isStr(gr.extends) ? gr.extends : null
-    const keep = cap && !ext && isStr(gr.pattern) ? { applies_to: [...new Set(gr.applies_to)] } : {}
-    L.groups.push({ id, cycle: G.cycle, root_cause: gr.root_cause, layer: gr.layer, keys: (gr.keys || []).map(toId), pattern: gr.pattern, status, votes, ...(ext ? { extends: ext } : {}), ...keep })
-    if (status === 'refuted' || ext || cap || !isStr(gr.pattern)) continue
-    if (addLateral(L, id, { ...gr, keys: (gr.keys || []).map(toId) })) made += 1
-  }
-  L.saturation.push({ cycle: G.cycle, confirmed_new: G.ids.length, groups: G.groups.length, lateral_types: made })
-  L.grouping = null
-  if (!L.group_cycles.includes(G.cycle)) L.group_cycles.push(G.cycle)
-  if (made) L.cycle += 1
-}
-
 function cmdNext(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => next(dir))
@@ -561,8 +523,9 @@ function next(dir) {
     L.env_attempts = {}
   }
   const { assets, missing } = currentAssets(L, dir)
-  capCycles(L)
-  expandLateral(L)
+  // 単位の本文のバイト数（詰め合わせに使う）。今の対象の単位は列挙した本文から、それ以外（振り返りの単位）は写しから数える。
+  const sizes = new Map(assets.map((a) => [a.id, Buffer.byteLength(a.text, 'utf8')]))
+  const bytesOf = (id) => (sizes.has(id) ? sizes.get(id) : Buffer.byteLength(unitTextOf(L, id) || '', 'utf8'))
   const changes = refresh(L, assets)
   L.static = staticFacts(L)
   // 止まった後に対象が変わったら、読み直しの新しい回を始める（設計「再レビューと持ち越し」）。今の回より前の周の読みは持ち越しになり、
@@ -589,19 +552,20 @@ function next(dir) {
       writeAtomic(statusPath(dir, L), JSON.stringify(statusOf(L)))
       return { ...d, changes, coverage: coverage(L), status_path: statusPath(dir, L), next_args: d.stop === 'complete' ? null : { state: dir } }
     }
-    // 静的に済む段は agent を起動せずに進める。coverage-build から渡された台帳（照合済みの印）は振り返りの単位を作らない。
+    // 振り返り: coverage-build から渡された台帳（照合済みの印）は振り返りを作らず、済みの印だけを付ける（agent を起動しない）。
+    // 単独のときは、周ごとに 1 回だけ、まだ振り返っていない出来事の写しを単位にし（対象の単位に数えない）、読む単位が無くなったら済みの印を付ける。
     if (d.step === 'retro') {
-      if (L.goal.checked_by !== 'coverage-build') refresh(L, retroAssets(L).map((a) => ({ ...a, snap: writeSnap(dir, a.text) })), { partial: true })
-      L.retro_cycles.push(L.cycle)
-      continue
-    }
-    // この周に確定した指摘が無ければ束ねない（agent を起動しない）。
-    if (d.step === 'group' && !confirmedThisCycle(L, board(L)).length) {
-      L.group_cycles.push(L.cycle)
-      continue
+      if (L.goal.checked_by !== 'coverage-build' && L.retro_made !== L.cycle) {
+        L.retro_made = L.cycle
+        const ras = retroAssets(L)
+        for (const a of ras) sizes.set(a.id, Buffer.byteLength(a.text, 'utf8'))
+        refresh(L, ras.map((a) => ({ ...a, snap: writeSnap(dir, a.text) })), { partial: true })
+      }
+      d.units = L.goal.checked_by === 'coverage-build' ? [] : retroTodo(L)
+      if (!d.units.length) { L.retro_cycles.push(L.cycle); continue }
     }
     const unread = hints(dir).filter((h) => !L.hints_read.includes(h.id))
-    const { rows, tasks, kinds } = stageTasks(L, d)
+    const { rows, tasks, kinds, bundles } = stageTasks(L, d, bytesOf)
     L.call_seq += 1
     const callId = sha(`${dir}|${L.call_seq}|${d.step}|${L.cycle}|${L.rev}`).slice(0, 12)
     const workers = rows.map((r) => ({ id: r.id, role: r.role, model: L.roles[r.role].model, effort: L.roles[r.role].effort }))
@@ -610,7 +574,7 @@ function next(dir) {
     writeAtomic(argsPath, JSON.stringify(args))
     // 止まっている間だけ status のファイルがある形にする（呼ぶ側が前の停止の status を取り込まない）。
     rmSync(statusPath(dir, L), { force: true })
-    L.pending = { call_id: callId, step: d.step, args_path: argsPath, workers, tasks, ...(kinds ? { kinds, intent_claims: {} } : {}), hints: unread.map((h) => h.id), cycle: L.cycle, events_at: L.events.length, claims: 0, submits: 0 }
+    L.pending = { call_id: callId, step: d.step, args_path: argsPath, workers, tasks, ...(kinds ? { kinds, intent_claims: {} } : {}), ...(bundles ? { bundles } : {}), hints: unread.map((h) => h.id), cycle: L.cycle, events_at: L.events.length, claims: 0, submits: 0, accepted: 0 }
     save(dir, L)
     return { step: d.step, call_id: callId, workflow: WORKFLOW, args_path: argsPath, estimate_agents: workers.length, limits: C.LIMITS, cycle: L.cycle, coverage: coverage(L), changes }
   }
@@ -622,6 +586,8 @@ const bump = (L, k, env) => {
 }
 const clear = (L, k) => { delete L.attempts[k] }
 const stageOf = (a) => (a && a.retro ? 'retro' : 'file')
+// 単位を読む段（ファイルの段と振り返り）。claim は詰め合わせの単位を返し、query を拒む。
+const READ_STEPS = ['file', 'retro']
 // 開いた呼び出しを閉じる。取ったまま提出されなかった単位は試行に数えて取りを外し、上限で理由つきの disclosed にする。
 // 提出されなかった計画の段の担当は、その鍵の試行に数える（env なら環境の失敗にも数え、blocked（failure）からの再開で戻す）。
 function closeCall(L, { env = false } = {}) {
@@ -640,10 +606,9 @@ function closeCall(L, { env = false } = {}) {
     }
   }
   for (const t of P.tasks || []) {
-    if (t.done || t.kind === 'plan' || t.kind === 'refute') continue
+    if (t.done) continue
     bump(L, t.akey, env)
-    addEvent(L, t.kind === 'group' ? 'group' : 'plan', `missing_${t.kind}`, `${t.id}: 担当が提出されなかった`, t.id)
-    if (t.kind === 'group' && L.attempts[t.akey] >= MAX_ATTEMPTS) giveUpGrouping(L, `束ね役の試行 ${L.attempts[t.akey]} 回`)
+    addEvent(L, 'plan', `missing_${t.kind}`, `${t.id}: 担当が提出されなかった`, t.id)
   }
   // 取ったまま提出されなかった意図は試行に数え、上限で判定できなかった意図として閉じる。
   if (P.step === 'global') {
@@ -655,13 +620,6 @@ function closeCall(L, { env = false } = {}) {
       addEvent(L, 'global', 'missing_intent', `${id}: 意図を取ったまま提出しなかった`, id)
       bumpIntent(L, it, '取ったまま提出されなかった')
     }
-  }
-  // 反証の票はここで集める（返らなかった票は数えず、2 票に足りない群は unverified）。
-  if (P.step === 'refute') finalizeGrouping(L)
-  // 計画役は 2 体のどちらかの案があれば統合に進む。どちらも無ければ計画の試行に数える。
-  if (P.step === 'plan') {
-    if (L.plan_drafts && Object.keys(L.plan_drafts.drafts).length) L.plan_drafts.closed = true
-    else { L.plan_drafts = null; bump(L, 'plan', env); addEvent(L, 'plan', 'blocked', '計画役が 2 体とも案を出さなかった') }
   }
   L.pending = null
 }
@@ -682,8 +640,15 @@ export function unwrap(v) {
 }
 
 // ingest: --call の呼び出しを閉じるだけ（B3）。返り値から読むのは起動の記録（agents）と tokens だけで、役の出力や集約は受け取らない（全て submit で台帳に入っている）。
-// 全ての役が欠けた呼び出しと、提出が 1 件も無いファイルの段の呼び出しと、claim が 1 度も無い全体の段の呼び出しは、環境の失敗に数える
+// 進みの無かった呼び出しは環境の失敗に数える: claim が 1 度も無い全体の段、提出が 1 件も無い読む段（ファイルの段・振り返り）、全ての役が欠けて受理が 0 の計画の段
 // （全体の段の行は開いた意図のある種類にだけ作るので、claim が無ければ worker が起動されていない。取った後に提出が無いのは意図の試行に数える）。
+// 役が返らなくても（時間の上限など）、受理か提出があった呼び出しは環境の失敗にしない。
+function noProgress(P, ag) {
+  const accepted = P.accepted || 0
+  if (P.step === 'global') return !P.claims && !accepted
+  if (READ_STEPS.includes(P.step)) return !P.submits
+  return !accepted && ag.length > 0 && ag.every((a) => !a.ok)
+}
 function cmdIngest(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => ingest(dir, o))
@@ -696,7 +661,10 @@ function ingest(dir, o) {
   const res = unwrap(JSON.parse(read(need(o, 'result'))))
   const r = res && typeof res === 'object' ? res : {}
   const ag = Array.isArray(r.agents) ? r.agents : []
-  const allFailed = (ag.length > 0 && ag.every((a) => !a.ok)) || (P.step === 'file' && !P.submits) || (P.step === 'global' && !P.claims)
+  // 環境の失敗に数えるのは、進みが無かった呼び出しだけ（設計「モデルと費用」の起動の原則: 1 体の時間の上限に当たった残りは次の呼び出しが取る）。
+  // - 全体の段: claim も受理も 0（worker が起動されなかった）。読む段（ファイルの段・振り返り）: submit が 0。計画の段: 全ての役が欠け、受理が 0。
+  // 進みのあった呼び出しで返らなかった役は、取ったまま出していない担当の試行に数えるだけにする（closeCall）。
+  const allFailed = noProgress(P, ag)
   recordCall(L, P, r, allFailed)
   L.hints_read.push(...P.hints)
   const rejected = L.events.slice(P.events_at).filter((e) => e.kind.startsWith('rejected_')).map((e) => e.text)
@@ -722,19 +690,21 @@ const resultPath = (dir, call, worker, taskId) => path.join(dir, 'results', call
 const submitCmd = (dir, call, w) => [process.execPath, CLI_PATH, 'submit', '--state', dir, '--call', call, '--worker', w.id].map(sq).join(' ')
 const fileTaskId = (unitId) => `file:${sha(unitId).slice(0, 12)}`
 const hintsOf = (dir, ids) => hints(dir).filter((h) => ids.includes(h.id))
-// ファイルの段の担当: 1 単位（写しの範囲）と、全ての観点と、義務（目標・受け入れ基準）。他の単位の本文・id・事実は返さない。
+// ファイルの段の担当: 1 単位（写しの範囲）と、全ての観点と、義務（目標・受け入れ基準）。他の役の書き込み（事実）は返さない。
+// 振り返りの単位（出来事の写し）も同じ形で、kind は retro、観点は振り返りの観点。
 function fileTask(L, dir, call, w, id) {
   const a = L.assets[id]
   const tid = fileTaskId(id)
   const hs = hintsOf(dir, L.pending.hints)
   return {
-    id: tid, kind: 'file', result_path: resultPath(dir, call, w.id, tid), unit: { id, path: a.path, file: a.snap, start: a.start, end: a.end },
+    id: tid, kind: a.retro ? 'retro' : 'file', result_path: resultPath(dir, call, w.id, tid), unit: { id, path: a.path, file: a.snap, start: a.start, end: a.end },
     lenses: lensesFor(L, a).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure })), obligations: obligations(L), ...(hs.length ? { hints: hs } : {}),
   }
 }
-const boundTask = (dir, call, t) => ({ id: t.id, kind: t.kind, result_path: resultPath(dir, call, t.worker, t.id), ...(t.lens ? { lens: t.lens } : {}), ...(t.who ? { who: t.who } : {}), ...(t.group ? { group: t.group } : {}) })
+const boundTask = (dir, call, t) => ({ id: t.id, kind: t.kind, result_path: resultPath(dir, call, t.worker, t.id), ...(t.lenses ? { lenses: t.lenses } : {}) })
 
-// claim: ファイルの段は、まだ読んでいない単位を 1 つ取る（出し終えていない担当を持っていれば、それを同じ形で返す）。計画の段は、行に結んだ担当を返す。
+// claim: ファイルの段と振り返りは、行に結んだ詰め合わせの単位を全て取る（出し終えていない単位を持っていれば、それだけを同じ形で返す）。
+// 全体の段は、自分の種類の開いた意図を 1 つ取る。計画の段は、行に結んだ担当を返す。
 // 取る物が無ければ done。返す前に結果の path の古いファイルを消す。
 function cmdClaim(o) {
   const dir = path.resolve(need(o, 'state'))
@@ -744,40 +714,42 @@ function cmdClaim(o) {
     const P = L.pending
     const call = P.call_id
     P.claims += 1
-    let task = null
-    if (P.step === 'file') {
-      // 1 worker は 1 つの呼び出しで 1 単位だけを読む。出し終えた（受理か開示）後の claim は done を返す（同じ文脈で次の単位を読ませない）。
+    let tasks = null
+    if (READ_STEPS.includes(P.step)) {
+      // 1 worker は 1 つの呼び出しで、行に結んだ詰め合わせの単位だけを読む。最初の claim で詰め合わせの単位を全て取り、
+      // 出し終えていない単位があればそれだけを返し、全て出し終えた（受理か開示）後の claim は done を返す（同じ文脈で詰め合わせの外の単位を読ませない）。
       P.file_taken = P.file_taken || {}
-      let id = Object.keys(L.assets).find((k) => L.assets[k].claim && L.assets[k].claim.call === call && L.assets[k].claim.worker === w.id)
-      if (!id && !P.file_taken[w.id]) {
-        id = todoUnits(L).find((k) => !L.assets[k].claim)
-        if (id) { L.assets[id].claim = { call, worker: w.id }; P.file_taken[w.id] = id }
+      if (!P.file_taken[w.id]) {
+        P.file_taken[w.id] = true
+        for (const k of (P.bundles && P.bundles[w.id]) || []) { const a = L.assets[k]; if (a && !a.claim && a.state === 'unseen' && a.attempts < MAX_ATTEMPTS) a.claim = { call, worker: w.id } }
       }
-      if (id) task = fileTask(L, dir, call, w, id)
+      const ids = Object.keys(L.assets).filter((k) => L.assets[k].claim && L.assets[k].claim.call === call && L.assets[k].claim.worker === w.id)
+      if (ids.length) tasks = ids.map((id) => fileTask(L, dir, call, w, id))
     } else if (P.step === 'global') {
       // 出し終えていない意図を持っていればそれを返し、無ければ自分の種類の開いた意図を 1 つ取る（取る順は意図の並び）。
       const B = board(L)
       let id = Object.keys(P.intent_claims).find((k) => P.intent_claims[k].worker === w.id && !P.intent_claims[k].done)
       if (id && (!B.byId.get(id) || B.byId.get(id).state !== 'open')) { P.intent_claims[id].done = true; id = null }
-      const onlyOne = (P.kinds[w.id] || []).every((k) => ONE_PER_WORKER.includes(k)) && Object.values(P.intent_claims).some((c) => c.worker === w.id)
-      if (!id && !onlyOne) {
+      if (!id) {
         const it = B.intents.find((i) => i.state === 'open' && (P.kinds[w.id] || []).includes(i.kind) && !P.intent_claims[i.id])
         if (it) { id = it.id; P.intent_claims[id] = { worker: w.id, done: false } }
       }
-      if (id) task = intentTask(L, dir, call, w, B.byId.get(id))
+      if (id) tasks = [intentTask(L, dir, call, w, B.byId.get(id))]
     } else {
       const t = P.tasks.find((x) => x.worker === w.id && !x.done)
-      if (t) { t.claimed = true; task = boundTask(dir, call, t) }
+      if (t) { t.claimed = true; tasks = [boundTask(dir, call, t)] }
     }
     save(dir, L)
-    if (!task) return { ok: true, done: true }
-    mkdirSync(path.dirname(task.result_path), { recursive: true })
-    rmSync(task.result_path, { force: true })
-    return { ok: true, tasks: [task], submit_cmd: submitCmd(dir, call, w) }
+    if (!tasks) return { ok: true, done: true }
+    for (const task of tasks) {
+      mkdirSync(path.dirname(task.result_path), { recursive: true })
+      rmSync(task.result_path, { force: true })
+    }
+    return { ok: true, tasks, submit_cmd: submitCmd(dir, call, w) }
   })
 }
 
-// query: 担当が読む入力を台帳から引く（B1）。ファイルの段の担当は拒む（他の単位の書き込みを読まず、独立に読む）。
+// query: 担当が読む入力を台帳から引く（B1）。ファイルの段と振り返りの担当は拒む（他の役の書き込みを読まず、独立に読む）。
 // 計画の段の担当には、その担当が要る文（目標・依頼文・索引・案・欠陥・回答・観点）だけを返す。--fact は今の根拠の事実を id で引く。
 function cmdQuery(o) {
   const dir = path.resolve(need(o, 'state'))
@@ -786,16 +758,16 @@ function cmdQuery(o) {
     const w = pendingWorker(L, o)
     const P = L.pending
     const tid = need(o, 'task')
-    if (P.step === 'file' || tid.startsWith('file:')) throw new Fail('ファイルの段の担当は query できない（他の単位の書き込みを読まない。B1）')
+    if (READ_STEPS.includes(P.step) || tid.startsWith('file:')) throw new Fail('ファイルの段と振り返りの担当は query できない（他の役の書き込みを読まない。B1）')
     const B = board(L)
-    const facts = (o.fact || []).map((id) => { if (!B.facts.has(id)) throw new Fail(`今の根拠に無い事実: ${id}`); return publicFact(B.facts.get(id)) })
+    const facts = (o.fact || []).map((id) => { if (!B.facts.has(id)) throw new Fail(`今の根拠に無い事実: ${id}`); return publicFact(L, B.facts.get(id)) })
     if (P.step === 'global') {
       // 意図の根拠と関係する事実だけを返す（B1）。前の判定は今の根拠から外れているので返さない。載せなかった件数は omitted で宣言する。
       const id = Object.keys(P.intent_claims).find((k) => intentTaskId(k, P.call_id) === tid && P.intent_claims[k].worker === w.id)
       if (!id) throw new Fail(`この worker が取った意図の担当に無い: ${tid}`)
       const it = B.byId.get(id)
       if (!it) throw new Fail(`意図が今の根拠から外れた: ${id}（next からやり直す）`)
-      const pub = (ids) => ids.map((x) => B.facts.get(x)).filter(Boolean).map(publicFact)
+      const pub = (ids) => ids.map((x) => B.facts.get(x)).filter(Boolean).map((f) => publicFact(L, f))
       const ids = it.omitted_ids || []
       return {
         ok: true, task: tid, kind: it.kind, intent: { id: it.id, kind: it.kind, ...(it.item ? { item: it.item } : {}) }, basis: pub(it.basis), related: pub(it.related),
@@ -809,7 +781,7 @@ function cmdQuery(o) {
   })
 }
 const item = (c) => ({ id: c.id, text: c.text })
-// 索引: 1 行 1 単位（id・写し・範囲・見出しの経路・種類・先頭の数語）。計画役・統合役・精査役・検証役が単位を選ぶ。
+// 索引: 1 行 1 単位（id・写し・範囲・見出しの経路・種類・先頭の数語）。計画役と観点の検証役が手続きの当たる所を見る。
 const INDEX_HEAD_WORDS = 8
 const INDEX_HEAD_CHARS = 40
 function indexRows(L, ids = null) {
@@ -820,25 +792,17 @@ function indexRows(L, ids = null) {
 }
 function inputsOf(L, dir, t) {
   const base = { goal: L.goal.text, items: L.goal.items.map(item), criteria: L.criteria.map(item), constraints: L.constraints.map(item), hints: hintsOf(dir, L.pending.hints) }
-  if (t.kind === 'goal_check') return { ...base, request: L.request, decisions: L.decisions, item_ids: goalIds(L) }
-  if (t.kind === 'plan') return { ...base, index: indexRows(L), given_lenses: givenLenses(L).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure })) }
-  if (t.kind === 'integrate') {
-    const given = { given_lenses: givenLenses(L).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure })) }
-    if (!t.again) {
-      const drafts = Object.fromEntries(Object.entries(L.plan_drafts.drafts).map(([who, x]) => [who, { plan: x.plan, problems: x.problems }]))
-      return { ...base, ...given, index: indexRows(L), drafts, sources: Object.entries(drafts).flatMap(([who, x]) => (x.plan.lenses || []).map((u) => `${who}:${u.id}`)) }
+  // 計画役: 計画の入力に、目標の照合が要るとき（照合済みでない）だけ依頼文・決定の記録・項目の id を、計画の見直しのときだけ前の計画・欠陥・回答を足す。
+  if (t.kind === 'plan') {
+    return {
+      ...base, index: indexRows(L), given_lenses: givenLenses(L).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure })),
+      ...(t.goalCheck ? { request: L.request, decisions: L.decisions, item_ids: goalIds(L) } : {}),
+      ...(t.again ? { previous_plan: L.plan, defects: L.plan_defects.map((x, i) => ({ index: i, ...x })), answers: L.answers.filter((a) => t.answerIds.includes(a.id)) } : {}),
     }
-    return { ...base, ...given, index: indexRows(L), previous_plan: L.plan, defects: L.plan_defects.map((x, i) => ({ index: i, ...x })), answers: L.answers.filter((a) => t.answerIds.includes(a.id)), sources: ((L.plan && L.plan.lenses) || []).map((u) => `P:${u.id}`) }
   }
-  if (t.kind === 'group') return { ...base, items: groupItems(L, t.items), index: indexRows(L), lateral: L.lateral_types.map((x) => ({ id: x.id, pattern: x.pattern, root_cause: x.root_cause })) }
-  if (t.kind === 'refute') {
-    const g = L.grouping.groups.find((x) => x.id === t.group)
-    const items = groupItems(L, L.grouping.ids)
-    return { ...base, group: { id: g.id, root_cause: g.root_cause, layer: g.layer, keys: g.keys }, items: items.filter((x) => (g.keys || []).includes(x.key)) }
-  }
+  // 観点の検証役: 計画の版の、確かめていない観点の全て。
   const lenses = (L.plan && L.plan.lenses) || []
-  const u = lenses.find((x) => x.id === t.lens)
-  return { ...base, lens: u, index: indexRows(L) }
+  return { ...base, lenses: t.lenses.map((id) => lenses.find((x) => x.id === id)).filter(Boolean), index: indexRows(L) }
 }
 
 // submit: その worker がこの呼び出しで取って、まだ出し終えていない担当のうち、結果の path にファイルがある担当を出す（無い担当は missing）。
@@ -853,7 +817,7 @@ function cmdSubmit(o) {
     const results = []
     const missing = []
     const rep = (f) => { try { return JSON.parse(read(f)) } catch { return null } }
-    if (P.step === 'file') {
+    if (READ_STEPS.includes(P.step)) {
       for (const id of Object.keys(L.assets).filter((k) => L.assets[k].claim && L.assets[k].claim.call === call && L.assets[k].claim.worker === w.id)) {
         const task = fileTask(L, dir, call, w, id)
         if (!existsSync(task.result_path)) { missing.push(task.id); continue }
@@ -879,7 +843,7 @@ function cmdSubmit(o) {
         results.push({ task: t.id, ok: !r.problems.length, problems: r.problems, dropped: r.dropped, ...(r.notes ? { notes: r.notes } : {}) })
       }
     }
-    if (results.length) { P.submits += results.length; save(dir, L) }
+    if (results.length) { P.submits += results.length; P.accepted = (P.accepted || 0) + results.filter((x) => x.ok).length; save(dir, L) }
     return { ok: true, results, missing }
   })
 }
@@ -892,6 +856,8 @@ function unitText(L, id) {
   return rangeText(text, a.start, a.end)
 }
 // ファイルの段の提出: 照合を通れば、受理した読み（版・実行役の条件・観点ごとの答えと引用）を単位に置き、事実を足して seen にする。
+// 引用はその担当の単位の本文で照らすので、同じ詰め合わせの他の単位を引いた提出は拒む（設計「段の構成」）。
+// 振り返りの単位の読みは事実にせず、振り返りの指摘（retro_findings）にだけ足す（対象の指摘・事実・意図・群に入れない）。
 function submitFile(L, id, task, w, rep) {
   const a = L.assets[id]
   const p = checkFileResult(rep, { text: unitText(L, id), lensIds: task.lenses.map((l) => l.id), obligationIds: task.obligations.map((x) => x.id) })
@@ -907,39 +873,21 @@ function submitFile(L, id, task, w, rep) {
   const readId = `R${sha(JSON.stringify([id, a.hash, lv, L.pending.call_id, w.id])).slice(0, 12)}`
   a.read = { id: readId, hash: a.hash, lens_version: lv, cycle: L.cycle, call: L.pending.call_id, worker: w.id, role: w.role, model: w.model, effort: w.effort, seen: rep.seen.map((x) => ({ lens: x.lens, answer: x.answer, quote: x.quote })) }
   Object.assign(a, { state: 'seen', claim: null, reason: '' })
+  if (a.retro) {
+    for (const f of Array.isArray(rep.findings) ? rep.findings : []) L.retro_findings.push({ unit: id, read: readId, cycle: L.cycle, lens: f.lens, claim: f.claim, quote: f.quote, obligation: f.obligation, confidence: f.confidence, layer: f.layer, ...(f.severity ? { severity: f.severity } : {}) })
+    return { problems: [], dropped: false }
+  }
   const have = new Set(L.facts.map((f) => `${f.read}|${f.id}`))
   for (const f of factsOf(rep, { unit: id, path: a.path, read: readId, cycle: L.cycle })) if (!have.has(`${f.read}|${f.id}`)) L.facts.push(f)
   return { problems: [], dropped: false }
 }
 
 // 計画の段の提出。照合の式は Workflow source の <checks>（C）を使う。
-// 計画役と統合役は、落ちたら 1 回だけ出し直させ（今の検査のやり直しと同じ）、出し直しでも残る外れは案に添えて受け取る（統合役の外れは計画の欠陥 P<n> になる）。
-// 目標の照合役・精査役・検証役は、落ちた提出をその鍵の試行に数え、上限で担当を閉じる（stuck → needs_input）。
+// 計画役: 目標の照合（照合済みでないとき）の外れは試行に数えて拒み、上限で担当を閉じる（stuck → needs_input）。
+// 計画の外れは 1 回だけ出し直させ、出し直しでも残る外れは計画の欠陥 P<n> として受け取る（次の計画の段で直させる）。
+// 観点の検証役: 落ちた提出を試行に数え、上限で担当を閉じる（stuck → needs_input）。
 function submitBound(L, t, rep) {
   t.tries = (t.tries || 0) + 1
-  if (t.kind === 'group') {
-    const keys = C.groupKeys(t.items.length)
-    const p = rep && typeof rep === 'object' ? C.checkGroups(rep, keys, Object.keys(L.assets).filter((id) => !L.assets[id].retro), lateralTypeIds(L)) : ['結果が object でない']
-    if (p.length) {
-      bump(L, t.akey, false)
-      addEvent(L, 'group', 'rejected_grouping', p.join(' / '))
-      if (L.attempts[t.akey] >= MAX_ATTEMPTS) { t.done = true; giveUpGrouping(L, `束ね役の試行 ${L.attempts[t.akey]} 回`); return { problems: p, dropped: true } }
-      return { problems: p, dropped: false }
-    }
-    clear(L, t.akey)
-    const refute = rep.groups.filter((g) => !C.linkOnly(g)).map((g) => g.id).slice(0, Math.floor(C.LIMITS.maxAgents / 2))
-    L.grouping = { cycle: L.cycle, groups: rep.groups, ids: t.items, refute, votes: {} }
-    t.done = true
-    if (!refute.length) finalizeGrouping(L)
-    return { problems: [], dropped: false }
-  }
-  if (t.kind === 'refute') {
-    const p = !rep || typeof rep !== 'object' ? ['結果が object でない'] : [...(rep.group_id !== t.group ? [`group_id は ${t.group}`] : []), ...(typeof rep.refuted !== 'boolean' ? ['refuted は true か false'] : []), ...(isStr(rep.reason) ? [] : ['reason が空'])]
-    if (p.length) { addEvent(L, 'group', 'rejected_refute', `${t.id}: ${p.join(' / ')}`, t.id); if (t.tries >= MAX_ATTEMPTS) t.done = true; return { problems: p, dropped: t.done } }
-    L.grouping.votes[t.group] = { ...(L.grouping.votes[t.group] || {}), [t.who]: { refuted: rep.refuted, reason: rep.reason } }
-    t.done = true
-    return { problems: [], dropped: false }
-  }
   const ctx = planCtx(L)
   const reject = (kind, p) => {
     bump(L, t.akey, false)
@@ -947,70 +895,59 @@ function submitBound(L, t, rep) {
     if (L.attempts[t.akey] >= MAX_ATTEMPTS) { t.done = true; return { problems: p, dropped: true } }
     return { problems: p, dropped: false }
   }
-  if (t.kind === 'goal_check') {
-    const p = C.checkGoalMap(rep, goalIds(L), goalSources(L))
-    if (p.length) return reject('rejected_goal_check', p)
-    clear(L, 'goal')
-    L.goal.problems = C.goalGaps(rep)
-    L.goal.checked = !L.goal.problems.length
-    t.done = true
-    return { problems: [], dropped: false }
-  }
   if (t.kind === 'plan') {
-    const p = planProblems(rep, ctx)
-    if (p.length && (t.tries < MAX_ATTEMPTS || !rep || typeof rep !== 'object')) { addEvent(L, 'plan', 'rejected_plan', `${t.id}: ${p.join(' / ')}`, t.id); return { problems: p, dropped: false } }
-    L.plan_drafts = L.plan_drafts || { drafts: {}, closed: false }
-    L.plan_drafts.drafts[t.who] = { plan: rep, problems: p }
+    if (!rep || typeof rep !== 'object' || Array.isArray(rep)) return reject('rejected_plan', ['結果が object でない'])
+    if (t.goalCheck) {
+      const g = C.checkGoalMap(rep, goalIds(L), goalSources(L))
+      if (g.length) return reject('rejected_plan', g.map((x) => `目標の照合: ${x}`))
+    }
+    const p = planProblems(rep, { ...ctx, ...(t.again ? { defectCount: t.defectCount } : {}) })
+    if (p.length && t.tries < MAX_ATTEMPTS) { addEvent(L, 'plan', 'rejected_plan', `${t.id}: ${p.join(' / ')}`, t.id); return { problems: p, dropped: false } }
+    clear(L, t.akey)
     t.done = true
-    return { problems: [], dropped: false, ...(p.length ? { notes: p } : {}) }
-  }
-  if (t.kind === 'integrate') {
-    const sources = t.again ? ((L.plan && L.plan.lenses) || []).map((u) => `P:${u.id}`) : Object.entries(L.plan_drafts.drafts).flatMap(([who, x]) => (x.plan.lenses || []).map((u) => `${who}:${u.id}`))
-    const p = planProblems(rep, { ...ctx, sources, ...(t.again ? { defectCount: L.plan_defects.length } : {}) })
-    if (p.length && (t.tries < MAX_ATTEMPTS || !rep || typeof rep !== 'object')) { addEvent(L, 'plan', 'rejected_integrate', `${t.id}: ${p.join(' / ')}`, t.id); return { problems: p, dropped: false } }
-    clear(L, 'plan')
+    if (t.goalCheck) {
+      L.goal.problems = C.goalGaps(rep)
+      L.goal.checked = !L.goal.problems.length
+      // 目標の穴があれば、その回の計画（質問を含む）は使わない（needs_input で利用者に返す）。
+      if (!L.goal.checked) { addEvent(L, 'plan', 'goal_gaps', `目標の照合で、受け止める項目の無い成果が ${L.goal.problems.length} 件ある。この回の計画は使わない`); return { problems: [], dropped: false } }
+    }
     if (L.plan) L.plan_rounds += 1
     L.plan_defects = []
-    L.plan = rep
-    // 計画を変えたら全体を検証し直す: 統合のたびに全ての観点を精査し直し、落とした観点の記録も今の計画のものにする。
-    L.plan_problems = planProblems(rep, ctx)
+    L.plan = { lenses: rep.lenses, questions: rep.questions, constraint_map: rep.constraint_map }
+    // 受理した計画の観点は観点の検証を通す（前に提案なしで進めた印を外す。目標の照合をやり直して計画が入ったとき、検証を飛ばさない）。
+    L.plan_skipped = false
+    // 計画を変えたら全体を照らし直す: 残った静的な外れは計画の欠陥にし、次の計画の段で直させる。
+    L.plan_problems = planProblems(L.plan, ctx)
     for (const x of L.plan_problems) { addPlanDefect(L, { unit_id: '', kind: 'static', claim: x, quote: '' }); addEvent(L, 'plan', 'static_problem', x) }
     L.answered.push(...t.answerIds)
-    L.plan_drafts = null
     syncPlanLenses(L)
-    t.done = true
     return { problems: [], dropped: false }
   }
+  // 観点の検証: 計画の版の観点ごとにちょうど 1 つの答えの組を照らす。計画が変わった後の担当は使わない（次の呼び出しで今の観点を検証する）。
   const lenses = (L.plan && L.plan.lenses) || []
-  const u = lenses.find((x) => x.id === t.lens)
-  // 計画が変わった後の担当は使わない（次の呼び出しで今の観点を精査・検証する）。
-  if (!u || C.unitKey(u) !== t.key) { t.done = true; return { problems: ['計画が変わった後の担当（今の計画の観点と違う）'], dropped: true } }
-  const goals = Array.isArray(u.goals) ? u.goals : []
-  const p = C.checkUnitVerdict(rep, u.id, goals, C.unitText(u))
+  const us = t.lenses.map((id) => lenses.find((x) => x.id === id))
+  if (us.some((u, i) => !u || C.unitKey(u) !== t.keys[t.lenses[i]])) { t.done = true; return { problems: ['計画が変わった後の担当（今の計画の観点と違う）'], dropped: true } }
+  const got = rep && typeof rep === 'object' && Array.isArray(rep.lenses) ? rep.lenses : null
+  const p = []
+  if (!got) p.push('lenses（観点ごとの答えの組の配列）が無い')
+  else {
+    for (const x of got) if (!x || !t.lenses.includes(x.unit_id)) p.push(`lenses に渡していない観点: ${x && x.unit_id}`)
+    for (const u of us) {
+      const rs = got.filter((x) => x && x.unit_id === u.id)
+      if (rs.length !== 1) { p.push(`観点 ${u.id} の答えの組が ${rs.length} つある（ちょうど 1 つ）`); continue }
+      p.push(...C.checkUnitVerdict(rs[0], u.id, Array.isArray(u.goals) ? u.goals : [], C.unitText(u)).map((x) => `${u.id}: ${x}`))
+    }
+  }
   if (p.length) return reject('rejected_unit_check', p)
   clear(L, t.akey)
-  const ds = C.unitDefects(rep, u.id, goals)
-  if (ds.length) for (const d of ds) { addPlanDefect(L, d); addEvent(L, 'plan', 'unit_defect', `${u.id}: ${d.claim}`, u.id) }
-  else L.verified_units.push(t.key)
+  for (const u of us) {
+    const goals = Array.isArray(u.goals) ? u.goals : []
+    const ds = C.unitDefects(got.find((x) => x.unit_id === u.id), u.id, goals)
+    if (ds.length) for (const d of ds) { addPlanDefect(L, d); addEvent(L, 'plan', 'unit_defect', `${u.id}: ${d.claim}`, u.id) }
+    else L.verified_units.push(C.unitKey(u))
+  }
   t.done = true
   return { problems: [], dropped: false }
-}
-// 新しい型の群から横展開の型を作る（既にあれば作らない）。型の当たる単位ごとに、型を問い直す横展開の意図ができる（board）。
-// 根拠は型を作った確定した指摘で、足した読みは元の読みと区別して記録する（指摘の origin は lateral）。
-function addLateral(L, id, gr) {
-  const t = { id: `lat-${id}`, group: id, root_cause: gr.root_cause, pattern: gr.pattern, applies_to: [...new Set(gr.applies_to)].filter((u) => L.assets[u]), findings: (gr.keys || []).filter(Boolean), cycle: L.cycle }
-  if (L.lateral_types.some((x) => x.id === t.id)) return false
-  L.lateral_types.push(t)
-  return true
-}
-// 上限の周で展開しなかった今の周の群は、config --max-cycles で上限を上げた後の next が展開し、次の周を開く（回答した群は展開しない）。
-function expandLateral(L) {
-  if (atCycleCap(L) || !L.group_cycles.includes(L.cycle)) return false
-  const gs = lateralGroups(L).filter((g) => g.cycle === L.cycle)
-  let made = 0
-  for (const g of gs) if (Array.isArray(g.applies_to) && g.applies_to.length && addLateral(L, g.id, g)) made += 1
-  if (made) L.cycle += 1
-  return made > 0
 }
 
 // 今の段の status の節: 指摘・束ね・出来事。reframe で出ていく段の節は、この形のまま phase_records に写す。
@@ -1026,16 +963,21 @@ function mergedFindings(L) {
 }
 function phaseSection(L) {
   const cur = mergedFindings(L)
+  const gs = L.groups || []
   const by = (k) => cur.reduce((m, f) => ({ ...m, [f[k]]: (m[f[k]] || 0) + 1 }), {})
-  const groupsOf = (ids) => L.groups.filter((g) => g.status !== 'refuted' && (g.keys || []).some((k) => ids.includes(k))).map((g) => g.id)
+  const groupsOf = (ids) => gs.filter((g) => (g.keys || []).some((k) => ids.includes(k))).map((g) => g.id)
   return {
     findings: { by_verdict: by('verdict'), by_layer: by('layer'), confirmed: cur.filter((f) => f.verdict === 'confirmed').map((f) => ({ id: f.id, ids: f.ids, severity: f.severity, layer: f.layer, claim: f.claim, quote: f.quote, ...(f.paths ? { paths: f.paths, obligation: f.obligation, confidence: f.confidence, origin: f.origin, provenance: provenance(L, f) } : {}), groups: [...new Set(groupsOf(f.ids))] })), unverifiable: cur.filter((f) => f.verdict === 'unverifiable').map((f) => ({ id: f.id, ids: f.ids, claim: f.claim })) },
-    groups: L.groups.map((g) => ({ id: g.id, status: g.status, layer: g.layer, root_cause: g.root_cause, lateral: (L.lateral_types || []).some((t) => t.id === `lat-${g.id}`), ...(g.extends ? { extends: g.extends } : {}) })),
+    groups: gs.map((g) => ({ id: g.id, layer: g.layer, root_cause: g.root_cause, keys: g.keys })),
     events: phaseEvents(L).map((e) => ({ id: e.id, stage: e.stage, kind: e.kind, text: e.text })),
   }
 }
-// 事実の公開の形（受理した読みの id は載せない）。
-const publicFact = (f) => { const { read: _r, ...rest } = f; return rest }
+// 事実の公開の形（受理した読みの id は載せない）。単位を持つ事実と場所には、原文を開くための写しの file と範囲（start・end）を載せる（B1）。
+const snapOf = (L, unit) => { const a = unit && L.assets[unit]; return a && a.snap ? { file: a.snap, start: a.start, end: a.end } : {} }
+const publicFact = (L, f) => {
+  const { read: _r, ...rest } = f
+  return { ...rest, ...(f.unit ? snapOf(L, f.unit) : {}), ...(Array.isArray(f.locations) ? { locations: f.locations.map((l) => ({ ...l, ...snapOf(L, l.unit) })) } : {}) }
+}
 // 単位の一覧（振り返りの単位を除く）。disclosed は見られなかった理由（reason）を持つ。
 // carried は持ち越した読み（今の回より前の周に受理した読み）の印。
 function unitsOf(L) {
@@ -1048,10 +990,10 @@ function cmdStatus(o) {
   return statusOf(load(dir))
 }
 function statusOf(L) {
+  const B = board(L)
   const sec = phaseSection(L)
   const roles = {}
   for (const a of L.agents) { const k = `${a.role}|${a.model}|${a.effort}`; roles[k] = roles[k] || { launched: 0, failed: 0 }; roles[k].launched++; if (!a.ok) roles[k].failed++ }
-  const B = board(L)
   const facts = [...B.facts.values()]
   return {
     // 上の階層の findings・groups・events は今の段のもの。phases は段ごとの節（出ていった段は phase_records の写し）。
@@ -1059,11 +1001,12 @@ function statusOf(L) {
     cycle: L.cycle, stopped: L.stopped || null, pending: L.pending ? { call_id: L.pending.call_id, step: L.pending.step } : null, coverage: coverage(L), units: unitsOf(L),
     skip: Object.entries(L.assets).filter(([, a]) => a.state === 'disclosed').map(([id, a]) => ({ unit: id, reason: a.reason })),
     // 今の根拠の事実（ファイルの段の指摘の候補・保証・前提・参考）。指摘の候補は全体の段の判定を通るまで findings に入らない。
-    facts: facts.map(publicFact), references: [...facts.filter((f) => f.type === 'reference').map((f) => ({ id: f.id, unit: f.unit, path: f.path, claim: f.claim, quote: f.quote, origin: f.origin })), ...B.findings.references],
+    facts: facts.map((f) => publicFact(L, f)), references: [...facts.filter((f) => f.type === 'reference').map((f) => ({ id: f.id, unit: f.unit, path: f.path, claim: f.claim, quote: f.quote, origin: f.origin })), ...B.findings.references],
     // 全体の段の意図（根拠の事実の id と状態）と、判定できずに開示して閉じた意図（理由つき）。
     intents: B.intents.map((i) => ({ id: i.id, kind: i.kind, basis: i.basis, state: i.state, ...(i.item ? { item: i.item } : {}), ...(i.reason ? { reason: i.reason } : {}) })),
     undecided: B.intents.filter((i) => i.state === 'undecided').map((i) => ({ id: i.id, kind: i.kind, reason: i.reason })),
-    lateral_types: L.lateral_types.map((t) => ({ id: t.id, root_cause: t.root_cause, applies_to: t.applies_to, cycle: t.cycle })),
+    // 振り返り（単独で呼ばれたときだけ）: 出来事の写しの単位と、振り返りの指摘。対象の指摘・事実・参考・意図・群とは別の欄。
+    retro: { units: Object.entries(L.assets).filter(([, a]) => a.retro).map(([id, a]) => ({ id, file: a.snap, start: a.start, end: a.end, state: a.state, ...(a.state === 'disclosed' ? { reason: a.reason } : {}) })), findings: L.retro_findings.map(({ read: _r, ...f }) => f) },
     findings: sec.findings, groups: sec.groups, events: sec.events,
     saturation: L.saturation, calibration: calibration(L), agents_by_role: roles, calls: L.calls,
     // run の指標（今の値）と、止まるたびの run の記録。
@@ -1100,17 +1043,18 @@ function answer(dir, o) {
     const g = readGoalFiles(text)
     if (g.problems.length) throw new Fail(`直した ${id} が引用の照合を通らない（台帳は変えていない）`, { problems: g.problems })
     Object.assign(L, { goal: { text: text.goal, items: g.goal, checked: false, checked_by: null, problems: [] }, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints })
-    clear(L, 'goal')
-    // 基準・制約の id が変われば、計画の受け皿が合わなくなる。静的な欠陥として統合役に直させる。
+    // 目標の照合は計画役が担うので、計画の段の試行を戻す（照合の外れで stuck になっていても、直した目標で照合し直せる）。
+    clear(L, 'plan')
+    // 基準・制約の id が変われば、計画の受け皿が合わなくなる。静的な欠陥として計画役に直させる。
     if (L.plan) for (const x of planProblems(L.plan, planCtx(L))) addPlanDefect(L, { unit_id: '', kind: 'static', claim: x, quote: '' })
     save(dir, L)
     return { ok: true, next: '目標の照合からやり直す。next を流す' }
   }
   const text = need(o, 'text')
   const isQ = ((L.plan && L.plan.questions) || []).some((q) => q.id === id)
-  // 計画の欠陥（P<n>）への回答は、計画の質問への回答と同じく決定の記録と制約にし、統合からやり直す。指せるのは今の欠陥だけ。
+  // 計画の欠陥（P<n>）への回答は、計画の質問への回答と同じく決定の記録と制約にし、計画からやり直す。指せるのは今の欠陥だけ。
   const isP = !isQ && L.plan_defects.some((d) => d.id === id)
-  const known = isQ || isP || L.findings[id] || L.groups.some((g) => g.id === id) || id.startsWith('attempts:')
+  const known = isQ || isP || L.findings[id] || board(L).groups.some((g) => g.id === id) || id.startsWith('attempts:')
   if (!known) throw new Fail(`台帳に無い id: ${id}`)
   if (id.startsWith('attempts:')) clear(L, id.slice('attempts:'.length))
   L.answers.push({ id, text, target_kind: isQ ? 'question' : isP ? 'plan_defect' : 'finding' })
