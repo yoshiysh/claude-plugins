@@ -36,9 +36,9 @@ test('設計レビュー: coverage-audit の status を取り込み、指摘を�
     assert.ok(['complete', 'needs_input'].includes(r.stop.stop), JSON.stringify(r.stop))
     return auditCli('status', '--state', a.state)
   }
-  const { steps } = await drive(state, mockAgent(), { audit: runAudit, maxSteps: 2 })
-  assert.deepEqual(steps.map((s) => s.step), ['design', 'audit'])
-  assert.equal(steps[1].ingest.code, 0, JSON.stringify(steps[1].ingest))
+  const { steps } = await drive(state, mockAgent(), { audit: runAudit, maxSteps: 4 })
+  assert.deepEqual(steps.map((s) => s.step), ['design', 'design', 'design', 'audit'])
+  assert.equal(steps[3].ingest.code, 0, JSON.stringify(steps[3].ingest))
   const L = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
   const f = L.events.filter((e) => e.kind === 'finding')
   assert.equal(f.length, 1)
@@ -46,7 +46,7 @@ test('設計レビュー: coverage-audit の status を取り込み、指摘を�
   assert.ok(!L.events.some((e) => e.kind === 'import_mismatch'), JSON.stringify(L.events))
   assert.equal(L.retro.due, true)
   assert.ok(log.length && !log.some((x) => x.label.startsWith('goal_checker-')), 'coverage-build が照合した目標を coverage-audit は照合し直さない')
-  const AL = JSON.parse(readFileSync(path.join(steps[1].out.audit.state, 'ledger.json'), 'utf8'))
+  const AL = JSON.parse(readFileSync(path.join(steps[3].out.audit.state, 'ledger.json'), 'utf8'))
   assert.deepEqual(AL.criteria.map((c) => c.id), ['AC1'], '受け入れ基準は coverage-audit の基準の欄に入る')
   assert.deepEqual(AL.constraints.map((c) => c.id), ['D1'])
 })
@@ -103,7 +103,8 @@ test('段をまたいで 1 つの台帳: 設計レビューは init、実装レ�
 
 // ---- P14: 設計レビューの指摘を、束ねの群ごとに振り返る ----
 import { importAudit } from '../.agents/skills/coverage-build/scripts/build-core.mjs'
-import { auditStatus, runWorkflow } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
+import { MAX_ATTEMPTS } from '../.agents/skills/coverage-build/scripts/build-core.mjs'
+import { auditStatus } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
 
 const DQUOTE = '入力を受け取り、決まった値を返す。'
 const GS = 'c1:design:G1-GS'
@@ -125,7 +126,7 @@ function groupedStatus(state, phase, fs, groups) {
 }
 const THREE = [{ claim: '指摘A: 値の決め方が書かれていない', groups: ['G1-GS'] }, { claim: '指摘B: 約束の行が写されていない', groups: ['G1-GS', 'G2-XX'] }, { claim: '指摘C: 群に入らない欠陥' }]
 // 設計の段を回して、設計レビューの status を取り込んだ状態（次は retro）にする。
-async function afterDesignReview(t, fs = THREE, groups = [G1, G2], { agent = mockAgent(), maxSteps = 2 } = {}) {
+async function afterDesignReview(t, fs = THREE, groups = [G1, G2], { agent = mockAgent(), maxSteps = 4 } = {}) {
   const s = setup(t)
   const audit = async (phase) => groupedStatus(s.state, phase, fs, groups)
   const r = await drive(s.state, agent, { audit, maxSteps })
@@ -175,82 +176,60 @@ test('P14-1: 群の id に周と段の名前を付ける（audit の群の id �
   assert.equal(L.audit_groups['c1:impl:G1-GS'].root_cause, '1 周目の実装の根本原因', '段が違えば同じ id でも別の群')
 })
 
-// 次に返す retro の args と束の本文（呼び出しは進めない）。
-function retroBundle(state) {
+// 次に返す retro の args と、計画役の担当の query の inputs（呼び出しは進めない。担当は claim で取るだけで提出しない）。
+function planQuery(state) {
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'retro', JSON.stringify(n))
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  return { args, text: readFileSync(path.join(args.snapDir, args.brief.path), 'utf8') }
-}
-// 「悪かった出来事」の節を、見出しの行（根本原因か「群の無い出来事」を含む行）ごとの出来事の id に分ける。
-function bundleGroups(text) {
-  const i = text.indexOf('## 悪かった出来事')
-  assert.ok(i >= 0, '悪かった出来事の節')
-  const rest = text.slice(i + 3)
-  const body = rest.includes('\n## ') ? rest.slice(0, rest.indexOf('\n## ')) : rest
-  const sections = []
-  for (const line of body.split('\n').slice(1)) {
-    if (line.includes(RC_GS) || line.includes(RC_XX) || line.includes('群の無い出来事')) { sections.push({ heading: line, ids: [] }); continue }
-    const m = /(?:^|[\s\-*])(E\d+)(?=[\s\]:：、。]|$)/.exec(line)
-    if (m && sections.length) sections[sections.length - 1].ids.push(m[1])
-  }
-  return sections
+  const w = args.workers[0]
+  assert.equal(w.role, 'retro_planner')
+  const c = cli('claim', '--state', state, '--call', args.callId, '--worker', w.id)
+  const q = cli('query', '--state', state, '--call', args.callId, '--worker', w.id, '--task', c.tasks[0].id)
+  assert.equal(q.code, 0, JSON.stringify(q))
+  return { args, inputs: q.inputs }
 }
 
-test('P14-2: retro の束は悪かった出来事を群ごとに並べる。群ごとに見出し 1 行（群の id・層・根本原因）、群の無い出来事は「群の無い出来事」の下', async (t) => {
+test('P14-2: 計画役の query は、出来事ごとに群の id（groups）を持ち、群の一覧（groups）に id・層・根本原因を 1 回ずつ持つ。2 つの群に入る出来事は両方の id を持ち、群の無い出来事は空', async (t) => {
   const { state } = await afterDesignReview(t)
   const L = ledgerOf(state)
-  const id = (c) => evOf(L, c).id
-  const sections = bundleGroups(retroBundle(state).text)
-  const of = (needle) => sections.filter((s) => s.heading.includes(needle))
-  assert.equal(of(RC_GS).length, 1, '群 1 つにつき見出し 1 行')
-  assert.equal(of(RC_XX).length, 1)
-  assert.equal(of('群の無い出来事').length, 1)
-  assert.ok(of(RC_GS)[0].heading.includes('G1-GS') && of(RC_GS)[0].heading.includes('設計'), '見出しに群の id・層・根本原因')
-  assert.ok(of(RC_XX)[0].heading.includes('G2-XX') && of(RC_XX)[0].heading.includes('設計'))
-  assert.deepEqual([...of(RC_GS)[0].ids].sort(), [id(THREE[0].claim), id(THREE[1].claim)].sort(), '群 G1-GS の下にはその群の出来事')
-  assert.deepEqual(of(RC_XX)[0].ids, [id(THREE[1].claim)])
-  assert.deepEqual(of('群の無い出来事')[0].ids, [id(THREE[2].claim)])
+  const { inputs } = planQuery(state)
+  const evGroups = (claim) => inputs.events.find((e) => e.id === evOf(L, claim).id).groups
+  assert.deepEqual(evGroups(THREE[0].claim), [GS])
+  assert.deepEqual(evGroups(THREE[1].claim), [GS, GX], '2 つ以上の群に入る出来事は、その全ての群の id を持つ')
+  assert.deepEqual(evGroups(THREE[2].claim), [], '群の無い出来事')
+  assert.deepEqual(inputs.groups.map((g) => g.id).sort(), [GS, GX].sort(), '群の一覧は出来事が持つ群の id（1 回ずつ）')
+  assert.equal(inputs.groups.find((g) => g.id === GS).root_cause, RC_GS)
+  assert.equal(inputs.groups.find((g) => g.id === GX).root_cause, RC_XX)
+  for (const g of inputs.groups) assert.ok(['詳細設計', '設計'].includes(g.layer), g.layer)
 })
 
-test('P14-2: 2 つ以上の群に入る出来事は、その全ての群の下に並ぶ（出来事の id の行を、群の無い出来事の下には置かない）', async (t) => {
-  const { state } = await afterDesignReview(t)
-  const L = ledgerOf(state)
-  const both = evOf(L, THREE[1].claim).id
-  const sections = bundleGroups(retroBundle(state).text)
-  const under = sections.filter((s) => s.ids.includes(both)).map((s) => s.heading)
-  assert.equal(under.length, 2, JSON.stringify(sections))
-  assert.ok(under.some((h) => h.includes(RC_GS)) && under.some((h) => h.includes(RC_XX)))
-  assert.ok(!sections.find((s) => s.heading.includes('群の無い出来事')).ids.includes(both))
-})
-
-test('P14-2: 群を持つ出来事が無いとき、群の見出しは出ない（出来事は全て「群の無い出来事」の下、または従来どおりに並ぶ）', async (t) => {
+test('P14-2: 群を持つ出来事が無いとき、群の一覧は空で、出来事は全て groups が空', async (t) => {
   const { state } = await afterDesignReview(t, [{ claim: '指摘D: 群に入らない欠陥' }], [])
-  const { text } = retroBundle(state)
-  const sections = bundleGroups(text)
-  assert.ok(sections.every((s) => s.heading.includes('群の無い出来事')), JSON.stringify(sections))
-  assert.ok(text.includes('指摘D: 群に入らない欠陥'))
+  const { inputs } = planQuery(state)
+  assert.deepEqual(inputs.groups, [])
+  assert.ok(inputs.events.every((e) => e.groups.length === 0))
+  assert.ok(inputs.events.some((e) => e.text.includes('指摘D: 群に入らない欠陥')))
 })
 
-test('P14-2: retro の args の known.groups は、出来事が持つ群の id', async (t) => {
+test('P14-2: retro の args に群の id も根本原因の文も載せない（計画役は query で引く）', async (t) => {
   const { state } = await afterDesignReview(t)
-  const { args } = retroBundle(state)
-  assert.deepEqual([...args.known.groups].sort(), [GS, GX].sort())
-  assert.equal(args.known.facts, 0)
-  assert.ok(!JSON.stringify(args).includes(RC_GS), 'args に根本原因の文を載せない（束に入れる）')
+  const { args } = planQuery(state)
+  const text = JSON.stringify(args)
+  assert.deepEqual(Object.keys(args).sort(), ['callId', 'stage', 'state', 'workers'])
+  for (const w of [RC_GS, GS, GX]) assert.ok(!text.includes(w), `args に載せない: ${w}`)
 })
 
-// retro の偽の役: 計画役は basis を 1 つだけ持つ意図を 1 件返し、実行役は layer の原因を返す。
+// retro の偽の役: 計画役は basis を 1 つだけ持つ意図を 1 件返し、実行役は layer の原因を返す（setup の stateDir は repo と同じ親の state）。
 function groupRetroAgent(basis, layer = '設計') {
   return mockAgent({
     'retro-plan': () => ({ intents: [{ basis: [basis], hypothesis: '群の根本原因が設計に残っている', layer, look_at: ['U1.md'] }] }),
-    'retro-exam': (prompt, o, log) => ({ verdict: 'supported', cause: '設計が値の決め方を書いていない', layer, evidence: [{ path: path.join(path.dirname(path.dirname(/Read で (\S+) を全て読む/.exec(prompt)[1])), 'design', 'U1.md'), quote: DQUOTE }] }),
+    'retro-exam': (prompt, o) => ({ verdict: 'supported', cause: '設計が値の決め方を書いていない', layer, evidence: [{ path: path.join(path.dirname(o.inputs.repo), 'state', 'design', 'U1.md'), quote: DQUOTE }] }),
   })
 }
 const TWO_IN_G1 = [{ claim: '指摘A: 値の決め方が書かれていない', groups: ['G1-GS'] }, { claim: '指摘B: 約束の行が写されていない', groups: ['G1-GS'] }]
 
 test('P14-3: basis に群の id を書いた事実は、その群の全ての出来事を覆う。1 件ずつ挙げなくても振り返りを終えて route へ進み、全ての出来事が事実の層で戻る', async (t) => {
-  const { state } = await afterDesignReview(t, TWO_IN_G1, [G1], { agent: groupRetroAgent(GS), maxSteps: 3 })
+  const { state } = await afterDesignReview(t, TWO_IN_G1, [G1], { agent: groupRetroAgent(GS), maxSteps: 7 })
   const L = ledgerOf(state)
   assert.equal(L.intents.length, 1, '群の id を根拠にした意図を台帳に受ける')
   assert.equal(L.intents[0].status, 'accepted')
@@ -264,7 +243,7 @@ test('P14-3: basis に群の id を書いた事実は、その群の全ての出
 })
 
 test('P14-3: 群の id を basis に持つ事実の層で、その群の全ての出来事の戻す層が決まる（目標の層なら全て人間へ返す）', async (t) => {
-  const { state } = await afterDesignReview(t, TWO_IN_G1, [G1], { agent: groupRetroAgent(GS, '目標'), maxSteps: 3 })
+  const { state } = await afterDesignReview(t, TWO_IN_G1, [G1], { agent: groupRetroAgent(GS, '目標'), maxSteps: 7 })
   cli('next', '--state', state)
   const R = ledgerOf(state)
   assert.deepEqual(R.routes.map((r) => [r.event, r.layer, r.by]), [['E1', '目標', ['F1']], ['E2', '目標', ['F1']]])
@@ -272,7 +251,7 @@ test('P14-3: 群の id を basis に持つ事実の層で、その群の全て�
 })
 
 test('P14-3: 群に入らない出来事は群の id の事実では覆われない。覆われない出来事が残る間は振り返りを続ける', async (t) => {
-  const { state } = await afterDesignReview(t, THREE, [G1, G2], { agent: groupRetroAgent(GS), maxSteps: 3 })
+  const { state } = await afterDesignReview(t, THREE, [G1, G2], { agent: groupRetroAgent(GS), maxSteps: 7 })
   const L = ledgerOf(state)
   assert.equal(L.facts.length, 1)
   assert.equal(L.retro.rounds, 1)
@@ -280,36 +259,21 @@ test('P14-3: 群に入らない出来事は群の id の事実では覆われな
   assert.equal(n.step, 'retro', `群の無い指摘 C（と群 G2-XX だけの出来事）は覆われていないので次の巡へ: ${JSON.stringify(n)}`)
 })
 
-test('P14-3: Workflow の checkIntents は known.groups の中の id だけを basis に許す', async (t) => {
-  const { state } = await afterDesignReview(t)
-  const { args } = retroBundle(state)
-  const probe = async (b) => (await runWorkflow(args, mockAgent({ 'retro-plan': () => ({ intents: [{ basis: [b], hypothesis: '照らす', layer: '設計', look_at: ['x'] }] }) }))).intent_problems
-  assert.deepEqual(await probe(GS), [], '群の id は根拠にできる')
-  assert.deepEqual(await probe(GX), [])
-  assert.ok((await probe('c1:design:G9-NO')).length > 0, 'どの出来事も持たない群の id は実在しない根拠')
-  assert.ok((await probe('G1-GS')).length > 0, '周と段を付けていない id は群の id ではない')
-})
-
-test('P14-3: CLI の ingestRetro は台帳の群の id で照らす。台帳に無い群の id を根拠にした意図は残さず拒否する', async (t) => {
-  let hit = false
-  const forge = async (args, agentFn) => {
-    const res = await runWorkflow(args, agentFn)
-    if (args.stage === 'retro' && !args.carry && !hit && res.intents && res.intents.intents.length) {
-      hit = true
-      res.intents.intents[0].basis = ['c1:design:G9-NO']
-      res.intent_problems = []
-    }
-    return res
-  }
+test('P14-3: CLI の submit は台帳の群の id で照らす。台帳に無い群の id を根拠にした意図は残さず、理由を付けて拒む', async (t) => {
   const s = setup(t)
   const audit = async (phase) => groupedStatus(s.state, phase, THREE, [G1, G2])
-  const r = await drive(s.state, groupRetroAgent(GS), { audit, maxSteps: 3, run: forge })
+  const agent = mockAgent({ 'retro-plan': () => ({ intents: [{ basis: ['c1:design:G9-NO'], hypothesis: '照らす', layer: '設計', look_at: ['x'] }] }) })
+  const r = await drive(s.state, agent, { audit, maxSteps: 5 })
   for (const st of r.steps) assert.equal(st.ingest.code, 0, JSON.stringify(st.ingest))
-  assert.ok(hit)
+  assert.equal(r.steps.at(-1).task, 'plan')
   const L = ledgerOf(s.state)
   assert.equal(L.intents.length, 0, '台帳に無い群の id を根拠にした計画の意図は残さない')
-  assert.equal(L.attempts.retro, 1)
-  assert.ok(L.events.some((e) => e.stage === 'retro' && e.kind === 'rejected_output'))
+  assert.equal(L.attempts.retro, MAX_ATTEMPTS, '同じ体が出し直し、上限まで試行に数える')
+  assert.ok(L.events.some((e) => e.stage === 'retro' && e.kind === 'rejected_output' && e.text.includes('c1:design:G9-NO')))
+  // 周と段を付けていない id も、群の id ではない。
+  const s2 = setup(t)
+  await drive(s2.state, mockAgent({ 'retro-plan': () => ({ intents: [{ basis: ['G1-GS'], hypothesis: '照らす', layer: '設計', look_at: ['x'] }] }) }), { audit: async (phase) => groupedStatus(s2.state, phase, THREE, [G1, G2]), maxSteps: 5 })
+  assert.equal(ledgerOf(s2.state).intents.length, 0)
 })
 
 test('P14-4: 出来事の id・件数・kind・層・単位は、群があっても無くても同じ（groups の欄だけが増える）', async (t) => {

@@ -45,7 +45,7 @@ async function untilAudit(state) {
     const res = await cb.runWorkflow(args, cb.mockAgent())
     const f = path.join(state, `result-${n.call_id}.json`)
     writeFileSync(f, JSON.stringify(res))
-    assert.equal(cb.cli('ingest', '--state', state, '--result', f).code, 0)
+    assert.equal(cb.cli('ingest', '--state', state, '--call', n.call_id, '--result', f).code, 0)
   }
   throw new Error('audit に届かない')
 }

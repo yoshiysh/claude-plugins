@@ -1,17 +1,20 @@
 export const meta = {
   name: 'coverage-build-step',
-  description: '書き込まない段（design・retro のどれか）を 1 回だけ流し、生の結果と起動の記録を返す。状態を書くのは呼び出し側の CLI',
-  requirements: ['read-only', 'fresh-thread'],
+  description: '台帳の 1 段を 1 回だけ流す。args の workers の行ごとに役を 1 体起動し、役は claim・query・submit で台帳と直接読み書きする。返すのは起動の記録と tokens だけ',
+  requirements: ['fresh-thread', 'workspace-write'],
   phases: [
-    { title: 'design', detail: '目標の照合・方式設計（単位への分割）・単位ごとの詳細設計' },
-    { title: 'retro', detail: '悪かった出来事から原因の意図を出し、意図ごとに確かめ、別のモデルが受理を決める' },
+    { title: 'design', detail: '目標の照合役・方式設計の役・詳細設計の役のどれかが、担当を取り、入力を台帳から引き、結果を台帳に出す' },
+    { title: 'tests', detail: 'テストの担当が、文脈に収まる分の code の単位のテストを実装より先に書く' },
+    { title: 'implement', detail: '実装の担当が、文脈に収まる分の単位を依存の順に書く' },
+    { title: 'retro', detail: '振り返りの計画役・実行役・検証役のどれかが、意図を出すか、意図を確かめるか、結論の受理を決める' },
   ],
-  limits: { maxAgents: 40, concurrency: 3, timeoutMs: 7200000, agentTimeoutMs: 900000, maxOutputBytes: 4000000 },
+  limits: { maxAgents: 40, concurrency: 3, timeoutMs: 7200000, agentTimeoutMs: 3600000, maxOutputBytes: 4000000 },
 }
 
 // <checks> ここから </checks> までは CLI（build-core.mjs）が同じ文を読み込んで使う。静的な照合の正本はここだけ。
 // native Workflow は本体に meta を渡さないので写しを置く（一致は tests/coverage-build-workflow.test.mjs が照らす）。
-const LIMITS = { maxAgents: 40, concurrency: 3, timeoutMs: 7200000, agentTimeoutMs: 900000, maxOutputBytes: 4000000 }
+// agentTimeoutMs は 1 体が文脈に収まる分の単位を続けて受け持つ（実装の担当が最も長い）ので、1 単位 1 体のときより長くする。
+const LIMITS = { maxAgents: 40, concurrency: 3, timeoutMs: 7200000, agentTimeoutMs: 3600000, maxOutputBytes: 4000000 }
 const QUOTE_MIN = 12
 const MAX_UNIT_PATHS = 3 // 1 単位が持つファイル（成果物・テストそれぞれ）の上限。1 体に任せる量を小さくする
 // 方式設計の照合（checkArch）が保証する不変条件。_architecture.md に描き、文書はこれを参照する（中身を写さない）。
@@ -38,15 +41,8 @@ const LAYER_MAP = { 方針: '目標', 要求: '目標', 方式設計: '設計', 
 const VERDICTS = ['supported', 'refuted', 'unclear']
 const isStr = (s) => typeof s === 'string' && s.trim().length > 0
 const arr = (a) => (Array.isArray(a) ? a : [])
-// <sum> 値を key の順に並べた JSON の FNV-1a。args の写し違いの検出に使う（build-step.js と build-write.js に同じ文がある）。
+// 値を key の順に並べた JSON（台帳の hash に使う）。
 const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v))
-function fnv(s) {
-  let h = 0x811c9dc5
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0 }
-  return h.toString(16).padStart(8, '0')
-}
-const argsSum = (a) => fnv(canon(Object.fromEntries(Object.entries(a).filter(([k]) => k !== 'argsSum'))))
-// </sum>
 const stripNums = (s) => String(s ?? '').replace(/(^|\n)[ \t]*\d+(\| ?|\t)/g, '$1')
 const norm = (s) => stripNums(s).replace(/\s+/g, ' ').trim()
 // 短い引用は、本文の全体か、本文の空でない 1 行の全体を引くときだけ受け付ける。
@@ -264,24 +260,11 @@ function checkSpec(rep, unit, ctx = {}) {
   }
   return p
 }
-// 振り返りの根拠に使える id。known は args の範囲（events: [最初, 最後] の出来事の番号、facts: 事実の件数、groups: 群の id）。
-// Workflow はこの範囲で照らし、CLI は台帳の id の一覧（Set）で正確に照らす。
-function knownBasis(known) {
-  if (known instanceof Set) return (b) => known.has(b)
-  const k = known && typeof known === 'object' ? known : {}
-  const [lo, hi] = Array.isArray(k.events) ? k.events : [1, 0]
-  const groups = arr(k.groups)
-  return (b) => {
-    const m = /^([EF])([1-9]\d*)$/.exec(String(b))
-    if (m && m[1] === 'E') return Number(m[2]) >= lo && Number(m[2]) <= hi
-    if (m) return Number(m[2]) <= (Number.isInteger(k.facts) ? k.facts : 0)
-    return groups.includes(b)
-  }
-}
+// 振り返りの意図の形と根拠。known は根拠に使える id の Set（CLI が台帳の due の出来事・事実・群の id から作る）。
 function checkIntents(rep, known) {
   if (!rep || typeof rep !== 'object') return ['返り値が無い']
   const p = []
-  const has = knownBasis(known)
+  const has = (b) => known instanceof Set && known.has(b)
   arr(rep.intents).forEach((it, i) => {
     if (!arr(it && it.basis).length) p.push(`intents[${i}]: basis が空`)
     for (const b of arr(it && it.basis)) if (!has(b)) p.push(`intents[${i}]: 実在しない事実: ${b}`)
@@ -397,45 +380,8 @@ function readGoalFiles({ goal, criteria = '', constraints = '', request, decisio
   return { goal: g.items, criteria: a.items, constraints: d.items, problems }
 }
 // </goalmap>
-// </checks>
-
-const A = typeof args === 'string' ? JSON.parse(args) : args
-const agents = []
-async function call(role, label, prompt, schema) {
-  const r = A.roles[role]
-  let out = null
-  try { out = await agent(prompt, { label, phase: A.stage, schema, model: r.model, effort: r.effort }) } catch (e) { log(`${label}: agent が失敗した（${String((e && e.message) || e).slice(0, 160)}）`) }
-  agents.push({ role, label, model: r.model, effort: r.effort, ok: out != null })
-  return out
-}
-// 静的な検査に落ちたら、欠けを添えて 1 回だけやり直す。
-async function checked(role, label, prompt, schema, check) {
-  let r = await call(role, label, prompt, schema)
-  let p = check(r)
-  if (p.length) {
-    const r2 = await call(role, `${label}（やり直し）`, `${prompt}\n\n## 前回の返り値と、静的な検査で見つかった欠け\n欠けを全て直した返り値の全体を返す。\n${p.map((x) => `- ${x}`).join('\n')}\n\n前回の返り値: ${JSON.stringify(r)}`, schema)
-    if (r2) { r = r2; p = check(r2) }
-  }
-  return { result: r, problems: p }
-}
-// 消費量は、本体の始めと返す直前の 2 回の budget.spent() の読みの差。どちらかが数でなければ null。
-const spentNow = () => { const v = typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null; return typeof v === 'number' && Number.isFinite(v) ? v : null }
-const spentStart = spentNow()
-const tokens = () => { const end = spentNow(); return spentStart === null || end === null ? null : end - spentStart }
-const left = () => LIMITS.maxAgents - agents.length
-
-const argProblems = []
-if (!A || typeof A !== 'object') argProblems.push('args が object でない')
-else {
-  if (!['design', 'retro'].includes(A.stage)) argProblems.push(`stage が不正: ${A.stage}`)
-  if (!A.roles || typeof A.roles !== 'object') argProblems.push('roles が無い')
-  if (A.argsSum !== argsSum(A)) argProblems.push('args の写しが next の出力と違う（argsSum が合わない）')
-}
-if (argProblems.length) return { stage: A && A.stage, call_id: A && A.callId, status: 'blocked', reason: 'args の検査に落ちた', problems: argProblems, agents: [] }
-
-// 束（brief）は CLI が stateDir に書いた写し。args には path と hash だけが載る。
-const readBrief = (b) => `## 依頼の束\nまず Read で ${A.snapDir || ''}${b.path} を全て読む（hash ${b.hash}）。目的・固定した目標と基準と制約・読むファイル・受け持ちはそこにある。束に無いことを推測で埋めず、読めなかったものはそう書く。ファイルは変えない。結果は返り値だけで返す。`
-
+// 役の結果（担当の result_path に書く JSON）の形。役の prompt に載せ、CLI の submit が照合の式（check*）の前に形を照らす。
+const GOAL_SCHEMA = { type: 'object', properties: { outcomes: { type: 'array', items: { type: 'object', properties: { outcome: { type: 'string' }, quotes: { type: 'array', items: { type: 'object', properties: { source: { type: 'string', enum: ['request', 'decisions'] }, quote: { type: 'string' } }, required: ['source', 'quote'] } }, items: { type: 'array', items: { type: 'string' } } }, required: ['outcome', 'quotes', 'items'] } } }, required: ['outcomes'] }
 const ARCH_SCHEMA = {
   type: 'object',
   properties: {
@@ -463,96 +409,148 @@ const SPEC_SCHEMA = {
   },
   required: ['unit_id', 'spec', 'acceptance', 'behaviors', 'partitions', 'cases', 'premises', 'unverified', 'allowed_optional'],
 }
-const GOAL_SCHEMA = { type: 'object', properties: { outcomes: { type: 'array', items: { type: 'object', properties: { outcome: { type: 'string' }, quotes: { type: 'array', items: { type: 'object', properties: { source: { type: 'string', enum: ['request', 'decisions'] }, quote: { type: 'string' } }, required: ['source', 'quote'] } }, items: { type: 'array', items: { type: 'string' } } }, required: ['outcome', 'quotes', 'items'] } } }, required: ['outcomes'] }
-
-async function designStage() {
-  phase('design')
-  const out = { goal_check: null, arch: null, specs: [], not_run: [] }
-  if (A.goalBrief) {
-    out.goal_check = (await checked('goal_checker', 'goal-check', `${readBrief(A.goalBrief)}
-## あなたの役: 目標の照合役
-束の依頼文と利用者の決定の記録から、利用者が求めている成果を全て挙げる（件数は決めない。同じ成果を重ねない）。成果ごとに、根拠の逐語の引用（quotes。source は依頼文なら request、決定の記録なら decisions）と、その成果を受け止めている目標・受け入れ基準・制約の項目の id（items）を返す。受け止めている項目が無ければ items を空にする。
-項目が依頼に無いものを足したか・範囲を狭めたか・手順かは判定しない（項目ごとの引用は script が照らし済み）。
-${CITE_RULE}
-### 項目の id（items に使う）
-${JSON.stringify(A.goalIds)}`, GOAL_SCHEMA, (r) => checkGoalMap(r, A.goalIds))).result
+const INTENTS_SCHEMA = { type: 'object', properties: { intents: { type: 'array', items: { type: 'object', properties: { basis: { type: 'array', items: { type: 'string' } }, hypothesis: { type: 'string' }, layer: { type: 'string', enum: LAYERS }, look_at: { type: 'array', items: { type: 'string' } } }, required: ['basis', 'hypothesis', 'layer', 'look_at'] } } }, required: ['intents'] }
+const EXAM_SCHEMA = { type: 'object', properties: { verdict: { type: 'string', enum: VERDICTS }, cause: { type: 'string' }, layer: { type: 'string', enum: LAYERS }, evidence: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, quote: { type: 'string' } }, required: ['path', 'quote'] } } }, required: ['verdict', 'cause', 'layer', 'evidence'] }
+const JUDGE_SCHEMA = { type: 'object', properties: { accept: { type: 'boolean' }, reason: { type: 'string' } }, required: ['accept', 'reason'] }
+const WRITE_SCHEMA = { type: 'object', properties: { unit_id: { type: 'string' }, written: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' }, unresolved: { type: 'array', items: { type: 'string' } } }, required: ['unit_id', 'written', 'notes', 'unresolved'] }
+// 結果が schema の形（type・required・enum）に合わないところ。合わない結果は照合の式に渡さずに拒む（欠けた欄で台帳の描画が落ちないため）。
+function shapeProblems(v, s, at = '結果') {
+  if (!s) return []
+  if (s.enum && !s.enum.includes(v)) return [`${at} が ${s.enum.join('・')} のどれでもない: ${JSON.stringify(v)}`]
+  if (s.type === 'object') {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return [`${at} が object でない`]
+    const p = arr(s.required).filter((k) => !Object.hasOwn(v, k)).map((k) => `${at}.${k} が無い`)
+    for (const [k, sub] of Object.entries(s.properties || {})) if (Object.hasOwn(v, k)) p.push(...shapeProblems(v[k], sub, `${at}.${k}`))
+    return p
   }
-  let units = arr(A.units)
-  if (A.arch) {
-    const a = await checked('architect', 'architect', `${readBrief(A.arch.brief)}
-## あなたの役: 方式設計の役
-目標を、1 体が 1 回で設計・実装・検査できる大きさの単位に分ける。単位の数・例・型枠は与えない。目標・基準・制約と入力の中身から切る。
-- 単位ごとに、持つファイル（paths。repo からの相対 path）、code の単位ならテストのファイル（tests。実装とは別の担当が先に書く）、依存（depends_on）、効く基準・制約の id（covers。受け入れ基準と制約が 0 件のときは目標の項目の id）を決める。1 つのファイルは 1 つの単位だけが持つ。
+  if (s.type === 'array') return Array.isArray(v) ? v.flatMap((x, i) => shapeProblems(x, s.items, `${at}[${i}]`)) : [`${at} が配列でない`]
+  if (s.type === 'string') return typeof v === 'string' ? [] : [`${at} が文字列でない`]
+  if (s.type === 'integer') return Number.isInteger(v) ? [] : [`${at} が整数でない`]
+  if (s.type === 'boolean') return typeof v === 'boolean' ? [] : [`${at} が真偽値でない`]
+  return []
+}
+// 役ごとの結果の形（役の名前は roles.json の key）。
+const RESULT_SCHEMAS = { goal_checker: GOAL_SCHEMA, architect: ARCH_SCHEMA, unit_designer: SPEC_SCHEMA, test_writer: WRITE_SCHEMA, implementer: WRITE_SCHEMA, retro_planner: INTENTS_SCHEMA, retro_examiner: EXAM_SCHEMA, retro_verifier: JUDGE_SCHEMA }
+// </checks>
+
+// ---------------- 起動（B1〜B4） ----------------
+// args は {state, callId, stage, workers} だけ。script は workers の行ごとに役を 1 体起動し、役の prompt には担当を取る命令と手順・役の指示・結果の形だけを置く。
+// 入力（目標・依頼文・本文・前の役の出力）は prompt に載せず、役が claim と query で台帳から引く。出力は役が submit で台帳に書く。
+// script は役の出力を受け取らず、照合・やり直し・役の選択をしない（B5）。返すのは起動の記録（agents）と tokens だけ（B3）。
+const A = typeof args === 'string' ? JSON.parse(args) : args
+const agents = []
+// 消費量は、本体の始めと返す直前の 2 回の budget.spent() の読みの差。どちらかが数でなければ null。
+const spentNow = () => { const v = typeof budget !== 'undefined' && budget && typeof budget.spent === 'function' ? budget.spent() : null; return typeof v === 'number' && Number.isFinite(v) ? v : null }
+const spentStart = spentNow()
+const tokens = () => { const end = spentNow(); return spentStart === null || end === null ? null : end - spentStart }
+
+// shell の 1 語にする（' は '\'' に置き換える）。
+const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
+// CLI の入口。args で CLI の置き場を運ばないので、CLI が init・next のたびに stateDir に書く入口（本物の CLI を流すだけ）を使う。
+// 2 回目からの提出と query は、claim が返す submit_cmd（本物の CLI の絶対パス）から作る。
+const cliOf = (state) => `${String(state).replace(/[\\/]+$/, '')}/build-cli.mjs`
+
+const COMMON = `
+## 共通の前提
+- 目的: 作る・直す作業を「目標の固定 → 設計 → 設計レビュー → 実装 → 実装レビュー」の段で回し、見落としを構造で減らす。あなたはその中の 1 つの役で、取った担当の外を書かない・決め直さない。
+- 台帳を書くのは CLI だけ。あなたの入力は claim と query の出力と、そこが指す path のファイルにある。出力は結果の JSON を担当の result_path に書いて submit で出す。返り値で内容を返さない。
+- 読めなかったもの・決められないものは推測で埋めない。CLI の出力に無いことを前提にしない。
+- 自分で検証の agent を起こさない。検証は別の段が行う。
+`
+const loop = (w) => `
+### 担当を取る命令（この行をそのまま Bash で流す。出力は JSON）
+node ${sq(cliOf(A.state))} claim --state ${sq(A.state)} --call ${sq(A.callId)} --worker ${sq(w.id)}
+### 手順
+1. 取る命令を流す。出力が done: true なら、手順を終えて返り値を返す。命令が終了状態 2 で拒まれたら（呼び出しが閉じたなど）、error を notes に書いて終える。
+2. 出力の tasks の担当ごとに、入力を query で引く。命令は、claim の出力の submit_cmd の submit を query に替え、末尾に --task <担当の id> を足したもの。出力の inputs が担当の入力で、そこにある path のファイルを Read で読む。
+3. 下の「あなたの役」に従って判断し（書く役は受け持ちのファイルを書き）、結果の JSON を担当の result_path に Write ツールで書く。
+4. 担当の result_path に書けたら、その都度 submit_cmd をそのまま Bash で流す。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当。
+   ok が false の担当だけ、problems の理由を読んで直した結果を result_path に書き直し、同じ submit_cmd を流し直す（落ちた担当のファイルは CLI が消す）。dropped が true の担当は諦める。
+5. 1 に戻る。claim が done を返すまで繰り返す。出し終えていない担当があると、claim は同じ担当を返す。依存の順で後に回した担当は、前の担当が受理された後の claim で渡る。
+前の担当の判断を次の担当に持ち込まない。担当ごとに、その担当の入力だけから判断する。
+### 返り値
+気づいたこと（notes。命令が流せなかった・拒まれた・諦めた担当など）だけ。内容は返り値に書かない。`
+
+// ---------------- 役ごとの指示 ----------------
+// 照合の規則の文（CITE_RULE・VAGUE_WORDS・MAX_SPEC_LINES・LAYERS）は <checks> 区間の値から作る。写しを書かない。
+const READ_ONLY = '- repo のファイルを書かない・消さない。書いてよいのは担当の result_path だけ。'
+const GUIDES = {
+  goal_checker: `## あなたの役: 目標の照合役
+query の inputs の依頼文（request）と利用者の決定の記録（decisions）から、利用者が求めている成果を全て挙げる（件数は決めない。同じ成果を重ねない）。成果ごとに、根拠の逐語の引用（quotes。source は依頼文なら request、決定の記録なら decisions）と、その成果を受け止めている目標・受け入れ基準・制約の項目の id（items。inputs の item_ids から選ぶ）を返す。受け止めている項目が無ければ items を空にする。
+項目が依頼に無いものを足したか・範囲を狭めたか・手順かは判定しない（項目ごとの引用は init が照らし済み）。
+${CITE_RULE}
+${READ_ONLY}`,
+  architect: `## あなたの役: 方式設計の役
+目標を、1 体が 1 回で設計・実装・検査できる大きさの単位に分ける。単位の数・例・型枠は与えない。query の inputs の目標・基準・制約と、input_paths の入力の中身から切る。前の方式設計（previous）があれば読み、戻ってきた原因（causes）を除くように切り直す。
+- 単位ごとに、持つファイル（paths。repo からの相対 path）、code の単位ならテストのファイル（tests。実装とは別の担当が先に書く）、依存（depends_on）、効く基準・制約の id（covers。inputs の cover_ids から選ぶ）を決める。1 つのファイルは 1 つの単位だけが持つ。
 - 単位をまたぐ値は、約束ごとに contracts に挙げる（id は X<数>）。作る単位（producer）と使う単位（consumers。producer に depends_on で依存する）を決め、作る側が返しうる全ての値（正常・失敗・空・上限に達したとき・呼び直しで前の呼び出しが残したもの）を 1 行ずつ rows にし、行ごとに使う単位ごとの扱い（handling）を書く。片側だけの約束は、使う側の扱いが単位ごとにぶれるため。
 - copies は、同じ規則・約束の文を 2 つ以上のファイルに置くときだけ挙げ、正本（canonical）・写し・一致を照らすテスト（check）を決める。参照で済むなら写しを置かない。一致を照らす手段の無い写しは食い違うため。
 - 単位ごとに、そのテストが前提にする自分の paths・tests の外のファイルを test_uses に挙げる。変更で落ちうる既存のテストは、それを tests か test_uses に持つ単位（持ち主）を決める。持ち主の無いテストは誰も直さないため。
 - 書く粒度は単位・責務・境界まで。関数名・内部の印・prompt の文面は詳細設計に任せる。
 - 全ての基準と制約に受け皿の単位を付ける。
-- 入力は全て、読んだなら逐語の引用（inputs_read）、読まないなら理由（inputs_not_read）を返す。引用は script が照らす。
-- 利用者への質問（questions）は、価値判断が要り、基準・制約で答えが出ていないものだけ。`, ARCH_SCHEMA, (r) => checkArch(r, A.arch.ctx))
-    out.arch = a
-    if (!a.result || a.problems.length) return { ...out, status: 'ok' }
-    // 境界の行 id（X<n>-<行の位置>）は、同じ呼び出しの方式設計の contracts から作る。
-    const rowsOf = (id) => arr(a.result.contracts).filter((c) => c && (c.producer === id || arr(c.consumers).includes(id))).flatMap((c) => arr(c.rows).map((_, i) => `${c.id}-${i + 1}`))
-    units = arr(a.result.units).map((u) => ({ unit_id: u.id, unit: u, rows: rowsOf(u.id), brief: A.arch.unitBrief, arch: a.result.units }))
-  }
-  const cap = Math.max(0, Math.floor(left() / 2))
-  const run = units.slice(0, cap)
-  out.not_run = units.slice(cap).map((u) => u.unit_id)
-  const rows = await pipeline(run, (u) => checked('unit_designer', `design-${u.unit_id}`, `${readBrief(u.brief)}
-## あなたの役: 詳細設計の役（単位 ${u.unit_id} だけ）
-${u.arch ? `### 方式設計（この run で決まったもの。全ての単位）\n${JSON.stringify(u.arch)}\n` : ''}受け持ちの単位の振る舞い・入出力・境界の条件を spec に書く（${MAX_SPEC_LINES} 行まで）。受け入れの条件（acceptance）は外から確かめられる文で 1 行 1 件。code の単位なら、テストの担当が書くケース（cases: 条件と期待）を、条件ごとに漏れなく挙げる。ケースの期待値は実装から取らず、基準と spec から決める。受け持ちの外の単位は決め直さない。
-- behaviors: 振る舞いを 1 件ずつ挙げ、確かめる受け入れの位置（accepts。acceptance の 1 から数えた位置）と、受ける境界の行 id（rows。方式設計の contracts の X<n>-<行の位置>）を付ける。受け持ちの単位が作るか使う境界の行は、全てどれかの振る舞いで受ける。spec の文だけの振る舞いは受け入れから落ちるため。
+- input_paths の入力は全て、読んだなら逐語の引用（inputs_read）、読まないなら理由（inputs_not_read）を返す。引用は CLI が照らす。
+- 利用者への質問（questions）は、価値判断が要り、基準・制約で答えが出ていないものだけ。
+${READ_ONLY}`,
+  unit_designer: `## あなたの役: 詳細設計の役（担当ごとに単位 1 つ）
+query の inputs の unit（方式設計が決めた受け持ちの単位）と architecture（方式設計の写し）を読み、受け持ちの単位の振る舞い・入出力・境界の条件を spec に書く（${MAX_SPEC_LINES} 行まで）。前の詳細設計（previous）と戻ってきた原因（causes）があれば、原因を除くように設計し直す。受け入れの条件（acceptance）は外から確かめられる文で 1 行 1 件。code の単位なら、テストの担当が書くケース（cases: 条件と期待）を、条件ごとに漏れなく挙げる。ケースの期待値は実装から取らず、基準と spec から決める。受け持ちの外の単位は決め直さない。
+- behaviors: 振る舞いを 1 件ずつ挙げ、確かめる受け入れの位置（accepts。acceptance の 1 から数えた位置）と、受ける境界の行 id（rows。inputs の rows の X<n>-<行の位置>）を付ける。受け持ちの単位が作るか使う境界の行は、全てどれかの振る舞いで受ける。spec の文だけの振る舞いは受け入れから落ちるため。
 - partitions と cases: 件数の 0・1・上限ちょうど・上限 + 1、未設定、mode や引数の組を分け方（partitions）に挙げ、ケースの covers（<name>=<value>）で全ての値を覆う。ケースには確かめる受け入れの位置（accepts）を付ける。期待は、比べる対象を持つ観測できる文にする。
 - premises と unverified: 既存のファイルや外の部品の振る舞いを前提にするときは、入力の逐語の引用（premises: 主張・path・引用）で書く。確かめていない前提は、崩れたときの扱いと共に unverified に書く。「要らない」と判断した入力に頼る前提も同じ。
-- premises の path は、束の「premises に引ける path」の一覧の path をそのまま書く。取り込みはこの一覧と文字列で照らすので、同じファイルでも別の path（repo の相対 path と入力の写しの絶対 path など）では落ちる。
-- 一覧に無いファイルや外の部品の振る舞いを前提にするときは、premises に書かず unverified に、崩れたときの扱いと共に書く。premises に書くと取り込みが詳細設計ごと拒否する。
-- 決めきらない語（${VAGUE_WORDS.map((w) => `「${w}」`).join('')}）で選択を実装の担当に残さない。役の権限を定めるときだけ、その箇所の逐語の引用と理由を allowed_optional に挙げる。`, SPEC_SCHEMA, (r) => checkSpec(r, u.unit || A.unitDefs[u.unit_id], { rowIds: u.unit ? u.rows : arr(A.unitDefs[u.unit_id] && A.unitDefs[u.unit_id].rows) })).then((x) => ({ unit_id: u.unit_id, ...x })))
-  out.specs = rows.map((r, i) => r || { unit_id: run[i].unit_id, result: null, problems: ['pipeline が null を返した'] })
-  return { ...out, status: 'ok' }
-}
-
-const INTENTS_SCHEMA = { type: 'object', properties: { intents: { type: 'array', items: { type: 'object', properties: { basis: { type: 'array', items: { type: 'string' } }, hypothesis: { type: 'string' }, layer: { type: 'string', enum: LAYERS }, look_at: { type: 'array', items: { type: 'string' } } }, required: ['basis', 'hypothesis', 'layer', 'look_at'] } } }, required: ['intents'] }
-const EXAM_SCHEMA = { type: 'object', properties: { verdict: { type: 'string', enum: VERDICTS }, cause: { type: 'string' }, layer: { type: 'string', enum: LAYERS }, evidence: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, quote: { type: 'string' } }, required: ['path', 'quote'] } } }, required: ['verdict', 'cause', 'layer', 'evidence'] }
-const JUDGE_SCHEMA = { type: 'object', properties: { accept: { type: 'boolean' }, reason: { type: 'string' } }, required: ['accept', 'reason'] }
-
-async function retroStage() {
-  phase('retro')
-  // carry のある呼び出しは、前の計画役の呼び出しで起動の枠に入らなかった意図（本文は束の「流す意図」の節）だけを流す。計画役は起動しない。
-  const carry = arr(A.carry)
-  const pl = carry.length ? { result: null, problems: [] } : await checked('retro_planner', 'retro-plan', `${readBrief(A.brief)}
-## あなたの役: 振り返りの計画役
-束にある悪かった出来事と、受理済みの原因（事実）を読み、「原因はこれか」という意図を返す。意図ごとに、根拠にした事実の id（basis）、仮説（hypothesis）、原因と考える層（${LAYERS.join('・')}）、確かめるのに読むファイル（look_at。束の「読めるファイル」から選ぶ）を付ける。
+- premises の path は、inputs の premise_paths の一覧の path をそのまま書く。CLI はこの一覧と文字列で照らすので、同じファイルでも別の path（repo の相対 path と入力の写しの絶対 path など）では落ちる。
+- 一覧に無いファイルや外の部品の振る舞いを前提にするときは、premises に書かず unverified に、崩れたときの扱いと共に書く。premises に書くと submit が詳細設計ごと拒む。
+- 決めきらない語（${VAGUE_WORDS.map((w) => `「${w}」`).join('')}）で選択を実装の担当に残さない。役の権限を定めるときだけ、その箇所の逐語の引用と理由を allowed_optional に挙げる。
+${READ_ONLY}`,
+  test_writer: `## あなたの役: テストの担当（担当ごとに単位 1 つ）
+query の inputs の design（単位の設計の写し）のケースを全て、実装より先にテストとして書く。期待値は設計と基準から決め、実装を見て合わせない。まだ実装が無いので、テストが落ちるのは正しい。同じ呼び出しで取った単位のテストは、fixture を共有してよい（共有するファイルは、同じ呼び出しのどれかの担当の inputs.paths の中に置く）。
+- 書いてよいのは inputs の paths（repo からの相対。repo は inputs の repo）だけ。他のファイルは書かない・消さない。
+- 書いた path を written に、果たせなかったことを unresolved に返す。written にはその担当の inputs.paths だけを書く（共有のファイルは、それを paths に持つ担当の written に書く）。`,
+  implementer: `## あなたの役: 実装の担当（担当ごとに単位 1 つ）
+query の inputs の design（単位の設計の写し）に沿って受け持ちのファイルを書く。inputs の tests（別の担当が先に書いたテスト）は読むだけで変えない（CLI が変更を照らす）。依存する単位（depends）は読むだけ。前の回の欠陥と原因（causes）があれば、指摘の箇所だけを繕わず、原因を除くように受け持ち全体を設計に合わせて作り直す。
+- 書いてよいのは inputs の paths（repo からの相対。repo は inputs の repo）だけ。他のファイルは書かない・消さない。
+- 書いた path を written に、果たせなかったことを unresolved に返す。`,
+  retro_planner: `## あなたの役: 振り返りの計画役
+query の inputs の悪かった出来事（events。群ごとの見出しは groups）と、受理済みの原因（facts）と、この振り返りで試した意図（tried）を読み、「原因はこれか」という意図を返す。意図ごとに、根拠にした事実の id（basis。出来事・事実・群の id）、仮説（hypothesis）、原因と考える層（${LAYERS.join('・')}）、確かめるのに読むファイル（look_at。inputs の readable から選ぶ）を付ける。群の id を根拠にすると、その群の全ての出来事を辿る。
 - 前提が満たされ、互いに重ならない意図を全て出す。件数は決めない。
 - 受理済みの原因から、さらに上流の原因（その原因の原因）を問う意図も出してよい。層は目標 → 設計 → 実装 の順に上流。進め方はこのスキルの段の構成・役・検査の欠け。
-- 既に退けられた意図を同じ根拠で繰り返さない。試すものが無ければ intents を空にする。`, INTENTS_SCHEMA, (r) => checkIntents(r, A.known))
-  const intents = carry.length ? carry : pl.result && !pl.problems.length ? arr(pl.result.intents) : []
-  const cap = Math.max(0, Math.floor(left() / 3))
-  const run = intents.slice(0, cap)
-  const intentText = (it) => (carry.length ? `束の「流す意図」の節の ${it} を読む。` : JSON.stringify(it))
-  // 添字は items に持たせる（pipeline の callback の第 2 引数は、native では元の item、runner では添字で、形が違う）。
-  // 結果も添字で意図に結ぶ（pipeline の返り値の並びに頼らない）。
-  const rows = await pipeline(run.map((it, i) => ({ it, i })), async ({ it, i }) => {
-    const ex = await checked('retro_examiner', `retro-exam-${i}`, `${readBrief(A.brief)}
-## あなたの役: 振り返りの実行役（意図 1 件だけ）
-### 意図
-${intentText(it)}
-look_at のファイルを読み、仮説が記録で支えられるか（supported）、記録が否定するか（refuted）、決められないか（unclear）を返す。supported なら、原因（cause）と層と、決め手になった本文の逐語の引用を path つきで evidence に返す（script が照らす）。`, EXAM_SCHEMA, checkExam)
-    let judge = null
-    if (ex.result && !ex.problems.length && ex.result.verdict === 'supported') {
-      judge = await call('retro_verifier', `retro-judge-${i}`, `${readBrief(A.brief)}
-## あなたの役: 振り返りの検証役（反証側。意図 1 件の結論だけ）
-下の結論は誤りかもしれないという前提で、evidence の path を読み直して確かめる。原因でなく症状の言い換え、記録と合わない、層の取り違え、固定した目標・制約の蒸し返し、のどれかなら accept=false。
-### 意図
-${intentText(it)}
-### 結論
-${JSON.stringify(ex.result)}`, JUDGE_SCHEMA)
-    }
-    return { index: i, exam: ex.result, exam_problems: ex.problems, judge, judge_problems: judge ? checkJudge(judge) : [] }
-  })
-  // 枠に入らなかった意図は not_run に添字で返す（CLI が queued で残し、次の呼び出しの carry に回す）。
-  return { status: 'ok', intents: pl.result, intent_problems: pl.problems, carry: carry.length ? carry : null, exams: run.map((_, i) => rows.find((r) => r && r.index === i) || { index: i, exam: null, exam_problems: ['pipeline が null を返した'], judge: null, judge_problems: [] }), not_run: intents.slice(cap).map((_, i) => cap + i) }
+- 既に退けられた意図（tried の status が rejected・refuted）を同じ根拠で繰り返さない。status が undecided の意図は、試行の上限で判定できずに閉じたもので、退けたのではない（同じ仮説を出し直してよい）。試すものが無ければ intents を空にする。
+${READ_ONLY}`,
+  retro_examiner: `## あなたの役: 振り返りの実行役（担当ごとに意図 1 件）
+query の inputs の intent の look_at のファイルを読み、仮説が記録で支えられるか（supported）、記録が否定するか（refuted）、決められないか（unclear）を返す。supported なら、原因（cause）と層と、決め手になった本文の逐語の引用を path つきで evidence に返す（CLI が照らす）。
+${READ_ONLY}`,
+  retro_verifier: `## あなたの役: 振り返りの検証役（反証側。担当ごとに意図 1 件の結論だけ）
+query の inputs の exam（実行役の結論）は誤りかもしれないという前提で、evidence の path を読み直して確かめる。原因でなく症状の言い換え、記録と合わない、層の取り違え、固定した目標・制約の蒸し返し、のどれかなら accept=false。
+${READ_ONLY}`,
 }
 
-const body = A.stage === 'design' ? await designStage() : await retroStage()
-return { stage: A.stage, call_id: A.callId, ...body, agents, tokens: tokens(), limits: LIMITS }
+const promptOf = (w) => `${COMMON}
+## 段 ${A.stage}、worker ${w.id}（${w.role}）
+この段の担当を CLI から取り、結果を CLI に出す。取る担当の数は決めない。claim が done を返すまで続ける。
+${loop(w)}
+${GUIDES[w.role]}
+### 結果の形（担当の result_path に書く JSON。JSON Schema）
+${JSON.stringify(RESULT_SCHEMAS[w.role])}`
+
+const WORKER_SCHEMA = { type: 'object', properties: { notes: { type: 'array', items: { type: 'string' } } }, required: ['notes'] }
+// 行ごとに 1 体。モデルと effort は行の値（正本は roles.json で、next が行に写す）。agent の失敗（throw）も起動の記録に残す。
+async function launch(w) {
+  const label = `${w.role}-${w.id}`
+  let out = null
+  try { out = await agent(promptOf(w), { label, phase: A.stage, schema: WORKER_SCHEMA, model: w.model, effort: w.effort }) } catch (e) { log(`${label}: agent が失敗した（${String((e && e.message) || e).slice(0, 160)}）`) }
+  agents.push({ role: w.role, label, model: w.model, effort: w.effort, ok: out != null })
+}
+
+const argProblems = []
+if (!A || typeof A !== 'object') argProblems.push('args が object でない')
+else {
+  if (!['design', 'tests', 'implement', 'retro'].includes(A.stage)) argProblems.push(`stage が不正: ${A.stage}`)
+  if (typeof A.state !== 'string' || !A.state) argProblems.push('state が無い')
+  if (typeof A.callId !== 'string' || !A.callId) argProblems.push('callId が無い')
+  if (!Array.isArray(A.workers) || !A.workers.every((w) => w && isStr(w.id) && Object.hasOwn(GUIDES, w.role) && isStr(w.model) && isStr(w.effort))) argProblems.push('workers が {id, role, model, effort} の配列でない（role は roles.json の役）')
+}
+// args が壊れていれば起動しない（起動の記録が空の呼び出しとして ingest が閉じる）。
+if (argProblems.length) log(`args の検査に落ちた: ${argProblems.join(' / ')}`)
+else {
+  phase(A.stage)
+  await parallel(A.workers.slice(0, LIMITS.maxAgents).map((w) => () => launch(w)))
+}
+return { agents, tokens: tokens() }

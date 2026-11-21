@@ -3,7 +3,7 @@ name: coverage-build
 description: >
   文書でもプログラムでも、作る（create）・既にあるものを目標に合わせて直す（update）・作らずに目標に照らして確かめる（review）作業を、
   目標の固定 →（update は現状の検査）→ 設計 → 設計レビュー → 実装 → 実装レビューの段で回し、見落としを構造で減らす汎用の仕組み。
-  1 体には 1 単位だけを任せ、テストは実装と別の担当が先に書き、レビューは coverage-audit を呼び、悪かった出来事を探索グラフで振り返って
+  役は台帳から担当を取って結果を台帳に出し、1 体には文脈に収まる分の単位を詰め、テストは実装と別の担当が先に書き、レビューは coverage-audit を呼び、悪かった出来事を探索グラフで振り返って
   欠陥を原因の層（目標・設計・実装）へ戻す（指摘の箇所だけを直す経路は持たない）。台帳は run をまたいで持ち越し、変わったものだけを見直す。
   「この機能を設計からレビューまで通して作って」「このスキルを目標に合わせて直して（文書とコードが混ざってよい）」
   「この実装が目標を満たすか確かめて、直すならどの層からかを返して」のような依頼で使う
@@ -29,10 +29,11 @@ description: >
 
 同じ全体を 1 体が書き、別の 1 体が全体を見て、毎回別の欠陥が出る改稿の往復を、構造で止める。そのために次の形を取る。
 
-- 1 体に任せる量を小さくする。設計は方式設計（単位への分割）と単位ごとの詳細設計に分け、実装も単位ごとに 1 体が受け持つ。
+- 単位を小さくする。設計は方式設計（単位への分割）と単位ごとの詳細設計に分け、実装も単位ごとに担当を分ける。1 体は文脈に収まる分の単位の担当を続けて受け持つ（起動ごとの前置きの費用を体数分払わない）。
 - 生成と検証を分ける。レビューは同じ repo のスキル coverage-audit が行い、プログラムの単位ではテストを実装とは別の担当が先に書く。
 - 欠陥は原因の層へ戻す。設計の欠陥は単位（と依存する単位）を設計からやり直し、実装の欠陥は単位の実装をやり直す。目標・方針の層の欠陥は人間に返す。指摘の箇所だけを局所で直す経路は無い。
-- 静的に決まること（単位の検査・依存の順・ファイルの持ち主・照合・上限・止める条件）は CLI と Workflow source の script が決め、LLM には判断だけを任せる。重要度で単位を絞らない。
+- 静的に決まること（単位の検査・依存の順・ファイルの持ち主・照合・やり直し・次に起動する役・上限・止める条件）は CLI が決め、LLM には判断だけを任せる。重要度で単位を絞らない。
+- 台帳を全ての役が読み書きする唯一の場所にする。役は CLI の `claim` で担当を取り、`query` で入力（前の役の出力を含む）を引き、`submit` で結果を出す。照合に落ちた結果は `submit` が理由を付けて拒み、同じ体が直して出し直す（やり直しに新しい agent を起こさない）。
 
 司令塔（このスキルを読む session）は段を選び、出力を手を加えずに次へ渡すだけで、成果物を書かない。対象のファイルを書くのは実装の役（テストの担当・実装の担当）だけ。
 
@@ -90,13 +91,13 @@ CLI は `node [SKILL_DIR]/scripts/build-cli.mjs`（以下 `CLI`）。出力は J
      [--roles roles.json] [--max-cycles N] [--max-agents-total N] [--max-unit-rounds N]
    ```
 
-   数の引数は正の整数だけを受け付け、省いた値は `scripts/build-core.mjs` の `DEFAULT_CONFIG`。読めないファイルと、引用の照合を通らない項目（`problems`）があれば台帳を作らずに拒否する。出力の `hint` の文を利用者に示す（ヒントは run の途中でも `CLI hint --state <stateDir> --text "..."` で足せ、次の束に入る）。
+   数の引数は正の整数だけを受け付け、省いた値は `scripts/build-core.mjs` の `DEFAULT_CONFIG`。読めないファイルと、引用の照合を通らない項目（`problems`）があれば台帳を作らずに拒否する。出力の `hint` の文を利用者に示す（ヒントは run の途中でも `CLI hint --state <stateDir> --text "..."` で足せ、次の呼び出しの役の query に入る）。
 2. `CLI next --state <stateDir>` を流し、出力に従う。
 
    | 出力 | 司令塔の処理 |
    |---|---|
    | `stop` | 「止まったとき」へ |
-   | `step` が design・retro・tests・implement | `estimate_agents` を見てから、「Workflow を呼ぶ」で `workflow` の source に `args_path` の args を 1 回流し、返り値をそのまま JSON でファイルに保存して `CLI ingest --state <stateDir> --result <file>`（受け付けなかった出力があれば理由が出力の `rejected` に載る。`ok` は呼び出しを取り込んだことを指す） |
+   | `step` が design・retro・tests・implement | `estimate_agents` を見てから、「Workflow を呼ぶ」で `workflow` の source に `args_path` の args を 1 回流し、返り値をそのまま JSON でファイルに保存して `CLI ingest --state <stateDir> --call <call_id> --result <file>`（呼び出しを閉じるだけ。役の結果は役が `submit` で台帳に出してある。拒んだ提出があれば理由が出力の `rejected` に載る） |
    | `step: audit` | 「coverage-audit を呼ぶ」に従い、`CLI import-audit --state <stateDir>` |
    | `step: checks` | `CLI run-checks --state <stateDir>` を background で流し、終わるまで待つ（途中で止めると記録が残らない） |
 
@@ -104,11 +105,11 @@ CLI は `node [SKILL_DIR]/scripts/build-cli.mjs`（以下 `CLI`）。出力は J
 
 最初の design の呼び出しで、目標の照合役が依頼文と決定の記録から利用者の求める成果を引用つきで挙げ、各成果を受け止める項目の id を返す。CLI が引用の実在・id の実在を照らし、どの項目にも受け止められていない成果があれば `needs_input` で返す。照合役は、項目が依頼に無いものを足したか・範囲を狭めたかを判定しない（足していないことは init の引用の照合が確かめる）。
 
-`next` は台帳と今のファイルの hash だけから次の 1 手を決める。振り返りの結論を層へ戻す段は agent を起動しないので、`next` の中で済む。同じ状態で `next` を流し直すと同じ呼び出し（同じ `call_id`）が返るので、Workflow が途中で落ちたら 2 からやり直せばよい。待っている `call_id` と違う結果は `ingest` が拒否する。
+`next` は台帳と今のファイルの hash だけから次の 1 手と、起動する役（args の `workers` の行）を決める。design は目標の照合 → 方式設計 → 詳細設計を別の呼び出しにする（前の役の出力を読む役は次の呼び出しに置く）。振り返りは計画役 → 実行役 → 検証役を別の呼び出しにし、検証役は実行役が支持した結論があるときだけ起動する。振り返りの結論を層へ戻す段は agent を起動しないので、`next` の中で済む。呼び出しが開いている間に `next` を流し直すと同じ呼び出し（同じ `call_id`）が返り、閉じるのは `ingest --call` だけなので、Workflow が途中で落ちたら同じ args で流し直してから閉じればよい（出し終えた担当は台帳に残る）。開いていない `--call` は `ingest`・`claim`・`submit` が拒否する。
 
 ## Workflow を呼ぶ
 
-書かない段（design・retro）と書く段（tests・implement）は source を分けている。runner は役ごとに書き込みの権限を分けられないので、書く run には書く役だけを置く。
+どの段も同じ 1 つの source（`build-step.js`）を流す。役は全て、担当の結果を stateDir の `result_path` に書いて `submit` を流すので、書かない run を分ける理由が無い。テストの担当・実装の担当だけが repo のファイルを書く。CLI は呼び出しを開いた時と後の hash で、受け持ちの外（書かない段では単位のファイル・入力・対象の全て）の変更を照らし、出来事に残す。書く段では、その変更がある提出と呼び出しで受理した単位を受け付けない。
 
 > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
 > native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
@@ -117,33 +118,26 @@ CLI は `node [SKILL_DIR]/scripts/build-cli.mjs`（以下 `CLI`）。出力は J
 > 前処理は「手順」の 1〜2、成功後処理は `ingest`。runner の verified return 以外で `ingest` へ進まず、runner 未 install・
 > `unsupported_runtime`・`rejected_source`・`workflow_incomplete` はそのまま報告する。
 >
-> **Codex classification: read-only supported**（`build-step.js`）。**workspace-write required**（`build-write.js`。host は worker の `cwd` を `--repo` にし、
+> **Codex classification: workspace-write required**（`build-step.js`。host は worker の `cwd` を `--repo` にし、
 > `workspace.mode: "workspace-write"` を設定する）。runner request の `requirements` と `limits` は source の `meta.requirements`・`meta.limits` をそのまま使い、
-> SKILL.md に値を写さない。args の `roles` にある model 名の全てに runner の `modelMap` を明示する。担当は `stateDir/snap/` の束を Read で読む。
-> Codex の runner の worker が `stateDir` のファイルを読めるかは確かめていない。
+> SKILL.md に値を写さない。args の `workers` にある model 名の全てに runner の `modelMap` を明示する。役は Bash で `stateDir` の CLI を流し、`stateDir` の `result_path` を書く。
+> Codex の runner の worker が、`--repo` の外にある `stateDir` で CLI を流して `result_path` を書けるかは確かめていない。
 
 ```js
 Workflow({
   scriptPath: "[SKILL_DIR]/scripts/build-step.js",
-  args: <next の args_path のファイルの中身（JSON object）をそのまま。step が design・retro のとき>
+  args: <next の args_path のファイルの中身（JSON object）をそのまま>
 })
 ```
 
-```js
-Workflow({
-  scriptPath: "[SKILL_DIR]/scripts/build-write.js",
-  args: <next の args_path のファイルの中身（JSON object）をそのまま。step が tests・implement のとき>
-})
-```
-
-args を書き換えない（source が `argsSum` で写し違い・切り詰めを拒否し、`ingest` が `call_id` を照らす）。args には本文を載せない。載るのは、`next` が `stateDir/snap/` に内容の hash の名前で書いた束（brief）のファイル名と hash（写しの置き場 `snapDir` は 1 回だけ載る）、id と path の一覧だけで、担当は Read で束を読む。前の設計をやり直すときも、前の設計は束の中の path で渡り、args には載らない。native Workflow が tasks の `.output` に残す返り値（`result` に包んだ形）は、そのまま `ingest` に渡してよい。
+args は `{state, callId, stage, workers}` だけで、本文も id の一覧も載らない。script は `workers` の行ごとに役を 1 体起動し、役の prompt には担当を取る命令（`stateDir/build-cli.mjs` の `claim`）と手順・役の指示・結果の形だけを置く。役の入力（目標・依頼文・入力の path・前の役の出力）は役が `query` で台帳から引く。返り値は起動の記録（`agents`）と `tokens` だけで、司令塔はそれを保存して `ingest --call` に渡す。native Workflow が tasks の `.output` に残す返り値（`result` に包んだ形）も、そのまま `ingest` に渡してよい。
 
 ## coverage-audit を呼ぶ
 
 現状の検査・設計レビュー・実装レビュー・review の検査は、同じ repo のスキル coverage-audit を**スキル呼び出し**で使う（このスキルの CLI から coverage-audit のファイルを読んだり実行したりしない）。coverage-audit の台帳は `stateDir/audit/state` の 1 つに固定し、段ごとに作り直さない。`next` の `audit` には、台帳の置き場 `state` と、その段のファイル（`goal`・`request`・`decisions`・`criteria`・`constraints`）と `targets` が載り、引数は `init_argv`（台帳が無いとき）か `reframe_argv`（あるとき）の一方だけが載る。これらは CLI が書いたもので、司令塔は言い換えずにそのまま渡す。受け入れ基準（実装レビューでは単位ごとの受け入れ `U<n>A<m>` を含む）は制約と別の `criteria` で渡る。基準・制約が 0 件なら `criteria`・`constraints` とその引数は載らない。どちらの引数も段（`--phase`。baseline・design・impl・review）を含み、design の段の引数だけが関係する資産を結ぶ id の型（`--link`）を含む。`init_argv` は照合済みの印 `--goal-checked coverage-build` を含み、coverage-audit は目標の照合を流さない。`reframe_argv` は台帳の印を残したまま目標・基準・制約・決定の記録・対象と段を差し替え、coverage-audit は全ての単位を読み直して計画から作り直す。
 
 1. `audit.init_argv` か `audit.reframe_argv` を coverage-audit の CLI にそのまま渡す。どちらも無く `audit.framed` が true なら、この段の台帳に既にしてあるので何も渡さない（検査の途中で `next` を流し直したとき。reframe し直すと途中の検査と coverage-audit の answer で足した `A<n>` が消える）。answer で制約が足されたときや単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳の `reframe_argv` が載る。
-2. coverage-audit の手順を、その `next` が止まるまで回す。coverage-audit が needs_input で止まったときは、上の層の指摘・検証不能（`upper`・`upper_groups`・`unverifiable`）だけなら回答せずに 3 へ進む（このスキルが層への戻しと人間への返し方を決める）。`lateral_groups`（上限の周で横展開が収束せず、展開しなかった新しい型の群）は上の層の指摘と違い、展開を続けるか記録して終えるかを利用者が決めるので、回答せずに進まず、coverage-audit の「止まったとき」に従って利用者に返す。それ以外（質問・試行の上限）も同じく利用者に返す。
+2. coverage-audit の手順を、その `next` が止まるまで回す。coverage-audit が needs_input で止まったときは、上の層の指摘・検証不能（`upper`・`upper_groups`・`unverifiable`）だけなら回答せずに 3 へ進む（このスキルが層への戻しと人間への返し方を決める）。それ以外（質問・試行の上限）は、回答せずに進まず、coverage-audit の「止まったとき」に従って利用者に返す。
 3. `CLI import-audit --state <stateDir>` を流す。coverage-audit は止まったときに `<audit.state>/status-<段>.json`（中身は coverage-audit の `status` の出力と同じ）を書き、`import-audit` はそのファイルを自分で読む。司令塔は `status` の出力を写さない。ファイルが無ければ（coverage-audit が止まる前）、その path を理由に拒否する。
 
 `import-audit` は、検査が終わっていない（読み終えていない単位がある・blocked・limit）出力、待っている段と違う段の出力（`status.phase`）、検査に渡した後に対象が変わった出力を拒否する。coverage-audit の status は段ごとに分かれ、上の階層の指摘・束ね・出来事は今の段のものだけなので、取り込むのはその段の分だけ。coverage-audit はこの印のある台帳では振り返りを流さず、検査の中の出来事を status の `events` で返す。取り込みはそれを進め方の出来事（`audit_internal`）として 1 回だけ受け、このスキルの振り返りの探索グラフが受ける。確かめた指摘の引用を今の本文に照らし、指摘を単位と層へ結ぶ（指摘の path は `paths` の先頭で、引用はその本文にある。現状の検査の指摘は設計の入力にし、目標・方針の層だけを人間に返す）。参考（目標・受け入れ基準に結べない気づき）は指摘にせず `audits.<段>.references` に残す。試行の上限で判定できずに閉じた意図を含む complete も取り込み、その意図を進め方の出来事にする。見られなかった単位は見ていないものとして記録し、見たとして扱わない。coverage-audit の run の指標（指摘の出どころ・持ち越した読みの数・全体の段で落とした数と確認で復活した数）は `audits.<段>.metrics` に残る。
@@ -161,10 +155,12 @@ args を書き換えない（source が `argsSum` で写し違い・切り詰め
 
 ## 役とモデル
 
-役ごとのモデルと effort は `scripts/roles.json`（理由つき）が正本で、`init --roles <file>` で役ごとに上書きできる。値は実測で見直す前提。起動した役・指定した model・effort・成否は台帳の `agents`、token は `calls` に残る（runner では token を読めないので null と理由）。記録する model は指定した値で、実際に効いたかは記録から確かめられないので、効いていない前提で起動数の側で費用を抑える。
+役ごとのモデルと effort は `scripts/roles.json`（理由つき）が正本で、`init --roles <file>` で役ごとに上書きできる。値は実測で見直す前提。上位のモデルの役は中程度の effort にする。テストを書く役と実装する役、振り返りの実行役と検証役は、別のモデル・別の体にする。
+
+1 体に詰める単位の量は、単位が読むファイルの本文のバイト数で決める（上限は `scripts/build-core.mjs` の `UNIT_MAX_BYTES` の 1 つ）。詳細設計・テスト・実装の役は単位の並びで前から上限まで 1 体に詰め、収まらない分だけ体数を増やす。実装の担当は依存がそろった単位だけを受け取り、前の単位を出した後に次の単位を取り直す。振り返りの実行役と検証役は、それぞれ 1 体が全ての意図を順に処理する。照合に落ちた提出は同じ体が出し直し、試行の上限（`MAX_ATTEMPTS`）に達した単位の担当は `stuck` として needs_input で開示する（振り返りの意図は、判定できずに開示して閉じた状態 `undecided` にして振り返りを進める。退けた意図とは区別する）。試行に数えるのは、役が query か submit で手を付けた担当だけ。起動した役・指定した model・effort・成否は台帳の `agents`、token は `calls` に残る（runner では token を読めないので null と理由）。記録する model は指定した値で、実際に効いたかは記録から確かめられないので、効いていない前提で起動数の側で費用を抑える。
 
 ## 参照
 
 - [references/ledger.md](references/ledger.md): 台帳の構成、段ごとの script と LLM の分け方、層への戻し方、振り返りの探索グラフ、coverage-audit との口、止める条件、記録、設計の型から変えた点、照合しないもの。
 - [references/writing.md](references/writing.md): 文書を書くときの規則（表・図・散文の使い分け）。文書の単位の担当が読む。
-- 静的な照合の正本: `scripts/build-step.js` の `// <checks>` 区間（CLI も同じ文を読み込む）。その中の `// <goalmap>` 区間（目標・基準・制約の引用と目標の照合）は coverage-audit の Workflow source と同じ文。
+- 静的な照合と役の結果の形の正本: `scripts/build-step.js` の `// <checks>` 区間（CLI の `submit` も同じ文を読み込む）。その中の `// <goalmap>` 区間（目標・基準・制約の引用と目標の照合）は coverage-audit の Workflow source と同じ文。

@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { C, RETRO_MAX_ROUNDS, findingPath, layerOf, retroConcluded } from './build-core.mjs'
-import { auditStatus, cli, defaultUnits, drive, inputsOf, mockAgent, runWorkflow, setup, writeAuditStatus } from './test-harness.mjs'
+import { C, MAX_ATTEMPTS, RETRO_MAX_ROUNDS, UNIT_MAX_BYTES, findingPath, layerOf, retroConcluded } from './build-core.mjs'
+import { archOf, auditStatus, cli, defaultUnits, drive, mockAgent, runWorkflow, setup, writeAuditStatus } from './test-harness.mjs'
 
 const OK_CHECK = ['node', '-e', 'process.exit(0)']
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
@@ -11,11 +11,13 @@ const order = (steps) => steps.map((s) => (s.phase ? `audit:${s.phase}` : s.step
 
 test('create: 設計 → 設計レビュー → テスト → 実装 → check → 実装レビューの順に回って完了する', async (t) => {
   const { state, repo } = setup(t, { checks: [OK_CHECK] })
-  const { stop, steps } = await drive(state, mockAgent())
+  const log = []
+  const { stop, steps } = await drive(state, mockAgent({}, log))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.deepEqual(order(steps), ['design', 'audit:design', 'tests', 'implement', 'implement', 'checks', 'audit:impl'])
-  // 依存の順: U1（code）が実装された後の呼び出しで U2（doc）を実装する。
-  assert.deepEqual(steps.filter((s) => s.step === 'implement').map((s) => s.args.tasks.map((x) => x.unit_id)), [['U1'], ['U2']])
+  assert.deepEqual(order(steps), ['design', 'design', 'design', 'audit:design', 'tests', 'implement', 'checks', 'audit:impl'])
+  assert.deepEqual(steps.filter((s) => s.step === 'design').map((s) => s.task), ['goal', 'arch', 'spec'], '目標の照合 → 方式設計 → 詳細設計（前の役の出力を読む役は次の呼び出し）')
+  // 依存の順: 実装の 1 体が U1（code）を出して受理された後に、U2（doc）を取り直す。
+  assert.deepEqual(log.filter((x) => x.role === 'implementer').map((x) => x.label), ['implement-U1', 'implement-U2'])
   assert.match(readFileSync(path.join(repo, 'test/a.test.mjs'), 'utf8'), /tests/)
   const L = ledger(state)
   assert.ok(L.agents.every((a) => a.model && a.effort), '起動ごとに model と effort を記録する')
@@ -28,11 +30,11 @@ test('update: 設計の前に既存の対象を検査し、その結果を設計
   const { stop, steps } = await drive(state, mockAgent({}, log), { audit })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.deepEqual(order(steps).slice(0, 3), ['design', 'audit:baseline', 'design'], '目標の照合 → 現状の検査 → 設計')
-  assert.ok(!steps[0].args.arch && steps[0].args.goalBrief, '最初の呼び出しは目標の照合だけ')
-  const brief = readFileSync(/Read で (\S+) を全て読む/.exec(log.find((x) => x.label === 'architect').prompt)[1], 'utf8')
-  assert.match(brief, /既存の欠陥/)
-  assert.match(brief, /x\|purpose\|p1/, '開示した枡も入力にする')
-  assert.match(brief, /baseline-status\.json/, '現状の検査の全件も、読んだかを申告する入力にする')
+  assert.equal(steps[0].task, 'goal', '最初の呼び出しは目標の照合だけ')
+  const q = log.find((x) => x.label === 'architect').inputs
+  assert.match(JSON.stringify(q.baseline), /既存の欠陥/)
+  assert.match(JSON.stringify(q.baseline), /x\|purpose\|p1/, '開示した枡も入力にする')
+  assert.ok(q.input_paths.some((f) => /baseline-status\.json$/.test(f)), '現状の検査の全件も、読んだかを申告する入力にする')
 })
 
 test('update: 現状の検査で目標・方針の層の指摘が出たら、設計に進まず人間に返す', async (t) => {
@@ -46,11 +48,10 @@ test('update: 現状の検査で目標・方針の層の指摘が出たら、設
 
 test('update: 単位が既にある対象を書き換えても、現状の検査はやり直さない', async (t) => {
   const { state } = setup(t, { mode: 'update' })
-  const over = { architect: (p) => {
-    const brief = readFileSync(/Read で (\S+) を全て読む/.exec(p)[1], 'utf8')
+  const over = { architect: (p, o) => {
     const units = defaultUnits(['AC1', 'D1'])
     units[1].paths = ['src/old.mjs']
-    return { units, inputs_read: [...brief.matchAll(/^- (\/.+)$/gm)].map((m) => m[1]).filter((f) => /\.(md|mjs|json)$/.test(f)).map((f) => ({ path: f, quotes: [readFileSync(f, 'utf8').split('\n').find((l) => l.trim().length >= 14) || readFileSync(f, 'utf8').trim()] })), inputs_not_read: [], questions: [], contracts: [], copies: [] }
+    return archOf(o.inputs, units)
   } }
   const { stop, steps } = await drive(state, mockAgent(over))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
@@ -63,7 +64,7 @@ test('review: 目標を照合してから作らずに検査し、振り返りで
   const { stop, steps } = await drive(state, mockAgent(), { audit })
   assert.equal(stop.stop, 'complete')
   assert.deepEqual(order(steps), ['design', 'audit:review', 'retro', 'retro'])
-  assert.ok(steps[0].args.goalBrief && !steps[0].args.arch, 'review でも目標の照合はこのスキルで行う')
+  assert.equal(steps[0].task, 'goal', 'review でも目標の照合はこのスキルで行う')
   assert.equal(stop.routes[0].layer, '設計')
   assert.ok(!steps.some((s) => ['tests', 'implement'].includes(s.step)))
 })
@@ -78,18 +79,21 @@ test('層の写像は coverage-audit の 5 つの層の全てを 3 つの層へ�
   assert.equal(layerOf({ layer: null, kind: 'agent_missing' }, []), '進め方')
 })
 
-test('設計の欠陥は単位と依存する単位を設計からやり直し、args に前の設計の本文を載せない', async (t) => {
+test('設計の欠陥は単位と依存する単位を設計からやり直し、args に前の設計の本文を載せない（前の設計は query の previous の path で渡る）', async (t) => {
   const { state } = setup(t)
   let n = 0
   const audit = (phase) => (phase === 'design' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] }) : auditStatus({ phase }))
-  const { stop, steps } = await drive(state, mockAgent(), { audit })
+  const log = []
+  const { stop, steps } = await drive(state, mockAgent({}, log), { audit })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  const designs = steps.filter((s) => s.step === 'design')
+  const designs = steps.filter((s) => s.task === 'spec')
   assert.equal(designs.length, 2)
-  assert.deepEqual(designs[1].args.units.map((u) => u.unit_id), ['U1', 'U2'], 'U2 は U1 に依存するのでやり直す')
+  const redo = log.filter((x) => x.role === 'unit_designer').slice(2)
+  assert.deepEqual(redo.map((x) => x.inputs.unit.id), ['U1', 'U2'], 'U2 は U1 に依存するのでやり直す')
+  assert.ok(redo.every((x) => x.inputs.previous && x.inputs.previous.endsWith(`${x.inputs.unit.id}.md`)), '前の設計は path で渡る')
   const text = JSON.stringify(designs[1].args)
-  assert.ok(!text.includes('入力を受け取り'), '前の設計の本文は args に無い（束の path と hash だけ）')
-  assert.ok(designs[1].argsBytes < 4000, `args は小さい: ${designs[1].argsBytes}`)
+  assert.ok(!text.includes('入力を受け取り'), '前の設計の本文は args に無い')
+  assert.deepEqual(Object.keys(designs[1].args).sort(), ['callId', 'stage', 'state', 'workers'])
   const L = ledger(state)
   assert.equal(L.units.U1.rounds, 1)
   assert.equal(L.cycle, 2)
@@ -101,7 +105,7 @@ test('実装の欠陥は単位の実装へ戻し、テストの欠陥はテス�
   const audit = (phase) => (phase === 'impl' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(state), 'repo/test/a.test.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus({ phase }))
   const { stop, steps } = await drive(state, mockAgent(), { audit })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.deepEqual(order(steps).slice(5), ['audit:impl', 'retro', 'retro', 'tests', 'implement', 'audit:impl'])
+  assert.deepEqual(order(steps).slice(6), ['audit:impl', 'retro', 'retro', 'tests', 'implement', 'audit:impl'])
 })
 
 test('目標の層の欠陥・層の決まらない check の失敗は needs_input で人間に返し、answer で方式設計からやり直す', async (t) => {
@@ -122,8 +126,8 @@ test('振り返り: 実在しない事実を根拠にした意図と、引用が
   const audit = (phase) => (phase === 'impl' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(state), 'repo/src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus({ phase }))
   let plans = 0
   const over = {
-    'retro-plan': (p) => {
-      if (!/\[impl_review\/finding/.test(readFileSync(/Read で (\S+) を全て読む/.exec(p)[1], 'utf8'))) return undefined
+    'retro-plan': (p, o) => {
+      if (!o.inputs.events.some((e) => e.stage === 'impl_review' && e.kind === 'finding')) return undefined
       plans += 1
       if (plans === 1) return { intents: [{ basis: ['E999'], hypothesis: '架空', layer: '設計', look_at: ['x'] }] }
       if (plans === 2) return { intents: [{ basis: ['E1'], hypothesis: '偽の引用', layer: '設計', look_at: ['x'] }, { basis: ['E1'], hypothesis: '設計が値を決めていない', layer: '設計', look_at: ['x'] }] }
@@ -216,23 +220,22 @@ test('CLI の入力の誤りは台帳を作らずに拒否する', (t) => {
   assert.match(cli('init', ...base, '--mode', 'create', '--max-cycles', '0').error, /正の整数/)
   assert.match(cli('init', ...base, '--mode', 'create', '--input', '/no/such').error, /読めない/)
   assert.match(cli('next', '--state', state, '--bogus', 'x').error, /受け付けない/)
-  assert.match(cli('ingest', '--state', state, '--result', path.join(d, 'goal.md')).error, /Workflow の呼び出しが無い/)
+  assert.match(cli('ingest', '--state', state, '--call', 'x', '--result', path.join(d, 'goal.md')).error, /Workflow の呼び出しが無い/)
   assert.match(cli('answer', '--state', state, '--id', 'X9', '--text', 'a').error, /台帳に無い id/)
   assert.match(C.parseCited('- D1: a\n- D1: b', 'D').problems.join(), /重複/)
 })
 
-test('ingest は待っていない call_id と、書き換えた args を拒否する', async (t) => {
+test('ingest は待っていない call_id を拒み、壊れた args の Workflow は役を起動せずに起動の記録を空で返す', async (t) => {
   const { state } = setup(t)
   const n = cli('next', '--state', state)
   const f = path.join(state, 'r.json')
-  writeFileSync(f, JSON.stringify({ stage: 'design', call_id: 'other' }))
-  assert.match(cli('ingest', '--state', state, '--result', f).error, /呼び出しが違う/)
+  writeFileSync(f, JSON.stringify({ agents: [], tokens: null }))
+  assert.match(cli('ingest', '--state', state, '--call', 'other', '--result', f).error, /閉じる呼び出しが違う/)
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  const { runWorkflow } = await import('./test-harness.mjs')
-  const res = await runWorkflow({ ...args, goalBrief: { path: '/x', hash: 'y' } }, mockAgent())
-  assert.equal(res.status, 'blocked')
-  writeFileSync(f, JSON.stringify(res))
-  assert.match(cli('ingest', '--state', state, '--result', f).error, /args を拒否/)
+  const launched = []
+  const res = await runWorkflow({ ...args, workers: [{ id: 'g1', role: 'no_such_role', model: 'sonnet', effort: 'medium' }] }, async (p, o) => { launched.push(o.label); return { notes: [] } })
+  assert.deepEqual(res, { agents: [], tokens: null })
+  assert.deepEqual(launched, [])
 })
 
 test('上限: 起動数の上限で limit、やり直しの上限を超えたら人間に返す', async (t) => {
@@ -340,7 +343,7 @@ test('answer: 受け入れ基準・制約・決定の記録を直せ、直した
   gap = false
   const second = await drive(state, mockAgent(over))
   assert.equal(second.stop.stop, 'complete', JSON.stringify(second.stop))
-  assert.ok(second.steps[0].args.goalBrief, '直した後の最初の呼び出しは目標の照合を含む')
+  assert.equal(second.steps[0].task, 'goal', '直した後の最初の呼び出しは目標の照合')
 })
 
 test('answer: 質問への回答は決定の記録に足し、その回答を引用する制約にする（引用の無い項目を作らない）', async (t) => {
@@ -355,9 +358,9 @@ test('answer: 質問への回答は決定の記録に足し、その回答を引
 
 test('coverage-audit に渡すもの: 照合済みの印と、受け入れ基準を制約と別の欄で渡す', async (t) => {
   const { state } = setup(t)
-  const { steps } = await drive(state, mockAgent(), { maxSteps: 2 })
-  const a = steps[1].out.audit
-  assert.equal(steps[1].phase, 'design')
+  const { steps } = await drive(state, mockAgent(), { maxSteps: 4 })
+  const a = steps[3].out.audit
+  assert.equal(steps[3].phase, 'design')
   assert.match(readFileSync(a.criteria, 'utf8'), /^- AC1: /m)
   assert.doesNotMatch(readFileSync(a.constraints, 'utf8'), /AC1/, '基準を制約の欄に混ぜない')
   assert.deepEqual(a.init_argv.slice(a.init_argv.indexOf('--goal-checked'), a.init_argv.indexOf('--goal-checked') + 2), ['--goal-checked', 'coverage-build'])
@@ -394,17 +397,17 @@ test('ingest: 受け付けなかった出力があれば、その理由を出力
   const res = await runWorkflow(args, mockAgent({ 'goal-check': () => ({ outcomes: [fake] }) }))
   const rp = path.join(state, 'result-bad.json')
   writeFileSync(rp, JSON.stringify(res))
-  const g = cli('ingest', '--state', state, '--result', rp)
+  const g = cli('ingest', '--state', state, '--call', n.call_id, '--result', rp)
   assert.equal(g.code, 0, JSON.stringify(g))
   assert.equal(g.ok, true)
-  assert.equal(g.rejected.length, 1)
-  assert.match(g.rejected[0], /目標の照合.*逐語で無い/)
+  assert.equal(g.rejected.length, MAX_ATTEMPTS, '同じ体が上限まで出し直し、拒んだ提出ごとに理由が載る')
+  for (const x of g.rejected) assert.match(x, /目標の照合.*逐語で無い/)
   assert.match(g.next, /next を流す/)
   const { state: s2 } = setup(t)
   const n2 = cli('next', '--state', s2)
   const rp2 = path.join(s2, 'result-ok.json')
   writeFileSync(rp2, JSON.stringify(await runWorkflow(JSON.parse(readFileSync(n2.args_path, 'utf8')), mockAgent())))
-  const ok = cli('ingest', '--state', s2, '--result', rp2)
+  const ok = cli('ingest', '--state', s2, '--call', n2.call_id, '--result', rp2)
   assert.equal(ok.code, 0)
   assert.equal(ok.rejected, undefined, '受け付けた出力だけなら rejected を載せない')
 })
@@ -443,31 +446,6 @@ test('answer: 回答から作る制約の id は、既にある目標・基準�
   const ids = ledger(state).constraints.map((c) => c.id)
   assert.deepEqual(ids, ['D1', 'A1', 'A2'])
 })
-
-for (const shape of ['runner', 'native']) {
-  test(`振り返り: pipeline の callback の引数の形（${shape}）に依らず、全ての意図を実行して結果を意図に結ぶ`, async (t) => {
-    const { state } = setup(t)
-    let n = 0
-    const audit = (phase) => (phase === 'impl' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(state), 'repo/src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus({ phase }))
-    let planned = false
-    const log = []
-    const over = {
-      'retro-plan': (p) => {
-        const m = /^- (E\d+) \[impl_review\/finding/m.exec(readFileSync(/Read で (\S+) を全て読む/.exec(p)[1], 'utf8'))
-        if (!m || planned) return undefined
-        planned = true
-        return { intents: [{ basis: [m[1]], hypothesis: '一つ目の仮説', layer: '実装', look_at: ['x'] }, { basis: [m[1]], hypothesis: '二つ目の仮説', layer: '実装', look_at: ['x'] }] }
-      },
-    }
-    await drive(state, mockAgent(over, log), { audit, run: (args, fn) => runWorkflow(args, fn, { shape }) })
-    assert.ok(planned)
-    const labels = log.map((x) => x.label.split('（')[0]).filter((l) => l.startsWith('retro-exam'))
-    assert.deepEqual([...new Set(labels)].sort(), ['retro-exam-0', 'retro-exam-1'])
-    const its = ledger(state).intents.filter((i) => /の仮説$/.test(i.hypothesis))
-    assert.equal(its.length, 2)
-    assert.ok(its.every((i) => i.status !== 'not_run'), JSON.stringify(its))
-  })
-}
 
 // ---------------- coverage-audit の台帳を 1 つに固定する（計画の 7） ----------------
 const AUDIT_STATE = (state) => path.join(state, 'audit', 'state')
@@ -698,14 +676,10 @@ test('create: 受け入れ基準・制約が 0 件なら、目標の id を cove
   const state = path.join(d, 'no-cover')
   const init = cli('init', '--state', state, '--mode', 'create', '--repo', repo, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'), '--input', path.join(d, 'material.md'))
   assert.equal(init.code, 0, JSON.stringify(init))
-  const firstLine = (f) => readFileSync(f, 'utf8').split('\n').find((l) => l.trim().length >= 14)
-  const over = { architect: (p) => {
-    const brief = readFileSync(/Read で (\S+) を全て読む/.exec(p)[1], 'utf8')
-    return { units: defaultUnits(['G1']), inputs_read: inputsOf(brief).map((f) => ({ path: f, quotes: [firstLine(f)] })), inputs_not_read: [], questions: [], contracts: [], copies: [] }
-  } }
-  const { steps } = await drive(state, mockAgent(over), { maxSteps: 3 })
-  const arch = steps.find((s) => s.args && s.args.arch)
-  assert.deepEqual(arch.args.arch.ctx.coverIds, ['G1'], '基準・制約が無いときは目標の id が受け皿')
+  const log = []
+  const over = { architect: (p, o) => archOf(o.inputs, defaultUnits(['G1'])) }
+  const { steps } = await drive(state, mockAgent(over, log), { maxSteps: 4 })
+  assert.deepEqual(log.find((x) => x.role === 'architect').inputs.cover_ids, ['G1'], '基準・制約が無いときは目標の id が受け皿')
   const L = ledger(state)
   assert.ok(!L.events.some((e) => e.kind === 'rejected_output' && /covers|受け皿|実在しない基準/.test(e.text)), JSON.stringify(L.events))
   assert.deepEqual(L.units.U1.covers, ['G1'])
@@ -759,7 +733,7 @@ test('周の上限: やり直しを当てると周が上限を超えるとき、
   assert.deepEqual(humanIds(L), ['cycles#2'], 'rounds: など当てるはずだった human 項目は足さず、cycles# だけが増える')
   assert.ok(L.events.every((e) => e.retro), '出来事の retro の印は付ける')
   assert.ok(L.routes.length > r.before.routes.length, 'L.routes の記録は付ける')
-  assert.deepEqual(L.retro, { rounds: 0, dry: 0, due: false }, '振り返りの状態は戻す（戻さないと route をもう一度出す）')
+  assert.deepEqual(L.retro, { rounds: 0, dry: 0, due: false, open: null }, '振り返りの状態は戻す（戻さないと route をもう一度出す）')
   const again = cli('next', '--state', s.state)
   assert.equal(again.stop, 'needs_input', 'もう一度 next を流しても同じ')
   assert.ok(again.human.some((x) => x.id === 'cycles#2'))
@@ -934,4 +908,167 @@ test('周の上限: 文書（SKILL.md・references/ledger.md）が cycles#<周>�
   const limitRow = ledgerDoc.split('\n').find((l) => l.startsWith('| limit |'))
   assert.ok(limitRow, 'limit の行がある')
   assert.ok(!/max_cycles|周/.test(limitRow), `limit の行から周の上限を外す（起動数の上限だけ）: ${limitRow}`)
+})
+
+// ---------------- 詰め合わせが 2 つ以上になるとき（UNIT_MAX_BYTES を超える単位） ----------------
+test('詰める: 単位のファイルが UNIT_MAX_BYTES を超えると単位の並びで前から詰め合わせを分け（決定的）、起動した体はどれも最初の claim で担当を受け取る。依存がそろわない詰め合わせの体は起動しない', async (t) => {
+  const s = setup(t)
+  const big = 'x'.repeat(Math.ceil(UNIT_MAX_BYTES * 0.6)) + '\n'
+  mkdirSync(path.join(s.repo, 'docs'), { recursive: true })
+  writeFileSync(path.join(s.repo, 'src', 'big.mjs'), `// 大きい既にあるファイル\n${big}`)
+  writeFileSync(path.join(s.repo, 'docs', 'big.md'), `大きい既にある文書の本文の行\n${big}`)
+  const arch = (p, o) => {
+    const [u1, u2] = defaultUnits(['AC1', 'D1'])
+    return archOf(o.inputs, [{ ...u1, paths: ['src/big.mjs'] }, { ...u2, paths: ['docs/big.md'] }])
+  }
+  const log = []
+  const { stop, steps } = await drive(s.state, mockAgent({ architect: arch }, log))
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  const workerOf = (prompt) => /--worker '([^']+)'/.exec(prompt)[1]
+  const calls = steps.filter((x) => x.args)
+  for (const c of calls) {
+    const ids = c.args.workers.map((w) => w.id)
+    const used = [...new Set(log.filter((x) => x.prompt.includes(`--call '${c.args.callId}'`)).map((x) => workerOf(x.prompt)))]
+    assert.deepEqual(used.sort(), [...ids].sort(), `${c.task}: 起動した体はどれも担当を受け取る（最初の claim が done の体を起こさない）`)
+  }
+  const spec = calls.find((c) => c.task === 'spec')
+  assert.deepEqual(spec.args.workers.map((w) => w.id), ['d1', 'd2'], '詳細設計は 2 つの詰め合わせ')
+  assert.deepEqual(log.filter((x) => x.prompt.includes(`--call '${spec.args.callId}'`)).map((x) => [workerOf(x.prompt), x.inputs.unit.id]), [['d1', 'U1'], ['d2', 'U2']], '単位の並びで前から詰める')
+  const impl = calls.filter((c) => c.task === 'implement')
+  assert.deepEqual(impl.map((c) => c.args.workers.length), [1, 1], '依存のある U2 の詰め合わせは、U1 の実装の後の呼び出しで起動する')
+  assert.deepEqual(log.filter((x) => x.role === 'implementer').map((x) => x.inputs.unit.id), ['U1', 'U2'])
+})
+
+test('振り返りの実行役: evidence に自分の結果のファイル（stateDir の results）を引いた結論は、引用が合っても受け付けず、上限で判定できずに閉じる（undecided）', async (t) => {
+  const { state } = setup(t)
+  let n = 0
+  const audit = (phase) => (phase === 'impl' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(state), 'repo/src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus({ phase }))
+  const CAUSE = '自分の結果のファイルを引いて通そうとする原因の文'
+  const over = {
+    'retro-plan': (p, o) => (o.inputs.events.some((e) => e.kind === 'finding') ? { intents: [{ basis: [o.inputs.events[0].id], hypothesis: '自分を引く', layer: '設計', look_at: [o.inputs.readable[0]] }] } : undefined),
+    'retro-exam': (p, o) => ({ verdict: 'supported', cause: CAUSE, layer: '設計', evidence: [{ path: o.task.result_path, quote: CAUSE }] }),
+  }
+  await drive(state, mockAgent(over), { audit })
+  const L = ledger(state)
+  const it = L.intents.find((x) => x.hypothesis === '自分を引く')
+  assert.ok(it, '意図を受ける')
+  assert.equal(it.status, 'undecided', JSON.stringify(it))
+  assert.match(it.why, /振り返りの読めるファイルの一覧の外/)
+  assert.ok(!L.facts.some((f) => f.cause === CAUSE), '原因にしない')
+})
+
+// ---------------- 実装レビューの指摘（H1〜H3）の回帰 ----------------
+test('H1: 同じ呼び出しで U1 のテストを受理した後、後の担当が U1 のテストのファイルを共有の fixture として直しても、実装の照合は呼び出しの終わりの中身で行い stuck にしない', async (t) => {
+  const s = setup(t)
+  const arch = (p, o) => archOf(o.inputs, defaultUnits(['AC1', 'D1']).map((u) => (u.id === 'U2' ? { ...u, kind: 'code', paths: ['src/b.mjs'], tests: ['test/b.test.mjs'], depends_on: [] } : u)))
+  const over = {
+    architect: arch,
+    'tests-U2': (p, o) => {
+      // U1 を先に出して受理させてから、U1 のテストのファイルを fixture として直す。
+      const L = ledger(s.state)
+      const w = L.pending.workers[0].id
+      const r1 = cli('submit', '--state', s.state, '--call', L.pending.call_id, '--worker', w)
+      assert.ok(r1.results.some((x) => x.task === 'tests:U1' && x.ok), JSON.stringify(r1))
+      writeFileSync(path.join(s.repo, 'test/a.test.mjs'), '// 共有の fixture を直した\nexport const value = 2\n')
+      return undefined
+    },
+  }
+  const { stop } = await drive(s.state, mockAgent(over))
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  assert.ok(!ledger(s.state).events.some((e) => e.kind === 'rejected_output'), JSON.stringify(ledger(s.state).events))
+})
+
+const implFindingOnce = (state) => { let n = 0; return (phase) => (phase === 'impl' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(path.dirname(state), 'repo/src/a.mjs'), quote: 'export const value = 2', layer: '実装' }] }) : auditStatus({ phase })) }
+const supportedExam = (state) => ({ verdict: 'supported', cause: '設計が値を決めていない', layer: '進め方', evidence: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。' }] })
+const planTwo = (p, o) => (o.inputs.events.some((e) => e.kind === 'finding') ? { intents: [0, 1].map((i) => ({ basis: [o.inputs.events[0].id], hypothesis: `仮説 ${i}`, layer: '進め方', look_at: ['x'] })) } : undefined)
+
+test('H2: 環境の失敗（実行役が手を付けて提出せずに返る）が続いて閉じた意図は undecided（退けたのではない）になり、blocked（failure）から再開すると待ちに戻って確かめ直す', async (t) => {
+  const { state } = setup(t)
+  let fail = true
+  const agent = mockAgent({ 'retro-plan': planTwo, 'retro-exam': () => (fail ? null : supportedExam(state)) })
+  const audit = implFindingOnce(state)
+  const first = await drive(state, agent, { audit })
+  assert.equal(first.stop.stop, 'blocked', JSON.stringify(first.stop))
+  assert.equal(first.stop.cause, 'failure')
+  const its = ledger(state).intents.filter((i) => i.hypothesis.startsWith('仮説'))
+  assert.deepEqual(its.map((i) => i.status), ['undecided', 'undecided'], '判定できずに閉じた意図は rejected・refuted と区別する')
+  fail = false
+  const second = await drive(state, agent, { audit })
+  assert.equal(second.stop.stop, 'complete', JSON.stringify(second.stop))
+  const L = ledger(state)
+  assert.deepEqual(L.intents.filter((i) => i.hypothesis.startsWith('仮説') && i.cycle === 1).map((i) => i.status), ['accepted', 'accepted'], '再開で環境の失敗の分を戻し、確かめ直す')
+})
+
+test('H2: 時間の上限で手を付けずに終わった意図の担当は試行に数えず、次の呼び出しで渡す', async (t) => {
+  const { state } = setup(t)
+  const base = mockAgent({ 'retro-plan': planTwo, 'retro-exam': () => supportedExam(state) })
+  let cut = true
+  // 実行役の 1 体目は、最初の担当だけを出して返る（時間の上限に当たった体）。
+  const agent = async (prompt, opts) => {
+    if (!cut || !String(opts.label).startsWith('retro_examiner-')) return base(prompt, opts)
+    cut = false
+    const line = prompt.split('\n').find((l) => l.includes('build-cli.mjs') && / claim /.test(l))
+    const argv = [...line.matchAll(/'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2])
+    const c = cli(...argv.slice(argv.indexOf('claim')))
+    const task = c.tasks[0]
+    cli('query', ...argv.slice(argv.indexOf('claim') + 1), '--task', task.id)
+    mkdirSync(path.dirname(task.result_path), { recursive: true })
+    writeFileSync(task.result_path, JSON.stringify(supportedExam(state)))
+    cli('submit', ...argv.slice(argv.indexOf('claim') + 1))
+    return null
+  }
+  const { stop } = await drive(state, agent, { audit: implFindingOnce(state) })
+  assert.equal(stop.stop, 'complete', JSON.stringify(stop))
+  const its = ledger(state).intents.filter((i) => i.hypothesis.startsWith('仮説') && i.cycle === 1 && i.round === 1)
+  assert.deepEqual(its.map((i) => [i.status, i.tries || 0]), [['accepted', 0], ['accepted', 0]], '手を付けなかった担当は試行に数えず、次の呼び出しで確かめる')
+})
+
+test('H3: 書かない段（詳細設計）の役が単位のテストと実装のファイルを書いても受理せず、書く段の担当が書き直すまでテストと実装を受け付けない', async (t) => {
+  const s = setup(t)
+  const DESIGNER = '// 詳細設計の役が書いた中身\n'
+  const writeBoth = (p, o) => {
+    if (o.inputs.unit.id === 'U1') for (const f of ['test/a.test.mjs', 'src/a.mjs']) { mkdirSync(path.dirname(path.join(s.repo, f)), { recursive: true }); writeFileSync(path.join(s.repo, f), DESIGNER) }
+    return undefined
+  }
+  // 書く段の担当が書き直す: 既定の偽物が書き直して完了する。
+  const ok = await drive(s.state, mockAgent({ design: writeBoth }))
+  assert.equal(ok.stop.stop, 'complete', JSON.stringify(ok.stop))
+  assert.ok(ledger(s.state).events.some((e) => e.kind === 'write_outside' && e.stage === 'design'))
+  for (const f of ['test/a.test.mjs', 'src/a.mjs']) assert.notEqual(readFileSync(path.join(s.repo, f), 'utf8'), DESIGNER, `${f} は書く段の担当が書き直した`)
+  // 書く段の担当が書き直さない: 詳細設計の役の中身のまま受理しない（試行の上限で stuck）。
+  const s2 = setup(t)
+  const lazy = (p, o) => ({ unit_id: o.inputs.unit.id, written: o.inputs.paths, notes: '', unresolved: [] })
+  const r = await drive(s2.state, mockAgent({ design: (p, o) => { if (o.inputs.unit.id === 'U1') for (const f of ['test/a.test.mjs', 'src/a.mjs']) { mkdirSync(path.dirname(path.join(s2.repo, f)), { recursive: true }); writeFileSync(path.join(s2.repo, f), DESIGNER) } return undefined }, 'tests-U1': lazy }))
+  assert.equal(r.stop.stop, 'needs_input', JSON.stringify(r.stop))
+  assert.ok(r.stop.stuck.includes('tests:U1'), JSON.stringify(r.stop))
+  assert.equal(ledger(s2.state).units.U1.tests_for, null)
+})
+
+test('H3: 方式設計の役が、新しく単位に持たせるテストと実装のファイルを書いてから設計を出しても、書く段の担当が書き直すまで受理しない（既にあったファイルは対象にしない）', async (t) => {
+  const ARCH = '// 方式設計の役が書いた中身\n'
+  const archWriting = (repo) => (p, o) => {
+    for (const f of ['src/a.mjs', 'test/a.test.mjs', 'docs/a.md']) { mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); writeFileSync(path.join(repo, f), ARCH) }
+    return archOf(o.inputs)
+  }
+  const lazy = (p, o) => ({ unit_id: o.inputs.unit.id, written: o.inputs.paths, notes: '', unresolved: [] })
+  // 書く段の担当が書き直さない: 中身のまま受理しない。
+  const s = setup(t)
+  const r = await drive(s.state, mockAgent({ architect: archWriting(s.repo), tests: lazy, implement: lazy }))
+  assert.equal(r.stop.stop, 'needs_input', JSON.stringify(r.stop))
+  assert.ok(r.stop.stuck.includes('tests:U1'), JSON.stringify(r.stop))
+  const L = ledger(s.state)
+  assert.deepEqual([...L.units.U1.tainted].sort(), ['src/a.mjs', 'test/a.test.mjs'])
+  assert.ok(L.events.some((e) => e.kind === 'write_outside' && e.stage === 'design' && e.unit === 'U1'))
+  // 書く段の担当が書き直す: 完了し、ファイルは書く段の担当の中身。
+  const s2 = setup(t)
+  const ok = await drive(s2.state, mockAgent({ architect: archWriting(s2.repo) }))
+  assert.equal(ok.stop.stop, 'complete', JSON.stringify(ok.stop))
+  for (const f of ['src/a.mjs', 'test/a.test.mjs', 'docs/a.md']) assert.notEqual(readFileSync(path.join(s2.repo, f), 'utf8'), ARCH, f)
+  assert.ok(Object.values(ledger(s2.state).units).every((u) => !(u.tainted || []).length))
+  // 呼び出しを開く前からあったファイルを単位に持たせても tainted にしない（update の対象など）。
+  const s3 = setup(t, { mode: 'update' })
+  const keep = (p, o) => { const us = defaultUnits(['AC1', 'D1']); us[1].paths = ['src/old.mjs']; return archOf(o.inputs, us) }
+  const r3 = await drive(s3.state, mockAgent({ architect: keep }))
+  assert.equal(r3.stop.stop, 'complete', JSON.stringify(r3.stop))
+  assert.ok(!ledger(s3.state).events.some((e) => e.kind === 'write_outside'))
 })

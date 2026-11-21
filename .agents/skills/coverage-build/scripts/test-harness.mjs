@@ -1,14 +1,17 @@
-// テストの道具: 本物の Workflow source を native と同じ注入で走らせ、役は束（brief）を読んで返す偽物にする。
+// テストの道具: 本物の Workflow source（build-step.js）を native と同じ注入で走らせ、役は担当を claim し、query の入力から結果を作って submit する偽物にする。
+// blackboard.test.mjs は自分の道具（board-fixture.mjs）を使う。ここはそれ以外のテストが使う（役の差し替えの鍵は前の形のまま: goal-check・architect・design-U1 など）。
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { C } from './build-core.mjs'
 import { main } from './build-cli.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-export const SOURCES = { step: path.join(HERE, 'build-step.js'), write: path.join(HERE, 'build-write.js') }
+export const SOURCE = path.join(HERE, 'build-step.js')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
-const bodies = Object.fromEntries(Object.entries(SOURCES).map(([k, f]) => [k, new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', readFileSync(f, 'utf8').replace(/^export const meta = /, 'const meta = '))]))
+const body = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', readFileSync(SOURCE, 'utf8').replace(/^export const meta = /, 'const meta = '))
+const arr = (a) => (Array.isArray(a) ? a : [])
 
 export function tmp(t) {
   const d = mkdtempSync(path.join(tmpdir(), 'coverage-build-'))
@@ -19,55 +22,100 @@ export function cli(...argv) {
   const r = main(argv)
   return { code: r.code, ...r.output }
 }
-
-const briefOf = (prompt) => { const m = /Read で (\S+) を全て読む/.exec(prompt); return m ? readFileSync(m[1], 'utf8') : '' }
-const section = (brief, head) => { const i = brief.indexOf(`## ${head}`); if (i < 0) return ''; const rest = brief.slice(i + head.length + 3); const e = rest.indexOf('\n## '); return e < 0 ? rest : rest.slice(0, e) }
-export const idsIn = (text) => [...text.matchAll(/^- ([A-Z][A-Z0-9]*\d): /gm)].map((m) => m[1])
-export const inputsOf = (brief) => [...section(brief, '入力').matchAll(/^- (\/.+)$/gm)].map((m) => m[1])
 const firstLine = (f) => readFileSync(f, 'utf8').split('\n').find((l) => l.trim().length >= 14) || readFileSync(f, 'utf8').trim()
-export const requestOf = (brief) => section(brief, '依頼文').split('\n').slice(1).join('\n').trim()
-export const repoOf = (brief) => /repo（相対 path の起点）: (.+)$/m.exec(brief)[1]
+export const quoteOf = firstLine
 
 // 既定の方式設計: code の単位 U1 と、それに依存する doc の単位 U2。
 export const defaultUnits = (cover) => [
   { id: 'U1', kind: 'code', title: '計算', responsibility: '値を計算する', paths: ['src/a.mjs'], tests: ['test/a.test.mjs'], test_uses: [], depends_on: [], covers: cover },
   { id: 'U2', kind: 'doc', title: '説明', responsibility: '使い方を書く', paths: ['docs/a.md'], tests: [], test_uses: [], depends_on: ['U1'], covers: cover },
 ]
+// 既定の方式設計の返り値（query の inputs から作る）。
+export const archOf = (q, units = defaultUnits(arr(q.cover_ids))) => ({ units, inputs_read: arr(q.input_paths).map((p) => ({ path: p, quotes: [firstLine(p)] })), inputs_not_read: [], questions: [], contracts: [], copies: [] })
 
-// 既定の振る舞い: どの役も検査を通る最小の返り値を返す。over[label の頭] で差し替える（undefined なら既定、null は欠測）。
+// 役の既定の結果。q は query の inputs。
+export function defaultResult(role, q) {
+  if (role === 'goal_checker') return { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: q.request }], items: q.item_ids }] }
+  if (role === 'architect') return archOf(q)
+  if (role === 'unit_designer') return { unit_id: q.unit.id, spec: '入力を受け取り、決まった値を返す。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
+  if (role === 'test_writer' || role === 'implementer') {
+    const head = role === 'test_writer' ? 'tests' : 'implement'
+    for (const p of q.paths) { mkdirSync(path.dirname(path.join(q.repo, p)), { recursive: true }); writeFileSync(path.join(q.repo, p), `// ${head} ${p}\nexport const value = 2\n`) }
+    return { unit_id: q.unit.id, written: q.paths, notes: '', unresolved: [] }
+  }
+  if (role === 'retro_planner') return { intents: [] }
+  if (role === 'retro_examiner') return { verdict: 'unclear', cause: '', layer: '実装', evidence: [] }
+  if (role === 'retro_verifier') return { accept: true, reason: '記録が支える' }
+  throw new Error(`想定しない役: ${role}`)
+}
+// 担当の差し替えの鍵（前の形の label の頭）。先の鍵ほど細かい。意図の担当は、計画役が出した巡の中の位置で数える（retro-exam-0 が巡の最初の意図）。
+function keysOf(role, q, state) {
+  if (role === 'goal_checker') return ['goal-check']
+  if (role === 'architect') return ['architect']
+  if (role === 'unit_designer') return [`design-${q.unit.id}`, 'design']
+  if (role === 'test_writer') return [`tests-${q.unit.id}`, 'tests']
+  if (role === 'implementer') return [`implement-${q.unit.id}`, 'implement']
+  if (role === 'retro_planner') return ['retro-plan']
+  const L = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
+  const it = L.intents.find((x) => x.id === q.intent.id)
+  const i = L.intents.filter((x) => x.cycle === it.cycle && x.round === it.round).findIndex((x) => x.id === it.id)
+  return role === 'retro_examiner' ? [`retro-exam-${i}`, 'retro-exam'] : [`retro-judge-${i}`, 'retro-judge']
+}
+
+const words = (line) => [...line.matchAll(/'((?:[^']|'\\'')*)'|(\S+)/g)].map((m) => (m[1] !== undefined ? m[1].replace(/'\\''/g, "'") : m[2]))
+const claimArgv = (prompt) => {
+  const line = String(prompt).split('\n').find((l) => l.includes('build-cli.mjs') && /\sclaim\s/.test(l))
+  if (!line) return null
+  const w = words(line)
+  return w.slice(w.indexOf('claim'))
+}
+const opt = (argv, k) => argv[argv.indexOf(`--${k}`) + 1]
+
+// 役の偽物（Workflow の agent に渡す）。prompt の claim の命令で担当を取り、担当ごとに query の入力から結果を作り、result_path に書いて submit を流す。
+// 照合に落ちた担当は、同じ体が作り直して出し直す。over[鍵](prompt, opts, log) が undefined 以外を返せばそれを結果にし、null なら結果を書かない（欠測）。
+// opts は { label（鍵）, role, model, effort, schema（役の結果の形）, inputs（query の inputs）, task, attempt（その担当を書く何回目か）, problems（前の submit の理由） }。
+// log には担当ごとに { label, role, model, effort, prompt, inputs, task } を足す。
 export function mockAgent(over = {}, log = []) {
   return async (prompt, opts) => {
-    log.push({ label: opts.label, model: opts.model, effort: opts.effort, prompt })
-    const head = opts.label.split('（')[0]
-    const role = head.replace(/-U\d+$|-\d+$/, '')
-    for (const k of [head, role]) if (over[k]) { const r = over[k](prompt, opts, log); if (r !== undefined) return r }
-    const brief = briefOf(prompt)
-    if (role === 'goal-check') return { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: requestOf(brief) }], items: [...idsIn(section(brief, '固定した目標')), ...idsIn(section(brief, '受け入れ基準')), ...idsIn(section(brief, '固定した制約'))] }] }
-    if (role === 'architect') {
-      const cover = [...idsIn(section(brief, '受け入れ基準')), ...idsIn(section(brief, '固定した制約'))]
-      return { units: defaultUnits(cover), inputs_read: inputsOf(brief).map((p) => ({ path: p, quotes: [firstLine(p)] })), inputs_not_read: [], questions: [], contracts: [], copies: [] }
+    const argv = claimArgv(prompt)
+    if (!argv) throw new Error(`役の prompt に claim の命令が無い: ${opts && opts.label}`)
+    const state = opt(argv, 'state')
+    const role = String(opts.label).replace(/-[^-]+$/, '')
+    const tries = {}
+    const problems = {}
+    for (let guard = 0; guard < 40; guard++) {
+      const c = cli(...argv)
+      if (c.code !== 0 || c.done || !arr(c.tasks).length) break
+      let wrote = 0
+      for (const task of c.tasks) {
+        tries[task.id] = (tries[task.id] || 0) + 1
+        const q = cli('query', ...argv.slice(1), '--task', task.id)
+        const inputs = q.inputs || {}
+        const keys = keysOf(role, { ...inputs, intent: inputs.intent }, state)
+        log.push({ label: keys[0], role, model: opts.model, effort: opts.effort, prompt, inputs, task })
+        const o = { label: keys[0], role, model: opts.model, effort: opts.effort, schema: C.RESULT_SCHEMAS[role], inputs, task, attempt: tries[task.id], problems: problems[task.id] || [] }
+        let r
+        for (const k of keys) if (over[k]) { r = over[k](prompt, o, log); if (r !== undefined) break }
+        if (r === undefined) r = defaultResult(role, inputs)
+        if (r === null) continue
+        mkdirSync(path.dirname(task.result_path), { recursive: true })
+        writeFileSync(task.result_path, JSON.stringify(r))
+        wrote++
+      }
+      if (!wrote) break
+      const w = words(c.submit_cmd)
+      const s = cli(...w.slice(w.indexOf('submit')))
+      if (s.code !== 0) break
+      for (const x of arr(s.results)) if (!x.ok) problems[x.task] = x.problems
     }
-    if (role === 'design') return { unit_id: head.slice('design-'.length), spec: '入力を受け取り、決まった値を返す。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
-    if (role === 'tests' || role === 'implement') {
-      const paths = /書いてよいのは次の path だけ（repo からの相対）: ([^。]+)。/.exec(prompt)[1].split(', ')
-      const repo = repoOf(brief)
-      for (const p of paths) { mkdirSync(path.dirname(path.join(repo, p)), { recursive: true }); writeFileSync(path.join(repo, p), `// ${role} ${p}\nexport const value = 2\n`) }
-      return { unit_id: head.slice(role.length + 1), written: paths, notes: '', unresolved: [] }
-    }
-    if (role === 'retro-plan') return { intents: [] }
-    if (role === 'retro-exam') return { verdict: 'unclear', cause: '', layer: '実装', evidence: [] }
-    if (role === 'retro-judge') return { accept: true, reason: '記録が支える' }
-    throw new Error(`想定しない役: ${opts.label}`)
+    return { notes: [] }
   }
 }
 
 // budget: native が注入する消費量の計器（spent() を持つ）。省略は注入しない経路（runner など）。
-// shape: pipeline の callback に渡す引数の形。runner は (item, index)、native は (prevResult, originalItem, index)（1 段なら prevResult は item）。
-export async function runWorkflow(args, agentFn, { shape = 'runner', budget } = {}) {
+export async function runWorkflow(args, agentFn, { budget } = {}) {
   const parallel = (ts) => Promise.all(ts.map((t) => Promise.resolve().then(t).catch(() => null)))
-  const call = shape === 'native' ? (fn, x, i) => fn(x, x, i) : (fn, x, i) => fn(x, i)
-  const pipeline = (items, fn) => Promise.all(items.map((x, i) => Promise.resolve().then(() => call(fn, x, i)).catch(() => null)))
-  const body = ['tests', 'implement'].includes(args.stage) ? bodies.write : bodies.step
+  const pipeline = (items, fn) => Promise.all(items.map((x, i) => Promise.resolve().then(() => fn(x, i)).catch(() => null)))
   return body(agentFn, parallel, pipeline, () => {}, () => {}, args, budget)
 }
 
@@ -96,7 +144,8 @@ export function writeAuditStatus(auditState, phase, status) {
   writeFileSync(auditStatusPath(auditState, phase), JSON.stringify(status))
 }
 
-// next → Workflow / 偽の coverage-audit / run-checks → ingest を止まるまで回す。audit(phase, out) は status を返す。
+// next → Workflow / 偽の coverage-audit / run-checks → ingest --call を止まるまで回す。audit(phase, out) は status を返す。
+// steps の要素は Workflow の段が { step, task（next の担当の種類。台帳の pending から）, args, res, ingest }、audit は { step, phase, out, ingest }、checks は { step, ingest }。
 export async function drive(state, agentFn, { audit = (phase) => auditStatus({ phase }), run = runWorkflow, maxSteps = 40, wrap = false } = {}) {
   const steps = []
   for (let i = 0; i < maxSteps; i++) {
@@ -117,11 +166,12 @@ export async function drive(state, agentFn, { audit = (phase) => auditStatus({ p
       continue
     }
     const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+    const task = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8')).pending.task
     const res = await run(args, agentFn)
     const rp = path.join(state, `result-${n.call_id}.json`)
     writeFileSync(rp, JSON.stringify(wrap ? { result: res, summary: 'done', agentCount: (res.agents || []).length } : res))
-    const g = cli('ingest', '--state', state, '--result', rp)
-    steps.push({ step: n.step, args, res, ingest: g, argsBytes: n.args_bytes })
+    const g = cli('ingest', '--state', state, '--call', n.call_id, '--result', rp)
+    steps.push({ step: n.step, task, args, res, ingest: g })
     if (g.code !== 0) return { stop: g, steps }
   }
   return { stop: null, steps }

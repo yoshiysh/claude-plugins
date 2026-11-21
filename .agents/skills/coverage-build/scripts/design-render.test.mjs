@@ -4,26 +4,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { C } from './build-core.mjs'
-import { auditStatus, cli, drive, inputsOf, mockAgent, setup } from './test-harness.mjs'
+import { C, MAX_ATTEMPTS } from './build-core.mjs'
+import { auditStatus, cli, drive, mockAgent, setup } from './test-harness.mjs'
 
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
-const briefOf = (p) => readFileSync(/Read で (\S+) を全て読む/.exec(p)[1], 'utf8')
 const firstLine = (f) => readFileSync(f, 'utf8').split('\n').find((l) => l.trim().length >= 14) || readFileSync(f, 'utf8').trim()
 const pairOf = (argv, k) => argv.slice(argv.indexOf(k), argv.indexOf(k) + 2)
 
 const row = (value, producer_does, units) => ({ value, producer_does, handling: units.map((u) => ({ unit: u, does: `${u} は ${value} を${u === 'U2' ? '使う側として' : ''}扱う` })) })
 // 方式設計の既定: U1（code）が作り、U2（code）が使う境界の約束が 2 つ。U3（doc）は U1 に依存するが、境界には関わらない。
 function arch(mut = () => {}) {
-  return (p) => {
-    const brief = briefOf(p)
+  return (p, o) => {
     const a = {
       units: [
         { id: 'U1', kind: 'code', title: '計算', responsibility: '値を計算する', paths: ['src/a.mjs', 'src/old.mjs'], tests: ['test/a.test.mjs'], test_uses: [], depends_on: [], covers: ['AC1', 'D1'] },
         { id: 'U2', kind: 'code', title: '利用', responsibility: '計算の結果を使う', paths: ['src/b.mjs'], tests: ['test/b.test.mjs'], test_uses: ['src/a.mjs'], depends_on: ['U1'], covers: ['AC1', 'D1'] },
         { id: 'U3', kind: 'doc', title: '説明', responsibility: '使い方を書く', paths: ['docs/a.md'], tests: [], test_uses: [], depends_on: ['U1'], covers: ['AC1', 'D1'] },
       ],
-      inputs_read: inputsOf(brief).map((f) => ({ path: f, quotes: [firstLine(f)] })),
+      inputs_read: o.inputs.input_paths.map((f) => ({ path: f, quotes: [firstLine(f)] })),
       inputs_not_read: [],
       questions: [],
       contracts: [
@@ -68,11 +66,12 @@ const designOf = (tweak = {}) => (p, opts) => {
   return r
 }
 const agentOf = ({ archMut, tweak } = {}) => mockAgent({ architect: arch(archMut), design: designOf(tweak) })
-// 設計だけ流して台帳を返す（1 回目の呼び出しが方式設計と詳細設計を全て返す）。
+// 設計だけ流して台帳を返す（目標の照合 → 方式設計 → 詳細設計の 3 つの呼び出し）。ingest は詳細設計の呼び出しを閉じた出力。
 async function designOnly(t, opts = {}) {
   const s = setup(t)
-  const { steps } = await drive(s.state, agentOf(opts), { maxSteps: 1 })
-  return { ...s, steps, L: ledger(s.state), ingest: steps[0].ingest }
+  const { steps } = await drive(s.state, agentOf(opts), { maxSteps: 3 })
+  const spec = steps.find((x) => x.task === 'spec') || steps.at(-1)
+  return { ...s, steps, L: ledger(s.state), ingest: spec.ingest }
 }
 // 設計の写しを書かせる（next は設計の写しを台帳から書いてから、設計レビューの段を返す）。
 async function rendered(t) {
@@ -125,9 +124,9 @@ test('取り込み: 境界の行を受ける振る舞いが無い・自分の行
     const { L, ingest } = await designOnly(t, { tweak })
     const id = Object.keys(tweak)[0]
     assert.equal(ingest.code, 0, name)
-    assert.equal(ingest.rejected.length, 1, `${name}: ${JSON.stringify(ingest.rejected)}`)
+    assert.equal(ingest.rejected.length, MAX_ATTEMPTS, `${name}: 同じ体が上限まで出し直し、どれも拒む: ${JSON.stringify(ingest.rejected)}`)
     assert.equal(L.units[id].need_design, true, `${name}: 受け付けない`)
-    assert.equal(L.attempts[`design:${id}`], 1, `${name}: 試行に数える`)
+    assert.equal(L.attempts[`design:${id}`], MAX_ATTEMPTS, `${name}: 試行に数える`)
     const others = Object.keys(L.units).filter((x) => x !== id)
     assert.ok(others.every((x) => L.units[x].need_design === false), `${name}: ほかの単位は受け付ける`)
   }
@@ -143,9 +142,9 @@ test('取り込み: premises の path が読めないか、引用が本文に合
     const tweak = { U1: (r) => { r.premises = [{ claim: '前提', ...prem }] } }
     const { L, ingest } = await designOnly(t, { tweak })
     assert.equal(ingest.code, 0, name)
-    assert.equal(ingest.rejected.length, 1, `${name}: ${JSON.stringify(ingest.rejected)}`)
+    assert.equal(ingest.rejected.length, MAX_ATTEMPTS, `${name}: ${JSON.stringify(ingest.rejected)}`)
     assert.equal(L.units.U1.need_design, true, name)
-    assert.equal(L.attempts['design:U1'], 1, name)
+    assert.equal(L.attempts['design:U1'], MAX_ATTEMPTS, name)
     assert.ok(L.events.some((e) => e.kind === 'rejected_output' && e.unit === 'U1'), name)
     assert.ok(L.units.U2.design_hash && L.units.U3.design_hash, `${name}: ほかの単位は受け付ける`)
   }
@@ -155,9 +154,9 @@ test('取り込み: premises は入力（絶対 path）と、単位が持つ既�
   const s = setup(t)
   const material = path.join(s.d, 'material.md')
   const tweak = { U1: (r) => { r.premises = [...r.premises, { claim: '材料は 1 を足す', path: material, quote: '値は入力に 1 を足して返す。' }] } }
-  const { steps } = await drive(s.state, agentOf({ tweak }), { maxSteps: 1 })
-  assert.equal(steps[0].ingest.code, 0, JSON.stringify(steps[0].ingest))
-  assert.ok(!steps[0].ingest.rejected, JSON.stringify(steps[0].ingest.rejected))
+  const { steps } = await drive(s.state, agentOf({ tweak }), { maxSteps: 3 })
+  for (const x of steps) assert.equal(x.ingest.code, 0, JSON.stringify(x.ingest))
+  for (const x of steps) assert.ok(!x.ingest.rejected, JSON.stringify(x.ingest.rejected))
   const L = ledger(s.state)
   assert.equal(L.units.U1.premises.length, 2)
   assert.equal(L.units.U1.need_design, false)
@@ -310,25 +309,25 @@ test('U<n>.md: 分け方・前提・確かめていない前提・決めきら�
   assert.ok(unit('U3').includes('- 「担当は節を足してよい。」: 役の権限を定める文'), unit('U3'))
 })
 
-// ---------------- 5. buildArgs: 詳細設計だけのやり直しの rows ----------------
-test('詳細設計だけをやり直す呼び出しの unitDefs に、その単位が関わる境界の行 id の配列 rows を載せ、文は載せない', async (t) => {
+// ---------------- 5. 詳細設計だけのやり直しの rows ----------------
+test('詳細設計だけをやり直す担当の query の inputs.rows に、その単位が関わる境界の行 id の配列を載せ、args には文も rows も載せない', async (t) => {
   const { state } = setup(t)
   let n = 0
   const audit = (phase) => (phase === 'design' && n++ === 0 ? auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] }) : auditStatus({ phase }))
-  const { stop, steps } = await drive(state, agentOf(), { audit })
+  const log = []
+  const { stop, steps } = await drive(state, mockAgent({ architect: arch(), design: designOf() }, log), { audit })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  const designs = steps.filter((s) => s.step === 'design')
-  assert.equal(designs.length, 2)
-  const redo = designs[1].args
-  assert.ok(!redo.arch, '方式設計はやり直さない')
-  assert.deepEqual(redo.units.map((u) => u.unit_id), ['U1', 'U2', 'U3'])
-  const rowsOf = (id) => [...redo.unitDefs[id].rows].sort()
+  assert.equal(steps.filter((s) => s.task === 'arch').length, 1, '方式設計はやり直さない')
+  const specs = steps.filter((s) => s.task === 'spec')
+  assert.equal(specs.length, 2)
+  const redo = log.filter((x) => x.role === 'unit_designer').slice(3)
+  assert.deepEqual(redo.map((x) => x.inputs.unit.id), ['U1', 'U2', 'U3'])
+  const rowsOf = (id) => [...redo.find((x) => x.inputs.unit.id === id).inputs.rows].sort()
   assert.deepEqual(rowsOf('U1'), ['X1-1', 'X1-2', 'X2-1'])
   assert.deepEqual(rowsOf('U2'), ['X1-1', 'X1-2', 'X2-1'])
-  assert.deepEqual(redo.unitDefs.U3.rows, [], '境界に関わらない単位は空の配列')
-  assert.equal(redo.unitDefs.U1.id, 'U1')
-  const text = JSON.stringify(redo)
-  for (const s of ['計算の結果', '設定の既定', '使う側として扱う', '値を返す']) assert.ok(!text.includes(s), `args に文を載せない: ${s}`)
+  assert.deepEqual(rowsOf('U3'), [], '境界に関わらない単位は空の配列')
+  const text = JSON.stringify(specs[1].args)
+  for (const w of ['計算の結果', '設定の既定', '使う側として扱う', '値を返す', 'X1-1']) assert.ok(!text.includes(w), `args に文と行 id を載せない: ${w}`)
   assert.equal(ledger(state).units.U1.rounds, 1)
 })
 
