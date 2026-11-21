@@ -5,6 +5,7 @@ export const meta = {
   phases: [
     { title: 'plan', detail: '計画役 1 体が、目標の照合（照合済みでないとき）と観点の計画をする。観点の検証の欠陥があれば計画を直す' },
     { title: 'unit_verify', detail: '観点の検証役 1 体が、計画の版の確かめていない観点の全てに、閉じた問い（Q1〜Q3）で答える' },
+    { title: 'full_review', detail: '全文レビューの役 1 体が、読む範囲の全ての単位を観点に縛られずに目標だけを手に読み、指摘と参考を書く（網羅に数えない）' },
     { title: 'file', detail: '読む役が文脈に収まる分の単位の詰め合わせを取り、単位ごとに全文を全ての観点で読み、指摘・保証と前提・観点ごとの見たを書く' },
     { title: 'global', detail: '判定役と確認役が意図を取り、根拠と関係する事実だけを引いて判定する（名寄せ・主語の照合・指摘の判定・前提・目標・確認・束ね）' },
     { title: 'retro', detail: '単独で呼ばれたときだけ、振り返りの役 1 体が全ての出来事を読み、対象の指摘と分けて振り返りを書く' },
@@ -312,13 +313,17 @@ const COMMON = `
 - 読めなかったもの・判定できなかったものは推測で埋めない。CLI の出力に無いことを前提にしない。
 - 引用は読んだ本文からの逐語の写しにする（行番号は含めない）。CLI が照合し、合わない提出は理由つきで拒む。
 `
-// 担当を取って出す手順。query を許す段かで 2 の文が変わる（ファイルの段と振り返りは他の役の書き込みを読まず、独立に読む）。
-const loop = (w, queryable) => `
+// 担当を取って出す手順。query の許し方で 2 の文が変わる（ファイルの段と振り返りは他の役の書き込みを読まず、独立に読む。
+// 全文レビューは query で目標と読む範囲だけを引き、事実は引かない）。
+const STEP_QUERY = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。事実の id で細部を引き直すときは --fact <事実の id> を足す（何度でもよい）。原文は写しで開く。索引の行・担当の unit・事実・指摘の場所が持つ写しの file を、start から end の行の範囲のうち要る箇所だけ Read で開く（対象の本体は開かない）'
+const STEP_INPUTS = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。--fact は付けない（この段は他の役の書き込みを読まず、CLI も拒む）。inputs の units の単位ごとに、写しの file を start から end の行の範囲の全文で Read で読む（offset=start, limit=end - start + 1。対象の本体は開かない）'
+const STEP_NONE = 'その担当の unit の file を、start から end の行の範囲だけ Read で読む（offset=start, limit=end - start + 1）。この段は query を流さない（他の役の書き込みを読まず、独立に読む。CLI も拒む）'
+const loop = (w, query) => `
 ### 担当を取る命令（この行をそのまま Bash で流す。出力は JSON）
 node ${sq(cliOf(A.state))} claim --state ${sq(A.state)} --call ${sq(A.callId)} --worker ${sq(w.id)}
 ### 手順
 1. 取る命令を流す。出力が done: true なら、手順を終えて返り値を返す。命令が終了状態 2 で拒まれたら（呼び出しが閉じたなど）、error を notes に書いて終える。
-2. 出力の tasks の担当ごとに、${queryable ? '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。事実の id で細部を引き直すときは --fact <事実の id> を足す（何度でもよい）。原文は写しで開く。索引の行・担当の unit・事実・指摘の場所が持つ写しの file を、start から end の行の範囲のうち要る箇所だけ Read で開く（対象の本体は開かない）' : 'その担当の unit の file を、start から end の行の範囲だけ Read で読む（offset=start, limit=end - start + 1）。この段は query を流さない（他の役の書き込みを読まず、独立に読む。CLI も拒む）'}。
+2. 出力の tasks の担当ごとに、${query === 'inputs' ? STEP_INPUTS : query ? STEP_QUERY : STEP_NONE}。
 3. 担当の kind の節（下の「結果の形」）に従って判断し、結果の JSON を担当の result_path に Write ツールで書く。
 4. 担当の result_path に書けたら、その都度 claim の出力の submit_cmd をそのまま Bash で流す（全ての担当を書き終えるのを待たない。時間の上限に当たっても、出した担当は台帳に残る）。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当（後で書いて流し直せばよい）。
    ok が false の担当だけ、problems の理由を読んで直した結果を result_path に書き直し、同じ submit_cmd を流し直す（落ちた担当のファイルは CLI が消す）。dropped が true の担当は諦める。
@@ -344,14 +349,14 @@ const GLOBAL_GUIDE = `${FACTS_NOTE}
 { same: yes|no|unsure, confidence: high|medium|low, quote }。basis の事実の本文の呼び方と使われ方だけで判じ、決められなければ unsure にする。quote は判断の決め手の逐語の引用。
 #### kind: subject（2 つ以上の単位にまたがる主語の照合）
 { verdict: consistent|conflict, quote, findings? }。主語を述べる事実どうしが食い違う・境界で抜ける・前提と保証が噛み合わないなら conflict にして、矛盾・境界の指摘を findings に足す。${JUDGE_FINDING}
-#### kind: finding（ファイルの段の指摘・静的な検査の結果の 1 件を、全体の文脈で残すか落とすか）
+#### kind: finding（全文レビューの指摘・ファイルの段の指摘・静的な検査の結果の 1 件を、全体の文脈で残すか落とすか）
 { verdict: keep|drop, reason, quote, obligation?, layer? }。本文と関係する事実に当たって、主張が成り立ち目標に効くなら keep、誤り・無意味・他の所で解消済みなら drop。理由と決め手の逐語の引用を付ける。指摘が義務に結ばれていなければ、結べるときだけ obligation に義務の id を付ける（付かない keep は参考に入る）。指摘が原因の層を持たなければ、keep には layer（${LAYER_LIST}）を付ける。
 #### kind: premise（前提が他の単位で満たされているか）
 { verdict: satisfied|unsatisfied, quote, findings? }。満たす保証があれば satisfied にして、その逐語の引用を付ける。無ければ unsatisfied にして、満たされていないことの指摘を findings に足す。${JUDGE_FINDING}
 #### kind: goal（目標・受け入れ基準の項目 1 つが支えられているか）
 { verdict: supported|gap, quote, support?, findings? }。担当と query の出力の units（単位の索引: id・path・写しの file と start〜end）で、項目を支える箇所を探す。related が空でも、omitted_ids の事実を --fact で引き直して支えにでき、units の写しを開いて引用できる。supported なら、支えの事実の id（basis・related・omitted_ids にある id だけ）を support に挙げる。gap なら抜けの指摘を findings に足し、locations の unit には units の id を書く。${JUDGE_FINDING}
-#### kind: confirm（全体の段が足した指摘か落とした指摘の確認）
-{ verdict: agree|disagree, reason, quote, obligation?, layer? }。basis の対象の指摘と、それへの判定を、本文に当たって確かめる。判定が正しければ agree、誤りなら disagree（落とした指摘への disagree はその指摘を復活させる）。落とす判定ほど厳しく見る。決め手の逐語の引用を付ける（合わない引用の判定は検証不能として扱われる）。復活させる指摘が原因の層を持たなければ layer（${LAYER_LIST}）を、義務に結ばれていなければ obligation を付ける。
+#### kind: confirm（全体の段が足した指摘、全文レビューの指摘への判定、落とした指摘の確認）
+{ verdict: agree|disagree, reason, quote, obligation?, layer? }。basis の対象の指摘と、それへの判定を、本文に当たって確かめる。判定が正しければ agree、誤りなら disagree（落とした指摘への disagree はその指摘を復活させる。全文レビューの指摘を残した判定への disagree は、その指摘を確定させない）。落とす判定ほど厳しく見る。決め手の逐語の引用を付ける（合わない引用の判定は検証不能として扱われる）。復活させる指摘が原因の層を持たなければ layer（${LAYER_LIST}）を、義務に結ばれていなければ obligation を付ける。
 #### kind: group（束ね。確認が全て閉じた後の、全体の段の最後の意図）
 query の basis（確定した指摘の事実）を根本原因で束ねる。症状でなく原因で束ね、全ての事実の id をちょうど 1 つの群に入れる（入れられないものは unassigned）。重さで絞らない。
 結果は { groups: [{ id, root_cause, layer, keys: [事実の id] }], unassigned: [事実の id] }。layer は直すべき層（${LAYER_LIST}）。`
@@ -364,6 +369,12 @@ const PLAN_RULES = `### 観点の規則
 - 受け入れ基準と固定した制約（criteria・constraints）の全てに、受け皿の観点を constraint_map で付ける（{ constraint_id, handled_by: [観点の id] }。given_lenses の id も受け皿にできる）。
 - 利用者への質問（questions）: 価値判断が要り、制約で答えが出ていないものだけ { id, question, why_value_judgment, options }。
 - 入力の index は 1 行 1 単位（id・写しの file・start〜end・見出しの経路・種類・先頭の数語）。観点を切るのに要る単位だけ、写しの範囲を Read で開く。`
+const FULL_REVIEW_GUIDE = `#### kind: full_review（全文レビュー。読む範囲の全ての単位を、目標だけを手に通して読む）
+query の inputs は goal（目標の冒頭の文）・items（目標の項目）・criteria（受け入れ基準）・constraints（制約）と、units（読む範囲の単位: id・path・写しの file と start〜end）だけ。観点の一覧は渡らない。観点に縛られず、units の全ての単位の全文を読んでから、目標・受け入れ基準・制約に照らして、誤り・食い違い・抜け・単位をまたぐ矛盾を探す。重さで絞らない。
+結果は { findings, references }。
+- findings: 欠陥ごとに { claim, locations: [{ unit, quote }], obligation, confidence, severity, layer }。locations は 1 つ以上で、複数の単位を引用してよい（単位をまたぐ欠陥は関わる単位ごとに場所を書く）。unit は inputs の units の id（読む範囲の外の単位を引いた提出は拒まれる）、quote はその単位の本文の逐語の引用。obligation は結ぶ義務の id（items か criteria の id。結べないものは findings に入れず references に書く）。confidence は high・medium・low。severity は ${SEV_LIST}。layer は直すべき原因の層（${LAYER_LIST}。本文の層とは限らない）。
+- references: 義務に結べない気づき { claim, locations: [{ unit, quote }] }。
+- 保証・前提（guarantees・premises）と観点ごとの見た（seen）は書かない（保証・前提を書いた提出は拒まれる）。`
 const GUIDES = {
   plan: { query: true, text: `#### kind: plan（計画役。目標の照合と観点の計画を 1 体で担う）
 結果は { lenses, questions, constraint_map } に、次の 2 つを要るときだけ足す。
@@ -377,6 +388,7 @@ query の inputs の lenses（観点の本文の配列）の観点ごとに、�
 - Q2: ${UNIT_QUESTIONS.Q2}
 - Q3: 観点の goals の要素ごとに、${UNIT_QUESTIONS.Q3}（goal_index に要素の位置、goal_id にその要素の id を入れる）
 結果は { lenses: [{ unit_id: <観点の id>, answers: [{ question: Q1|Q2|Q3, goal_index?, goal_id?, answer: yes|no, quote }] }] }（inputs の lenses の観点ごとにちょうど 1 つ）。quote はその観点の本文（name・procedure・goals の part）からの逐語の引用（yes なら根拠の箇所、no なら足りない手続きの箇所）。inputs の index は手続きが何に当たるかを見るためで、単位の本文は読まない。` },
+  full_review: { query: 'inputs', text: FULL_REVIEW_GUIDE },
   file: { query: false, text: FILE_GUIDE },
   global: { query: true, text: GLOBAL_GUIDE },
   retro: { query: false, text: `#### kind: retro（振り返り。この検査の進め方の出来事を読む）
@@ -386,7 +398,7 @@ ${READ_RESULT}
 引用は全てその担当の unit の本文から取る。` },
 }
 // 結果に本文の逐語の引用を持ち、CLI が quoteProblem で照らす段。これらの役の prompt にだけ QUOTE_RULE を載せる。
-const QUOTED = ['unit_verify', 'file', 'global', 'retro']
+const QUOTED = ['unit_verify', 'full_review', 'file', 'global', 'retro']
 
 const promptOf = (w, g) => `${COMMON}
 ## あなたの役（${w.role}、worker ${w.id}、段 ${A.stage}）

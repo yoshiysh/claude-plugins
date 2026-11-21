@@ -32,12 +32,12 @@ test('meta: limits の写しが本体と一致し、runner の要件は今のま
   assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
   assert.deepEqual([...META.requirements], ['fresh-thread', 'workspace-write'])
   assert.equal(C.PER_CELL, undefined, '枡ごとの起動数 PER_CELL は無い（1 回の起動数は workers の行の数）')
-  assert.deepEqual(META.phases.map((p) => p.title), ['plan', 'unit_verify', 'file', 'global', 'retro'], '目標の照合・統合・束ね・反証の段は無い（照合は計画役、束ねは全体の段の意図）')
+  assert.deepEqual(META.phases.map((p) => p.title), ['plan', 'unit_verify', 'full_review', 'file', 'global', 'retro'], '目標の照合・統合・束ね・反証の段は無い（照合は計画役、束ねは全体の段の意図）。全文レビューは計画の段の後・ファイルの段の前')
   for (const gone of ['argsSum', 'checkRead', 'checkVerify', 'settleVerdict', 'checkLensReview', 'LENS_QUESTIONS', 'checkAppliesTo']) assert.equal(C[gone], undefined, `${gone} は無い`)
 })
 
-test('roles: 計画役・観点の検証役・読む役・判定役・確認役だけがあり、判断を出す役と確かめる役は別のモデル（計画役と観点の検証役、判定役と確認役）', () => {
-  for (const role of ['planner', 'unit_verifier', 'file_reader', 'global_judge', 'confirmer']) {
+test('roles: 計画役・観点の検証役・全文レビューの役・読む役・判定役・確認役だけがあり、判断を出す役と確かめる役は別のモデル（計画役と観点の検証役、判定役と確認役）', () => {
+  for (const role of ['planner', 'unit_verifier', 'full_reviewer', 'file_reader', 'global_judge', 'confirmer']) {
     assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort && ROLES[role].why, `roles.json に ${role} の model・effort・理由がある`)
   }
   for (const gone of ['lens_reviewer', 'goal_checker', 'planner_a', 'planner_b', 'integrator', 'alias_judge', 'grouper', 'refuter_a', 'refuter_b']) assert.equal(ROLES[gone], undefined, `${gone} は無い`)

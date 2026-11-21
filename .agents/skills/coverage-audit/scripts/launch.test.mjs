@@ -43,14 +43,14 @@ const base = (u) => path.basename(String(u.path || u.id))
 // ---------------- 全体の起動数（起動の原則） ----------------
 
 for (const mode of MODES) {
-  test(`起動数（${mode.name}）: 小さい対象（4 ファイル）を complete まで回すと、振り返りを除く起動は 5 体（計画 1・観点の検証 1・ファイル 1・判定 1・確認と束ね 1）`, async (t) => {
+  test(`起動数（${mode.name}）: 小さい対象（4 ファイル）を complete まで回すと、振り返りを除く起動は 6 体（計画 1・観点の検証 1・全文レビュー 1・ファイル 1・判定 1・確認と束ね 1）`, async (t) => {
     const { stop, steps, state, launches } = await fullRun(t, mode)
     assert.equal(stop.stop, 'complete', JSON.stringify(stop))
     const target = launches.filter((x) => x.stage !== 'retro')
-    assert.deepEqual(sorted(target.map((x) => x.role)), sorted(NEW_ROLES), `段ごとの起動: ${JSON.stringify(count(target.map((x) => `${x.stage}/${x.role}`)))}`)
+    assert.deepEqual(sorted(target.map((x) => x.role)), sorted([...NEW_ROLES, 'full_reviewer']), `段ごとの起動: ${JSON.stringify(count(target.map((x) => `${x.stage}/${x.role}`)))}`)
     // 起動の記録（台帳の calls）も同じ数。
     const recorded = status(state).calls.filter((c) => c.step !== 'retro').reduce((n, c) => n + c.agents, 0)
-    assert.equal(recorded, 5, JSON.stringify(status(state).calls.map((c) => [c.step, c.agents])))
+    assert.equal(recorded, 6, JSON.stringify(status(state).calls.map((c) => [c.step, c.agents])))
     const retro = launches.filter((x) => x.stage === 'retro')
     assert.equal(retro.length, mode.retro ? 1 : 0, `振り返りは単独で呼ばれたときだけ 1 体: ${retro.length}`)
     assert.ok(steps.every((s) => !GONE_STAGES.includes(s.args.stage)), `無くなった段: ${steps.map((s) => s.args.stage)}`)

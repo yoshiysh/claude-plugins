@@ -248,6 +248,8 @@ export function newLedger({ goal, goalItems, checkedBy = null, phase = null, lin
     // round_start: 今の回（init・reframe か、止まった後に対象が変わって読み直しを始めた周）の始まりの周。これより前の周の読みは持ち越し。
     // run_records: 止まるたびの run の記録（指摘の出どころの内訳・持ち越した読みの数・全体の段で落とした数と確認で復活した数）。
     round_start: 1, run_records: [],
+    // full_review: 全文レビューの記録（読む範囲・その指紋と目標の版の sig・状態・試行・受理した読み）。読む範囲か sig が変われば next が作り直す。
+    full_review: null,
   }
 }
 
@@ -263,7 +265,7 @@ function resetUnit(a) {
 export function startPhase(L, phase, { lenses = null } = {}) {
   Object.assign(L, {
     phase, plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], plan_skipped: false, verified_units: [], answers: [], answered: [],
-    attempts: {}, env_attempts: {}, fail_streak: 0, pending: null, stopped: null, intent_attempts: {},
+    attempts: {}, env_attempts: {}, fail_streak: 0, pending: null, stopped: null, intent_attempts: {}, full_review: null,
   })
   L.lenses = L.lenses.filter((l) => l.origin === 'skill' || l.origin === 'user' || l.origin === 'standard')
   if (lenses) L.lenses = [...lenses.map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...L.lenses.filter((l) => l.origin !== 'user')]
@@ -296,7 +298,7 @@ export function refresh(L, units, { partial = false } = {}) {
   const changes = { added: [], stale: [], gone: [] }
   for (const u of units) {
     const a = L.assets[u.id]
-    const meta = { path: u.path, heading: u.heading, trail: u.trail || [], kind: u.kind, start: u.start, end: u.end, hash: u.hash, snap: u.snap, ...(u.retro ? { retro: true } : {}) }
+    const meta = { path: u.path, heading: u.heading, trail: u.trail || [], kind: u.kind, start: u.start, end: u.end, hash: u.hash, snap: u.snap, ...(u.text != null ? { bytes: Buffer.byteLength(u.text, 'utf8') } : {}), ...(u.retro ? { retro: true } : {}) }
     if (!a) {
       L.assets[u.id] = { ...meta }
       resetUnit(L.assets[u.id])
@@ -444,6 +446,7 @@ export function board(L) {
   const facts = new Map()
   const put = (f) => { if (!facts.has(f.id)) facts.set(f.id, f) }
   for (const f of fileFacts(L)) put(f)
+  for (const f of fullReviewFacts(L)) put(f)
   for (const f of L.static || []) put(f)
   const judgments = L.facts.filter((f) => f.type === 'judgment' && f.phase === phase)
   const added = new Map(L.facts.filter((f) => f.type === 'finding' && f.judgment).map((f) => [f.id, f]))
@@ -514,17 +517,22 @@ export function board(L) {
     const cands = factsOfNames(ns).filter((f) => f.type === 'guarantee' && f.unit !== p.unit)
     if (cands.length) add('premise', [p.id], [p.id, ...cands.map((f) => f.id)])
   }
-  // 指摘の判定: ファイルの段の指摘・静的な検査の結果の 1 件ごと。
-  const base = [...facts.values()].filter((f) => (f.type === 'finding' && f.origin === 'file') || f.type === 'static')
+  // 指摘の判定: 全文レビューの指摘・ファイルの段の指摘・静的な検査の結果の 1 件ごと。
+  const base = [...facts.values()].filter((f) => (f.type === 'finding' && (f.origin === 'file' || f.origin === FULL_REVIEW)) || f.type === 'static')
   for (const f of base) add('finding', [f.id], [f.id])
   // 目標の判定: 目標と受け入れ基準の項目ごと。根拠は持たず、その項目を obligation に持つ事実を関係する事実にする。
   for (const g of [...L.goal.items, ...L.criteria]) add('goal', [g.id], [], { item: g.id })
-  // 確認: 全体の段が足した指摘の全件と、落とした指摘（重いものは全件、他は抜き取り）。意図の鍵は対象と種類（added・dropped）の組。
+  // 確認: 全体の段が足した指摘の全件と、落とした指摘（重いものは全件、他は抜き取り）。意図の鍵は対象と種類（added・kept・dropped）の組。
+  // 全文レビューの指摘は、判定役が残したもの（kept）も落としたもの（dropped）も、重さによらず全件を確認にかける（設計「段の構成」の全文レビュー）。
   for (const it of [...intents]) {
     const j = it.judgment
     if (!j) continue
     for (const fid of j.added || []) if (facts.has(fid)) add('confirm', ['added', fid], [fid, j.id], { target: fid, mode: 'added' })
-    if (it.kind === 'finding' && j.verdict === 'drop') { const f = facts.get(it.basis[0]); if (f && sampled(f)) add('confirm', ['dropped', f.id], [f.id, j.id], { target: f.id, mode: 'dropped' }) }
+    if (it.kind !== 'finding') continue
+    const f = facts.get(it.basis[0])
+    if (!f) continue
+    const mode = j.verdict === 'drop' ? 'dropped' : 'kept'
+    if (f.origin === FULL_REVIEW || (mode === 'dropped' && sampled(f))) add('confirm', [mode, f.id], [f.id, j.id], { target: f.id, mode })
   }
   // 関係する事実: 目標の判定は、その項目を obligation に持つ事実だけ。結ばれていない保証は返さず、件数を omitted に宣言する。
   const all = [...facts.values()]
@@ -551,6 +559,7 @@ const groupId = (j, g) => `G${j.cycle}-${g.id}`
 
 // 確定した指摘と参考を導く。確定は義務に結ばれたものだけで、結べないものは参考にする。
 // - ファイルの段・静的な検査の指摘: 指摘の判定が keep なら確定（静的な検査は判定が義務を足したときだけ）。drop で、確認が disagree なら復活して確定。
+// - 全文レビューの指摘: 確認を通ったものだけを確定する。keep への確認が agree なら確定、drop への確認が disagree なら復活して確定。
 // - 全体の段が足した指摘: 確認が agree なら確定、disagree なら確定しない。確認の引用が逐語でなければ検証不能。
 // - 落とした指摘の確認が検証不能（逐語でない引用）なら、黙って落とさず検証不能の指摘として出す（落とす側を厳しくする）。
 // - 確定には義務と原因の層が要る。復活のときは、指摘の判定と確認の判定の義務・層も使う。層が無いものは確定にしない（参考にする）。
@@ -577,9 +586,15 @@ function deriveFindings(L, facts, intents) {
     if (it.kind !== 'finding' || !it.judgment) continue
     const f = facts.get(it.basis[0])
     const j = it.judgment
-    if (j.verdict === 'keep') { confirmed(shape(f, 'confirmed', [j])); continue }
-    const c = confirmOf.get(`dropped|${f.id}`)
+    const fr = f.origin === FULL_REVIEW
+    if (j.verdict === 'keep' && !fr) { confirmed(shape(f, 'confirmed', [j])); continue }
+    const c = confirmOf.get(`${j.verdict === 'keep' ? 'kept' : 'dropped'}|${f.id}`)
     if (!c || !c.judgment) continue
+    if (j.verdict === 'keep') {
+      if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [j, c.judgment]))
+      else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment]))
+      continue
+    }
     if (c.judgment.verdict === 'disagree') confirmed(shape(f, 'confirmed', [j, c.judgment], { restored: true }))
     else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment], { dropped: true }))
   }
@@ -620,6 +635,43 @@ export function packUnits(ids, bytesOf) {
     out.push(cur)
   }
   return out.map((x) => x.ids)
+}
+
+// ---------------- 全文レビュー（設計の決定 17、段の構成の「全文レビュー」） ----------------
+// 段・担当の種類・事実の origin・出来事の段の名前。1 体が目標と読む範囲の単位だけを手に、観点に縛られずに読む。網羅（カバレッジ）に数えない。
+export const FULL_REVIEW = 'full_review'
+// 単位の並び（対象の指定の順、ファイルの中は行の順）。全文レビューの読む範囲はこの順で前から詰める。
+const unitOrder = (L) => {
+  const at = new Map(L.targets.map((p, i) => [p, i]))
+  const pos = (a) => (at.has(a.path) ? at.get(a.path) : L.targets.length)
+  return Object.entries(L.assets).filter(([, a]) => !a.retro).sort(([, x], [, y]) => pos(x) - pos(y) || x.start - y.start).map(([id]) => id)
+}
+const unitBytes = (L, id) => { const a = L.assets[id]; return Number.isInteger(a.bytes) ? a.bytes : Buffer.byteLength(unitTextOf(L, id) || '', 'utf8') }
+// 目標の版: 全文レビューの query が返す目標の欄（冒頭の文・項目・基準・制約）。観点は入れない（観点が変わっただけでは読み直さない）。
+const goalVersion = (L) => sha(JSON.stringify([L.goal.text, ...[L.goal.items, L.criteria, L.constraints].map((xs) => xs.map((x) => [x.id, x.text]))])).slice(0, 12)
+// 読む範囲: 単位の並びで前から UNIT_MAX_BYTES に収まる所まで（ファイルの段の最初の詰め合わせと同じ packUnits）。sig は範囲の単位の指紋と目標の版。
+export function fullReviewScope(L) {
+  const range = packUnits(unitOrder(L), (id) => unitBytes(L, id))[0] || []
+  return { range, sig: sha(JSON.stringify([range.map((id) => [id, L.assets[id].hash]), goalVersion(L)])).slice(0, 16) }
+}
+// 記録を今の範囲に合わせる（sig が変われば試行と読みを捨てて作り直す。前の読みの事実は記録に残し、今の根拠から外れる）。
+export function syncFullReview(L) {
+  const s = fullReviewScope(L)
+  if (!L.full_review || L.full_review.sig !== s.sig) L.full_review = { sig: s.sig, range: s.range, state: 'open', attempts: 0, read: null }
+  return L.full_review
+}
+const fullReviewSettled = (L, s = fullReviewScope(L)) => !!L.full_review && L.full_review.sig === s.sig && ['read', 'failed'].includes(L.full_review.state)
+// 全文レビューの今の根拠の事実（今の sig で受理した読みが足した指摘と参考）。
+export function fullReviewFacts(L) {
+  const fr = L.full_review
+  if (!fr || fr.state !== 'read' || !fr.read || fr.sig !== fullReviewScope(L).sig) return []
+  return L.facts.filter((f) => f.origin === FULL_REVIEW && f.read === fr.read.id)
+}
+// status の開示: 読んだ単位と読まなかった単位（範囲の外と、失敗・まだ読んでいない範囲）。網羅（skip・disclosed）と別の一覧。
+export function fullReviewStatus(L) {
+  const fr = L.full_review
+  const read = fr && fr.state === 'read' && fullReviewSettled(L) ? [...fr.range] : []
+  return { read, unread: unitOrder(L).filter((id) => !read.includes(id)), ...(fr ? { state: fr.state, ...(fr.reason ? { reason: fr.reason } : {}), ...(fr.cause ? { cause: fr.cause } : {}) } : {}) }
 }
 
 export function coverage(L) {
@@ -669,6 +721,9 @@ export function decide(L, { missingTargets = [] } = {}) {
   }
   const openQ = ((L.plan && L.plan.questions) || []).filter((q) => !L.answers.some((a) => a.id === q.id))
   if (openQ.length) return stop('needs_input', ['利用者への質問がある'], { questions: openQ })
+  // 全文レビュー: 計画の段の後、ファイルの段の前に 1 回。読む範囲・その指紋・目標の版が前と同じで、読んだか失敗して開示したなら流さない。
+  const fr = fullReviewScope(L)
+  if (fr.range.length && !fullReviewSettled(L, fr)) return { step: FULL_REVIEW, units: fr.range }
   const todo = todoUnits(L)
   if (todo.length) return { step: 'file', units: todo }
   const B = board(L)
@@ -745,13 +800,14 @@ export function runMetrics(L, B = board(L)) {
   return { cycle: L.cycle, round_start: L.round_start ?? 1, provenance: by, reads: { fresh: r.fresh, carried: r.carried }, global: globalCounts(B) }
 }
 
-// 較正: 利用者が仕込んだ既知の欠陥（seeds）を、観点ごとに何件拾えたか（再現率）。今の根拠のファイルの段の指摘で数える。
+// 較正: 利用者が仕込んだ既知の欠陥（seeds）を、観点ごとに何件拾えたか（再現率）。今の根拠のファイルの段の指摘だけで数える
+// （観点を持たない全文レビューの指摘と全体の段が足した指摘は入れない）。
 export function calibration(L) {
   if (!L.seeds.length) return null
   const rows = {}
   for (const s of L.seeds) {
     for (const f of currentFacts(L)) {
-      if (f.type !== 'finding' || f.path !== s.path || (s.lens && f.lens !== s.lens)) continue
+      if (f.type !== 'finding' || f.origin !== 'file' || f.path !== s.path || (s.lens && f.lens !== s.lens)) continue
       const q = C.norm(f.quote), sq = C.norm(s.quote)
       if (!(q.includes(sq) || sq.includes(q))) continue
       rows[f.lens] = rows[f.lens] || new Set()

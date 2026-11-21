@@ -54,8 +54,8 @@ export const noProposal = (q) => asIntegrated(q, {
   constraint_map: [...q.criteria, ...q.constraints].map((c) => ({ constraint_id: c.id, handled_by: [q.given_lenses[0].id] })),
 })
 export const noProposalAct = (over = {}) => planAct({ plan: noProposal, ...over })
-// 計画の段（計画役 1 体）を noProposalAct で流し、計画を受理した所で止める（次の next がファイルの段を開く。ここでは開かない）。
-// 流した呼び出しの記録を返す。
+// 計画の段（計画役 1 体）を noProposalAct で流し、計画を受理した後の全文レビュー（偽の役は指摘を書かない）も通した所で止める
+// （次の next がファイルの段を開く。ここでは開かない）。流した呼び出しの記録を返す。
 export async function passPlan(state, { maxSteps = 6 } = {}) {
   const { drive } = await import('./blackboard-fixture.mjs')
   const { readFileSync } = await import('node:fs')
@@ -64,7 +64,7 @@ export async function passPlan(state, { maxSteps = 6 } = {}) {
   const calls = []
   for (let i = 0; i < maxSteps; i++) {
     const L = ledger()
-    if (L.plan && !L.plan_defects.length && !L.pending) return calls
+    if (L.plan && !L.plan_defects.length && !L.pending && L.full_review && ['read', 'failed'].includes(L.full_review.state)) return calls
     const r = await drive(state, noProposalAct(), { maxSteps: 1 })
     calls.push(...r.calls)
     if (r.stop) return calls

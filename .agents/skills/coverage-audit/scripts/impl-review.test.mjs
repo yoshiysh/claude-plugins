@@ -34,13 +34,13 @@ test('H1: ファイルの段は文脈に収まる分の単位を 1 体に詰め�
 const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
 test('H1: ファイルの段の起動数（詰め合わせの数）は残りの予算（max-agents-total）に収め、残りの詰め合わせは次の呼び出しに回す', async (t) => {
   const { state } = project(t, { 'a.md': bigDoc('A'), 'b.md': bigDoc('B'), 'c.md': bigDoc('C') })
-  // 計画の段（計画役 1 体・観点の検証役 1 体）を済ませる（2 体）。
-  const { calls } = await drive(state, planAct(), { maxSteps: 2 })
-  assert.deepEqual(calls.map((c) => c.args.stage), ['plan', 'unit_verify'])
-  assert.equal(cli('config', '--state', state, '--max-agents-total', '4').code, 0)
+  // 計画の段（計画役 1 体・観点の検証役 1 体）と全文レビュー（1 体）を済ませる（3 体）。
+  const { calls } = await drive(state, planAct(), { maxSteps: 3 })
+  assert.deepEqual(calls.map((c) => c.args.stage), ['plan', 'unit_verify', 'full_review'])
+  assert.equal(cli('config', '--state', state, '--max-agents-total', '5').code, 0)
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'file', JSON.stringify(n))
-  assert.equal(n.estimate_agents, 2, '見積もりは残りの予算（4 - 2）に収めた起動数（詰め合わせは 3 つ）')
+  assert.equal(n.estimate_agents, 2, '見積もりは残りの予算（5 - 3）に収めた起動数（詰め合わせは 3 つ）')
   assert.equal(JSON.parse(readFileSync(n.args_path, 'utf8')).workers.length, 2)
 })
 
@@ -80,7 +80,7 @@ test('H2: 目標の判定の意図の claim の担当は単位の索引を持ち
   const facts = () => ({ bind: false, guarantees: [] })
   const seen = []
   const goal = (task, ctx) => { seen.push({ task, q: ctx.query(task) }); return null }
-  await drive(state, behave({ facts: (p, lines) => ({ ...facts(), guarantees: [{ subject: 's', quote: lines.find(usable), confidence: 'high' }] }), goal }), { maxSteps: 4 })
+  await drive(state, behave({ facts: (p, lines) => ({ ...facts(), guarantees: [{ subject: 's', quote: lines.find(usable), confidence: 'high' }] }), goal }), { maxSteps: 5 })
   assert.ok(seen.length > 0)
   for (const { task, q } of seen) {
     assert.ok(Array.isArray(task.units) && task.units.every((u) => u.id && u.file && u.start && u.end && u.path), `担当の units: ${JSON.stringify(task.units)}`)

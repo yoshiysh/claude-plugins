@@ -377,12 +377,12 @@ test('answer: 目標・基準・制約・決定の記録はファイルで直し
 
 // ---------------- 計画の段（利用者が観点を渡さない） ----------------
 
-test('計画の段: 計画役 1 体 → 観点の検証 1 体 → ファイルの段の順に、役ごとの呼び出しで進み、各役は担当の入力を query で引く', async (t) => {
+test('計画の段: 計画役 1 体 → 観点の検証 1 体 → 全文レビュー 1 体 → ファイルの段の順に、役ごとの呼び出しで進み、各役は担当の入力を query で引く', async (t) => {
   const { state } = planned(t)
   const { stop, calls } = await drive(state, planAct())
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.deepEqual(steps(calls).slice(0, 3), ['plan', 'unit_verify', 'file'])
-  assert.deepEqual(calls.slice(0, 3).map((c) => c.args.workers.map((w) => w.role)), [['planner'], ['unit_verifier'], ['file_reader']])
+  assert.deepEqual(steps(calls).slice(0, 4), ['plan', 'unit_verify', 'full_review', 'file'])
+  assert.deepEqual(calls.slice(0, 4).map((c) => c.args.workers.map((w) => w.role)), [['planner'], ['unit_verifier'], ['full_reviewer'], ['file_reader']])
   const q = (i) => calls[i].workers[0].queries[0].out.inputs
   assert.deepEqual(q(0).index.map((r) => r.id), Object.keys(ledger(state).assets), '計画役の索引は 1 行 1 単位')
   assert.ok(!JSON.stringify(q(0)).includes('主張を補う本文の行'), '索引は単位の本文を載せない（写しの参照と先頭の数語だけ）')

@@ -5,7 +5,7 @@
 // 固定する形（テストの前提）:
 // - claim  --state S --call C --worker W            → { ok, done: true } | { ok, tasks: [Task], submit_cmd }
 //   Task = { id, kind, result_path, unit?: { id, path, file, start, end }, lenses?: [{ id, name, procedure }], obligations?: [{ id, text }], intent?: { id, kind } }
-//   kind は file・retro・alias・subject・finding・premise・goal・confirm・group と、計画の段の plan・unit_verify
+//   kind は file・retro・alias・subject・finding・premise・goal・confirm・group と、計画の段の plan・unit_verify、全文レビューの full_review
 // - query  --state S --call C --worker W --task T [--fact F ...] → { ok, basis: [Fact], related: [Fact], omitted: [id] } | { ok, facts: [Fact] }
 //   Fact = { id, type, unit, path, quote, subject?, claim?, obligation?, ... }。omitted は載せなかった事実の件数（数）。ファイルの段の担当は終了状態 2 で拒む
 //   goal の意図の related は、その項目の id を obligation に持つ事実だけ（結ばれていない保証は返さず、件数を omitted に宣言する）
@@ -127,6 +127,8 @@ export function behave(over = {}) {
     const o = over[task.kind]
     if (o) { const r = o(task, ctx); if (r !== undefined) return r }
     if (task.kind === 'file' || task.kind === 'retro') return fileResult(task, over)
+    // 全文レビュー（計画の段の後・ファイルの段の前に 1 体）: 既定は指摘も参考も書かない（全文レビューの振る舞いは full-review-fixture.mjs が持つ）。
+    if (task.kind === 'full_review') return { findings: [], references: [] }
     if (!INTENT_KINDS.includes(task.kind)) return null
     const q = ctx.query(task)
     const facts = [...(q.basis || []), ...(q.related || [])]

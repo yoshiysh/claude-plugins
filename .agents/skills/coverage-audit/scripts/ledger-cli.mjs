@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   ALIAS_ANSWERS, C, CONFIDENCES, MAX_ATTEMPTS, VERDICTS, addEvent, board, calibration, checkFileResult, coverage, currentFindings, decide, factsOf, goalIds, goalSources,
   lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, packUnits, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, retroTodo, sha, splitAssets,
-  startPhase, staticFacts, targetLenses, unitTextOf, carriedRead, provenance, runMetrics,
+  startPhase, staticFacts, targetLenses, unitTextOf, carriedRead, provenance, runMetrics, FULL_REVIEW, syncFullReview, fullReviewStatus,
 } from './ledger-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -63,6 +63,7 @@ function load(dir) {
   if (!Array.isArray(L.facts) || L.cells) throw new Fail(`台帳の形式が古い（資産 × 観点の枡を持つ）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!L.intent_attempts) throw new Fail(`台帳の形式が古い（全体の段の意図の試行を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!Array.isArray(L.retro_findings) || Object.hasOwn(L, 'lateral_types')) throw new Fail(`台帳の形式が古い（横展開の型と束ねの反証を持ち、振り返りの指摘を対象の指摘と分けない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (!Object.hasOwn(L, 'full_review')) throw new Fail(`台帳の形式が古い（全文レビューの記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   return L
 }
 function writeAtomic(file, text) {
@@ -282,6 +283,8 @@ function cmdReframe(o) {
 // 段・担当の種類から役の名前への対応は、ここと stageTasks・INTENT_ROLE の 1 か所に置く。役のモデルと effort の組は roles.json だけが持ち、
 // next が workers の行に写す（Workflow script は行の値を使い、役の名前で分岐しない）。
 const FILE_ROLE = 'file_reader'
+// 全文レビューの役（ファイルの段の読む役と別の役。いつも 1 体）。
+const FR_ROLE = 'full_reviewer'
 // 振り返りの読みはファイルの段と同じ組（出来事の写しを、振り返りの観点で全文読む）。
 const RETRO_ROLE = FILE_ROLE
 const goalItemIds = (L) => [...L.goal.items, ...L.criteria].map((c) => c.id)
@@ -329,6 +332,8 @@ function stageTasks(L, d, bytesOf) {
     const rows = packs.map((_, i) => ({ id: `${tag}${i + 1}`, role: d.step === 'file' ? FILE_ROLE : RETRO_ROLE }))
     return { rows, tasks: [], bundles: Object.fromEntries(rows.map((r, i) => [r.id, packs[i]])) }
   }
+  // 全文レビュー: 読む範囲を 1 体が読む（--workers によらない）。担当は観点を持たない。
+  if (d.step === FULL_REVIEW) return one('fr1', FR_ROLE, { id: `${FULL_REVIEW}:${L.full_review.sig.slice(0, 12)}`, kind: FULL_REVIEW })
   if (d.step === 'plan') {
     const answers = L.answers.filter((a) => !L.answered.includes(a.id) && planAnswerKinds.includes(a.target_kind)).map((a) => a.id)
     return one('p1', 'planner', { id: 'plan', kind: 'plan', akey: 'plan', goalCheck: !L.goal.checked, again: !!L.plan, defectCount: L.plan ? L.plan_defects.length : 0, answerIds: answers })
@@ -394,19 +399,26 @@ function quoteIn(L, q, units) {
   return first || '引用を照らす単位が無い'
 }
 const isStr = (s) => typeof s === 'string' && s.trim().length > 0
-// 全体の段が足す指摘（GlobalFinding）の照合: 主張・場所（単位と逐語の引用）・義務・確信度・原因の層。
-function globalFindingProblems(L, fs) {
+// 場所（単位と逐語の引用）の照合。allowed を渡すと、その単位（全文レビューの読む範囲）の外の場所を拒む。
+function locationProblems(L, where, f, allowed = null) {
+  const p = []
+  const locs = Array.isArray(f && f.locations) ? f.locations : []
+  if (!locs.length) p.push(`${where}: locations（単位と引用）が無い`)
+  locs.forEach((l, k) => {
+    if (!l || !L.assets[l.unit] || L.assets[l.unit].retro) { p.push(`${where}.locations[${k}]: 単位が台帳に無い: ${l && l.unit}`); return }
+    if (allowed && !allowed.includes(l.unit)) { p.push(`${where}.locations[${k}]: 読む範囲の外の単位: ${l.unit}`); return }
+    const e = quoteIn(L, l.quote, [l.unit])
+    if (e) p.push(`${where}.locations[${k}]: ${e}`)
+  })
+  return p
+}
+// 全体の段が足す指摘と全文レビューの指摘（GlobalFinding）の照合: 主張・場所（単位と逐語の引用）・義務・確信度・原因の層。
+function globalFindingProblems(L, fs, allowed = null) {
   const p = []
   const ob = obligations(L).map((o) => o.id)
   ;(Array.isArray(fs) ? fs : []).forEach((f, i) => {
     if (!isStr(f && f.claim)) p.push(`findings[${i}]: claim が空`)
-    const locs = Array.isArray(f && f.locations) ? f.locations : []
-    if (!locs.length) p.push(`findings[${i}]: locations（単位と引用）が無い`)
-    locs.forEach((l, k) => {
-      if (!l || !L.assets[l.unit] || L.assets[l.unit].retro) { p.push(`findings[${i}].locations[${k}]: 単位が台帳に無い: ${l && l.unit}`); return }
-      const e = quoteIn(L, l.quote, [l.unit])
-      if (e) p.push(`findings[${i}].locations[${k}]: ${e}`)
-    })
+    p.push(...locationProblems(L, `findings[${i}]`, f, allowed))
     if (!ob.includes(f && f.obligation)) p.push(`findings[${i}]: obligation は目標・受け入れ基準の id: ${f && f.obligation}`)
     if (!CONFIDENCES.includes(f && f.confidence)) p.push(`findings[${i}]: confidence は ${CONFIDENCES.join('・')} のどれか`)
     if (!C.LAYERS.includes(f && f.layer)) p.push(`findings[${i}]: layer（原因の層）は ${C.LAYERS.join('・')} のどれか`)
@@ -443,7 +455,7 @@ function intentProblems(L, B, it, rep) {
     const prev = it.kind === 'confirm' ? B.intents.find((x) => x.kind === 'finding' && x.basis[0] === it.target) : null
     // 義務に結べない指摘は確定せず参考になるので、層は求めない。
     const bound = (f && f.obligation) || rep.obligation || (prev && prev.judgment && prev.judgment.obligation)
-    const toConfirm = bound && (it.kind === 'finding' ? rep.verdict === 'keep' : it.mode === 'dropped' && rep.verdict === 'disagree')
+    const toConfirm = bound && (it.kind === 'finding' ? rep.verdict === 'keep' : it.mode === 'dropped' ? rep.verdict === 'disagree' : it.mode === 'kept' && rep.verdict === 'agree')
     const hasLayer = (f && f.layer) || (prev && prev.judgment && prev.judgment.layer)
     if (toConfirm && !hasLayer && rep.layer === undefined) p.push('この指摘は原因の層を持たないので、確定に至る判定は layer（原因の層）を付ける')
   }
@@ -521,6 +533,7 @@ function next(dir) {
     for (const a of Object.values(L.assets)) if (a.env_attempts) { a.attempts -= a.env_attempts; a.env_attempts = 0; if (a.state === 'disclosed' && a.attempts < MAX_ATTEMPTS) { a.state = 'unseen'; a.reason = '' } }
     for (const [k, n] of Object.entries(L.env_attempts)) { L.attempts[k] -= n; if (L.attempts[k] <= 0) delete L.attempts[k] }
     L.env_attempts = {}
+    reopenLostFullReview(L)
   }
   const { assets, missing } = currentAssets(L, dir)
   // 単位の本文のバイト数（詰め合わせに使う）。今の対象の単位は列挙した本文から、それ以外（振り返りの単位）は写しから数える。
@@ -538,8 +551,10 @@ function next(dir) {
     if (newRound) {
       L.round_start = L.cycle
       for (const [id, a] of Object.entries(L.assets)) if (!touched.has(id)) delete a.prior
+      reopenLostFullReview(L)
       newRound = false
     }
+    syncFullReview(L)
     const d = decide(L, { missingTargets: missing })
     if (d.stop) {
       L.stopped = { ...d, cycle: L.cycle }
@@ -564,7 +579,8 @@ function next(dir) {
       d.units = L.goal.checked_by === 'coverage-build' ? [] : retroTodo(L)
       if (!d.units.length) { L.retro_cycles.push(L.cycle); continue }
     }
-    const unread = hints(dir).filter((h) => !L.hints_read.includes(h.id))
+    // 全文レビューにはヒントを渡さない（目標と読む範囲だけ）。ヒントは後の段の呼び出しが読む。
+    const unread = d.step === FULL_REVIEW ? [] : hints(dir).filter((h) => !L.hints_read.includes(h.id))
     const { rows, tasks, kinds, bundles } = stageTasks(L, d, bytesOf)
     L.call_seq += 1
     const callId = sha(`${dir}|${L.call_seq}|${d.step}|${L.cycle}|${L.rev}`).slice(0, 12)
@@ -590,7 +606,7 @@ const stageOf = (a) => (a && a.retro ? 'retro' : 'file')
 const READ_STEPS = ['file', 'retro']
 // 開いた呼び出しを閉じる。取ったまま提出されなかった単位は試行に数えて取りを外し、上限で理由つきの disclosed にする。
 // 提出されなかった計画の段の担当は、その鍵の試行に数える（env なら環境の失敗にも数え、blocked（failure）からの再開で戻す）。
-function closeCall(L, { env = false } = {}) {
+function closeCall(L, { env = false, lost = false } = {}) {
   const P = L.pending
   if (!P) return
   for (const [id, a] of Object.entries(L.assets)) {
@@ -607,6 +623,15 @@ function closeCall(L, { env = false } = {}) {
   }
   for (const t of P.tasks || []) {
     if (t.done) continue
+    // 全文レビュー: 試行は全文レビューの記録で数える（計画の段の stuck にしない）。返らなかったか試行の上限なら、読まなかったとして開示して先へ進む。
+    if (t.kind === FULL_REVIEW) {
+      const fr = L.full_review
+      fr.attempts += 1
+      addEvent(L, FULL_REVIEW, 'missing_full_review', `${t.id}: 全文レビューの担当が提出されなかった`, t.id)
+      if (lost) failFullReview(L, '全文レビューの役が返らなかった', 'lost')
+      else if (fr.attempts >= MAX_ATTEMPTS) failFullReview(L, `提出されないまま試行 ${fr.attempts} 回`, 'unsubmitted')
+      continue
+    }
     bump(L, t.akey, env)
     addEvent(L, 'plan', `missing_${t.kind}`, `${t.id}: 担当が提出されなかった`, t.id)
   }
@@ -645,6 +670,8 @@ export function unwrap(v) {
 // 役が返らなくても（時間の上限など）、受理か提出があった呼び出しは環境の失敗にしない。
 function noProgress(P, ag) {
   const accepted = P.accepted || 0
+  // 全文レビューの失敗は止める理由にしない（網羅はファイルの段が持つ。設計「段の構成」の全文レビュー）。
+  if (P.step === FULL_REVIEW) return false
   if (P.step === 'global') return !P.claims && !accepted
   if (READ_STEPS.includes(P.step)) return !P.submits
   return !accepted && ag.length > 0 && ag.every((a) => !a.ok)
@@ -668,7 +695,7 @@ function ingest(dir, o) {
   recordCall(L, P, r, allFailed)
   L.hints_read.push(...P.hints)
   const rejected = L.events.slice(P.events_at).filter((e) => e.kind.startsWith('rejected_')).map((e) => e.text)
-  closeCall(L, { env: allFailed })
+  closeCall(L, { env: allFailed, lost: ag.some((a) => !a.ok) })
   save(dir, L)
   return { ok: true, cycle: L.cycle, coverage: coverage(L), ...(rejected.length ? { rejected } : {}), next: 'next を流す' }
 }
@@ -759,6 +786,13 @@ function cmdQuery(o) {
     const P = L.pending
     const tid = need(o, 'task')
     if (READ_STEPS.includes(P.step) || tid.startsWith('file:')) throw new Fail('ファイルの段と振り返りの担当は query できない（他の役の書き込みを読まない。B1）')
+    // 全文レビューの担当: 目標と読む範囲の単位の一覧だけを返す。事実（他の役の書き込み・前の run の指摘と判定）は引けない（B1）。
+    if (P.step === FULL_REVIEW) {
+      if (o.fact) throw new Fail('全文レビューの担当は --fact で事実を引けない（他の役の書き込みを読まない。B1）')
+      const t = P.tasks.find((x) => x.id === tid && x.worker === w.id)
+      if (!t) throw new Fail(`この worker の担当に無い: ${tid}`)
+      return { ok: true, task: t.id, kind: t.kind, inputs: fullReviewInputs(L) }
+    }
     const B = board(L)
     const facts = (o.fact || []).map((id) => { if (!B.facts.has(id)) throw new Fail(`今の根拠に無い事実: ${id}`); return publicFact(L, B.facts.get(id)) })
     if (P.step === 'global') {
@@ -781,6 +815,11 @@ function cmdQuery(o) {
   })
 }
 const item = (c) => ({ id: c.id, text: c.text })
+// 全文レビューの入力: 目標（冒頭の文・項目・基準・制約）と、読む範囲の単位（id・path・写しの file と範囲）。観点・索引・ヒント・事実は載せない。
+const fullReviewInputs = (L) => ({
+  goal: L.goal.text, items: L.goal.items.map(item), criteria: L.criteria.map(item), constraints: L.constraints.map(item),
+  units: L.full_review.range.map((id) => { const a = L.assets[id]; return { id, path: a.path, file: a.snap, start: a.start, end: a.end } }),
+})
 // 索引: 1 行 1 単位（id・写し・範囲・見出しの経路・種類・先頭の数語）。計画役と観点の検証役が手続きの当たる所を見る。
 const INDEX_HEAD_WORDS = 8
 const INDEX_HEAD_CHARS = 40
@@ -838,7 +877,7 @@ function cmdSubmit(o) {
       for (const t of P.tasks.filter((x) => x.worker === w.id && !x.done)) {
         const f = resultPath(dir, call, w.id, t.id)
         if (!existsSync(f)) { missing.push(t.id); continue }
-        const r = submitBound(L, t, rep(f))
+        const r = t.kind === FULL_REVIEW ? submitFullReview(L, t, w, rep(f)) : submitBound(L, t, rep(f))
         if (r.problems.length) rmSync(f, { force: true })
         results.push({ task: t.id, ok: !r.problems.length, problems: r.problems, dropped: r.dropped, ...(r.notes ? { notes: r.notes } : {}) })
       }
@@ -879,6 +918,62 @@ function submitFile(L, id, task, w, rep) {
   }
   const have = new Set(L.facts.map((f) => `${f.read}|${f.id}`))
   for (const f of factsOf(rep, { unit: id, path: a.path, read: readId, cycle: L.cycle })) if (!have.has(`${f.read}|${f.id}`)) L.facts.push(f)
+  return { problems: [], dropped: false }
+}
+
+// 全文レビューを読まなかったとして開示する（出来事に残し、後の段へ進む。止めない）。
+// cause は失敗の種類: lost（役が返らなかった。環境の失敗）・unsubmitted（返ったが提出が無いまま試行の上限）・rejected（照合に落ち続けた）。
+function failFullReview(L, reason, cause) {
+  Object.assign(L.full_review, { state: 'failed', reason, cause })
+  addEvent(L, FULL_REVIEW, 'full_review_failed', `全文レビューを読まなかったとして開示し、先へ進む（${reason}）`)
+}
+// 役が返らなかった（lost）ことで失敗した全文レビューを読み直しにする。blocked（failure）からの再開と、止まった後の新しい回の始まりに流す
+// （環境の失敗に数えた試行を戻す一般の規則と同じ）。照合に落ち続けた失敗（rejected・unsubmitted）は戻さない。
+function reopenLostFullReview(L) {
+  const fr = L.full_review
+  if (!fr || fr.state !== 'failed' || fr.cause !== 'lost') return
+  Object.assign(fr, { state: 'open', attempts: 0, reason: undefined, cause: undefined })
+  addEvent(L, FULL_REVIEW, 'full_review_reopened', '役が返らなかった全文レビューを、再開で読み直しにした')
+}
+// 全文レビューの結果の照合: 指摘は全体の段が足す指摘と同じ形（場所は読む範囲の単位だけ）、参考は主張と場所。保証・前提は書かない。
+function fullReviewProblems(L, rep, range) {
+  if (!rep || typeof rep !== 'object' || Array.isArray(rep)) return ['結果が object でない']
+  const p = []
+  for (const k of ['guarantees', 'premises']) if (rep[k] !== undefined && !(Array.isArray(rep[k]) && !rep[k].length)) p.push(`${k}: 全文レビューは保証・前提を書かない（名寄せと意図の索引はファイルの段が作る）`)
+  if (!Array.isArray(rep.findings)) p.push('findings が配列でない')
+  if (rep.references !== undefined && !Array.isArray(rep.references)) p.push('references が配列でない')
+  p.push(...globalFindingProblems(L, rep.findings, range))
+  ;(Array.isArray(rep.references) ? rep.references : []).forEach((r, i) => {
+    if (!isStr(r && r.claim)) p.push(`references[${i}]: claim が空`)
+    p.push(...locationProblems(L, `references[${i}]`, r, range))
+  })
+  return p
+}
+// 全文レビューの提出: 照合を通れば、受理した読みを記録に置き、指摘と参考を事実にする（origin: full_review。引用した全ての単位を場所に持つ）。
+// 落ちた提出は試行に数えて出し直させ、上限に達したら読まなかったとして開示する。
+function submitFullReview(L, t, w, rep) {
+  const fr = L.full_review
+  const p = fullReviewProblems(L, rep, fr.range)
+  if (p.length) {
+    fr.attempts += 1
+    addEvent(L, FULL_REVIEW, 'rejected_full_review', `${t.id}: ${p.join(' / ')}`, t.id)
+    if (fr.attempts < MAX_ATTEMPTS) return { problems: p, dropped: false }
+    t.done = true
+    failFullReview(L, `照合に落ちた提出が ${fr.attempts} 回`, 'rejected')
+    return { problems: p, dropped: true }
+  }
+  t.done = true
+  const readId = `R${sha(JSON.stringify([FULL_REVIEW, fr.sig, L.pending.call_id, w.id])).slice(0, 12)}`
+  Object.assign(fr, { state: 'read', reason: undefined, read: { id: readId, cycle: L.cycle, call: L.pending.call_id, worker: w.id, role: w.role, model: w.model, effort: w.effort } })
+  const fact = (type, x, extra) => {
+    const locs = x.locations.map((l) => ({ unit: l.unit, path: L.assets[l.unit].path, quote: l.quote }))
+    const id = `F${sha(JSON.stringify([FULL_REVIEW, type, C.norm(x.claim), locs.map((l) => [l.unit, C.norm(l.quote)]), x.obligation || ''])).slice(0, 12)}`
+    return { id, type, origin: FULL_REVIEW, read: readId, claim: x.claim, quote: locs[0].quote, unit: locs[0].unit, path: locs[0].path, paths: [...new Set(locs.map((l) => l.path))], locations: locs, cycle: L.cycle, ...extra }
+  }
+  const have = new Set(L.facts.map((f) => `${f.read}|${f.id}`))
+  const add = (f) => { const k = `${f.read}|${f.id}`; if (!have.has(k)) { have.add(k); L.facts.push(f) } }
+  for (const f of rep.findings) add(fact('finding', f, { obligation: f.obligation, confidence: f.confidence, layer: f.layer, ...(f.severity ? { severity: f.severity } : {}) }))
+  for (const r of rep.references || []) add(fact('reference', r, {}))
   return { problems: [], dropped: false }
 }
 
@@ -951,11 +1046,11 @@ function submitBound(L, t, rep) {
 }
 
 // 今の段の status の節: 指摘・束ね・出来事。reframe で出ていく段の節は、この形のまま phase_records に写す。
-// 判定・単位・norm した quote と claim・layer が同じ今の指摘を 1 件にまとめる。
+// 判定・単位・norm した quote と claim・layer・出どころが同じ今の指摘を 1 件にまとめる（全文レビューとファイルの段の重なりは、出どころを残すためまとめない）。
 function mergedFindings(L) {
   const m = new Map()
   for (const f of currentFindings(L)) {
-    const k = JSON.stringify([f.verdict, Array.isArray(f.paths) ? [...f.paths].sort().join('\n') : f.id.split('|')[0], C.norm(f.quote), C.norm(f.claim), f.layer])
+    const k = JSON.stringify([f.verdict, Array.isArray(f.paths) ? [...f.paths].sort().join('\n') : f.id.split('|')[0], C.norm(f.quote), C.norm(f.claim), f.layer, f.origin ?? null])
     if (m.has(k)) m.get(k).ids.push(f.id)
     else m.set(k, { ...f, ids: [f.id] })
   }
@@ -999,6 +1094,8 @@ function statusOf(L) {
     // 上の階層の findings・groups・events は今の段のもの。phases は段ごとの節（出ていった段は phase_records の写し）。
     phase: L.phase, phases: { ...L.phase_records, ...(L.phase ? { [L.phase]: sec } : {}) },
     cycle: L.cycle, stopped: L.stopped || null, pending: L.pending ? { call_id: L.pending.call_id, step: L.pending.step } : null, coverage: coverage(L), units: unitsOf(L),
+    // 全文レビューの読んだ単位と読まなかった単位（網羅と別の一覧。skip・coverage に数えない）。
+    full_review: fullReviewStatus(L),
     skip: Object.entries(L.assets).filter(([, a]) => a.state === 'disclosed').map(([id, a]) => ({ unit: id, reason: a.reason })),
     // 今の根拠の事実（ファイルの段の指摘の候補・保証・前提・参考）。指摘の候補は全体の段の判定を通るまで findings に入らない。
     facts: facts.map((f) => publicFact(L, f)), references: [...facts.filter((f) => f.type === 'reference').map((f) => ({ id: f.id, unit: f.unit, path: f.path, claim: f.claim, quote: f.quote, origin: f.origin })), ...B.findings.references],
