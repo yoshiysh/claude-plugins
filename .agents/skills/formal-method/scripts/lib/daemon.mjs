@@ -78,6 +78,7 @@ async function pipeline(run) {
 
 async function aggregate(run) {
   run.enterStage('集約');
+  run.checkTargetsFixed();
   run.addSummaryConfirmations();
   const parts = buildResult(run);
   // report.md は公開する結果と同じ状態を示すよう、ここまでに保存できなかった記録（run.unsaved）を同じく数えて下書きを作る

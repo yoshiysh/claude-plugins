@@ -9,8 +9,10 @@ const VALUES = {
   CALL_MAX_MS: 240000, CALL_MARGIN_MS: 30000, CLEANUP_BUDGET_MS: 30000, START_WAIT_MS: 210000, WAIT_LIMIT_MS: 210000,
   WAIT_POLL_MS: 2000, SALVAGE_RETRY_MS: 10000, SALVAGE_RETRY_MAX: 30, LIVENESS_UNKNOWN_MAX: 30, AGENT_BATCH_MAX: 4,
   AGENT_BATCH_DEADLINE_MS: 1800000, TOOL_TIME_LIMIT_MAX_S: 600, REPORT_RESERVE_MS: 60000, REVISE_ROUNDS_MAX: 2,
-  TOOL_OUTPUT_MAX_BYTES: 1048576, MEMORY_SAMPLE_MS: 100, START_STOP_WAIT_MS: 5000,
+  TOOL_OUTPUT_MAX_BYTES: 1048576, MEMORY_SAMPLE_MS: 100, START_STOP_WAIT_MS: 5000, ABLATION_PER_PROPERTY_MAX: 12,
+  WORKER_CALL_MAX_MS: 60000, UNIT_MAX_BYTES: 120000,
 };
+const WORKER_BASH_TIMEOUT_MS = 120000; // 担当の Bash の既定の timeout（契約の表の理由の列）
 const HOST_LIMIT_MS = 600000; // Claude Code の Bash の上限（契約の表の理由の列）
 
 for (const [name, value] of Object.entries(VALUES)) {
@@ -32,6 +34,9 @@ const RELATIONS = [
   ['SALVAGE_RETRY_MAX × SALVAGE_RETRY_MS > CALL_MAX_MS', (c) => c.SALVAGE_RETRY_MAX * c.SALVAGE_RETRY_MS > c.CALL_MAX_MS],
   ['TOOL_TIME_LIMIT_MAX_S × 1000 < AGENT_BATCH_DEADLINE_MS', (c) => c.TOOL_TIME_LIMIT_MAX_S * 1000 < c.AGENT_BATCH_DEADLINE_MS],
   ['REPORT_RESERVE_MS < AGENT_BATCH_DEADLINE_MS（担当の batch の期限が正になる）', (c) => c.REPORT_RESERVE_MS < c.AGENT_BATCH_DEADLINE_MS],
+  ['ABLATION_PER_PROPERTY_MAX > 3（否定だけ・前提と否定だけ・規則と否定だけの 3 つの後に、前提を外す再検査の余地がある）', (c) => c.ABLATION_PER_PROPERTY_MAX > 3],
+  ['WORKER_CALL_MAX_MS < CALL_MAX_MS − CLEANUP_BUDGET_MS（担当のコマンドも前景の 1 回の呼出しの上限に収まる）', (c) => c.WORKER_CALL_MAX_MS < c.CALL_MAX_MS - c.CLEANUP_BUDGET_MS],
+  ['WORKER_CALL_MAX_MS × 2 ≤ 担当の Bash の既定の timeout（命令が殺される前に no_response を返す）', (c) => c.WORKER_CALL_MAX_MS * 2 <= WORKER_BASH_TIMEOUT_MS],
   ['正の整数', (c) => Object.keys(VALUES).every((k) => Number.isSafeInteger(c[k]) && c[k] > 0)],
 ];
 
@@ -48,6 +53,7 @@ test('cli-contract 定数 の関係の検査は、関係を壊した値を拒む
     ['SALVAGE_RETRY_MAX を減らす', { SALVAGE_RETRY_MAX: 24 }],
     ['TOOL_TIME_LIMIT_MAX_S を増やす', { TOOL_TIME_LIMIT_MAX_S: 1800 }],
     ['START_STOP_WAIT_MS を CLEANUP_BUDGET_MS 以上に', { START_STOP_WAIT_MS: 30000 }],
+    ['WORKER_CALL_MAX_MS を担当の Bash の timeout の半分より大きく', { WORKER_CALL_MAX_MS: 90000 }],
   ];
   for (const [name, over] of broken) assert.ok(RELATIONS.some(([, rel]) => !rel({ ...VALUES, ...over })), name);
 });

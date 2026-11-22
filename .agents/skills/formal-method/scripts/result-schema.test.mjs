@@ -79,6 +79,41 @@ ACCEPTED.push(
   ['要求の不足 の原因の問いが questions[] にある', withQuestionCause('要求の不足', true)],
   ['原因未確認 の原因の問いが questions[] に無い', withQuestionCause('原因未確認', false)],
 );
+// 静的な確認（artifact-formats「確認」）: 道具を実行した静的な確認と判断を要する項目は、実行（kind ablation）の id を持つ
+const withStatic = (r) => {
+  const base = { property_ids: ['P1'], model_property_id: 'MP1', checker: 'cli', materials: [] };
+  r.confirmations.deterministic.push(
+    { ...base, id: 'confirm-goal_trivial-1', kind: 'goal_trivial', plan_id: 'C-MP1', item: 'i', result: '成り立つ', end, reason: 'r' },
+    { ...base, id: 'confirm-plan_coverage-1', kind: 'plan_coverage', plan_id: null, item: 'i', result: '成り立つ', end: null, reason: 'r' },
+  );
+  r.confirmations.judgments.push({ id: 'confirm-premise_load-2', kind: 'premise_load', cause: '効いている前提', property_ids: ['P1'], model_property_id: 'MP1', plan_id: 'C-MP1',
+    clause_names: ['A1'], item: 'i', materials: [], end, reason: 'r' });
+  const exec = (id) => ({ id, kind: 'ablation', elapsed_ms: { value: 1, unit: 'ms' }, cpu_time_ms: { status: '取得できず', reason: 'x' }, peak_rss_bytes: { status: '取得できず', reason: 'x' } });
+  r.performance.executions.push(exec('confirm-goal_trivial-1'), exec('confirm-premise_load-2'));
+  return r;
+};
+ACCEPTED.push(['静的な確認と判断を要する項目と、その kind ablation の実行', withStatic]);
+// 判断を要する項目の意味の確認（kind judgment。item はその Judgment の id、plan_id はその Judgment の plan_id）
+const withJudged = (r) => {
+  withStatic(r);
+  r.confirmations.meaning.push({ id: 'confirm-judgment-1', kind: 'judgment', property_ids: ['P1'], model_property_id: 'MP1', plan_id: 'C-MP1', item: 'confirm-premise_load-2',
+    result: '成り立つ', checker: 't005-fidelity-reviewer', materials: [], end: null, reason: 'r' });
+  return r;
+};
+// 起動した担当の数と消費量（呼び出しごと・段ごと・全体。取れない値は 取得できず）
+const withAgentCalls = (r) => {
+  const unk = { status: '取得できず', reason: 'timed_out' };
+  r.performance.agent_calls = {
+    calls: [
+      { call_id: 'call-001', stage: '洗い出し', workers: 1, tasks: 1, closed_by: 'close', agents: { value: 1, unit: 'count' }, launched: [{ role: 'extractor', label: 'extractor-w01', model: 'opus', effort: 'medium', ok: true }], tokens: { value: 120, unit: 'tokens' } },
+      { call_id: 'call-002', stage: '確認', workers: 2, tasks: 6, closed_by: 'timed_out', agents: unk, launched: [], tokens: unk },
+    ],
+    stages: [{ stage: '洗い出し', calls: 1, agents: { value: 1, unit: 'count' }, tokens: { value: 120, unit: 'tokens' } }, { stage: '確認', calls: 1, agents: unk, tokens: unk }],
+    total: { calls: 2, agents: unk, tokens: unk },
+  };
+  return r;
+};
+ACCEPTED.push(['判断を要する項目の意味の確認（kind judgment）', withJudged], ['起動した担当の数と消費量（取れなかった呼び出しを含む）', withAgentCalls]);
 for (const [name, make] of ACCEPTED) {
   test(`result-schema の自己検査: ${name} を通す`, () => {
     assert.deepEqual(resultInvariants(make(richResult())), []);
@@ -143,6 +178,21 @@ const BROKEN = [
   }, 'assumption_basis.check_ids の confirm-sanity-1'],
 ];
 BROKEN.push(
+  ['SP-FORMALMETHOD-012 判断を要する項目の意味の確認の item が Judgment に無い', (r) => { withJudged(r); r.confirmations.meaning[0].item = 'confirm-premise_load-9'; }, '判断を要する項目の意味の確認の item の confirm-premise_load-9 が実在しない'],
+  ['SP-FORMALMETHOD-012 判断を要する項目の意味の確認が同じ項目に 2 つ', (r) => { withJudged(r); r.confirmations.meaning.push({ ...r.confirmations.meaning[0], id: 'confirm-judgment-2' }); }, '判断を要する項目の意味の確認の item の id confirm-premise_load-2 が重なる'],
+  ['SP-FORMALMETHOD-012 判断を要する項目の意味の確認の plan_id が null', (r) => { withJudged(r); r.confirmations.meaning[0].plan_id = null; }, 'confirm-judgment-1（judgment）の plan_id が null'],
+  ['SP-FORMALMETHOD-012 性質ごとの保証の確認（kind assurance）', (r) => { withJudged(r); r.confirmations.meaning[0].kind = 'assurance'; r.confirmations.meaning[0].id = 'confirm-assurance-1'; }, '/confirmations/meaning/0/kind'],
+  ['SP-FORMALMETHOD-013 AC-12 agent_calls が無い', (r) => { delete r.performance.agent_calls; }, '/performance/agent_calls: 必須のキーが無い'],
+  ['SP-FORMALMETHOD-013 AC-12 取れなかった tokens を 0 にせず値の無い数にする', (r) => { withAgentCalls(r); r.performance.agent_calls.calls[1].tokens = { value: null, unit: 'tokens' }; }, '/performance/agent_calls/calls/1/tokens'],
+  ['SP-FORMALMETHOD-013 AC-12 agent_calls の閉じ方が値の集合に無い', (r) => { withAgentCalls(r); r.performance.agent_calls.calls[0].closed_by = 'submit'; }, '/performance/agent_calls/calls/0/closed_by'],
+  ['判断を要する項目の id が確認の id と重なる', (r) => { withStatic(r); r.confirmations.judgments[0].id = 'confirm-goal_trivial-1'; }, '実行と確認 の id confirm-goal_trivial-1 が重なる'],
+  ['判断を要する項目の id が confirm-<kind>-<n> の形でない', (r) => { withStatic(r); r.confirmations.judgments[0].id = 'J1'; }, '確認の id J1 が confirm-premise_load-<n> の形でない'],
+  ['判断を要する項目の cause が値の集合に無い', (r) => { withStatic(r); r.confirmations.judgments[0].cause = '不明'; }, '/confirmations/judgments/0/cause'],
+  ['判断を要する項目が confirmations に無い', (r) => { delete r.confirmations.judgments; }, '/confirmations/judgments: 必須のキーが無い'],
+  ['検査ごとの静的な確認の plan_id が null', (r) => { withStatic(r); r.confirmations.deterministic.find((c) => c.kind === 'goal_trivial').plan_id = null; }, 'confirm-goal_trivial-1（goal_trivial）の plan_id が null'],
+  ['plan_coverage の plan_id が null でない', (r) => { withStatic(r); r.confirmations.deterministic.find((c) => c.kind === 'plan_coverage').plan_id = 'C-MP1'; }, 'confirm-plan_coverage-1（plan_coverage）の plan_id は null'],
+  ['kind ablation の実行に確認も判断を要する項目も無い', (r) => { withStatic(r); r.confirmations.judgments = []; }, 'performance.executions[].id の confirm-premise_load-2 が実在しない'],
+  ['範囲を限った検査の保証に scope_variables が無い', (r) => { r.properties[0].assurance = { kind: '範囲を限った検査', scope: 's', bounds: [{ item: 'x', bound: '0..1' }], fairness_assumptions: [] }; }, '/properties/0/assurance'],
   ['要求の不足 の原因の問いが questions[] に無い', (r) => { withQuestionCause('要求の不足', false)(r); }, '原因の問い の Q1 が実在しない'],
   ['原因未確認 の原因の問いが questions[] にある', (r) => { withQuestionCause('原因未確認', true)(r); }, '原因の問い Q1 は 原因未確認 なので questions[] に入らない'],
   ['対象が性質を満たさない の原因の問いが questions[] にある', (r) => { withQuestionCause('対象が性質を満たさない', true)(r); }, '原因の問い Q1 は 対象が性質を満たさない なので questions[] に入らない'],

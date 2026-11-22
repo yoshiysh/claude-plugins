@@ -11,7 +11,7 @@ import { removeTree } from './cli-runner.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './partition.mjs';
 import { stopStageViolations, deriveGraph, INTERRUPTS } from './decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './constants.mjs';
-import { expandRefs } from './ledger-check.mjs';
+import { expandRefs, runPath } from './ledger-check.mjs';
 
 export const P = (id, line, over = {}) => ({ id, file: 'spec.md', line, statement: `性質 ${id}`, query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, ...over });
 export const prop = (result, id) => result.properties.find((p) => p.id === id);
@@ -47,21 +47,22 @@ export function assertExcluded(result, ids) {
 }
 export const tOf = (call) => Number(call.args.find((a) => a.startsWith('-T:'))?.slice(3));
 export const tasksOf = (harness, role) => harness.memory.tasks.filter((x) => x.role === role);
-// 修正の巡: 同じ役に 2 つ目以降の task が出て、revise_defects_ref が非 null（artifact-formats「task の一覧」）
+// 修正の巡: 同じ担当（同じ task）が 2 回以上提出し、1 回目の submit は ok: false で欠陥を返して出し直させた（architecture「段と処理の順序」の修正の巡）
 export function assertRevised(harness, role, stage) {
   const ts = tasksOf(harness, role);
-  assert.ok(ts.length >= 2, `${role} に修正の巡の task が出る（${ts.length} 件）`);
-  assert.equal(ts[0].context.revise_defects_ref, null, '最初の巡は revise_defects_ref が null');
-  for (const x of ts.slice(1)) {
-    assert.notEqual(x.context.revise_defects_ref, null, '修正の巡の task は revise_defects_ref を持つ');
-    assert.equal(x.context.stage, stage, `修正の巡は同じ段（${stage}）`);
-  }
+  assert.equal(ts.length, 1, `${role} の出し直しは同じ task（${ts.length} 件）`);
+  assert.equal(ts[0].context.stage, stage, `修正の巡は同じ段（${stage}）`);
+  const subs = harness.memory.submits.filter((x) => x.task_id === ts[0].task_id);
+  assert.ok(subs.length >= 2, `${role} に修正の巡の提出がある（${subs.length} 回）`);
+  assert.deepEqual([subs[0].result.ok, subs[0].result.done], [false, false], '1 回目の提出は欠陥を返して出し直させる');
+  assert.ok(subs[0].result.problems.length >= 1, '欠陥を返す');
+  assert.ok(subs.at(-1).result.done, '最後の提出で閉じる');
 }
 
 // harness を渡すと、採った計画（最後の plan-author の計画）で、計画との照合（refInvariants）も当てる
 export function assertRecordsConsistent(status, result, harness = null) {
   const dir = status.run_dir;
-  const read = (ref) => (existsSync(join(dir, ref)) ? readFileSync(join(dir, ref), 'utf8') : null);
+  const read = (ref) => { const p = runPath(dir, ref); return p && existsSync(p) ? readFileSync(p, 'utf8') : null; };
   const t = harness?.memory.byRole['plan-author'];
   const adopted = t && existsSync(join(t.attempt_dir, 'plan.json')) ? { plan: runRefOf(dir, t.attempt_dir, 'plan.json'), mutations: runRefOf(dir, t.attempt_dir, 'mutations.json') } : null;
   if (harness) assert.ok(adopted || !t, '採った計画がある');
@@ -123,93 +124,65 @@ export const RESIDUE_CASES = [
 export const AGENT_FAIL = [['extractor', ['inventory']], ['model-author', ['model', 'mapping']], ['plan-author', ['plan', 'mutations']]];
 export const AGENT_MODES = [['返り値が無い', 'missing'], ['返り値の形が違う', 'bad_shape'], ['cannot_proceed を返す', 'cannot_proceed']];
 
-// ---- 受け箱の batch の拒否（cli-contract「受け箱」、artifact-formats「担当の返り値」「Workflow の返り値」） ----
-// harness は返り値を全て done で書いたうえで、受け箱か Workflow の返り値だけを崩す（test-fixtures/agent-harness.mjs の hooks.reject）。
-// 拒否した batch の全ての task が、担当の失敗（段は task の context.stage）・作業記録の failures の 1 件・成果物の未作成になる。
-// 期限の 2 つの型（late・no_submit）は依頼の時間の上限で期限を近くに置く（担当の batch の期限は早い方。architecture「時計と資源」）。
-// late は、run-daemon が期限で batch を閉じたか、期限の後に受け箱を読んだかを外から区別しない（どちらも batch の拒否）。
+// ---- 受け箱と close（cli-contract「受け箱」、artifact-formats「Workflow の返り値」） ----
+// harness は担当を全て submit で受理させたうえで、司令塔の close だけを崩す（test-fixtures/agent-harness.mjs の hooks.close）。
+// 受理は submit で決まっているので、どの閉じ方でも、その呼び出しの受理した担当は残る（前の稿の「batch ごと拒否」の回帰）。
+// 期限の 2 つの型（late・none）は依頼の時間の上限で期限を近くに置く（担当の呼び出しの期限は早い方。architecture「時計と資源」）。
 export const ID_CHARS = 'A-Za-z0-9._-';
 export const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const hasId = (text, id) => new RegExp(`(^|[^${ID_CHARS}])${escapeRe(id)}([^${ID_CHARS}]|$)`).test(text);
-// batch_id と task_id を除いても、原因の文が残る（原因の語は契約が定めないので、空でないことだけを見る）
-export const residue = (text, batchId, taskId) => text.split(taskId).join('').split(batchId).join('').replace(/[\s\p{P}\p{S}]/gu, '');
-export const mentions = (text, batchId, taskId) => text.includes(batchId) && hasId(text, taskId) && residue(text, batchId, taskId).length > 0;
 export const ROLE_KINDS = { extractor: ['inventory'], 'model-author': ['model', 'mapping'], 'plan-author': ['plan', 'mutations'] };
-export const firstBatchWith = (role) => {
+export const firstCallWith = (role) => {
   let done = false;
-  return (_s, list) => {
-    if (done || !list.tasks.some((x) => x.role === role)) return null;
+  return (_s, call) => {
+    if (done || !call.workers.some((x) => x.role === role)) return false;
     done = true;
-    return 'pick';
+    return true;
   };
 };
-export function assertBatchRejected({ result, status, harness }) {
-  const issued = harness.memory.batches.map((b) => `${b.batch_id}: ${b.tasks.map((x) => x.role).join('・')}`);
-  assert.equal(harness.memory.rejected.length, 1, `拒否を起こした batch は 1 つ（0 なら拒否する役の batch が出なかった。出た batch: ${JSON.stringify(issued)}${result ? `、停止の理由: ${JSON.stringify(result.stop_report?.reasons ?? [])}` : ''}）`);
-  const { list } = harness.memory.rejected[0];
+export function assertAcceptedKept({ result, status, harness }, mode) {
+  const picked = harness.memory.closes.filter((x) => x.mode === mode);
+  assert.equal(picked.length, 1, `閉じ方 ${mode} を当てた呼び出しは 1 つ: ${JSON.stringify(harness.memory.closes)}`);
+  const call = harness.memory.calls.find((c) => c.callId === picked[0].call_id);
   assert.deepEqual(resultInvariants(result), []);
-  assert.equal(result.status, '停止');
-  const sr = result.stop_report;
-  assert.deepEqual(stopStageViolations(result), [], JSON.stringify(sr.reasons));
-  const created = sr.artifacts_created.map((x) => x.ref);
-  const notCreated = sr.artifacts_not_created.map((x) => x.kind);
-  for (const task of list.tasks) {
-    const stage = task.context.stage;
-    // 停止の理由: task ごとに 担当の失敗 を 1 つ、段は task の context.stage、detail に batch_id・task_id・原因
-    const rs = sr.reasons.filter((x) => x.code === '担当の失敗' && x.stage === stage && mentions(x.detail, list.batch_id, task.task_id));
-    assert.equal(rs.length, 1, `${task.task_id} の 担当の失敗（段 ${stage}、detail に batch_id・task_id・原因）: ${JSON.stringify(sr.reasons)}`);
-    // 作業記録: その task の段の worklogs/cli-<stage>.json の failures に 1 件
-    const log = join(status.run_dir, 'worklogs', `cli-${stage}.json`);
-    assert.ok(existsSync(log), `worklogs/cli-${stage}.json がある`);
-    const failures = readJson(log).failures.filter((f) => mentions(f, list.batch_id, task.task_id));
-    assert.equal(failures.length, 1, `cli-${stage}.json の failures に ${task.task_id} が 1 件: ${JSON.stringify(readJson(log).failures)}`);
-    // 期限内に書いた返り値でも成功に数えない: 成果物を生成済みに数えず、作るはずの成果物は未作成
-    assert.ok(!created.some((r) => r.startsWith(`attempts/${task.task_id}/`) && !r.endsWith('worklog.json')), `${task.task_id} の成果物を生成済みに数えない: ${created.join()}`);
-    for (const k of ROLE_KINDS[task.role] ?? []) assert.ok(notCreated.includes(k), `${k} は未作成: ${notCreated.join()}`);
-    // 照合役なら確認できず の確認、原因の分類役なら 原因未確認 の原因になる（artifact-formats「確認」「担当の返り値」）
-    if (task.context.perspective) assertReviewFailed(result, task, harness, { rejected: true });
-    else if (task.role === 'cause-analyst') assertCauseFailed(result, task, { rejected: true });
-    else assert.ok(!result.confirmations.meaning.some((c) => c.checker === task.task_id), `${task.task_id} の意味の確認を作らない`);
+  assert.deepEqual(stopStageViolations(result), [], JSON.stringify(result.stop_report?.reasons ?? []));
+  const reasons = result.stop_report?.reasons ?? [];
+  const created = result.records.saved.map((x) => x.ref);
+  assert.ok(call.tasks.length >= 1, 'その呼び出しの担当が取られた');
+  for (const task of call.tasks) {
+    assert.ok(!reasons.some((x) => x.code === '担当の失敗' && hasId(x.detail, task.task_id)), `受理した ${task.task_id} は 担当の失敗 にならない: ${JSON.stringify(reasons)}`);
+    if (ROLE_KINDS[task.role]) assert.ok(created.some((r) => r.startsWith(`attempts/${task.task_id}/`) && !r.endsWith('worklog.json')), `${task.task_id} の成果物は保存された`);
+    if (task.context.perspective) assert.ok(result.confirmations.meaning.some((c) => c.checker === task.task_id && c.result !== '確認できず'), `${task.task_id} の意味の確認は残る`);
+    if (task.role === 'cause-analyst') assert.ok(result.causes.some((c) => c.classified_by === task.task_id && c.cause !== '原因未確認'), `${task.task_id} の原因は残る`);
   }
-  // 拒否した task の段は停止の理由の段に入る（AC-19）。中断の理由が無ければ、stop_report.stage は reasons の全ての段のうち
-  // Stage の並びで最も上流の段（artifact-formats「stop_report.stage の決め方」）。他の理由（例: 反例 は 実行）の段も含めて求める
-  const reasonStages = sr.reasons.map((x) => x.stage);
-  for (const task of list.tasks) assert.ok(reasonStages.includes(task.context.stage), `拒否した ${task.task_id} の段 ${task.context.stage} が停止の理由の段に入る`);
-  if (!sr.reasons.some((x) => INTERRUPTS.includes(x.code))) {
-    const STAGE_ORDER = ['受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約'];
-    const upstream = [...reasonStages].sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b))[0];
-    assert.equal(sr.stage, upstream, JSON.stringify(sr.reasons));
-  }
-  return list;
+  // 起動の記録と tokens を記録できない閉じ方は、その段の作業記録の unconfirmed に呼び出しの id と共に残る
+  const log = JSON.parse(readFileSync(join(status.run_dir, 'worklogs', `cli-${call.stage}.json`), 'utf8'));
+  const noted = log.unconfirmed.some((x) => x.includes(call.callId));
+  assert.equal(noted, !['plain', 'wrapped'].includes(mode), `${mode}: unconfirmed に ${call.callId}: ${JSON.stringify(log.unconfirmed)}`);
+  return call;
 }
-export const REJECT_CASES = [
-  // [名前, 拒否の型, 拒否する batch の役, 依頼の差分, scenario の差分]
-  // 期限の 2 つの型は、依頼の時間の上限 24 秒（担当の batch の期限は開始から約 18 秒）で、遅い環境でも抽出役の batch が期限の前に出る余裕を取る
-  ['Workflow の返り値の batch_id が開いている batch と違う', 'wf_batch_id', 'extractor', {}],
-  ['received の値が tasks.json と違う', 'received', 'extractor', {}],
-  ['results の task の集合が tasks から欠ける', 'set_missing', 'extractor', {}],
-  ['results の task の集合に余分な task がある', 'set_extra', 'extractor', {}],
-  ['受け箱が timed_out: true（返り値は期限内に書いてある）', 'timed_out', 'extractor', {}],
-  ['受け箱が timed_out: true（モデル化の段の batch）', 'timed_out', 'model-author', {}],
-  ['期限の後に受け箱を公開する（返り値は期限内に書いてある）', 'late', 'extractor', { time_limit_seconds: 12 }],
-  ['期限までに受け箱を公開しない', 'no_submit', 'extractor', { time_limit_seconds: 12 }],
-  ['受け箱が timed_out: true（反例の原因の分類役の batch）', 'timed_out', 'cause-analyst', {}, { properties: [P('P1', 3, { query: { result: 'sat' } })] }],
-  ['受け箱を読めない（権限 000）', 'inbox_unreadable', 'extractor', {}],
+export const CLOSE_CASES = [
+  // [名前, 閉じ方, 閉じ方を当てる呼び出しの役, 依頼の差分, scenario の差分]
+  ['Workflow の完了通知が返り値を包む（{summary, agentCount, logs, result}）', 'wrapped', 'extractor', {}],
+  ['close が timed_out: true（洗い出しの段）', 'timed_out', 'extractor', {}],
+  ['close が timed_out: true（モデル化の段）', 'timed_out', 'model-author', {}],
+  ['close が timed_out: true（確認の段）', 'timed_out', 'fidelity-reviewer', {}],
+  ['close が timed_out: true（反例の原因の分類役）', 'timed_out', 'cause-analyst', {}, { properties: [P('P1', 3, { query: { result: 'sat' } })] }],
+  ['期限の後に close する', 'late', 'extractor', { time_limit_seconds: 12 }],
+  ['close しない（run-daemon が期限で閉じる）', 'none', 'extractor', { time_limit_seconds: 12 }],
   ['受け箱が JSON でない', 'inbox_not_json', 'extractor', {}],
   ['受け箱が形に合わない（workflow_output_path も timed_out も無い）', 'inbox_shape', 'extractor', {}],
-  ['受け箱の batch_id が開いている batch と違う', 'inbox_batch_id', 'extractor', {}],
+  ['受け箱の call_id が開いている呼び出しと違う', 'inbox_call_id', 'extractor', {}],
   ['受け箱の workflow_output_path のファイルを読めない（存在しない）', 'wf_unreadable', 'extractor', {}],
-  ['Workflow の返り値が形に合わない（results が配列でない）', 'wf_shape', 'extractor', {}],
+  ['Workflow の返り値が形に合わない（agents が配列でない）', 'wf_shape', 'extractor', {}],
 ];
 
 // ---- 照合役と原因の分類役の失敗（artifact-formats「確認」の意味の確認の作り方・写しの表、「担当の返り値」、architecture「担当の起動」） ----
-// 失敗した task の 担当の失敗 の detail として許す文の集合。
-// batch の拒否では detail が batch_id・task_id を持つ（cli-contract「受け箱」）ので、その task の 1 つに絞る。
-// 他の経路では detail の中身を契約が定めないので、その段の 担当の失敗 の detail のどれかとする。
-export function failureDetails(sr, task, { rejected = false } = {}) {
+// 失敗した task の 担当の失敗 の detail として許す文の集合。閉じた呼び出しの担当の失敗は detail が call_id・task_id を持つ
+// （cli-contract「受け箱」）ので、その task のものに絞る。
+export function failureDetails(sr, task) {
   const at = sr.reasons.filter((x) => x.code === '担当の失敗' && x.stage === task.context.stage);
   assert.ok(at.length >= 1, `${task.task_id} の段 ${task.context.stage} に 担当の失敗: ${JSON.stringify(sr.reasons)}`);
-  if (!rejected) return at.map((x) => x.detail);
   const own = at.filter((x) => hasId(x.detail, task.task_id));
   assert.equal(own.length, 1, `${task.task_id} の 担当の失敗: ${JSON.stringify(sr.reasons)}`);
   return [own[0].detail];
@@ -222,7 +195,7 @@ export function expectedPropertyIds(task, harness) {
     assert.ok(ms.length >= 1, `${c.model_id} のモデルを harness が書いた`);
     return [...new Set(ms[ms.length - 1].properties.flatMap((p) => p.inventory_property_ids))].sort();
   }
-  if (c.perspective === 'nonformal' || c.perspective === 'assurance') return c.property_ids;
+  if (c.perspective === 'nonformal') return c.property_ids;
   return [];
 }
 // 意味の確認の共通の欄（artifact-formats「意味の確認の作り方」の共通の欄と写しの表の「関わる性質」）
@@ -233,7 +206,7 @@ export function assertConfirmationCommon(conf, task, harness) {
   assert.equal(conf.checker, task.task_id);
   assert.equal(conf.plan_id, null);
   assert.equal(conf.end, null);
-  assert.equal(conf.model_property_id, c.perspective === 'assurance' ? c.unit_id.slice('assurance-'.length) : null);
+  assert.equal(conf.model_property_id, null);
   assert.deepEqual(conf.property_ids, expectedPropertyIds(task, harness));
   // ディレクトリの ref は下の全てのファイルの RefHash に辞書順で展開する（artifact-formats「ディレクトリの ref の指紋」）
   assert.deepEqual(conf.materials, expandRefs(c.run_dir, c.input_refs), 'materials は context.input_refs をファイルの RefHash に展開したもの');
@@ -271,8 +244,6 @@ export const REVIEW_FAIL_CASES = [
   // [観点, 失敗の型, scenario（又はそれを返す関数）, 判定の確かめ]
   ['fidelity', 'missing', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
   ['fidelity', 'bad_shape', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
-  ['assurance', 'missing', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
-  ['assurance', 'bad_shape', {}, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
   ['nonformal', 'missing', { properties: [P('P1', 2, { formalizable: false })] }, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
   ['nonformal', 'bad_shape', { properties: [P('P1', 2, { formalizable: false })] }, (r) => assert.deepEqual(prop(r, 'P1').verdict, ['未確認'])],
   ['extraction', 'missing', {}, (r) => {
@@ -352,7 +323,7 @@ export function rederive(status, result) {
 export function assertGraphMatches(status, result) {
   const mine = rederive(status, result);
   const g = result.decomposition.graph;
-  assert.deepEqual(refInvariants(result, (ref) => (existsSync(join(status.run_dir, ref)) ? readFileSync(join(status.run_dir, ref), 'utf8') : null)), [], 'Ref とモデルの中の名前が実在する');
+  assert.deepEqual(refInvariants(result, (ref) => { const p = runPath(status.run_dir, ref); return p && existsSync(p) ? readFileSync(p, 'utf8') : null; }), [], 'Ref とモデルの中の名前が実在する');
   assert.deepEqual(g.nodes, mine.nodes, '要素（id・kind・location・並び）');
   assert.deepEqual(g.edges, mine.edges, '辺（id・from・to・kind・location・並び）');
   assert.deepEqual(g.unconfirmed.map((u) => u.relation), mine.unconfirmed.map((u) => u.relation), '未確認の関係');
@@ -429,8 +400,8 @@ export const SECRET = 'AKIAABCDEFGHIJKLMNOP';
 export function assertSecretNowhere(out, runDir) {
   assert.ok(!JSON.stringify(out.result).includes(SECRET), '結果に値が残らない');
   assert.ok(!out.statuses.some((x) => JSON.stringify(x).includes(SECRET)), 'Status に値が残らない');
-  // 担当が自分で書いた attempts/ と、対象の写し targets/ は formal-method の記録でないので見ない
-  const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (['attempts', 'targets'].includes(e.name) && d === runDir ? [] : walk(join(d, e.name))) : [join(d, e.name)]));
+  // 担当が自分で書いた attempts/ は formal-method の記録でないので見ない。targets/ は対象の一覧（manifest）だけで、対象の本文を持たないので見る
+  const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'attempts' && d === runDir ? [] : walk(join(d, e.name))) : [join(d, e.name)]));
   for (const f of walk(runDir)) assert.ok(!readFileSync(f).includes(SECRET), `${relative(runDir, f)} に値が残らない`);
 }
 
@@ -521,7 +492,16 @@ export const PLAN_DEFECTS = [
   ['selection の要素が重なる', { editPlan: setSelection((sel) => [...sel, structuredClone(sel[0])]) }, selectionLeft],
   // モデルの性質ごとに PlanFile.sanity が 1 つ以上ある（artifact-formats.md:743 の検査の欠け）
   ['sanity の無い計画', { editPlan: (plan) => ({ ...plan, sanity: [] }) },
-    (r) => { assert.ok(!r.confirmations.deterministic.some((c) => c.kind === 'sanity'), 'sanity の確認は無い'); assertNoSanityConfirmed(r); }],
+    (r) => {
+      assert.ok(!r.confirmations.deterministic.some((c) => c.kind === 'sanity'), 'sanity の確認は無い');
+      // 静的な確認の plan_coverage が 成り立たない ので、述語 1 に加えて述語 2（確認が終わっていない）でも止まる（SP-FORMALMETHOD-012）
+      const cov = r.confirmations.deterministic.find((c) => c.kind === 'plan_coverage' && c.model_property_id === 'P1');
+      assert.equal(cov?.result, '成り立たない', JSON.stringify(cov));
+      assert.match(cov.reason, /前提の整合の確認/);
+      assert.deepEqual(prop(r, 'P1').verdict, ['未確認']);
+      const codes = r.stop_report.reasons.map((x) => x.code);
+      assert.ok(codes.includes('必要な性質が検証の成功でない') && codes.includes('確認が終わっていない'), codes.join());
+    }],
   // property・contract・composition の検査の expected は unsat（artifact-formats.md:731）
   ['kind property の検査の expected が unsat でない', { editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => (c.id === 'C-P1' ? { ...c, expected: 'sat' } : c)) }) },
     (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
@@ -535,7 +515,7 @@ export const PLAN_DEFECTS = [
   ['担当の query 2 つを並べた検査（(check-sat) を持つ input が最後でない）', { editPlan: (plan, { mref }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [mref(`${c.target_id}-sanity.smt2`), ...c.input_refs] } : c)) }) },
     // 検出役の検査の input_refs を使う変異 MU-P1 も、最後の input を置き換えた後も (check-sat) を持つ input が最後でないので除く
     (r) => { assertExcluded(r, ['C-P1', 'MU-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認'], '検査の欠けと同じ'); }],
-  ['input_refs が担当の query でないファイル（対象の写し）を指す検査', { editPlan: (plan, { targetRef }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [targetRef('spec.md'), ...c.input_refs] } : c)) }) },
+  ['input_refs が担当の query でないファイル（対象のファイル）を指す検査', { editPlan: (plan, { targetRef }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [targetRef('spec.md'), ...c.input_refs] } : c)) }) },
     (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
   ['(check-sat) が最後の form でない変異（計画作成役の .smt2）', { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('mut-bad.smt2', '; mutation bad\n(declare-const x Int)\n(check-sat)\n(assert (> x 0))\n') })) }) },
     (r) => {
@@ -547,6 +527,15 @@ export const PLAN_DEFECTS = [
       assert.ok(det.reason.includes('MU-P1'), `reason に除いた変異の id: ${det.reason}`);
       assert.ok(det.reason.includes('別の方法の確認の結果が無い'), `reason に「別の方法の確認の結果が無い」: ${det.reason}`);
       assert.ok(r.stop_report.reasons.some((x) => x.code === '検出能力未確認'), JSON.stringify(r.stop_report.reasons));
+    }],
+  // 変異は検出役の性質の query と同じ節の名前の集合を持つ（artifact-formats「担当の成果物」の節の名前、SP-FORMALMETHOD-012）
+  ['節の名前（:named）を保たない変異', { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('mut-unnamed.smt2', '; mutation unnamed\n(declare-const x Int)\n(assert (> x 0))\n(check-sat)\n') })) }) },
+    (r) => {
+      assertExcluded(r, ['MU-P1']);
+      assert.equal(prop(r, 'P1').detection.status, '検出能力未確認');
+      const ref = r.confirmations.deterministic.find((c) => c.kind === 'reference');
+      assert.equal(ref?.result, '成り立たない', '名前の食い違いは reference の区分の欠陥');
+      assert.match(ref.reason, /MU-P1 の assert の名前/);
     }],
   // mutation_ref は計画作成役自身の attempts/<task_id>/ で始まる（artifact-formats「変異のファイル」）。モデル作成役の query を指すと計画の欠陥
   ['mutation_ref が他の役の attempt（モデル作成役の query）を指す変異', { editMutations: (m, { mref }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: mref(`${x.property_id}.smt2`) })) }) },
@@ -677,33 +666,34 @@ export function expectedInputRefs(task, { result, harness, runDir }) {
   const c = task.context;
   const rel = (abs) => relative(runDir, abs);
   const req = readJson(join(runDir, 'request.json'));
-  const allCopies = req.targets.map((x) => `targets/${x.id}/files`);
+  const copiesOf = (id) => req.targets.find((x) => x.id === id).fixed.files.filter((f) => f.text).map((f) => `target:${id}/${f.path}`);
   const invOf = (targetId) => rel(join(lastTask(harness, 'extractor', (x) => x.context.target_id === targetId).attempt_dir, 'inventory.json'));
-  const allInv = req.targets.map((x) => invOf(x.id));
+  // 対象のファイルの ref（写しを作らないので target:<id>/<file>）。範囲で渡す役は、出所のあるファイルだけ
+  const fileRefs = (pairs) => [...new Set(pairs.map(([tid, f]) => `target:${tid}/${f}`))];
+  const elementsAll = req.targets.flatMap((x) => readJson(join(runDir, invOf(x.id))).elements);
+  const filesOfElements = (ids) => fileRefs(elementsAll.filter((e) => ids.includes(e.id)).map((e) => [e.source.target_id, e.source.file]));
   const modelOf = (id) => { const m = harness.memory.models.filter((x) => x.id === id).at(-1); return { model: rel(join(m.task.attempt_dir, m.file)), mapping: rel(join(m.task.attempt_dir, `mapping-${id}.json`)), json: readJson(join(m.task.attempt_dir, m.file)) }; };
   const ran = (id) => existsSync(join(runDir, 'checks', id));
   const rec = (id) => `checks/${id}`;
   const plan = lastTask(harness, 'plan-author');
   switch (c.perspective) {
-    case 'extraction': return [`targets/${c.target_id}/files`, `targets/${c.target_id}/manifest.json`, invOf(c.target_id), 'worklogs/cli-洗い出し.json'];
-    case 'fidelity': { const m = modelOf(c.model_id); return [...allCopies, ...req.targets.map((x) => `targets/${x.id}/manifest.json`), ...allInv, m.model, m.mapping, 'worklogs/cli-モデル化.json']; }
-    case 'assurance': {
-      const mp = c.unit_id.slice('assurance-'.length);
+    case 'extraction': return [...copiesOf(c.target_id), `targets/${c.target_id}/manifest.json`, invOf(c.target_id), 'worklogs/cli-洗い出し.json'];
+    case 'fidelity': {
+      // 性質の query と、判断を要する項目があればその記録とその実行の記録（artifact-formats「独立検証者と原因の分類役の input_refs」）
       const m = modelOf(c.model_id);
-      const planFile = readJson(join(plan.attempt_dir, 'plan.json'));
-      const execs = [
-        ...planFile.checks.filter((x) => x.target_id === mp).map((x) => x.id),
-        ...result.confirmations.deterministic.filter((x) => ['sanity', 'mutation', 'replay'].includes(x.kind) && x.model_property_id === mp).map((x) => x.id),
-      ].filter(ran).map(rec);
-      const mut = join(plan.attempt_dir, 'mutations.json');
-      return [m.model, m.mapping, m.json.properties.find((p) => p.id === mp).query_ref, rel(join(plan.attempt_dir, 'plan.json')), ...(existsSync(mut) ? [rel(mut)] : []), ...execs];
+      const mps = new Set(m.json.properties.map((p) => p.id));
+      const js = result.confirmations.judgments.filter((j) => mps.has(j.model_property_id));
+      const mapping = readJson(join(runDir, m.mapping));
+      const srcIds = m.json.properties.flatMap((p) => p.clauses.flatMap((x) => x.source_ids));
+      const files = [...new Set([...fileRefs(mapping.rows.filter((r) => r.source.kind === 'location').map((r) => [r.source.target_id, r.source.file])), ...filesOfElements(srcIds)])];
+      return [`views/fidelity-${c.model_id}.json`, ...files, m.model, m.mapping, ...m.json.properties.map((p) => p.query_ref),
+        ...(js.length ? [`judgments/${c.model_id}.json`] : []), ...js.map((j) => j.id).filter(ran).map(rec), 'worklogs/cli-モデル化.json'];
     }
     case 'nonformal': {
       const pid = c.property_ids[0];
       const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => ({ x, j: readJson(join(x.attempt_dir, 'inventory.json')) })).filter(({ j }) => j.properties.some((p) => p.id === pid)).at(-1);
       const p = inv.j.properties.find((y) => y.id === pid);
-      const targets = [...new Set(p.source_ids.map((sid) => inv.j.elements.find((e) => e.id === sid).source.target_id))];
-      return [...targets.map((id) => `targets/${id}/files`), rel(join(inv.x.attempt_dir, 'inventory.json'))];
+      return [`views/nonformal-${pid}.json`, ...filesOfElements(p.source_ids)];
     }
     case 'composition': {
       const pt = lastTask(harness, 'partition-author');
@@ -719,7 +709,10 @@ export function expectedInputRefs(task, { result, harness, runDir }) {
       const cex = result.counterexamples.find((x) => x.id === s.id);
       const chk = result.checks.find((x) => x.id === cex.check_id);
       const m = modelOf(chk.model_id);
-      return [...allCopies, ...[cex.check_id, cex.replay.confirmation_id].filter((id) => id && ran(id)).map(rec), m.model, m.mapping];
+      const mp = m.json.properties.find((p) => p.id === chk.target_id) ?? m.json.properties.find((p) => p.inventory_property_ids.includes(cex.property_id));
+      const mapping = readJson(join(runDir, m.mapping));
+      const files = [...new Set([...filesOfElements(mp.clauses.flatMap((x) => x.source_ids)), ...fileRefs(mapping.rows.filter((r) => r.source.kind === 'location' && mp.inventory_property_ids.includes(r.property_id)).map((r) => [r.source.target_id, r.source.file]))])];
+      return [...files, ...[cex.check_id, cex.replay.confirmation_id].filter((id) => id && ran(id)).map(rec), m.model, m.mapping];
     }
   }
 }
@@ -732,7 +725,7 @@ export function assertInputRefs(out, tasks) {
     assert.deepEqual(refs[0], { name: 'request', ref: 'request.json' }, `${task.task_id} の先頭は request.json`);
     assert.deepEqual(refs.slice(1).map((r) => norm(r.ref)).sort(), expectedInputRefs(task, { ...out, runDir }).map(norm).sort(), `${task.task_id}（${task.context.perspective ?? task.role}）の input_refs`);
     for (const r of refs) {
-      assert.ok(existsSync(join(runDir, r.ref)), `${r.ref} は実在する（実行していない検査の記録は入れない）`);
+      assert.ok(existsSync(runPath(runDir, r.ref)), `${r.ref} は実在する（実行していない検査の記録は入れない）`);
       assert.ok(!(r.ref.startsWith('attempts/') && statSync(join(runDir, r.ref)).isDirectory()), `${r.ref}: attempts/ のディレクトリは入れない`);
     }
     // 台帳の input_refs もディレクトリを展開した RefHash（その task が作った記録の entry）
@@ -745,10 +738,10 @@ export function assertInputRefs(out, tasks) {
   }
 }
 
-// 時間の上限の run が想定の筋に乗らなかったときの手掛かり: 出た batch（段と役）と停止の理由
+// 時間の上限の run が想定の筋に乗らなかったときの手掛かり: 開いた呼び出し（段と役）と停止の理由
 export function timeLimitDiag(result, harness) {
-  const batches = harness.memory.batches.map((b) => `${b.batch_id}[${b.tasks.map((x) => `${x.context.stage}/${x.role}`).join(',')}]`);
-  return `出た batch: ${batches.join(' ')}; 停止の理由: ${JSON.stringify(result.stop_report?.reasons ?? [])}`;
+  const calls = harness.memory.calls.map((b) => `${b.callId}[${b.workers.map((x) => `${b.stage}/${x.role}`).join(',')}]`);
+  return `開いた呼び出し: ${calls.join(' ')}; 停止の理由: ${JSON.stringify(result.stop_report?.reasons ?? [])}`;
 }
 
 // ---- #26: 変異の無い性質の detection（artifact-formats「変異の無い性質の detection」。依頼者の決定） ----

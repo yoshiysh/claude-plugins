@@ -187,7 +187,7 @@ test('cli-contract publishResult lost: salvage の追補台帳が既にあって
 // lost_unreadable: 負けたが、既にある result.json を読めないか、結果の形に合わない
 const UNREADABLE = [
   ['JSON でない', { files: { [join(RUN, 'result.json')]: '{"schema": "formal-' } }, 'ledger.json'],
-  ['結果の形に合わない', { files: { [join(RUN, 'result.json')]: { schema: 'formal-method.result/1', broken: true } } }, 'ledger.json'],
+  ['結果の形に合わない', { files: { [join(RUN, 'result.json')]: { schema: 'formal-method.result/2', broken: true } } }, 'ledger.json'],
   ['読むと I/O の誤り', { files: { [join(RUN, 'result.json')]: sampleResult('x') }, fail: [{ op: 'readFile', final: 'result.json', code: 'EIO' }] }, 'ledger.json'],
   ['追補台帳が既にあって指紋が違い、result.json が形に合わない', { files: { [join(RUN, 'salvage-ledger.json')]: { other: true }, [join(RUN, 'result.json')]: { broken: true } } }, 'salvage-ledger.json'],
 ];

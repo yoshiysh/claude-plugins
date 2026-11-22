@@ -1,4 +1,4 @@
-// 結合: client（wait・salvage・submit）の規則を、作った run の領域と実際の process の生死で確かめる。
+// 結合: client（wait・salvage・close）の規則を、作った run の領域と実際の process の生死で確かめる。
 // 正本: cli-contract.md「コマンド」「受け箱」「生死の判定」「salvage の手順」「誤りと終了コード」。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -159,7 +159,7 @@ test('cli-contract salvage 2: result.json があり結果の形に合えば、�
 });
 
 const UNREADABLE_RESULT = [
-  ['結果の形に合わない', (dir) => writeFileSync(join(dir, 'result.json'), JSON.stringify({ schema: 'formal-method.result/1', broken: true }))],
+  ['結果の形に合わない', (dir) => writeFileSync(join(dir, 'result.json'), JSON.stringify({ schema: 'formal-method.result/2', broken: true }))],
   ['JSON でない', (dir) => writeFileSync(join(dir, 'result.json'), '{"schema": "formal-')],
   ['ファイルでない', (dir) => mkdirSync(join(dir, 'result.json'))],
 ];
@@ -208,73 +208,73 @@ test('cli-contract salvage 4 生死の判定 4: 勝者の生死を判定でき�
   assert.deepEqual(j.detail, { holder_role: 'salvage', liveness: 'unknown', run_dir: dir });
 });
 
-// ---- submit と受け箱 ----
+// ---- close と受け箱 ----
 const INBOX_FORMS = [
-  ['workflow_output_path の形', (dir) => ({ run_dir: dir, batch_id: 'b1', workflow_output_path: join(dir, 'wf.json') }), (dir) => ({ batch_id: 'b1', workflow_output_path: join(dir, 'wf.json') })],
-  ['timed_out の形', (dir) => ({ run_dir: dir, batch_id: 'b1', timed_out: true }), () => ({ batch_id: 'b1', timed_out: true })],
+  ['workflow_output_path の形', (dir) => ({ run_dir: dir, call_id: 'c1', workflow_output_path: join(dir, 'wf.json') }), (dir) => ({ call_id: 'c1', workflow_output_path: join(dir, 'wf.json') })],
+  ['timed_out の形', (dir) => ({ run_dir: dir, call_id: 'c1', timed_out: true }), () => ({ call_id: 'c1', timed_out: true })],
 ];
 for (const [name, input, content] of INBOX_FORMS) {
-  test(`cli-contract 受け箱 submit（${name}）: 受け箱を公開して accepted を返し、一時ファイルを残さない`, async (t) => {
+  test(`cli-contract 受け箱 close（${name}）: 受け箱を公開して accepted を返し、一時ファイルを残さない`, async (t) => {
     const ws = makeWorkspace();
     t.after(() => removeTree(ws));
     const { dir } = makeRunDir(ws);
-    const j = expectOk(await cli('submit', input(dir), { cwd: ws }), 'submit');
+    const j = expectOk(await cli('close', input(dir), { cwd: ws }), 'close');
     assert.equal(j.outcome, 'accepted');
-    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'inbox', 'b1.json'), 'utf8')), content(dir));
-    assert.deepEqual(readdirSync(join(dir, 'inbox')), ['b1.json']);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'inbox', 'c1.json'), 'utf8')), content(dir));
+    assert.deepEqual(readdirSync(join(dir, 'inbox')), ['c1.json']);
     assert.deepEqual(readdirSync(dir).sort(), ['inbox'], '受け箱の外を書かない（status.json が無くても公開する）');
   });
 }
 
-test('cli-contract 誤りと終了コード E_INTERNAL: inbox が書込み不可で submit が予期しない I/O の誤りになると、終了コード 1 で、標準出力は code E_INTERNAL・detail null の拒否の JSON 1 つ', async (t) => {
+test('cli-contract 誤りと終了コード E_INTERNAL: inbox が書込み不可で close が予期しない I/O の誤りになると、終了コード 1 で、標準出力は code E_INTERNAL・detail null の拒否の JSON 1 つ', async (t) => {
   if (skipIfRoot(t)) return;
   const ws = makeWorkspace();
   const { dir } = makeRunDir(ws);
   mkdirSync(join(dir, 'inbox'));
   chmodSync(join(dir, 'inbox'), 0o555);
   t.after(() => { try { chmodSync(join(dir, 'inbox'), 0o755); } catch { /* 消し済み */ } removeTree(ws); });
-  const r = await cli('submit', { run_dir: dir, batch_id: 'b1', timed_out: true }, { cwd: ws });
+  const r = await cli('close', { run_dir: dir, call_id: 'c1', timed_out: true }, { cwd: ws });
   assert.equal(r.code, 1, `終了コードは 0・1・2 の閉じた集合の 1（stderr: ${r.stderr.slice(0, 500)}）`);
   assert.equal(r.lines, 1, '標準出力は JSON 1 つ');
   const j = expectRejected(r, 'E_INTERNAL');
-  assert.equal(j.command, 'submit');
+  assert.equal(j.command, 'close');
   assert.equal(j.detail, null);
   assert.deepEqual(readdirSync(join(dir, 'inbox')), [], '受け箱は公開されない');
 });
 
-test('cli-contract 受け箱 準正常: 同じ batch の 2 回目の submit は、内容が違っても何も変えずに duplicate を返す', async (t) => {
+test('cli-contract 受け箱 準正常: 同じ呼び出しの 2 回目の close は、内容が違っても何も変えずに duplicate を返す', async (t) => {
   const ws = makeWorkspace();
   t.after(() => removeTree(ws));
   const { dir } = makeRunDir(ws);
-  expectOk(await cli('submit', { run_dir: dir, batch_id: 'b1', workflow_output_path: '/a.json' }, { cwd: ws }), 'submit');
+  expectOk(await cli('close', { run_dir: dir, call_id: 'c1', workflow_output_path: '/a.json' }, { cwd: ws }), 'close');
   const before = snapshotTree(dir);
-  const j = expectOk(await cli('submit', { run_dir: dir, batch_id: 'b1', timed_out: true }, { cwd: ws }), 'submit');
+  const j = expectOk(await cli('close', { run_dir: dir, call_id: 'c1', timed_out: true }, { cwd: ws }), 'close');
   assert.equal(j.outcome, 'duplicate');
   assert.deepEqual(snapshotTree(dir), before);
 });
 
-test('cli-contract 受け箱 境界: status.json の開いている batch と違う batch_id でも公開する（読むかは run-daemon が決める）', async (t) => {
+test('cli-contract 受け箱 境界: status.json の開いている呼び出しと違う call_id でも公開する（読むかは run-daemon が決める）', async (t) => {
   const { ws, dir, id } = await fixture(t, { holder: 'live' });
-  writeStatus(dir, statusOf(dir, { seq: 1, daemon: id, action: 'run_agents', batch: { batch_id: 'b-open', tasks_path: join(dir, 'batches', 'b-open', 'tasks.json'), deadline_wall_ms: Date.now() + 60000, workflow_script: '/x.js' } }));
-  const j = expectOk(await cli('submit', { run_dir: dir, batch_id: 'b-other', timed_out: true }, { cwd: ws }), 'submit');
+  writeStatus(dir, statusOf(dir, { seq: 1, daemon: id, action: 'run_agents', call: { call_id: 'c-open', args_path: join(dir, 'calls', 'c-open', 'args.json'), deadline_wall_ms: Date.now() + 60000, workflow_script: '/x.js' } }));
+  const j = expectOk(await cli('close', { run_dir: dir, call_id: 'c-other', timed_out: true }, { cwd: ws }), 'close');
   assert.equal(j.outcome, 'accepted');
-  assert.ok(existsSync(join(dir, 'inbox', 'b-other.json')));
+  assert.ok(existsSync(join(dir, 'inbox', 'c-other.json')));
 });
 
-test('cli-contract 受け箱 準正常: 並行に 2 つの submit を呼んでも、公開は 1 つだけで、一方が accepted・他方が duplicate', async (t) => {
+test('cli-contract 受け箱 準正常: 並行に 2 つの close を呼んでも、公開は 1 つだけで、一方が accepted・他方が duplicate', async (t) => {
   const ws = makeWorkspace();
   t.after(() => removeTree(ws));
   const { dir } = makeRunDir(ws);
   mkdirSync(join(dir, 'inbox'));
   const [a, b] = await Promise.all([
-    cli('submit', { run_dir: dir, batch_id: 'b1', workflow_output_path: '/a.json' }, { cwd: ws }),
-    cli('submit', { run_dir: dir, batch_id: 'b1', workflow_output_path: '/b.json' }, { cwd: ws }),
+    cli('close', { run_dir: dir, call_id: 'c1', workflow_output_path: '/a.json' }, { cwd: ws }),
+    cli('close', { run_dir: dir, call_id: 'c1', workflow_output_path: '/b.json' }, { cwd: ws }),
   ]);
-  const outcomes = [expectOk(a, 'submit').outcome, expectOk(b, 'submit').outcome].sort();
+  const outcomes = [expectOk(a, 'close').outcome, expectOk(b, 'close').outcome].sort();
   assert.deepEqual(outcomes, ['accepted', 'duplicate']);
-  const content = JSON.parse(readFileSync(join(dir, 'inbox', 'b1.json'), 'utf8'));
+  const content = JSON.parse(readFileSync(join(dir, 'inbox', 'c1.json'), 'utf8'));
   assert.ok(['/a.json', '/b.json'].includes(content.workflow_output_path), '書き終えた内容だけが見える');
-  assert.deepEqual(readdirSync(join(dir, 'inbox')), ['b1.json']);
+  assert.deepEqual(readdirSync(join(dir, 'inbox')), ['c1.json']);
 });
 });
 

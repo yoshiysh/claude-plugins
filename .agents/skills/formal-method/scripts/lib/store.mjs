@@ -97,7 +97,7 @@ export function readMark(runDir) {
   } catch { return { state: 'present', winner: null }; }
 }
 
-const terminalStatus = (runDir, result, extra = {}) => ({ seq: extra.seq ?? 0, run_dir: runDir, action: 'terminal', batch: null, result, daemon: extra.daemon ?? null });
+const terminalStatus = (runDir, result, extra = {}) => ({ seq: extra.seq ?? 0, run_dir: runDir, action: 'terminal', call: null, result, daemon: extra.daemon ?? null });
 
 // ---- salvage の手順（cli-contract.md「salvage の手順」） ----
 // run の領域の 1 回の観測（salvage の規則と start の 5-1 が読む値）。保持者の生死を先に決め、その後に結果と status.json を読む。
@@ -170,7 +170,7 @@ export function salvage(runDir, { location, readRun = readRunObservation } = {})
   if (d.kind === 'result_unreadable') return unreadable(runDir);
   if (d.step === 'return_result_json') return { ok: true, status: terminalStatus(runDir, published.result, extra) };
   // 規則 3: 判断に使った同じ観測の terminal の Status を返す
-  if (d.step === 'return_status_result') return { ok: true, status: { ...prevStatus, batch: null } };
+  if (d.step === 'return_status_result') return { ok: true, status: { ...prevStatus, call: null } };
   // 規則 5-1: children/ の記録のうち、pid と開始時刻が一致して生きている group を止める（規則 4 の I/O の誤りでも同じ）
   stopLiveChildren(runDir);
   if (d.step === 'return_unpublished') {

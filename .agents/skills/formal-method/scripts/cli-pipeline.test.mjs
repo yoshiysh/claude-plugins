@@ -1,7 +1,7 @@
 // 結合: start から terminal まで、担当の harness と PATH の偽の z3 で通し、結果と記録を観測する。
 // 担当の harness は test-fixtures/agent-harness.mjs（受け取った task が契約の形に合わなければ、その違反で失敗する）。
 // 正本: SP-FORMALMETHOD-003〜015、artifact-formats.md「結果」「検査の終わり方」、cli-contract.md「Z3 の adapter」。
-// このファイルは完了の run・道具の失敗・残った性質・担当の失敗・受け箱の batch の拒否。ファイルを分けて並列に走らせ、共有の道具は test-fixtures/pipeline-cases.mjs に置く。
+// このファイルは完了の run・道具の失敗・残った性質・担当の失敗・受け箱と close。ファイルを分けて並列に走らせ、共有の道具は test-fixtures/pipeline-cases.mjs に置く。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -14,7 +14,7 @@ import { skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { specAggregate, DEFAULT_FACTS } from './test-fixtures/spec-verdict.mjs';
 import { stopStageViolations, INTERRUPTS } from './test-fixtures/decomposition-check.mjs';
 import { ledgerEntryViolations, tasksById, AGENT_PERMISSIONS_CONTRACT, LEDGER_ENTRY_KEYS } from './test-fixtures/ledger-check.mjs';
-import { P, prop, checksOf, inputOf, callsFor, assertRecordsConsistent, canonicalRun, TOOL_CASES, RESIDUE_CASES, AGENT_FAIL, AGENT_MODES, firstBatchWith, assertBatchRejected, REJECT_CASES } from './test-fixtures/pipeline-cases.mjs';
+import { P, prop, checksOf, inputOf, callsFor, assertRecordsConsistent, canonicalRun, TOOL_CASES, RESIDUE_CASES, AGENT_FAIL, AGENT_MODES, firstCallWith, assertAcceptedKept, CLOSE_CASES } from './test-fixtures/pipeline-cases.mjs';
 
 describe('cli-pipeline', { concurrency: 4 }, () => {
 test('SP-FORMALMETHOD-015 AC-14 AC-21: 全ての条件が成り立つ依頼は 完了 になり、stop_report は null で、結果は schema に通る', async () => {
@@ -156,9 +156,10 @@ test('cli-contract Z3 の adapter: 道具に渡す option は -in・-T:<秒>・-
   const { log, result, status } = await canonicalRun();
   const calls = log();
   assert.ok(calls.length >= 1, '道具を呼んだ');
-  // 正準のシナリオの実行は、性質の検査・sanity・変異（反例が無いので replay は無い）。checks/<execution_id>/input.smt2 で呼出しを引く
+  // 正準のシナリオの実行は、性質の検査・sanity・変異・静的な確認の否定だけの実行（反例が無いので replay は無く、前提の節が無いので
+  // 前提と否定だけ・規則と否定だけの実行も無い）。checks/<execution_id>/input.smt2 で呼出しを引く
   const execs = [...result.checks.map((c) => [c.id, c.kind]), ...result.confirmations.deterministic.filter((c) => c.end?.started).map((c) => [c.id, c.kind])];
-  assert.deepEqual([...new Set(execs.map(([, k]) => k))].sort(), ['mutation', 'property', 'sanity']);
+  assert.deepEqual([...new Set(execs.map(([, k]) => k))].sort(), ['goal_trivial', 'mutation', 'property', 'sanity']);
   for (const [id, kind] of execs) {
     const cs = callsFor(calls, inputOf(status.run_dir, id));
     assert.ok(cs.length >= 1, `${kind} ${id} の input.smt2 で道具を呼ぶ`);
@@ -234,6 +235,8 @@ test('SP-FORMALMETHOD-012 AC-09: 常に成功を返す道具では、変異の�
   for (const m of p.detection.mutations) assert.equal(m.detected, false);
   assert.ok(!p.verdict.includes('検証済み'));
   assert.equal(result.status, '停止');
+  // 性質の否定だけの query にも unsat を返すので、静的な確認は性質が自明だと示す（SP-FORMALMETHOD-012 AC-22）
+  assert.equal(result.confirmations.deterministic.find((c) => c.kind === 'goal_trivial')?.result, '成り立たない');
 });
 for (const [name, tool, query, verdict, end] of TOOL_CASES) {
   test(`SP-FORMALMETHOD-007・011 AC-05: ${name} は検査の判定 ${verdict} になり、性質は成功にならず、状態は 停止`, async (t) => {
@@ -314,13 +317,12 @@ for (const [role, kinds] of AGENT_FAIL) {
     });
   }
 }
-for (const [name, mode, role, over, scenario = {}] of REJECT_CASES) {
-  test(`cli-contract 受け箱 batch の拒否 SP-FORMALMETHOD-015 AC-19: ${name}と、batch の全ての task が 担当の失敗（段は task の context.stage）になり、作業記録の failures に 1 件ずつ入り、成果物は未作成`, async (t) => {
-    if (mode === 'inbox_unreadable' && skipIfRoot(t)) return;
-    const pick = firstBatchWith(role);
-    const out = await runScenario(t, { request: canonicalRequest(over), scenario, hooks: { reject: (s, list) => (pick(s, list) ? mode : null) } });
-    const list = assertBatchRejected(out);
-    assert.ok(list.tasks.some((x) => x.role === role), `${role} の batch を拒否した`);
+for (const [name, mode, role, over, scenario = {}] of CLOSE_CASES) {
+  test(`cli-contract 受け箱 SP-FORMALMETHOD-015 AC-19: ${name}でも、その呼び出しで submit が受理した担当は捨てられず（担当の失敗 にならず成果物・確認・原因が残る）、起動の記録を残せないことは作業記録の unconfirmed に残る`, async (t) => {
+    const pick = firstCallWith(role);
+    const out = await runScenario(t, { request: canonicalRequest(over), scenario, hooks: { close: (s, call) => (pick(s, call) ? mode : null) } });
+    const call = assertAcceptedKept(out, mode);
+    assert.ok(call.workers.some((x) => x.role === role), `${role} の呼び出しに当てた`);
   });
 }
 });

@@ -21,15 +21,32 @@ export class ConfirmationIds {
   next(kind) { const v = (this.n.get(kind) ?? 0) + 1; this.n.set(kind, v); return `confirm-${kind}-${v}`; }
 }
 
-// 確認の段の unit（artifact-formats.md「役と context」の unit_id の作り方）。
-export function reviewUnits({ inventories, nonformal, models, partitionsAdopted }) {
+// 確認の段の unit（artifact-formats.md「役と context」の unit_id の作り方）。性質ごとの保証の unit は無い。
+// 忠実さの unit はモデルごとで、そのモデルの性質の判断を要する項目（judgments の id）を答える（judgment_ids）。
+export function reviewUnits({ inventories, nonformal, models, partitionsAdopted, judgments = [] }) {
   const units = [];
-  for (const inv of inventories) units.push({ role: 'extraction-reviewer', perspective: 'extraction', unit_id: `extraction-${inv.target_id}`, target_id: inv.target_id, property_ids: [], model_id: null });
-  for (const p of nonformal) units.push({ role: 'assurance-reviewer', perspective: 'nonformal', unit_id: `nonformal-${p.id}`, target_id: null, property_ids: [p.id], model_id: null });
-  for (const m of models) units.push({ role: 'fidelity-reviewer', perspective: 'fidelity', unit_id: `fidelity-${m.id}`, target_id: null, property_ids: [], model_id: m.id });
-  for (const m of models) for (const mp of m.data.properties) units.push({ role: 'assurance-reviewer', perspective: 'assurance', unit_id: `assurance-${mp.id}`, target_id: null, property_ids: [...mp.inventory_property_ids], model_id: m.id, model_property_id: mp.id });
-  if (partitionsAdopted) units.push({ role: 'composition-reviewer', perspective: 'composition', unit_id: 'composition', target_id: null, property_ids: [], model_id: null });
+  for (const inv of inventories) units.push({ role: 'extraction-reviewer', perspective: 'extraction', unit_id: `extraction-${inv.target_id}`, target_id: inv.target_id, property_ids: [], model_id: null, judgment_ids: [] });
+  for (const p of nonformal) units.push({ role: 'assurance-reviewer', perspective: 'nonformal', unit_id: `nonformal-${p.id}`, target_id: null, property_ids: [p.id], model_id: null, judgment_ids: [] });
+  for (const m of models) {
+    const mps = new Set(m.data.properties.map((p) => p.id));
+    units.push({ role: 'fidelity-reviewer', perspective: 'fidelity', unit_id: `fidelity-${m.id}`, target_id: null, property_ids: [], model_id: m.id,
+      judgment_ids: judgments.filter((j) => mps.has(j.model_property_id)).map((j) => j.id) });
+  }
+  if (partitionsAdopted) units.push({ role: 'composition-reviewer', perspective: 'composition', unit_id: 'composition', target_id: null, property_ids: [], model_id: null, judgment_ids: [] });
   return units;
+}
+
+// 忠実さの確認役の返り値の judgments が、その unit の判断を要する項目（ids）にちょうど 1 つずつ答えているか。違えば理由の文、合えば null。
+export function judgmentAnswers(ids = []) {
+  return (ret) => {
+    const got = ret.judgments.map((j) => j.id);
+    const missing = ids.filter((id) => !got.includes(id));
+    const extra = got.filter((id) => !ids.includes(id));
+    const dup = got.filter((id, i) => got.indexOf(id) !== i);
+    const bad = [...(missing.length ? [`判断を要する項目 ${missing.join(', ')} の答えが無い`] : []), ...(extra.length ? [`この担当の判断を要する項目に無い ${[...new Set(extra)].join(', ')} に答えた`] : []),
+      ...(dup.length ? [`判断を要する項目 ${[...new Set(dup)].join(', ')} に 2 度答えた`] : [])];
+    return bad.length ? bad.join('。') : null;
+  };
 }
 
 // 組合せは cause-combination-<model_id>-<n>（n はその組の Combinations.cells の中の 0 から数えた位置）。状態と出来事の名前は

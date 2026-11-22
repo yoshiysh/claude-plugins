@@ -148,3 +148,42 @@ test('fake-z3 の自己検査: --fake-log は受け取った引数と、fake- �
     assert.equal(entries.find((e) => e.kind === 'query-end').model, 'real');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// 静的な確認の query（節を切り取ったもの）: core の名前が 1 つでも欠ければ、sleep-ms 以外の指示によらず ablated-result（既定 sat）を返す
+const NAMED = '(declare-const x Int)\n(assert (! (> x 1) :named r1))\n(assert (! (< x 0) :named g1))';
+const GOAL_ONLY = '(declare-const x Int)\n(assert (! (< x 0) :named g1))';
+const CORE_CASES = [
+  // [名前, 指示, 本文, 期待の答えの行]
+  ['core が全てある query は他の指示どおり', { core: 'r1 g1', result: 'unsat' }, NAMED, 'unsat'],
+  ['core の欠けた query（前提だけ・否定だけ）は既定の sat', { core: 'r1 g1', result: 'unsat', mode: 'crash' }, GOAL_ONLY, 'sat'],
+  ['否定だけで unsat を作る（core を否定の名前だけにする）', { core: 'g1', result: 'unsat' }, GOAL_ONLY, 'unsat'],
+  ['ablated-result で core の欠けた query の答えを変える', { core: 'r1 g1', result: 'unsat', 'ablated-result': 'unknown' }, GOAL_ONLY, 'unknown'],
+  ['core の欠けた query も -T を超える遅れは timeout', { core: 'r1 g1', 'sleep-ms': 3000 }, GOAL_ONLY, 'timeout'],
+];
+for (const [name, directives, body, answer] of CORE_CASES) {
+  test(`fake-z3 の自己検査（静的な確認）: ${name}`, async () => {
+    const out = await runFake(['-in', '-T:1'], q(directives, body));
+    assert.equal(out.code, 0, out.stderr);
+    assert.deepEqual(out.lines, [answer]);
+  });
+}
+test('fake-z3 の自己検査（静的な確認）: --fake-mode=always-unsat は core の欠けた query にも unsat を返す', async () => {
+  const out = await runFake(['-in', '-T:5', '--fake-mode=always-unsat'], q({ core: 'r1 g1' }, GOAL_ONLY));
+  assert.deepEqual(out.lines, ['unsat']);
+});
+
+test('SP-FORMALMETHOD-012 fake-z3 の自己検査（静的な確認）: answers は :named の名前の集合ごとに違う答えを返し、集合が key に無い query は core と他の指示どおり', async () => {
+  const answers = JSON.stringify({ g1: 'sat', 'g1 r1': 'unknown', 'g1 p1': 'timeout', 'g1 p2': 'crash', 'g1 p3': 'syntax-error' });
+  const run = (body) => runFake(['-in', '-T:5'], q({ answers, core: 'r1 g1', result: 'unsat' }, body));
+  assert.deepEqual((await run(GOAL_ONLY)).lines, ['sat']);
+  const both = await run(NAMED);
+  assert.deepEqual([both.code, both.lines], [0, ['unknown']], 'key は名前を辞書順に並べたもの');
+  assert.deepEqual((await run('(declare-const x Int)\n(assert (! (< x 0) :named g1))\n(assert (! (> x 9) :named p1))')).lines, ['timeout']);
+  const crash = await run('(declare-const x Int)\n(assert (! (< x 0) :named g1))\n(assert (! (> x 9) :named p2))');
+  assert.deepEqual([crash.code, crash.lines], [3, []]);
+  const err = await run('(declare-const x Int)\n(assert (! (< x 0) :named g1))\n(assert (! (> x 9) :named p3))');
+  assert.equal(err.code, 1);
+  assert.match(err.lines[0], /^\(error /);
+  const other = await run('(declare-const x Int)\n(assert (! (> x 1) :named r1))');
+  assert.deepEqual(other.lines, ['sat'], 'key に無い集合は core の欠けた query として ablated-result');
+});

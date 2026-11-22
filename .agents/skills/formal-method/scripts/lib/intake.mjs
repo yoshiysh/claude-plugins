@@ -1,7 +1,8 @@
 // 受付の段の対象の取得（artifact-formats.md「共通の型」の対象・テキストかどうか・版と指紋）。
-// 依頼の検査・対象の取得・版の照合・写しの保存は、全て同じ読み込みのバイト列で行う。対象の写しは秘密値を走査しない。
+// 依頼の検査・対象の取得・版の照合は、全て同じ読み込みのバイト列で行う。対象の写しは作らず（対象は run の間固定している前提）、
+// 担当には元のファイルの絶対パスを渡す。固定の前提は集約の段で 1 度だけ照らす（targetChanges）。
 import { execFileSync } from 'node:child_process';
-import { lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, mkdirSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256Bytes } from './canonical.mjs';
@@ -22,9 +23,10 @@ export function collectionHash(files) {
   return sha256Bytes(Buffer.from(files.map((f) => `${f.path}\0${f.content_hash}\n`).join(''), 'utf8'));
 }
 
-const fileEntry = (path, bytes) => {
-  if (bytes === null) return { path, content_hash: 'unreadable', text: false, bytes: null };
-  return { path, content_hash: sha256Bytes(bytes), text: isText(bytes), bytes };
+// abs は元のファイルの絶対パス（担当に渡す path）
+const fileEntry = (path, abs, bytes) => {
+  if (bytes === null) return { path, abs, content_hash: 'unreadable', text: false, bytes: null };
+  return { path, abs, content_hash: sha256Bytes(bytes), text: isText(bytes), bytes };
 };
 
 // 1 つの対象を取得する。戻り値: { ok: true, target } | { ok: false, code, detail }
@@ -56,7 +58,7 @@ export function fetchTarget(t, { workspace }) {
   if (st.isFile()) {
     let bytes = null;
     try { bytes = readFileSync(path); } catch { bytes = null; }
-    files.push(fileEntry(basename(path), bytes));
+    files.push(fileEntry(basename(path), path, bytes));
   } else if (st.isDirectory()) {
     try { readdirSync(path); } catch { return unavailable('根のディレクトリを読めない'); }
     const walk = (dir, rel) => {
@@ -82,15 +84,15 @@ export function fetchTarget(t, { workspace }) {
         if (!est.isFile()) { unread.push({ file: r, reason: '通常のファイルでない' }); continue; }
         let bytes = null;
         try { bytes = readFileSync(p); } catch { bytes = null; }
-        files.push(fileEntry(r, bytes));
+        files.push(fileEntry(r, p, bytes));
       }
     };
     walk(path, '');
   } else return unavailable('location がファイルでもディレクトリでもない');
-  return finish(t, files, unread, excluded, resolvedLocation, null);
+  return finish(t, files, unread, excluded, resolvedLocation, null, path);
 }
 
-function finish(t, files, unread, excluded, resolvedLocation, revision) {
+function finish(t, files, unread, excluded, resolvedLocation, revision, root) {
   files.sort((a, b) => cmpBytes(a.path, b.path));
   for (const f of files) {
     if (f.content_hash === 'unreadable') unread.push({ file: f.path, reason: '読めないファイル' });
@@ -100,14 +102,15 @@ function finish(t, files, unread, excluded, resolvedLocation, revision) {
   excluded.sort(cmpBytes);
   const contentHash = collectionHash(files);
   if (t.content_hash && t.content_hash !== contentHash) return { ok: false, code: 'revision_mismatch', detail: '依頼の content_hash が集まりの指紋と一致しない' };
-  return { ok: true, target: { id: t.id, location: t.location, resolved_location: resolvedLocation, revision, content_hash: contentHash, files, unread, excluded } };
+  return { ok: true, target: { id: t.id, location: t.location, resolved_location: resolvedLocation, root, revision, content_hash: contentHash, files, unread, excluded } };
 }
 
 function git(cwd, args, encoding = 'utf8') {
   return execFileSync('git', ['-C', cwd, ...args], { encoding, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 });
 }
 
-// revision を添えた依頼は、location を含む git の作業ツリーから、その版の tree の内容を取る。
+// revision を添えた依頼は、location を含む git の作業ツリーから、その版の tree の内容を取る。写しを作らず元のファイルを担当に渡すので、
+// 作業ツリーのファイルの指紋がその版の blob と一致するときだけ受け付ける（一致しなければ revision_mismatch）
 function fetchRevision(t, path, resolvedLocation) {
   const mismatch = (detail) => ({ ok: false, code: 'revision_mismatch', detail });
   let isDirectory;
@@ -135,28 +138,44 @@ function fetchRevision(t, path, resolvedLocation) {
     if (type === 'commit') { unread.push({ file: `${r}/`, reason: 'submodule（gitlink）の中身は版の tree に無いのでたどらない' }); continue; }
     if (type !== 'blob') continue;
     if (mode === '120000') { unread.push({ file: r, reason: 'symbolic link はたどらない' }); continue; }
-    let bytes = null;
-    try { bytes = git(top, ['cat-file', 'blob', sha], 'buffer'); } catch { bytes = null; }
-    files.push(fileEntry(r, bytes));
+    // 版の内容は、checkout と同じ変換（.gitattributes の eol・text、core.autocrlf などの filter）を通した形で取る（--filters）。
+    // 作業ツリーのファイルとの照合・記録する指紋・集約の段の照合（changedFiles）は、全てこの形のバイト列で行う。
+    // 版の blob を読めなければ受付で拒む（読めないファイルとして受け付けると、集約の段で作業ツリーの指紋と食い違う）
+    let bytes;
+    try { bytes = git(top, ['cat-file', '--filters', `${commit}:${full}`], 'buffer'); } catch { return { ok: false, code: 'target_unavailable', detail: `revision の版のファイル ${full}（blob ${sha}）を読めない` }; }
+    const abs = join(top, full);
+    let worktree = null;
+    try { worktree = readFileSync(abs); } catch { worktree = null; }
+    if (worktree === null || sha256Bytes(worktree) !== sha256Bytes(bytes)) return mismatch(`作業ツリーのファイル ${full} の内容が revision の版と一致しない（写しを作らないので、作業ツリーをその版にしてから依頼する）`);
+    files.push(fileEntry(r, abs, bytes));
   }
   if (files.length === 0 && unread.length === 0) return mismatch('版の tree に location の内容が無い');
-  return finish(t, files, unread, [], resolvedLocation, commit);
+  return finish(t, files, unread, [], resolvedLocation, commit, path);
 }
 
-// 対象の写し（targets/<id>/files/<FilePath> と manifest.json）を書く。戻り値: 書いた記録の [{ ref, hash }]
-export function writeSnapshot(runDir, target) {
-  const base = join('targets', target.id);
-  const written = [];
+// 対象の一覧（targets/<id>/manifest.json）を書く。写しは書かない。ファイルごとに、対象の中の path・元の絶対パス・作業ツリーからの
+// 相対パス（作業ツリーの外なら null）・指紋・テキストかを持つ。戻り値: 書いた記録の { ref, hash }
+export function writeManifest(runDir, target, workspace) {
+  // symbolic link を解決した実際の path で比べる（macOS の /var → /private/var など）。".." の path 部分だけを外とし、"..foo" の名前は中とする
+  const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+  const ws = real(workspace);
+  const rel = (abs) => { const r = relative(ws, real(abs)).split('\\').join('/'); return r === '' || r === '..' || r.startsWith('../') || isAbsolute(r) ? null : r; };
+  const manifest = JSON.stringify({ root: target.root, files: target.files.map((f) => ({ path: f.path, abs_path: f.abs, workspace_path: rel(f.abs), content_hash: f.content_hash, text: f.text })) });
+  const ref = join('targets', target.id, 'manifest.json');
+  mkdirSync(join(runDir, 'targets', target.id), { recursive: true });
+  atomicWrite(join(runDir, ref), manifest);
+  return { ref, hash: sha256Bytes(Buffer.from(manifest, 'utf8')) };
+}
+
+// 固定の前提の照合（集約の段で 1 度だけ）: 受付で読んだ指紋と、元のファイルを読み直した指紋が違うファイルの一覧。
+// revision つきの対象も作業ツリーのファイルを読み直す（受付の指紋は checkout と同じ変換を通した版の内容で、作業ツリーと一致したもの）。
+// 受付で読めなかったファイル（unreadable）は、読み直しても読めなければ変わっていないとする。受付の後にディレクトリへ足されたファイルは照らさない。
+export function changedFiles(target) {
+  const out = [];
   for (const f of target.files) {
-    if (f.bytes === null) continue;
-    const ref = join(base, 'files', f.path);
-    mkdirSync(dirname(join(runDir, ref)), { recursive: true });
-    atomicWrite(join(runDir, ref), f.bytes);
-    written.push({ ref, hash: sha256Bytes(f.bytes) });
+    let now = null;
+    try { now = sha256Bytes(readFileSync(f.abs)); } catch { now = 'unreadable'; }
+    if (now !== f.content_hash) out.push(f.path);
   }
-  const manifest = JSON.stringify({ files: target.files.map((f) => ({ path: f.path, content_hash: f.content_hash, text: f.text })) });
-  const mref = join(base, 'manifest.json');
-  atomicWrite(join(runDir, mref), manifest);
-  written.push({ ref: mref, hash: sha256Bytes(Buffer.from(manifest, 'utf8')) });
-  return written;
+  return out;
 }

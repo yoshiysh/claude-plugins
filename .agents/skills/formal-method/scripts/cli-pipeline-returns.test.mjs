@@ -4,7 +4,7 @@
 // このファイルは問い・決定的な確認・担当の返り値・input_refs・ref の指紋。ファイルを分けて並列に走らせ、共有の道具は test-fixtures/pipeline-cases.mjs に置く。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync } from 'node:fs';
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
@@ -130,11 +130,12 @@ test('artifact-formats result_presence SP-FORMALMETHOD-012: 計画が無い（�
   assert.deepEqual(resultInvariants(result), []);
   assert.equal(detConf(result, 'result_presence'), undefined);
 });
-test('artifact-formats 独立検証者の input_refs: extraction・fidelity・assurance・nonformal の task の input_refs が表どおりで、materials と台帳の input_refs はディレクトリを展開した RefHash', async (t) => {
+test('artifact-formats 独立検証者の input_refs: extraction・fidelity・nonformal の task の input_refs が表どおりで、materials と台帳の input_refs はディレクトリを展開した RefHash', async (t) => {
   const out = await runScenario(t, { scenario: { properties: [P('P1', 2), P('P2', 3, { formalizable: false })] } });
   assert.deepEqual(resultInvariants(out.result), []);
   const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective);
-  for (const p of ['extraction', 'fidelity', 'assurance', 'nonformal']) assert.ok(tasks.some((x) => x.context.perspective === p), `${p} の task が出る`);
+  for (const p of ['extraction', 'fidelity', 'nonformal']) assert.ok(tasks.some((x) => x.context.perspective === p), `${p} の task が出る`);
+  assert.ok(!tasks.some((x) => x.context.perspective === 'assurance'), '性質ごとの保証の task は出ない');
   assertInputRefs(out, tasks);
 });
 test('artifact-formats 独立検証者の input_refs: composition の task の input_refs が表どおり', async (t) => {
@@ -149,9 +150,9 @@ test('artifact-formats 原因の分類役の input_refs: 反例の原因の分�
 });
 
 // ---- n=34: 担当を出さなかった unit と原因（artifact-formats「意味の確認の作り方」の担当を出さなかったとき、「担当の返り値」） ----
-// 確認の段の task.md を保存できなくする（実行の段までの batch を返した後、attempts/ を書込み不可にする）。
+// 確認の段の attempt の領域を作れなくする（計画の段の担当が書いた後、attempts/ を書込み不可にする）。
 // 時間の上限で確認の段にだけ担当を出さない run は、外から時刻を合わせられないので、同じ規則の 保存の失敗 の経路で起こす
-test('artifact-formats 意味の確認 担当の返り値 SP-FORMALMETHOD-012: 確認の段で担当を出さなかった（task.md を保存できない）run は、意味の確認が checker cli・materials []・確認できず で unverified[] に写り、原因は classified_by cli・原因未確認 で、担当の失敗 は無い', async (t) => {
+test('artifact-formats 意味の確認 担当の返り値 SP-FORMALMETHOD-012: 確認の段で担当を出さなかった（attempt の領域を作れない）run は、意味の確認が checker cli・materials []・確認できず で unverified[] に写り、原因は classified_by cli・原因未確認 で、担当の失敗 は無い', async (t) => {
   if (skipIfRoot(t)) return;
   let locked = null;
   // 計画作成役の返り値と成果物を書いた後、submit の前に attempts/ を書込み不可にする（後の段の attempts/<task_id>/ を作れない）
@@ -162,7 +163,7 @@ test('artifact-formats 意味の確認 担当の返り値 SP-FORMALMETHOD-012: �
   let out;
   try { out = await runScenario(t, { scenario, hooks }); } finally { if (locked) chmodSync(locked, 0o755); }
   const { result, harness } = out;
-  assert.ok(locked, '計画の段の batch で attempts/ を書込み不可にした');
+  assert.ok(locked, "計画の段の担当の提出の前に attempts/ を書込み不可にした");
   assert.ok(!harness.memory.tasks.some((x) => x.context.stage === '確認'), '確認の段の担当は出ない');
   assert.deepEqual(resultInvariants(result), []);
   assert.ok(result.confirmations.meaning.length >= 1, '確認の段で組み立てた unit の意味の確認がある');
@@ -268,7 +269,7 @@ for (const [name, alternative] of NO_MUTATION_CASES) {
     const { result } = await runScenario(t, { scenario: { properties: [P('P1', 2, { mutation: null })], editMutations } });
     assert.deepEqual(resultInvariants(result), []);
     const p = prop(result, 'P1');
-    assert.ok(result.confirmations.meaning.some((c) => c.kind === 'assurance' && c.property_ids.includes('P1') && c.result === '成り立つ'), '保証の確認は 成り立つ');
+    assert.ok(result.confirmations.meaning.some((c) => c.kind === 'fidelity' && c.property_ids.includes('P1') && c.result === '成り立つ'), '忠実さの確認は 成り立つ');
     assert.equal(p.detection.status, '検出能力未確認', '別の方法で確認 にしない');
     assert.deepEqual(p.detection.mutations, []);
     assert.ok(p.detection.reason.includes('別の方法の確認の結果が無い'), p.detection.reason);
@@ -323,17 +324,17 @@ test('expandRefs の自己検査: ディレクトリの中は UTF-8 のバイト
   // 's'（0x73）は EF・F0 より前なので sub/b.txt は a.txt の次。U+FF61（EF）は U+1F600（F0）より前
   assert.deepEqual(refs, ['z.json', 'd/a.txt', 'd/sub/b.txt', `d/${HALFWIDTH}.txt`, `d/${EMOJI}.txt`], 'ファイルの要素はそのまま先、ディレクトリの中はバイト列の順');
 });
-test('artifact-formats ディレクトリの ref の指紋: 対象の写しに UTF-16 の順とずれる名前のファイルがあっても、materials と台帳の input_refs は UTF-8 のバイト列の順に展開される', async (t) => {
+test('artifact-formats 担当に渡す資料の順: 対象に UTF-16 の順とずれる名前のファイルがあっても、対象の全体を渡す抽出の確認役の materials は UTF-8 のバイト列の順に並ぶ', async (t) => {
   const files = { 'target/spec.md': SPEC_TEXT, [`target/${HALFWIDTH}.md`]: '半角の句点\n', [`target/${EMOJI}.md`]: '絵文字\n' };
   const out = await runScenario(t, { files, scenario: {} });
   assert.deepEqual(resultInvariants(out.result), []);
-  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective === 'extraction' || x.context.perspective === 'fidelity');
+  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective === 'extraction');
   assert.ok(tasks.length >= 1);
   for (const task of tasks) {
     const conf = out.result.confirmations.meaning.find((c) => c.checker === task.task_id);
     const refs = conf.materials.map((m) => m.ref);
-    const iH = refs.indexOf(`targets/T1/files/${HALFWIDTH}.md`);
-    const iE = refs.indexOf(`targets/T1/files/${EMOJI}.md`);
+    const iH = refs.indexOf(`target:T1/${HALFWIDTH}.md`);
+    const iE = refs.indexOf(`target:T1/${EMOJI}.md`);
     assert.ok(iH >= 0 && iE >= 0 && iH < iE, `${task.task_id}: ${refs.join(', ')}`);
     assert.deepEqual(conf.materials, expandRefs(out.status.run_dir, task.context.input_refs));
   }
@@ -362,5 +363,73 @@ test('artifact-formats goals の property_id: 目標の性質の id の誤りが
   assert.ok(paths.unverified.some((u) => u.target === '完了' && u.reason === '目標の性質が無い'), JSON.stringify(paths.unverified));
   assert.equal(result.status, '停止');
   assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
+});
+// ---- 対象をまたぐ id の重なり（architecture.md「段と処理の順序」の洗い出し） ----
+test('architecture 洗い出し: 後の対象（T2）が先に submit して受理された後に T1 が同じ id の inventory を出すと、提出の順序に依らず T1（後から submit した側）の欠陥にし、受理済みの T2 は変えない', async (t) => {
+  let t2Accepted;
+  const accepted = new Promise((r) => { t2Accepted = r; });
+  const isExtractor = (task, tid) => task.role === 'extractor' && task.context.target_id === tid;
+  const hooks = {
+    // T1 の提出は、T2 の受理を待ってから出す（待ちきれなければ失敗にする）
+    beforeSubmit: async (_s, { tasks }) => {
+      if (!tasks.some((x) => isExtractor(x, 'T1'))) return;
+      await Promise.race([accepted, new Promise((_, rej) => { setTimeout(() => rej(new Error('T2 の抽出役が受理されない')), 30000).unref(); })]);
+    },
+    afterSubmit: async (_s, { task, result }) => { if (isExtractor(task, 'T2') && result.done) t2Accepted(); },
+  };
+  const request = canonicalRequest({ targets: [{ id: 'T1', location: 'target' }, { id: 'T2', location: 'target2' }] });
+  const { harness } = await runScenario(t, { files: { 'target/spec.md': SPEC_TEXT, 'target2/spec.md': SPEC_TEXT }, request, hooks });
+  const subs = (tid) => harness.memory.submits.filter((x) => harness.memory.tasks.some((k) => k.task_id === x.task_id && isExtractor(k, tid)));
+  const dup = (x) => [...(x.result?.problems ?? []), ...(x.result?.remaining ?? [])].filter((d) => /重なる/.test(d));
+  const t2 = subs('T2');
+  assert.ok(t2.length >= 1 && t2[0].result.ok && t2[0].result.done, `T2 は最初の提出で受理: ${JSON.stringify(t2)}`);
+  assert.deepEqual(t2.flatMap(dup), [], '受理済みの T2 に重なりの欠陥を付けない');
+  const t1 = subs('T1');
+  assert.ok(t1.length >= 1, JSON.stringify(harness.memory.submits));
+  const first = dup(t1[0]);
+  assert.ok(first.some((d) => d.includes('性質の id P1') && d.includes('対象 T2')), `T1 の最初の提出に性質の重なり: ${JSON.stringify(t1[0])}`);
+  assert.ok(first.some((d) => d.includes('要素の id E-P1') && d.includes('対象 T2')), `T1 の最初の提出に要素の重なり: ${JSON.stringify(t1[0])}`);
+  assert.equal(t1[0].result.ok, false, '重なりは T1 の修正の巡に戻す');
+});
+test('architecture 洗い出し: 両方とも未受理で id が重なるとき、前の対象（T1）が後から submit しても欠陥にせず、後ろの対象（T2）だけを差し戻す', async (t) => {
+  const signal = () => { let r; const p = new Promise((x) => { r = x; }); return { p, r }; };
+  const t2Rejected = signal();
+  const t1Accepted = signal();
+  const wait = (p, why) => Promise.race([p, new Promise((_, rej) => { setTimeout(() => rej(new Error(why)), 30000).unref(); })]);
+  const isExtractor = (task, tid) => task.role === 'extractor' && task.context.target_id === tid;
+  let t2Round = 0;
+  const hooks = {
+    beforeSubmit: async (_s, { tasks }) => {
+      const task = tasks[0];
+      // T1 は、T2 の下書き（別の欠陥で差し戻された提出）が控えられてから出す
+      if (isExtractor(task, 'T1')) { await wait(t2Rejected.p, 'T2 の最初の提出が差し戻されない'); return; }
+      if (!isExtractor(task, 'T2')) return;
+      t2Round += 1;
+      if (t2Round === 1) {
+        // 最初の提出だけ、出所の無い source_ids を 3 つ足して差し戻させる（id は変えない）
+        const f = join(task.attempt_dir, 'inventory.json');
+        const inv = JSON.parse(readFileSync(f, 'utf8'));
+        inv.properties[0].source_ids.push('E-none1', 'E-none2', 'E-none3');
+        writeFileSync(f, JSON.stringify(inv, null, 2));
+      } else if (t2Round === 2) await wait(t1Accepted.p, 'T1 の抽出役が受理されない');
+    },
+    afterSubmit: async (_s, { task, result }) => {
+      if (isExtractor(task, 'T2') && !result.ok) t2Rejected.r();
+      if (isExtractor(task, 'T1') && result.done) t1Accepted.r();
+    },
+  };
+  const request = canonicalRequest({ targets: [{ id: 'T1', location: 'target' }, { id: 'T2', location: 'target2' }] });
+  const { harness } = await runScenario(t, { files: { 'target/spec.md': SPEC_TEXT, 'target2/spec.md': SPEC_TEXT }, request, hooks });
+  const subs = (tid) => harness.memory.submits.filter((x) => harness.memory.tasks.some((k) => k.task_id === x.task_id && isExtractor(k, tid)));
+  const dup = (x) => [...(x.result?.problems ?? []), ...(x.result?.remaining ?? [])].filter((d) => /重なる/.test(d));
+  const t1 = subs('T1');
+  assert.ok(t1.length >= 1 && t1[0].result.ok && t1[0].result.done, `T1 は未受理の T2 と重なっても最初の提出で受理: ${JSON.stringify(t1)}`);
+  assert.deepEqual(t1.flatMap(dup), [], '前の対象 T1 に重なりの欠陥を付けない');
+  const t2 = subs('T2');
+  assert.ok(t2.length >= 2, JSON.stringify(t2));
+  assert.equal(t2[0].result.ok, false, 'T2 の最初の提出は出所の欠陥で差し戻す');
+  assert.deepEqual(dup(t2[0]), [], 'T2 の最初の提出の時点では T1 がまだ無い');
+  assert.equal(t2[1].result.ok, false, 'T2 の 2 回目の提出は重なりで差し戻す');
+  assert.ok(dup(t2[1]).some((d) => d.includes('性質の id P1') && d.includes('対象 T1')), `T2 の 2 回目の提出に重なり: ${JSON.stringify(t2[1])}`);
 });
 });

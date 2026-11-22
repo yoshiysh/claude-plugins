@@ -12,6 +12,7 @@
 - [status.json](#statusjson)
 - [起動の手順](#起動の手順)
 - [受け箱](#受け箱)
+- [依頼と応答](#依頼と応答)
 - [生死の判定](#生死の判定)
 - [salvage の手順](#salvage-の手順)
 - [結果と台帳の保存の失敗](#結果と台帳の保存の失敗)
@@ -26,7 +27,7 @@
 node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 ```
 
-- 引数・標準入力・標準出力の規則（次の 2 項目と[誤りと終了コード](#誤りと終了コード)）は、[コマンド](#コマンド)の表の 4 つのコマンドに当てる。`run-daemon` の引数と標準入出力は、この節の最後の項目に従う。
+- 引数・標準入力・標準出力の規則（次の 2 項目と[誤りと終了コード](#誤りと終了コード)）は、[コマンド](#コマンド)の表の 7 つのコマンドに当てる。`run-daemon` の引数と標準入出力は、この節の最後の項目に従う。
 - `<command>` は 1 語。入力は標準入力の 1 つの JSON で渡す。引数で値を渡さない。
 - 出力は標準出力の 1 行の JSON。標準エラーは診断だけに使い、契約に含めない。
 - **入力の口は、各コマンドの標準入力の JSON だけ**である。検証の内容を決める入力は、`start` の `request`（依頼。SP-001）だけで、他のコマンドの入力は CLI が前に返した値である。
@@ -45,18 +46,21 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | コマンド | 標準入力 | 標準出力（成功） |
 |---|---|---|
 | `start` | `{"request": <Request>}` | `{"ok": true, "command": "start", "status": <Status>}` |
-| `submit` | `{"run_dir": string, "batch_id": Id, "workflow_output_path": string}` 又は `{"run_dir": string, "batch_id": Id, "timed_out": true}`（`Id` は [成果物の形式の共通の型](artifact-formats.md#共通の型)の文字。合わなければ `E_INPUT` の `shape`。理由: `batch_id` は受け箱の file 名になるので、path の区切りを含めない） | `{"ok": true, "command": "submit", "outcome": "accepted" \| "duplicate"}` |
+| `close` | `{"run_dir": string, "call_id": Id, "workflow_output_path": string}` 又は `{"run_dir": string, "call_id": Id, "timed_out": true}`（`Id` は [成果物の形式の共通の型](artifact-formats.md#共通の型)の文字。合わなければ `E_INPUT` の `shape`。理由: `call_id` は受け箱の file 名になるので、path の区切りを含めない） | `{"ok": true, "command": "close", "outcome": "accepted" \| "duplicate"}` |
 | `wait` | `{"run_dir": string, "status_seq": integer ≥ 0}` | `{"ok": true, "command": "wait", "status": <Status>}`（新しい `seq`）又は `{"ok": true, "command": "wait", "outcome": "still_waiting", "status_seq": integer}` |
 | `salvage` | `{"run_dir": string}` | `{"ok": true, "command": "salvage", "status": <Status>}`（`action` は常に `terminal`） |
+| `claim`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "claim", "done": true}` 又は `{"ok": true, "command": "claim", "done": false, "tasks": [<ClaimedTask>]+, "shared_inputs": [{"ref": Ref, "path": string, "tasks": [{"task_id": Id, "spans"?: [Span]}]}]}`（`shared_inputs` は同じ応答の 2 つ以上の task が共有する資料。[依頼と応答](#依頼と応答)） |
+| `query`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id, "task_id": Id, "refs"?: [string]+}` | `{"ok": true, "command": "query", "task_id": Id, "inputs": [{"name": string \| null, "ref": Ref, "path": string, "spans"?: [Span]}]}`。`path` は読む絶対 path（対象のファイルは元のファイル）、`spans` は読む行の範囲（[担当に渡す資料](artifact-formats.md#claim-の-task)） |
+| `submit`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "submit", "results": [{"task_id": Id, "ok": boolean, "problems": [string], "done": boolean, "remaining"?: [string]}]}` |
 
 - `<Request>`・`<Result>` の形は [成果物の形式](artifact-formats.md#依頼request) と [結果](artifact-formats.md#結果result)。
 - `<Status>` は [status.json](#statusjson) と同じ形。
 - 依頼の不足・不備（SP-001）は誤りではなく、`status.action: "terminal"` の `停止` の結果として返す（終了コード 0）。誤り（[誤りと終了コード](#誤りと終了コード)）は、コマンドの入力そのものが壊れているときだけである。
-- `start` の手順は [起動の手順](#起動の手順)、`submit` は [受け箱](#受け箱)、`salvage` は [salvage の手順](#salvage-の手順)。
+- `start` の手順は [起動の手順](#起動の手順)、`close` は [受け箱](#受け箱)、`claim`・`query`・`submit` は [依頼と応答](#依頼と応答)、`salvage` は [salvage の手順](#salvage-の手順)。`<ClaimedTask>` の形は [claim の Task](artifact-formats.md#claim-の-task)。
 - `wait`: `status.json` の `action` が `terminal` なら、`seq` によらずその `Status` をすぐ返す。そうでなければ、`status.json` の `seq` が入力の `status_seq` より大きくなるか、[生死の判定](#生死の判定)で `run.lock` の保持者が終わったと分かるまで、`WAIT_LIMIT_MS` を上限に `WAIT_POLL_MS` の間隔で待つ。保持者が終わり、`status.json` の `action` が `terminal` でなければ、`E_STALE` を返す。何も書かない。
   - `status.json` が無い、ファイルでない、JSON でない、`Status` の形に合わない場合は、`seq` が増えていないものとして扱う。その間に保持者が終われば `E_STALE` を返し、保持者が生きていれば待ち続ける（上限で `still_waiting`）。理由: `start` が `seq: 0` の `working` を返した直後は、`status.json` がまだ無い。rename で書くので書きかけは見えず、壊れた `status.json` は保持者が次に書くときに置き換わる。
   - `still_waiting` は `liveness: "alive" | "unknown"` を持つ。`unknown` は、保持者の開始時刻を読めず生死を判定できなかったことを表す（[生死の判定](#生死の判定)）。
-- 全てのコマンドは、前景の 1 回の呼出しを `CALL_MAX_MS` 以内に終える。待つのは `CALL_MAX_MS` − `CLEANUP_BUDGET_MS` までで、残りを後始末と出力に使う。
+- 全てのコマンドは、前景の 1 回の呼出しを `CALL_MAX_MS` 以内に終える。待つのは `CALL_MAX_MS` − `CLEANUP_BUDGET_MS` までで、残りを後始末と出力に使う。担当のコマンド（`claim`・`query`・`submit`）が待つのは `WORKER_CALL_MAX_MS` までである。
 
 ## 誤りと終了コード
 
@@ -71,8 +75,9 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | `E_CONTRACT` | 未知のコマンド、引数が 1 つでない、標準入力が JSON でない | 何も書かない |
 | `E_INPUT` | コマンドの入力の JSON が上の表の形に合わない（`run_dir` のキーが無いか文字列でない場合を含む）、又は `run_dir` のディレクトリが無い。`detail` は `{"reason": "shape" \| "run_dir_not_found"}` | 何も書かない |
 | `E_BUSY` | `salvage` か、`start` が起動の手順の 5-1 で salvage と同じ規則を当てたときに、`run.lock` の保持者（役 `run-daemon`）か `salvage.mark` の勝者（役 `salvage`）が生きているか、生死を判定できない。`detail` は `{"holder_role": "run-daemon" \| "salvage", "liveness": "alive" \| "unknown", "run_dir": string}` | 何も書かない |
-| `E_STALE` | `wait` で、`run.lock` の保持者が終わったが、`status.json` が `terminal` でない | 何も書かない |
+| `E_STALE` | `wait`・`claim`・`query`・`submit` で、`run.lock` の保持者が終わったが、`status.json` が `terminal` でない | 何も書かない（担当のコマンドは、依頼を出す前に判定したときは何も書かず、依頼を出した後に判定したときは依頼のファイルだけが残る） |
 | `E_INTERNAL` | CLI の処理が予期しない誤り（捕まえていない例外。I/O の誤りを含む）で続けられない。`detail` は `null`。終了コードは 1 で、標準出力は上の拒否の形の JSON 1 つ | それまでに済ませた作用は取り消さずに残りうる。run の結果は作らない |
+| `E_CALL` | `claim`・`query`・`submit` が、呼び出しの照合に落ちた。`detail` は `{"reason": "call_closed" \| "unknown_worker" \| "outside_task" \| "deadline_passed" \| "no_response"}`（[依頼と応答](#依頼と応答)） | run の状態は変えない。依頼のファイルだけが残りうる |
 | `E_RESULT_UNREADABLE` | `result.json` が公開されているが、読めないか [結果](artifact-formats.md#結果result)の形に合わない。場面は次の全て: `salvage` の規則 2、`start` の 5-1、`run-daemon` と salvage の結果の公開の負け（`lost_unreadable`）、追補台帳の公開の失敗の後の確かめ、自分の link の後の再読込で中身が違い形に合わない場合（`reread_mismatch`）。`detail` は `{"run_dir": string, "path": string}` | この誤りを返すと決めた後は何も書かない。ただし公開の負け・追補台帳の公開の失敗の後の確かめ・`reread_mismatch` の場面では、それまでに済ませた作用（`salvage.mark`・`salvage-worklog.json`・追補台帳の公開、子の process group の停止、自分の `result.json` の link）は取り消さずに残る。run の結果はそのファイルだけで、別の結果を作らない |
 
 拒否は作用の前に起こる。拒否で run の状態は変わらない。例外は `E_RESULT_UNREADABLE` と `E_INTERNAL` である。`E_RESULT_UNREADABLE` の、公開の負け・追補台帳の公開の失敗の後の確かめ・`reread_mismatch` の場面では、上の表のとおり先に済ませた作用が残る。理由: 結果の公開を試すまで、既にある結果が読めないことは分からない。`E_INTERNAL` は、予期しない誤りがどの作用の後に起きるかを前もって決められないので、それまでの作用が残りうる。終了コードを 0・1・2 の閉じた集合に保つため、捕まえていない例外も 1 つの JSON で返す。
@@ -88,22 +93,22 @@ Status = {
   "seq": integer ≥ 0,          // run-daemon が書くたびに 1 増える（1 から）。start が自分で作った Status だけ 0
   "run_dir": string | null,    // 絶対パス。start が run の領域の無いまま返す terminal だけ null
   "action": "run_agents" | "working" | "terminal",
-  "batch": Batch | null,       // action が run_agents のときだけ非 null
+  "call": Call | null,         // action が run_agents のときだけ非 null
   "result": Result | null,     // action が terminal のときだけ非 null
   "daemon": Identity | null    // run.lock の保持者の識別。start が返す terminal（run の領域が無い場合）では null
 }
-Batch = { "batch_id": string, "tasks_path": string, "deadline_wall_ms": integer, "workflow_script": string }
+Call = { "call_id": string, "args_path": string, "deadline_wall_ms": integer, "workflow_script": string }
 Identity = { "pid": integer, "started_at": string, "nonce": string }
 ```
 
 - `started_at` は OS が報告する process の開始時刻の文字列（`ps -o lstart=` を `LC_ALL=C` で読んだ値の前後の空白を除いたもの）。比べるときも、読んだ値の前後の空白を除いてから比べる。
-- `action: "run_agents"`: 司令塔は担当を起動し、返ったら、又は `deadline_wall_ms` を過ぎたら、`submit` を呼ぶ。起動する script と args の正本は SKILL.md の [担当の起動](../SKILL.md#担当の起動) で、司令塔は起動に `workflow_script` の値を使わない。
+- `action: "run_agents"`: 司令塔は `args_path` の JSON をそのまま args にして担当を起動し、Workflow の完了か `deadline_wall_ms` の早い方で `close` を 1 回呼ぶ。起動する script と args の正本は SKILL.md の [担当の起動](../SKILL.md#担当の起動) で、司令塔は起動に `workflow_script` の値を使わない。
 - `action: "working"`: 司令塔は `wait` を呼ぶ。
 - `action: "terminal"`: `result` が結果の正本で、司令塔はそれを提示する。保存できたかは `result.records` が示す。
 
 ## 起動の手順
 
-`start` は依頼を検査しない。依頼の検査・対象の取得・版の照合・写しの保存は、全て `run-daemon` が同じバイト列で行う。理由: 照合したバイト列と保存する写しを同じ process が同じ読み込みで扱えば、その間に内容が変わる余地が無い。また、受付で止めた run の記録も、`run-daemon` が lock の下で保存できる。
+`start` は依頼を検査しない。依頼の検査・対象の取得・版の照合と一覧（manifest）の保存は、全て `run-daemon` が同じバイト列で行う。対象の写しは作らない（対象は run の間固定している前提。集約の段で 1 度だけ、元のファイルを読み直した指紋と、担当の最初の `query` の時点の指紋を受付の指紋と照らし、違えば停止の理由 `対象の変化` を足す。[architecture.md「対象の固定」](architecture.md#対象の固定)）。理由: 照合したバイト列と一覧の指紋を同じ process が同じ読み込みで扱えば、受付の中で内容が変わる余地が無い。また、受付で止めた run の記録も、`run-daemon` が lock の下で保存できる。
 
 1. **入力の形**: 標準入力が `{"request": <JSON の値>}` の形か（`request` があるか）だけを見る。無ければ `E_INPUT`。`request` の中身は見ない。
 2. **保存先の能力の確認**: 保存先の root（`<workspace>/.formal-method/runs/`）に一時のディレクトリ（名前は `.probe-<nonce>/`。`.tmp-*` とは別の形）を作り、ファイルの書込み・fsync・ディレクトリの fsync を試し、作ったものを消す。
@@ -116,7 +121,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
       - 無ければ、受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、`daemon: null`）。停止の理由は `起動の失敗`。`records.unsaved` に全ての記録を載せる。
    2. `<run_id>/` と `status.json` が現れたら、その `Status` を返す。
    3. `START_WAIT_MS` に達したとき:
-      - `<run_id>/run.lock` があれば、`{"seq": 0, "action": "working", "run_dir": ..., "batch": null, "result": null, "daemon": <run.lock の識別>}` を返す。司令塔は `wait`（`status_seq: 0`）に進む。
+      - `<run_id>/run.lock` があれば、`{"seq": 0, "action": "working", "run_dir": ..., "call": null, "result": null, "daemon": <run.lock の識別>}` を返す。司令塔は `wait`（`status_seq: 0`）に進む。
       - 無ければ、控えた識別と一致する process の group を止め（SIGKILL）、終了を `START_STOP_WAIT_MS` まで待ってから 1 を評価し直す。その間に終了を観測できなければ、終わったものとして 1 を評価し直す。ただし一時の領域は消さず（終了を観測していないので、6 の規則による）、返す結果の `unverified[]` に一時の領域の path と理由「run-daemon を止めたが終了を観測できなかった」を載せる。理由: SIGKILL は拒めないので process は終わるが、終了の観測を待ち続けると、前景の呼出しが `CALL_MAX_MS` を越える。
 6. **残った一時の領域**: `start` は、自分が起動して終了を観測した process と、起動そのもの（spawn）に失敗した process の `.tmp-<run_id>-<nonce>/` だけを消す。他の `.tmp-*` は消さない。消せなければ、返す結果の `unverified[]` に path と理由を載せる。
 
@@ -126,21 +131,39 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 ## 受け箱
 
-- `submit` は、入力を `inbox/.tmp-<nonce>` に書いて fsync し、`inbox/<batch_id>.json` へ link で公開し、一時ファイルを消す。
+- `close` は、入力を `inbox/.tmp-<nonce>` に書いて fsync し、`inbox/<call_id>.json` へ link で公開し、一時ファイルを消す。
   - link が既にあれば、何も変えずに `outcome: "duplicate"` を返す。
-  - `run_dir` に `status.json` が無いか、`batch_id` が `status.json` の開いている batch と違っても、公開はする。`run-daemon` が読むかは `run-daemon` が決める。
-- 受け箱の中身は `{"batch_id": string, "workflow_output_path": string}` 又は `{"batch_id": string, "timed_out": true}`。
-- `run-daemon` は、開いている batch の受け箱だけを読む。
-  - 次のどれかに当たれば、**batch の拒否**とし、その batch の全ての task の返り値を使わず、成功に数えない。
-    - 受け箱を読めない、JSON でない、上の形に合わない、`batch_id` が違う。
-    - `timed_out: true` である。
-    - `run-daemon` が受け箱を読んだ時刻が `deadline_wall_ms` 以上である。期限との比較は batch につき 1 回、受け箱を読んだ時点だけで行い、各 `return_path` を読んだ時刻とは比べない。
-    - 期限（`deadline_wall_ms`）までに受け箱が公開されなかった（`run-daemon` が期限で batch を閉じた）。
-    - `workflow_output_path` のファイルを読めないか、その中身が [Workflow の返り値](artifact-formats.md#workflow-の返り値) の形に合わないか、その `batch_id` が開いている batch と違うか、`received` か `results` の task の集合が `tasks.json` と違う。
-  - batch の拒否では、その batch の全ての task を、[担当の返り値](artifact-formats.md#担当の返り値)の「成功に数えない」場合として扱う。task ごとに停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録し、`detail` に `batch_id`・`task_id`・拒否の原因を書く。作業記録は task ごとに、その task の `context.stage` の `worklogs/cli-<context.stage>.json` の `failures` に、`batch_id`・`task_id`・拒否の原因を 1 件ずつ書く（段の異なる task を含む batch では、複数の段の作業記録に分かれる）。
-    - 理由: 停止の報告の段が、失敗した処理の段と一致する（AC-19）。理由を batch に 1 件でなく task ごとに置くのは、既存の task 単位の `担当の失敗` と段の表（task の `context.stage`）にそのまま乗り、「batch の task は全て同じ段」という契約に無い前提を要らなくするためである。未作成の成果物と `未確認` の項目も task ごとに決まる。
-  - 1 batch に受け箱は 1 つだけで、作り直しは受け付けない。
-  - 担当の結論は、Workflow の返り値でなく、各 task の `return_path` を `run-daemon` が読んで得る。Workflow の返り値は、起動した task の値の照合にだけ使う。
+  - `run_dir` に `status.json` が無いか、`call_id` が `status.json` の開いている呼び出しと違っても、公開はする。`run-daemon` が読むかは `run-daemon` が決める。
+- 受け箱の中身は `{"call_id": string, "workflow_output_path": string}` 又は `{"call_id": string, "timed_out": true}`。
+- `run-daemon` は、開いている呼び出しの受け箱だけを読む。受け箱が現れるか、`deadline_wall_ms` に達したら、その時点で届いている依頼を処理してから呼び出しを閉じる。
+  - 受け箱が上の形で、`workflow_output_path` のファイルが [Workflow の返り値](artifact-formats.md#workflow-の返り値) の形（ホストの完了通知の包み `{summary, agentCount, logs, result}` は外す）なら、起動の記録（`agents`）と `tokens` を記録する。
+  - 受け箱を読めない、形に合わない、`call_id` が違う、`timed_out: true`、返り値のファイルを読めないか形に合わない、又は期限で閉じた場合は、起動の記録と `tokens` を記録せず、その旨を段の作業記録の `unconfirmed` に書く。
+  - どの場合も、`submit` で受理した担当はそのまま使う。受け箱は受理を変えない。理由: 担当の成果物は `submit` ごとに照合して受理を決めている。返り値の形で受理を覆すと、期限内に照合を通った成果物を、ホストの通知の形だけで失う。
+- 閉じた呼び出しの担当のうち受理していないものは、[担当の返り値](artifact-formats.md#担当の返り値)の「成功に数えない」場合として扱う。ただし束の worker では、取ったまま 1 度も照合していない task を、次の 2 つの場合に `担当の失敗` にせず手放す（次の呼び出しで出し直す）。その呼び出しで 1 回以上 `submit` した worker の取り残し（このとき次の束の上限を `UNIT_MAX_BYTES` に戻す）、と、2 件以上の束を 1 件も出さなかった worker の束（このとき次の束の上限をその束の量の半分にする）。1 件だけの束を出さなかったときは `担当の失敗` にする（次の束の上限はそのまま）。依存つきの task のうち、まだ作っていないものは `担当の失敗` にし、`detail` の原因は、依存する task が呼び出しの間に閉じなかったなら「依存する担当が閉じる前に呼び出しが閉じた」、閉じたなら「依存する担当が閉じた後、呼び出しが閉じるまでに worker が claim しなかった」とする。受理した後に attempt の領域が書き換わった task は、閉じた時点で結果を渡していても受理を取り消す（[architecture.md「担当の起動」](architecture.md#担当の起動)）。task ごとに停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録し、`detail` に `call_id`・`task_id`・原因（取らなかった・取ったまま出さなかった・照合に落ちたまま閉じた・受理の後に書き換わった）を書く。作業記録は、その段の `worklogs/cli-<context.stage>.json` の `failures` に同じ文を 1 件ずつ書く。
+  - 理由: 停止の報告の段が、失敗した処理の段と一致する（AC-19）。
+- 1 つの呼び出しに受け箱は 1 つだけで、作り直しは受け付けない。
+
+## 依頼と応答
+
+担当のコマンド `claim`・`query`・`submit` の手順。client は lock を取らず、`state.json`・`status.json` を書かない。
+
+- client は、まず `run.lock` の保持者の生死と `status.json` を読む。保持者が終わり `status.json` が `terminal` でなければ `E_STALE` を返す。`status.json` が `run_agents` で `call.call_id` が入力の `call_id` でなければ、`E_CALL`（`call_closed`）を返す。どちらも何も書かない。
+- 次に、依頼 `{"req_id", "command", "worker", ...}` を `requests/<call_id>/.tmp-<nonce>` に書いて fsync し、`requests/<call_id>/<req_id>.json` へ link で公開する。`req_id` は、ミリ秒の時刻（15 桁に 0 で詰める）と乱数を `-` でつないだもので、名前の順が届いた順になる。
+- client は `responses/<call_id>/<req_id>.json` を待ち、現れたらその中身を出力にする。待つ上限は `WORKER_CALL_MAX_MS` で、上限に当たれば `E_CALL`（`no_response`。同じ命令を流し直してよい）を返す。待つ間に保持者が終わったら `E_STALE`、呼び出しが閉じたら `E_CALL`（`call_closed`）を返す（その前に応答をもう 1 度読む）。
+- `run-daemon` は、呼び出しが開いている間、依頼を名前の順に 1 つずつ処理し、応答を `guardedWrite`（`salvage.mark` があれば書かない）で rename して書く。処理した依頼を 2 度処理しない。
+  - 依頼の `worker` が開いている呼び出しの `workers` に無ければ `E_CALL`（`unknown_worker`）。
+  - `claim`: その worker の出し終えていない task を全て `tasks` で返す。出し終えていない task が無ければ、次に出せる task を作って返す（依存する task が閉じた後の task、束の worker なら次の束）。出せる task も無ければ `done: true`。期限の後は `E_CALL`（`deadline_passed`）。中断の理由があれば新しい task を作らない。
+    - worker への task の結び方（1 体 1 task・依存つき・詰め合わせ・束）は [architecture.md「担当の起動」](architecture.md#担当の起動) が正本である。
+    - 束の worker（原因の分類役）: 残りの task を並びの順に、取る task の資料の和集合のバイト数（共有の資料は 1 度だけ数える）が束の上限に収まる所まで取る（next-fit。1 件で超える task は単独）。上限の初めは `UNIT_MAX_BYTES`。半分にする量も、取ったまま出さなかった束の資料の和集合で数える。
+    - 応答の `shared_inputs` は、その応答の 2 つ以上の task の `input_refs` に同じ ref がある資料の `[{ref, path, tasks: [{task_id, spans?}]}]` で、1 つの ref を 1 度だけ挙げる。`tasks` は共有する task ごとの範囲で、和に畳まない（担当は task ごとにその task の範囲だけで判断する。[agent-obligations.md](agent-obligations.md#受け取るもの)）。指紋は持たない（指紋は task ごとの `query` で固定する）。
+  - `query`: その worker が取った task の `task_id` で、`refs` が無ければ task の全ての `input_refs` を、あれば `refs` の資料（`.` と `..` を畳んだ後で、`input_refs` の ref と同じか、ディレクトリの ref の下）を返す。返す `ref` は畳んだもの。畳んだ後に run の領域の外を指す ref と絶対の path は担当の外とする。外れた task・資料は `E_CALL`（`outside_task`）。最初の `query` の時点で、task の `input_refs` の指紋（[ディレクトリの ref の指紋](artifact-formats.md#claim-の-task)）を固定し、渡した資料（`materials`）とする。そのうち対象のファイルの指紋は、集約の段で受付の指紋と照らす（違えば `対象の変化`。[architecture.md「対象の固定」](architecture.md#対象の固定)）。
+  - `submit`: その worker が取った出し終えていない task のうち、`result_path` の返り値があり、前の照合から attempt の領域が変わったものを照合する（無ければ出し終えていない全ての task を照合する）。照合は [担当の返り値](artifact-formats.md#担当の返り値)の「成功に数えない」場合と、作成役なら段の照合。照合した task ごとに `{task_id, ok, problems, done}` を返す。出し終えていない task が無ければ、取った全ての task の結果を返す。
+    - 返り値の形が合わなければ `ok: false` と原因を返す。`cannot_proceed` か、その task の提出が `REVISE_ROUNDS_MAX` + 1 回に達したら、その task を失敗として閉じる（`done: true`）。提出の回数は task ごとに数える。
+    - 作成役の段の照合に欠陥があり、提出が `REVISE_ROUNDS_MAX` + 1 回に達しておらず、欠陥が前の提出より減っていれば、`ok: false` と欠陥を返し（`done: false`）、欠陥を `revisions/<task_id>-<提出の回数>-defects.json` に記録する。同じ担当が直して同じ `submit` を流し直す。
+    - それ以外は受理する（`ok: true`、`done: true`。残った欠陥は `remaining`）。受理した後の `submit` は同じ結果を返す。
+    - 流し直し: その worker の前の `submit` の応答を担当が見ていない（依頼の `req_id` の時刻から `WORKER_CALL_MAX_MS` − 1000 ms 以上の後に書いたか、書けなかった）とき、取った全ての task の attempt の領域が前の `submit` の後から変わっていなければ、照合せず前の応答をそのまま返す。提出の回数は増えない。期限の後でも返す。前の応答を返した後も、その流し直しの依頼の時刻で見たかを決め直す。見ていない印は、書けなかった応答がその submit の応答のときだけ付け、拒否の応答を書けなかったときは付けない。前の応答を見た後の同じ提出は、新しい提出として照合する。理由は [architecture.md「担当の起動」](architecture.md#担当の起動)。
+    - 期限の後は `E_CALL`（`deadline_passed`）。閉じた後は応答を書かないので、client が `E_CALL`（`call_closed`）を返す。
+- 役の入口: `run-daemon` は呼び出しを開くたびに `<run_id>/formal-method-cli.mjs` を書き直す。中身は本物の CLI（`scripts/formal-method-cli.mjs`）を絶対パスの URL で import する 1 行だけで、台帳に登録しない。理由: Workflow の args は `{state, callId, stage, workers}` だけで CLI の置き場を運べないので、担当は run の領域の下のこの名前で最初の `claim` を流す。
 
 ## 生死の判定
 
@@ -238,16 +261,21 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `<run_id>/state.json` | `run-daemon`（rename） | 内部の状態。形は契約の外で、client と salvage は保存済みの範囲を知るためだけに読む（結果の有無の判定には使わない） |
 | `<run_id>/status.json` | `run-daemon`（rename） | `Status` |
 | `<run_id>/request.json` | `run-daemon` | 受け付けた依頼の正規形（[依頼](artifact-formats.md#依頼request)） |
-| `<run_id>/targets/<target_id>/files/<FilePath>` と `<run_id>/targets/<target_id>/manifest.json` | `run-daemon` | 対象の集まりの固定した版の写し（ファイルごとのバイト列）と、`fixed.files` と同じ一覧 |
+| `<run_id>/targets/<target_id>/manifest.json` | `run-daemon` | 対象の集まりの一覧（ファイルごとの元の絶対パス・作業ツリーからの相対パス・指紋。[成果物の形式の Manifest](artifact-formats.md#依頼request)）。対象の写しは作らない |
+| `<run_id>/views/<unit_id>.json` | `run-daemon` | 確認役に渡す資料の写し（`fidelity`・`nonformal` の unit の分の inventory。[成果物の形式の担当に渡す資料](artifact-formats.md#claim-の-task)） |
 | `<run_id>/document-rules/<指紋>.md` | `run-daemon` | 適用した文書の一般規約の不変の写し |
-| `<run_id>/inbox/<batch_id>.json` | client（link） | [受け箱](#受け箱) |
-| `<run_id>/batches/<batch_id>/tasks.json` | `run-daemon` | [task の一覧](artifact-formats.md#task-の一覧) |
-| `<run_id>/attempts/<task_id>/task.md` | `run-daemon` | 担当への指示の全文 |
+| `<run_id>/inbox/<call_id>.json` | client（`close`。link） | [受け箱](#受け箱) |
+| `<run_id>/requests/<call_id>/<req_id>.json` | client（`claim`・`query`・`submit`。link） | [依頼と応答](#依頼と応答)の依頼 |
+| `<run_id>/responses/<call_id>/<req_id>.json` | `run-daemon`（rename） | 依頼への応答（コマンドの出力から `command` を除いたもの） |
+| `<run_id>/calls/<call_id>/args.json`・`tasks.json` | `run-daemon` | Workflow の args（`{state, callId, stage, workers}`）と、呼び出しの記録（`{call_id, stage, deadline_wall_ms, tasks: [{worker, task, input_refs}]}`）。`tasks.json` は呼び出しを開く時点の task で書き、閉じた後に claim の時点で作った task を含めて 1 度だけ書き直す。台帳に登録しない |
+| `<run_id>/judgments/<model_id>.json` | `run-daemon` | モデルごとの判断を要する項目の記録（[確認](artifact-formats.md#確認sp-004005012)）。忠実さの検証者の資料 |
+| `<run_id>/formal-method-cli.mjs` | `run-daemon`（rename） | 役の入口（[依頼と応答](#依頼と応答)）。台帳に登録しない |
+| `<run_id>/revisions/<task_id>-<n>-defects.json` | `run-daemon` | 作成役の出し直しに返した欠陥 |
 | `<run_id>/attempts/<task_id>/return.json` | 担当 | [担当の返り値](artifact-formats.md#担当の返り値) |
 | `<run_id>/attempts/<task_id>/worklog.json` | 担当 | [作業記録](artifact-formats.md#作業記録) |
 | `<run_id>/attempts/<task_id>/<成果物>` | 担当 | 返り値の `outputs` が指すファイル |
 | `<run_id>/worklogs/cli-<段>.json` | `run-daemon` | 決定的な処理の作業記録（担当 `cli`） |
-| `<run_id>/checks/<execution_id>/{input.smt2,stdout.txt,stderr.txt,end.json}` | `run-daemon` | 道具の実行ごとの証拠。`execution_id` は、検査なら `Check.id`、道具を実行した確認（sanity・mutation・replay）なら `Confirmation.id` で、`Performance.executions[].id` と同じ値（実行と確認の id は 1 つの名前空間）。`end.json` は [終わり方](artifact-formats.md#検査の終わり方end) |
+| `<run_id>/checks/<execution_id>/{input.smt2,stdout.txt,stderr.txt,end.json}` | `run-daemon` | 道具の実行ごとの証拠。`execution_id` は、検査なら `Check.id`、道具を実行した確認（sanity・mutation・replay・静的な確認）なら `Confirmation.id`（判断を要する項目になった静的な確認なら `Judgment.id`）で、`Performance.executions[].id` と同じ値（実行と確認の id は 1 つの名前空間）。`end.json` は [終わり方](artifact-formats.md#検査の終わり方end) |
 | `<run_id>/children/<pgid>.json` | `run-daemon` | `{"pgid", "started_at"}`。道具の process group の記録 |
 | `<run_id>/ledger.json` | `run-daemon` | [記録台帳](artifact-formats.md#記録台帳) |
 | `<run_id>/result.json` | `run-daemon` か salvage（link。先に公開した方だけ） | [結果](artifact-formats.md#結果result)。run の結果の正本 |
@@ -257,9 +285,8 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `<run_id>/salvage-worklog.json` | salvage（link） | salvage の [作業記録](artifact-formats.md#作業記録)（`role: "salvage"`、`stage: "集約"`、時刻を含まない） |
 | `.tmp-<run_id>-<nonce>/request.input.json` | `start` | `start` が受け取った `request` の値そのまま。`run-daemon` だけが読む |
 
-- 記録は全て、一時ファイル・fsync・rename（又は link）・ディレクトリの fsync で書く。同じ path を別の内容で上書きしない（`state.json`・`status.json` を除く）。
+- 記録は全て、一時ファイル・fsync・rename（又は link）・ディレクトリの fsync で書く。同じ path を別の内容で上書きしない（`state.json`・`status.json`・`formal-method-cli.mjs` と、`calls/<call_id>/tasks.json` の閉じた後の書き直しを除く）。
 - **秘密値の走査**（依頼者の決定）: formal-method が書く記録（依頼の写し、担当の返り値・成果物（担当が書いた `.smt2` を含む）・作業記録、確認の記録、道具に渡す query（全ての実行の `checks/<execution_id>/input.smt2`。CLI が証人から作る replay の query（[証人](#証人)）を含む）、道具の標準出力・標準エラー、作業記録、台帳、結果、表示）は、書く直前に下の型で走査する。見つかれば書かずに、その記録を保存できなかったもの（`records.unsaved`、停止の理由 `保存の失敗`）として扱い、値は診断にも残さない（型と行の番号だけ）。
-  - 対象の写し（`targets/`）は走査しない。理由: 利用者の作業ツリーに既にある内容で、写しによって新しく露出するものではない。
   - 型は誤検知の少ないものだけに絞り、次の閉じた集合とする。この集合に無い形は検出しない。
 
     | 型 | 形（正規表現） |
@@ -282,7 +309,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 - `.probe-*` を消す呼出しは、`scripts/lib/start.mjs` の関数 `removeProbeDir` の中にだけある（能力の確認の後）。この領域は rename されていない（最終の名前の run の領域ではない）ので、その中の `run.lock` は上の `<run_id>/run.lock` に当たらない。
 - 走査の検査は、この 4 つの関数名と file の組で、lock・一時の領域を消す・rename する呼出しの所在を照合する。
 - `state.json`・`status.json`・`ledger.json` を書くのは、`run-daemon` の process だけである。`result.json` は `run-daemon` か salvage が link でだけ作る。
-- `result.json`・`salvage.mark`・`salvage-ledger.json`・`salvage-worklog.json`・`inbox/<batch_id>.json` は、一時ファイルからの link でだけ作る。
+- `result.json`・`salvage.mark`・`salvage-ledger.json`・`salvage-worklog.json`・`inbox/<call_id>.json`・`requests/<call_id>/<req_id>.json` は、一時ファイルからの link でだけ作る。
 - `.tmp-*` を作るのは `start` だけである。
 
 ### unit の入口（内部）
@@ -353,13 +380,15 @@ PublishOutcome = {
   - `sanity`: その `PlanFile.sanity[].tool_time_limit_seconds`。
   - `mutation`: 検出役の検査（`MutationsFile.mutations[].detector_check_id`）の `tool_time_limit_seconds`。
   - `replay`: 反例の検査（`Counterexample.check_id`）の `tool_time_limit_seconds`。
-  - 理由: 変異と replay は元の検査の範囲をそのまま検査するので、元の検査の値を使う。値は全て計画の照合で上限以下と確かめてあり、どの実行も[検査に使える期限](#定数)で止まるので、依頼元の時間の上限と残す時間を越えない。確認用の実行の値は、この規則で計画から導けるので、結果に値の欄を持たない。
+  - `ablation`: 節を切り取った元の性質の検査（`kind: property`）の `tool_time_limit_seconds`。
+  - 理由: 変異・replay・ablation は元の検査の範囲をそのまま検査するので、元の検査の値を使う。値は全て計画の照合で上限以下と確かめてあり、どの実行も[検査に使える期限](#定数)で止まるので、依頼元の時間の上限と残す時間を越えない。確認用の実行の値は、この規則で計画から導けるので、結果に値の欄を持たない。
 - **道具に渡す query**: 実行の `input_refs` のファイルのバイト列を、その順に、各ファイルの後に `\n` を 1 つ置いてつないだもの。これを `checks/<execution_id>/input.smt2` に保存して標準入力に渡す。
-  - `input_refs` の要素は、担当が書いた query（`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`PartitionsFile` の `contracts[].query_ref`・`composition_conditions[].query_ref`）だけを指せる。対象の写し（`targets/`）など他のファイルを指せば計画の欠陥である。理由: 書いた役の段で `(check-sat)` と書かない form を照らしたファイルだけを道具に渡す。対象の写しは秘密値の走査も受けない。
+  - `input_refs` の要素は、担当が書いた query（`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`PartitionsFile` の `contracts[].query_ref`・`composition_conditions[].query_ref`）だけを指せる。対象のファイル（`target:<target_id>/<FilePath>`）など他のファイルを指せば計画の欠陥である。理由: 書いた役の段で `(check-sat)` と書かない form を照らしたファイルだけを道具に渡す。対象のファイルは秘密値の走査も受けない。
   - 担当の query は全て `(check-sat)` を持つので、下のつなぎ方の照合により、今は `input_refs` の要素はちょうど 1 つである（型の `[Ref]+` は、つなぎ方の規則とともに残す）。変異の「最後の input を置き換える」は、その 1 つを `mutation_ref` に置き換えることである。
   - 1 つの `.smt2` の `(check-sat)` の数と位置は、そのファイルを書いた役の段で照らす（[成果物の形式の担当の成果物](artifact-formats.md#担当の成果物)。欠陥の修正の巡はその役に戻る）。計画の照合は、つなぎ方だけを照らす: 検査・sanity・変異の各実行で、`(check-sat)` を持つ input が最後の 1 つだけであること。違えば計画の欠陥である。担当が書く `.smt2` は全て `(check-sat)` を持つので、実際には最後の input だけが担当の `.smt2` になる。理由: つないだ query の `(check-sat)` が最後の form でないと、その後の form が答えの後に出力を足し、答えの読みか証人を壊す。実測（Z3 5.3.3）では、誤った式（`(assert (foo))`）は `(error …)` の行と終了コード 1 を出し、`-model` の有無によらず `実行失敗` になる。未知のコマンド（`(foo)`）は `unsupported` と注釈の行を出して終了コード 0 で、`-model` を渡さない実行では読めない出力（`実行失敗`）になり、渡した実行では答えは正しく読めるがモデルの文字列が形に合わず、証人を読めない。
   - 変異の query は、検出役の検査の `input_refs` の最後を変異（`mutation_ref`）に置き換えて、同じ規則でつなぐ。
-- `-model` は、実行の種類が `property` と `composition` の実行にだけ渡す（反例になりうる実行で、反例の再実行に証人が要る）。他の種類（`contract`・`sanity`・`mutation`・`replay`）には渡さない。
+  - 静的な確認の実行（`ablation`）の query は、元の性質の検査の query（上の規則でつないだもの）から、残す節（[architecture.md「静的な確認」](architecture.md#静的な確認)の実行の表）に無いトップレベルの assert の form を除いたもの（`checks/ablation.mjs` の `ablate`。宣言・`define-fun`・`(check-sat)` は残す）。これも `checks/<execution_id>/input.smt2` に保存して標準入力に渡す。
+- `-model` は、実行の種類が `property` と `composition` の実行にだけ渡す（反例になりうる実行で、反例の再実行に証人が要る）。他の種類（`contract`・`sanity`・`mutation`・`replay`・`ablation`）には渡さない。
   - 理由: 担当の query には `get-model` を書かせない（[成果物の形式](artifact-formats.md#modelモデル作成役)）。証人を取るのは CLI の役目なので、CLI が渡す option で取る。
   - 退けた案: CLI が query の `(check-sat)` の後に `(get-model)` を足す。実測（macOS arm64、Z3 5.3.3）では、答えが `unsat` のとき標準出力に `(error "line … column …: model is not available")` が出て終了コードが 1 になる。読む順の 1 に当たって `判定以外のエラー` になり、成り立つ性質の検査が全て `実行失敗` になる。CLI は答えを前もって知らないので、`sat` のときだけ足すこともできない。
 - 子 process には環境変数を渡さない。process group を作って起動し、標準入力（query）を渡す前に `children/<pgid>.json` を記録する（pgid は起動しないと分からないので、記録は起動の後になる。z3 `-in` は入力を受けるまで何もしない）。記録できなければ、入力を渡さずに group を止め、その実行を起動の失敗とする。起動そのもの（spawn）の失敗も同じで、どちらも終わり方は `started: false`（判定は `未実行`）とし、理由を `Check.reason` か `Confirmation.reason` に書く。`children/` は記録（`RecordKind`）に数えないので、記録できないことだけでは `保存の失敗` にしない。
@@ -400,6 +429,7 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 | 前提の整合（`sanity`） | 前提（と初期状態・到達例） | `sat` | `反する`（前提の矛盾） | `満たす` | 確認の記録 |
 | 変異（`mutation`） | 検出役の検査の query の最後の input を変異に置き換えたもの | `expected_violation` | `unsat` が期待なら `満たす`（検出）、そうでなければ `反する`（検出せず） | `sat` が期待なら `満たす`、そうでなければ `反する` | 検出能力の確認 |
 | 反例の再実行（`replay`） | 反例の検査の query ∧ 証人の値（下の [証人](#証人)） | `sat` | `反する`（再現せず） | `満たす`（再現） | 確認の記録 |
+| 静的な確認（`ablation`） | 性質の検査の query から節を切り取ったもの | 実行ごと: 否定だけ・前提と否定だけ・外部の依存の前提を外した実行は `sat`。規則と否定だけ・前提を 1 つ外した実行・前提の組を外した実行は `unsat` | `unsat` が期待なら `満たす`、そうでなければ `反する` | `sat` が期待なら `満たす`、そうでなければ `反する` | 静的な確認と判断を要する項目（答えの `sat`・`unsat` を `expected` と `tool_result` から戻して使う） |
 
 - `unknown`・`timeout`・`(error` の扱いは、どの種類でも上の読む順のとおりである。
 - **出力の上限**: 標準出力が `TOOL_OUTPUT_MAX_BYTES` を超えたら、次のとおりにする。
@@ -407,6 +437,7 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
   - それ以外は、formal-method が group を止め、`stopped_by: "その他"`、`unreadable_output: true` とする（判定は `未実行`）。
 - **答えの後の停止**: `-model` を渡した実行で、答えの行を読み終えた後、モデルを読んでいる（又は読み捨てている）間に期限か停止の要求が来たら、group を止める。この実行は、答えの行を読み終えた時点で道具の結果を得たものとし、答えの行で決める（2 の終了コードの条件は当てない）。`stopped_by: null`、`time_limit_hit` は答えの値のとおり（`timeout` なら `道具`、他は null）、`abnormal_exit`・`unreadable_output` は false とし、証人は読めないものとする。理由: 判定がモデルの大きさで変わらないようにする（上の出力の上限と同じ）。止めたのはモデルの読み取りで、検査ではない。この組は、道具の結果を得た後に止めるものは無いとするオラクルの規則（網羅表の WF1）の、止めていない行と同じになる。
 - 道具を実行した確認（`sanity`・`mutation`・`replay`）の `Confirmation.result` は、その `end` に `classifyCheck` を当てた値で決める。`成功` なら `成り立つ`、`反例` なら `成り立たない`、他の値なら `確認できず`。
+- 静的な確認（`ablation`）の `Confirmation.result` は、`end` に `classifyCheck` を当てた値から答え（`成功` なら `expected`、`反例` なら `expected` でない方）を戻し、その答えで [architecture.md「静的な確認」](architecture.md#静的な確認)の「判定への写し」に従って決める（例: `goal_trivial` は sat で `成り立つ`、unsat で `成り立たない`）。答えが無い（`unknown`・時間切れ・失敗・未実行）実行は断定せず、`確認できず` の確認でなく判断を要する項目（`道具が判定できない`）にする。
 
 ### 証人
 
@@ -446,19 +477,30 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 | `SALVAGE_RETRY_MS` | 10000 | 司令塔の呼び直しの間隔 |
 | `SALVAGE_RETRY_MAX` | 30 | 司令塔の呼び直しの上限。`SALVAGE_RETRY_MAX` × `SALVAGE_RETRY_MS` > `CALL_MAX_MS`（勝者の salvage が 1 回の呼出しで終わる時間より長く待つ） |
 | `LIVENESS_UNKNOWN_MAX` | 30 | 生死を判定できない状態が続いたときの、司令塔の待ちの上限（回数） |
-| `AGENT_BATCH_MAX` | 4 | 1 つの batch で同時に起動する担当の上限 |
-| `AGENT_BATCH_DEADLINE_MS` | 1800000 | 担当の batch の内部の期限（30 分）。依頼の時間の上限があれば、run の期限 − `REPORT_RESERVE_MS` との早い方。理由: モデル作成役は対象の全体を読んでモデルと対応表を書くので、数分では足りない。一方で、返らない担当が run を止め続けないよう有限にする。30 分は、確認の段の batch を数回回しても、人が待てる長さに収まる |
+| `AGENT_BATCH_MAX` | 4 | 1 つの呼び出しで同時に起動する担当の上限 |
+| `AGENT_BATCH_DEADLINE_MS` | 1800000 | 担当の呼び出しの内部の期限（30 分）。依頼の時間の上限があれば、run の期限 − `REPORT_RESERVE_MS` との早い方。理由: モデル作成役は対象の全体を読んでモデルと対応表を書くので、数分では足りない。一方で、返らない担当が run を止め続けないよう有限にする。30 分は、確認の段の呼び出しを数回回しても、人が待てる長さに収まる |
 | `TOOL_TIME_LIMIT_MAX_S` | 600 | 道具の 1 回の実行の時間の上限（`-T`）の上限。`TOOL_TIME_LIMIT_MAX_S` × 1000 < `AGENT_BATCH_DEADLINE_MS`。理由: 時間の上限の無い依頼でも、実行の段が有限の時間で終わる。10 分を超える検査は、範囲を分けるべき大きさとみなす（計画作成役がそう分ける）。超えた検査は `時間切れ`（道具自身の時間の上限）になる。使った値は、各検査の `tool_time_limit` と結果の `verified_scope.internal_time_limits` に必ず出す |
-| `REPORT_RESERVE_MS` | 60000 | 集約と保存のために残す時間の上限。実際に残す時間は min(`REPORT_RESERVE_MS`, 時間の上限 × 1000 / 4) ms。担当の batch の期限 = run の期限 − 残す時間 |
+| `REPORT_RESERVE_MS` | 60000 | 集約と保存のために残す時間の上限。実際に残す時間は min(`REPORT_RESERVE_MS`, 時間の上限 × 1000 / 4) ms。担当の呼び出しの期限 = run の期限 − 残す時間 |
 | `REVISE_ROUNDS_MAX` | 2 | 作成役の修正の巡の上限 |
 | `TOOL_OUTPUT_MAX_BYTES` | 1048576 | 道具の標準出力の上限 |
 | `MEMORY_SAMPLE_MS` | 100 | 性能の記録のための常駐メモリの標本の間隔 |
+| `WORKER_CALL_MAX_MS` | 60000 | 担当の `claim`・`query`・`submit` が `run-daemon` の応答を待つ上限（[依頼と応答](#依頼と応答)）。< `CALL_MAX_MS` − `CLEANUP_BUDGET_MS`。理由: 担当の Bash の既定の timeout（120000）の半分で、命令が殺される前に `no_response` を返す |
+| `UNIT_MAX_BYTES` | 120000 | 1 体に詰める unit の資料の和集合のバイト数の上限（確認役の詰め合わせ `packByUnion` と、原因の分類役の束の上限の初め）。範囲を渡す対象のファイルは渡す行だけを数える。値と根拠は表の下の「`UNIT_MAX_BYTES` の根拠」 |
+| `ABLATION_PER_PROPERTY_MAX` | 12 | 1 つの性質の検査あたりの、静的な確認の道具の実行の上限（否定だけ・前提と否定だけ・規則と否定だけの 3 つと、前提を 1 つずつ外す再検査の和）。超える性質は前提ごとの再検査をせず、全ての前提を判断を要する項目にする（[architecture.md「静的な確認」](architecture.md#静的な確認)）。理由: 前提の数に比例して道具の実行が増え、同じ同時実行の数と期限を他の検査と分け合うため |
 
-値の根拠は実測していない。値を変えるときは、表の関係の検査を通す。
+**`UNIT_MAX_BYTES` の根拠**（値と根拠の正本はこの節。`architecture.md`・`schemas.mjs` はここを指す）: 文脈 200k token の 1/4（50k token）を資料に当てる。1 token あたりのバイト数は、run ba04a7 の担当 15 体の記録（Workflow の `agent-*.jsonl`）で実測した。
 
-**検査に使える期限**: 担当の batch の期限も道具の実行の期限も、run の期限 − 残す時間とする（残す時間は `REPORT_RESERVE_MS` の行）。この時点で実行中の道具は止め、終わり方は `stopped_by: "時間"`・`time_limit_hit: "依頼元"`（判定は `時間切れ`）とする。理由: 依頼元の時間の上限までに結果を返すには（SP-010・015）、集約と保存の時間をその上限の中に含めるしかない。そのため、検査に使える依頼元の時間の上限は、run の期限 − 残す時間である。
+- 求め方: 担当の要求ごとに入力の token（`input_tokens` + `cache_creation_input_tokens` + `cache_read_input_tokens`）を取り、次の要求との差から前の要求の出力の token（`output_tokens`）を引いた値を、その間に返った道具の結果（`tool_result` の文字列）の UTF-8 のバイト数と並べる。道具の結果が 4000 バイト以上の 79 の間で、バイト数の和 1,263,347 ÷ token の和 509,030 = 2.48 バイト/token（間ごとの中央値 2.56、10% 点 1.77、90% 点 2.83）。
+- 値: 50k token × 2.48 ≒ 124,000 バイトを切り下げて 120,000 とする。
+- 余裕: 担当の最初の要求は指示と prompt で約 70k token ある。資料の他に往復で増える分（出力・思考・書いた返り値など。最初の要求からの増分から、読んだ道具の結果の token を引いたもの）は、確認役で最大約 60k token、作成役（モデル作成役）で約 74k token だった。確認役では 70k + 50k + 60k = 180k で、200k に 20k の余裕が残る。作成役は詰め合わせず、資料をこの上限で抑えない（今の 1 体 1 task のまま）。
+- 余裕の限界: 2.48 は和の比で、間ごとの中央値（2.56）に近い値である。比が 10% 点の 1.77 の資料なら、120,000 バイトは約 68k token になり、70k + 68k + 60k = 198k で 200k に近づく。1 件で上限を超える unit は単独の束になり、上限で抑えないので（run ba04a7 の m-apply の unit は約 160KB）、比によっては 200k を超えうる（[architecture.md「未検証と限界」](architecture.md#未検証と限界)の詰め合わせ）。
+- 前の値 100000 は coverage-audit の値を同じ値で持っていたもので、formal-method の資料では測っていなかった。今は formal-method の値として持ち、coverage-audit の値との一致は検査しない。
 
-**時間の上限が小さい依頼**: 担当の batch や道具の実行を出す時点で、上の期限が既に過ぎていれば、出さない。出さなかった担当の成果物は未作成、検査と道具を実行する確認は `未実行` になる。出さなかった独立検証者の unit と原因の分類は、[確認](artifact-formats.md#確認sp-004005012)と[担当の返り値](artifact-formats.md#担当の返り値)の「担当を出さなかった場合」のとおり（`確認できず`・`原因未確認`、確認した者は `cli`）。停止の理由は `時間の上限`（`stage` はその段）で、状態は `停止`。
+表の定数のうち `UNIT_MAX_BYTES` を除く値は、根拠を実測していない（`UNIT_MAX_BYTES` だけは上の根拠のとおり実測で決めた）。値を変えるときは、表の関係の検査を通す。
+
+**検査に使える期限**: 担当の呼び出しの期限も道具の実行の期限も、run の期限 − 残す時間とする（残す時間は `REPORT_RESERVE_MS` の行）。この時点で実行中の道具は止め、終わり方は `stopped_by: "時間"`・`time_limit_hit: "依頼元"`（判定は `時間切れ`）とする。理由: 依頼元の時間の上限までに結果を返すには（SP-010・015）、集約と保存の時間をその上限の中に含めるしかない。そのため、検査に使える依頼元の時間の上限は、run の期限 − 残す時間である。
+
+**時間の上限が小さい依頼**: 担当の呼び出しや道具の実行を出す時点で、上の期限が既に過ぎていれば、出さない。出さなかった担当の成果物は未作成、検査と道具を実行する確認は `未実行` になる。出さなかった独立検証者の unit と原因の分類は、[確認](artifact-formats.md#確認sp-004005012)と[担当の返り値](artifact-formats.md#担当の返り値)の「担当を出さなかった場合」のとおり（`確認できず`・`原因未確認`、確認した者は `cli`）。停止の理由は `時間の上限`（`stage` はその段）で、状態は `停止`。
 - 理由: 期限の過ぎた担当や道具を出しても、返る前に止めることになり、結果は同じで時間だけを使う。1 秒の上限も受け付けたうえで（SP-001）、上限までに何もできなかったことを、上限に達した停止として返す（SP-010）。
 - 残す時間を時間の上限の 1/4 までに抑えるのは、短い上限でも担当と道具に時間を回すためである。
 

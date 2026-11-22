@@ -56,18 +56,19 @@ export const Span = (v, p, e) => {
   return true;
 };
 export const FilePath = re(/^(?!\/)(?!.*(^|\/)\.\.?(\/|$))[^\0]+$/, 'FilePath');
-export const RefHash = obj({ ref: Ref, hash: Sha256 });
+// hash は指紋を取る時点で読めないファイルなら 'unreadable'（artifact-formats「共通の型」の RefHash）
+export const RefHash = obj({ ref: Ref, hash: oneOf(Sha256, lit('unreadable')), 'spans?': arr(obj({ span: Span, hash: Sha256 })) });
 export const SourceRef = obj({ target_id: Id, file: FilePath, span: Span });
 export const Stage = lit('受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約');
 export const Measure = oneOf(
-  obj({ value: num, unit: lit('ms', 'bytes', 'count') }),
+  obj({ value: num, unit: lit('ms', 'bytes', 'count', 'tokens') }),
   obj({ status: lit('取得できず'), reason: str }),
   obj({ status: lit('該当なし'), reason: str }),
 );
-export const RecordKind = lit('request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions',
-  'plan', 'mutations', 'query', 'execution_evidence', 'worklog', 'review_record', 'ledger',
+export const RecordKind = lit('request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions', 'material_view',
+  'plan', 'mutations', 'query', 'execution_evidence', 'worklog', 'review_record', 'judgments', 'ledger',
   'result', 'report', 'salvage_worklog', 'salvage_ledger');
-export const ExecKind = lit('property', 'composition', 'contract', 'sanity', 'mutation', 'replay');
+export const ExecKind = lit('property', 'composition', 'contract', 'sanity', 'mutation', 'replay', 'ablation');
 export const Pointer = oneOf(
   obj({ kind: lit('target', 'goal', 'known_requirement'), id: Id }),
   obj({ kind: lit('location'), target_id: Id, file: FilePath, 'span?': Span }),
@@ -97,7 +98,7 @@ const VerifiedScope = obj({
 });
 
 const Assurance = oneOf(
-  obj({ kind: lit('範囲を限った検査'), scope: str, bounds: arr1(obj({ item: str, bound: str })), fairness_assumptions: arr(str) }),
+  obj({ kind: lit('範囲を限った検査'), scope: str, bounds: arr1(obj({ item: str, bound: str })), scope_variables: arr(str), fairness_assumptions: arr(str) }),
   obj({ kind: lit('無界の証明'), proposition: str, open_obligations: arr(str), fairness_assumptions: arr(str) }),
   obj({ kind: lit('形式検証でない確認'), method: str }),
 );
@@ -193,11 +194,19 @@ const Cause = obj({
   subject: oneOf(obj({ kind: lit('counterexample'), id: Id }), obj({ kind: lit('combination'), model_id: Id, state: str, event: str }), obj({ kind: lit('question'), id: Id })),
   cause: lit('要求の不足', '形式モデルの欠陥', '分類処理の欠陥', '対象が性質を満たさない', '原因未確認'), grounds: str, classified_by: str,
 });
-const DET_KINDS = ['syntax', 'reference', 'result_presence', 'output_format', 'replay', 'sanity', 'mutation'];
-const MEAN_KINDS = ['extraction', 'nonformal', 'fidelity', 'assurance', 'composition'];
+// 静的な確認（artifact-formats「確認」）の kind と、判断を要する項目の kind・cause
+export const STATIC_KINDS = ['goal_trivial', 'premise_only', 'premise_load', 'plan_coverage', 'scope_variables', 'mutation_scope'];
+const JUDGMENT_KINDS = ['goal_trivial', 'premise_only', 'premise_load'];
+const DET_KINDS = ['syntax', 'reference', 'result_presence', 'output_format', 'replay', 'sanity', 'mutation', ...STATIC_KINDS];
+// 意味の確認: 観点ごとの確認と、判断を要する項目ごとの確認（judgment）。性質ごとの保証の観点は無い
+const MEAN_KINDS = ['extraction', 'nonformal', 'fidelity', 'composition', 'judgment'];
 const Confirmation = (kinds) => obj({
   id: Id, kind: lit(...kinds), property_ids: arr(Id), model_property_id: nullable(Id), plan_id: nullable(Id), item: str, result: lit('成り立つ', '成り立たない', '確認できず'),
   checker: str, materials: arr(RefHash), end: nullable(End), reason: str,
+});
+const Judgment = obj({
+  id: Id, kind: lit(...JUDGMENT_KINDS), cause: lit('外部の依存', '効いている前提', '効いている前提の組', '上限を超えた', '道具が判定できない'), property_ids: arr(Id), model_property_id: Id, plan_id: Id,
+  clause_names: arr(str), item: str, materials: arr(RefHash), end: nullable(End), reason: str,
 });
 const Records = obj({
   ledger_refs: arr1(Ref),
@@ -206,7 +215,7 @@ const Records = obj({
 });
 export const StopCode = lit('依頼の不備', '起動の失敗', '処理の中断', '時間の上限', '保存の失敗', '内部の誤り',
   '必要な性質が検証の成功でない', '確認が終わっていない', '対応できていない組合せ', '回答を待つ問い', '記録の未保存',
-  '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査', '担当の失敗');
+  '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査', '担当の失敗', '対象の変化');
 export const RequestCode = lit('target_missing', 'goal_missing', 'shape_invalid', 'duplicate_id', 'exclude_without_reason',
   'pointer_unresolved', 'time_limit_invalid', 'target_unavailable', 'revision_mismatch');
 const StopReport = obj({
@@ -224,16 +233,23 @@ const Performance = obj({
   executions: arr(obj({ id: Id, kind: ExecKind, elapsed_ms: Measure, cpu_time_ms: Measure, peak_rss_bytes: Measure })),
   findings: arr(obj({ id: Id, problem: str, evidence: str, candidates: arr(obj({ change: str, keeps_scope_and_assurance: str })),
     decision: lit('この run では採用しない'), reason: str })),
+  // 起動した担当の数と消費量（SP-FORMALMETHOD-013）。呼び出しごと・段ごと・全体
+  agent_calls: obj({
+    calls: arr(obj({ call_id: Id, stage: Stage, workers: intGe(0), tasks: intGe(0), closed_by: lit('close', 'timed_out', 'deadline'),
+      agents: Measure, launched: arr(obj({ role: str, label: str, model: str, effort: str, ok: bool })), tokens: Measure })),
+    stages: arr(obj({ stage: Stage, calls: intGe(1), agents: Measure, tokens: Measure })),
+    total: obj({ calls: intGe(0), agents: Measure, tokens: Measure }),
+  }),
 });
 
 export const RESULT_KEYS = ['schema', 'status', 'provisional', 'verified_scope', 'properties', 'checks', 'models', 'decomposition', 'counterexamples',
   'causes', 'confirmations', 'unverified', 'questions', 'records', 'stop_report', 'performance'];
 
 export const Result = obj({
-  schema: lit('formal-method.result/1'), status: lit('完了', '停止'), provisional: bool, verified_scope: VerifiedScope,
+  schema: lit('formal-method.result/2'), status: lit('完了', '停止'), provisional: bool, verified_scope: VerifiedScope,
   properties: arr(PropertyResult), checks: arr(Check), models: arr(Model), decomposition: Decomposition,
   counterexamples: arr(Counterexample), causes: arr(Cause),
-  confirmations: obj({ deterministic: arr(Confirmation(DET_KINDS)), meaning: arr(Confirmation(MEAN_KINDS)) }),
+  confirmations: obj({ deterministic: arr(Confirmation(DET_KINDS)), meaning: arr(Confirmation(MEAN_KINDS)), judgments: arr(Judgment) }),
   unverified: arr(obj({ item: str, reason: str })), questions: arr(Question), records: Records,
   stop_report: nullable(StopReport), performance: Performance,
 });
@@ -241,7 +257,7 @@ export const Result = obj({
 export const Identity = obj({ pid: int, started_at: str, nonce: str });
 export const Status = obj({
   seq: intGe(0), run_dir: nullable(str), action: lit('run_agents', 'working', 'terminal'),
-  batch: nullable(obj({ batch_id: str, tasks_path: str, deadline_wall_ms: int, workflow_script: str })),
+  call: nullable(obj({ call_id: str, args_path: str, deadline_wall_ms: int, workflow_script: str })),
   result: nullable(Result), daemon: nullable(Identity),
 });
 
@@ -343,7 +359,8 @@ export function idInvariants(r) {
   const uniq = (name, ids) => { const seen = new Set(); for (const id of ids) { if (seen.has(id)) errs.push(`${name} の id ${id} が重なる`); seen.add(id); } };
   const exists = (name, ids, pool) => { for (const id of ids) if (!pool.has(id)) errs.push(`${name} の ${id} が実在しない`); };
   const d = r.decomposition;
-  const confs = [...r.confirmations.deterministic, ...r.confirmations.meaning];
+  // 判断を要する項目は、実行と確認の id の名前空間に入る（静的な確認の道具の実行の id を持つ）
+  const confs = [...r.confirmations.deterministic, ...r.confirmations.meaning, ...r.confirmations.judgments];
   // 一意の範囲
   uniq('性質（inventory の性質）', r.properties.map((p) => p.id));
   // 検査・sanity・変異・確認の id は 1 つの名前空間で、run の中で一意（check_ids などはこの中にちょうど 1 つ実在する）
@@ -356,8 +373,9 @@ export function idInvariants(r) {
   for (const c of confs) {
     // 確認の id は種類を問わず CLI が confirm-<kind>-<n> で作る
     if (!new RegExp(`^confirm-${c.kind}-\\d+$`).test(c.id)) errs.push(`確認の id ${c.id} が confirm-${c.kind}-<n> の形でない`);
-    // plan_id: 計画の sanity・変異から作った確認（kind sanity・mutation）だけ計画の id、他は null
-    const fromPlan = c.kind === 'sanity' || c.kind === 'mutation';
+    // plan_id: 計画の sanity・変異から作った確認（kind sanity・mutation）と、検査・変異ごとの静的な確認（plan_coverage を除く）だけ計画の id、他は null
+    // 判断を要する項目の意味の確認（judgment）は、その項目と同じ検査の id を持つ
+    const fromPlan = ['sanity', 'mutation', 'judgment', ...STATIC_KINDS.filter((k) => k !== 'plan_coverage')].includes(c.kind);
     if (fromPlan && c.plan_id === null) errs.push(`確認 ${c.id}（${c.kind}）の plan_id が null`);
     if (!fromPlan && c.plan_id !== null) errs.push(`確認 ${c.id}（${c.kind}）の plan_id は null`);
     if (c.plan_id !== null && c.plan_id.startsWith('confirm-')) errs.push(`確認 ${c.id} の plan_id ${c.plan_id} が計画の id でない`);
@@ -400,6 +418,11 @@ export function idInvariants(r) {
     exists(`${p.id}.depends_on_questions`, p.depends_on_questions, qs);
   }
   for (const c of confs) exists(`確認 ${c.id}.property_ids`, c.property_ids, props);
+  // 判断を要する項目の意味の確認の item は、その Judgment の id で、項目ごとに高々 1 つ
+  const judgmentIds = new Set(r.confirmations.judgments.map((j) => j.id));
+  const judged = r.confirmations.meaning.filter((c) => c.kind === 'judgment');
+  exists('判断を要する項目の意味の確認の item', judged.map((c) => c.item), judgmentIds);
+  uniq('判断を要する項目の意味の確認の item', judged.map((c) => c.item));
   for (const x of r.counterexamples) {
     exists(`反例 ${x.id}.check_id（kind property・composition）`, [x.check_id], propChecks);
     const c = r.checks.find((y) => y.id === x.check_id);
