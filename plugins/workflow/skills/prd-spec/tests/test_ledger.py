@@ -171,11 +171,14 @@ class StageTransaction(_Workspace):
         self.assertEqual(self._files(), after, "2 回目の restore は何も変えない")
 
     def test_backupで控えを取った文書の本文はrestoreが段に入った時点へ戻す(self):
-        # writer は本文を Edit で書き doc_check を通らないので、writer の起動の前に backup で控えを取る。無い文書は restore が消す。
+        # writer は本文を Edit で書き doc_check を通らないので、段 4・7 の writer が最初のコマンドの backup で控えを取る。無い文書は restore が消す。
         doc = self.ws / "requirements-auth.md"
         before = doc.read_bytes()
+        auth, tree = self._digest("requirements/auth"), self._digest()
         out = _ok(self.ws, "backup", "--doc", "requirements/new", "--doc", "requirements/auth", "--token", "t4")
-        self.assertEqual(out, {"backup": True, "token": "t4", "docs": ["requirements/auth", "requirements/new"]})
+        # digests・entry_digest・tree_digest: 控えの版の文書の digest（tree-digest と同じ値。本文の無い文書は null、entry.json の無い W の entry_digest は null）。
+        self.assertEqual(out, {"backup": True, "token": "t4", "docs": ["requirements/auth", "requirements/new"],
+                               "digests": {"requirements/auth": auth, "requirements/new": None}, "entry_digest": None, "tree_digest": tree})
         doc.write_text(doc.read_text() + "\n途中まで直した\n")
         (self.ws / "requirements-new.md").write_text("# 途中の草稿\n")
         _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/new", "--token", "t4", stdin={"fixed": False})
@@ -189,6 +192,84 @@ class StageTransaction(_Workspace):
         for bad in (("--doc", "notes/x", "--token", "t5"), ("--token", "t5"), ("--doc", "requirements/auth")):
             with self.subTest(bad=bad):
                 self.assertEqual(_run(self.ws, "backup", *bad).returncode, 1)
+
+    def _digest(self, doc=None):
+        return _ok(self.ws, "tree-digest", *(("--doc", doc) if doc else ()))["digest"]
+
+    def _edit(self, text):
+        doc = self.ws / "requirements-auth.md"
+        doc.write_text(doc.read_text() + text)
+
+    def test_同じtokenの2回目のbackupは控えの版のdigestを返す(self):
+        # writer の backup_check の写しの取り直し（-recopy）は同じ backup を流し直すので、書いた後でも 1 回目と同じ stdout を返す。
+        docs = ("--doc", "requirements/auth", "--doc", "specifications/auth", "--token", "t4")
+        first = _ok(self.ws, "backup", *docs)
+        self._edit("\n途中まで直した\n")
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/auth", "--token", "t4", stdin={"fixed": True})
+        self.assertEqual(_ok(self.ws, "backup", *docs), first)
+        self.assertNotEqual(self._digest(), first["tree_digest"], "控えの版は今の W ではない")
+        self.assertNotEqual(self._digest("requirements/auth"), first["digests"]["requirements/auth"])
+
+    def test_書いてから取ったbackupは書いた後の版を控える(self):
+        # 控えの digest が段の入口の本文と違えば、script は控えの前に書いた writer を見つける。
+        entry = self._digest("requirements/auth")
+        self._edit("\n控えの前に書いた\n")
+        out = _ok(self.ws, "backup", "--doc", "requirements/auth", "--token", "t4")
+        self.assertNotEqual(out["digests"]["requirements/auth"], entry)
+        self.assertEqual(out["digests"]["requirements/auth"], self._digest("requirements/auth"))
+
+    def test_backupのentry_digestはresetの値と同じで残した文書を書けば変わる(self):
+        reset = _ok(self.ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self.assertTrue(reset["entry_digest"])
+        out = _ok(self.ws, "backup", "--doc", "specifications/auth", "--token", "t1")
+        self.assertEqual(out["entry_digest"], reset["entry_digest"], "段 4 の控えの照合の期待値（state.entry_digest）")
+        spec = self.ws / "specifications-auth.md"
+        spec.write_text(spec.read_text() + "\n控えの前に書いた\n")
+        moved = _ok(self.ws, "backup", "--doc", "specifications/auth", "--token", "t2")
+        self.assertNotEqual(moved["entry_digest"], reset["entry_digest"])
+
+    def test_restoreは戻した後の文書のdigestを返す(self):
+        # 同じ段の再実行の入口は、restore の stdout の digest を段の入口の本文と照らす。
+        first = _ok(self.ws, "backup", "--doc", "requirements/auth", "--doc", "requirements/new", "--token", "t4")
+        self._edit("\n途中まで直した\n")
+        (self.ws / "requirements-new.md").write_text("# 途中の草稿\n")
+        out = _ok(self.ws, "restore", "--token", "t4")
+        self.assertEqual((out["tree_digest"], out["entry_digest"]), (first["tree_digest"], first["entry_digest"]))
+        self.assertEqual(out["digests"]["requirements/auth"], first["digests"]["requirements/auth"])
+        self.assertEqual(sorted(out["digests"]), ["requirements/auth", "specifications/auth"], "W にある文書だけを載せ、restore が消した新しい文書は載らない")
+        self.assertEqual(_ok(self.ws, "restore", "--token", "t4")["tree_digest"], out["tree_digest"], "流し直しても同じ W の値")
+
+    def test_書いてから取った控えのrestoreは段の入口の版に戻らない(self):
+        entry = self._digest("requirements/auth")
+        self._edit("\n控えの前に書いた\n")
+        written = self._digest("requirements/auth")
+        _ok(self.ws, "backup", "--doc", "requirements/auth", "--token", "t4")
+        self._edit("\nさらに書いた\n")
+        out = _ok(self.ws, "restore", "--token", "t4")
+        self.assertNotEqual(out["digests"]["requirements/auth"], entry)
+        self.assertEqual(out["digests"]["requirements/auth"], written)
+
+    def test_正規形でないmetaのWではbackupとrestoreもtree_digestと同じく止まる(self):
+        # backup・restore の digest は tree-digest・snapshot と同じ読み手（workspaceDocs）を通る。meta の読み方が違うと、再実行の入口の
+        # restore の tree_digest と監査の snapshot の digest が同じ木で食い違う。
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/auth", "--token", "t4", stdin={"fixed": True})
+        meta = self.ws / "requirements-auth.meta.json"
+        meta.write_text(json.dumps(json.loads(meta.read_text()), indent=4) + "\n")
+        tree = _run(self.ws, "tree-digest")
+        self.assertNotEqual(tree.returncode, 0, "前提: tree-digest は正規形でない meta で止まる")
+        for args in (("backup", "--doc", "requirements/auth", "--token", "t5"), ("restore", "--token", "t5")):
+            with self.subTest(mode=args[0]):
+                r = _run(self.ws, *args)
+                self.assertEqual(r.returncode, tree.returncode, r.stdout)
+                self.assertIn("正規形ではありません", r.stderr)
+
+    def test_pruned_byのrestoreは今のWの文書のdigestを返す(self):
+        self._write_stage("t3")
+        _ok(self.ws, "put", "--ledger", "open", "--token", "t30", stdin={"open": [{"id": "O-003", "text": "通知の頻度"}]})
+        self._edit("\n後の段で書いた\n")
+        out = _ok(self.ws, "restore", "--token", "t3")
+        self.assertEqual(out["pruned_by"], ["t30"])
+        self.assertEqual((out["tree_digest"], out["digests"]["requirements/auth"], out["entry_digest"]), (self._digest(), self._digest("requirements/auth"), None))
 
     def test_新しいtokenの最初の書き込みは前のtokenの控えを消し済んだ段より前へ戻さない(self):
         self._write_stage("t1")

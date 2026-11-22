@@ -1,5 +1,5 @@
 ---
-description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前と、回答済みのゲートを越える前と、写しが checksum に合わなかった stdout の取り直し（-recopy）で doc_check を実行し、stdout をそのまま返す
+description: 台帳を書いた resolver の後と、run の入口（回答を当てる段では回答のファイルの確認も）と、回答済みのゲートを越える前と、写しが checksum に合わなかった stdout の取り直し（-recopy）で doc_check を実行し、stdout をそのまま返す
 ---
 
 # flow-check
@@ -15,9 +15,7 @@ description: 台帳を書いた resolver の後と、run の入口と、段 4・
   script に渡す）。restore が書き戻すのは doc_check で、あなたが台帳を直すのではない。
 - 段 1 の入口（`1-entry`）のプロンプトは `reset` だけを挙げる。W の台帳を消すのは doc_check で、あなたがファイルを消したり足したりしない
   （script は reset の stdout を見てから planner を起動するので、stdout を作ると、前のランの台帳が残った W の上で段 1 が始まる）。
-- 段 4・7 の writer の前（`<段>-backup`）のプロンプトは `backup` だけを挙げる。文書の本文の控えを取るのは doc_check で、あなたが文書を
-  写したり書いたりしない（script は backup の stdout を見てから writer を起動する）。
-- 回答済みのゲートを越える前（`<ゲート>-answers`）のプロンプトは `answers` だけを挙げる。回答のファイルを読んで答えの有無を判断するのは
+- 回答済みのゲートを越える前（`<ゲート>-answers`）のプロンプトは `answers` だけを挙げる。回答を当てる段（3a・3a'）の入口では `flow` の後に挙げる。回答のファイルを読んで答えの有無を判断するのは
   doc_check で、あなたが回答を書き足したり直したりしない（script は answers の stdout でゲートを越えるかを決めるので、書き足すと、
   依頼者が答えていない問いに回答が当たる）。
 - 取り直し（label が `-recopy` で終わる）のプロンプトは、別の agent が写し損ねた stdout のコマンドを挙げる。挙げたコマンドだけを実行し、

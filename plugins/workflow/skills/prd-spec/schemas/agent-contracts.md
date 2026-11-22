@@ -124,7 +124,7 @@
 | `<kind>-<topic>.tbd.json` | 司令塔（S0 で、`doc_check place` が文書と一緒に、保存した文書の隣の `.tbd.json` を逐語で置く。誰も書き換えない。段 1 の入口の `doc_check reset` がこれを meta の `tbd` に写す） | `{ "tbd": [...] }`（要素は [§writer](#writer) の meta の `tbd`） | reset が形を検査し、合わなければ何も消さずに止まる |
 | `findings/r<n>-<役>-<組>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
-| `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer の前に `backup` が文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
+| `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer が最初のコマンドの `backup` で文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
 | `tmp/<label>/` | その label の呼び出しの agent だけ。片付けは doc_check が持つ（put の `--input` は書けたら消え、監査の `snapshot --sweep` が `--live` に無い label のディレクトリを、run の後の `report` が残りのすべてを消して `swept` に出す）ので、agent は消さない（自分で消すと、消し忘れと、消した後に要る中身を W の外へ写す動きが出た）。他の label の tmp は読まない | 作業用の script・一時ファイル | 消えるまでは `snapshot`（`--sweep` なし）と `tree-digest` の `stray` に出る。消したものは `swept` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や詰め合わせの writer reviewer が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
 
 見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`（`report` を導出しない止まり方の run では、最後の監査の snapshot の後に動いた label のものが残る）、`plan.json` に載った文書の中身（中身は snapshot と
@@ -599,14 +599,14 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 最後の verifier の後に resolver を起動していたら（resolver は返り値に載せていない書き込みをしていることがある）、script は判断（settle の起動と残りの数え上げ・輪を出た後の理由）の前に
 `flow-check:<その resolver の label から resolver: を除いたもの>` を起動する。段 3 以降から始める run は、最初に `flow-check:<from>-entry` で W を読み直す
 （blocked の後の同じ段の再実行では、その前に `restore` で止まった run の台帳の書き込みを取り消す）。
-段 1 から始める run は、最初に `flow-check:1-entry` で `reset` を実行し、W を S0 の直後に戻す。段 4・7 は writer を起動する前に `flow-check:<段>-backup` で
-`backup` を実行し、writer が Edit で書く文書の本文の控えを段の token で取る（扱いはどれも references/workflow-io.md §3）。
-resume の args の `gates_answered` のゲートを越える前は、`flow-check:<ゲート>-answers` で `answers` を実行し、回答のファイルが問いのすべてに答えているかを返す。
+段 1 から始める run は、最初に `flow-check:1-entry` で `reset` を実行し、W を S0 の直後に戻す（扱いはどれも references/workflow-io.md §3）。
+入口（`<from>-entry`）では、プロンプトが挙げれば flow の後に `answers`（3a・3a'）も実行する。resume の args の `gates_answered` のゲートを越える前は、
+`flow-check:<ゲート>-answers` で `answers` を実行し、回答のファイルが問いのすべてに答えているかを返す。
 ほかの役か flow-check が返した doc_check の stdout の写しが checksum に合わなければ、`flow-check:<…>-recopy` でプロンプトの挙げたコマンドを実行し直し、
 プロンプトが名指しした欄に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
+入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` か `answers` も、単独のゲートの前は `answers` だけ、`-recopy` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
 
 ```json
 { "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）" }
@@ -628,6 +628,7 @@ digest と、次の 2 つ。
   中身は `W/findings/` の指摘のファイルで読む（読み方は「### 指摘の形」）。段 6 が起動しなくても渡る。
 - `W/routes.json` のうち自分の担当の ID（段 6 で resolver が起動したときだけ）。
 
+最初のコマンドはプロンプトの `backup`（Write・Edit・put より前。控えを取る前に書いた本文はこの段の再実行で戻せず、script が控えの digest で照らす）。
 書くもの: `W/<kind>-<topic>.md`（初稿は Write、改稿は Edit）と `W/<kind>-<topic>.meta.json`（put。`--ledger meta --doc <キー>`）。
 自分の単位の文書だけを書く。
 
@@ -665,7 +666,8 @@ digest と、次の 2 つ。
   "new_tbd": ["TBD-RAUTH-002"],
   "applied_findings": ["r1-wr-all-002"],
   "applied_routes": ["RT-001"],
-  "resolutions_sha256": "読んだ resolutions.json の sha256"
+  "resolutions_sha256": "読んだ resolutions.json の sha256",
+  "backup_check": "最初に実行した doc_check backup の stdout（加工しない）"
 }
 ```
 

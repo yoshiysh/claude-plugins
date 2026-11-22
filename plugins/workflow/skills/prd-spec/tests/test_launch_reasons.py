@@ -38,7 +38,6 @@ LABEL_FAMILIES = [
     ("audit-scoped", "base", r"writerReviewer:r(?:[2-9]|\d{2,}):(?:all|p\d+)", []),
     ("flow-check-entry", "base", r"flow-check:.+-entry", ["`flow-check:${from}-entry`", "'flow-check:1-entry'"]),
     ("flow-check-answers", "base", r"flow-check:.+-answers", ["`flow-check:${gate}-answers`"]),
-    ("flow-check-backup", "base", r"flow-check:.+-backup", ["`flow-check:${stage}-backup`"]),
     ("resolver-final", "base", r"resolver:final", ["'resolver:final'"]),
     ("rework-resolver", "差し戻し（v1 の不合格）", rf"resolver:{S}-fix", ["const fixOf = (stage) => `${stage}-fix`", "`resolver:${fix}`"]),
     ("rework-verifier", "差し戻し（v1 の不合格）", rf"verifier:{S}-fixv", ["`verifier:${fix}v`"]),
@@ -57,7 +56,7 @@ LABEL_FAMILIES = [
     ("flow-rework", "doc_check の差し戻し", rf"resolver:.+-flow{N}", ["reworkLabel(`resolver:${stage}-flow`, n)"]),
     ("planner-rework", "doc_check の差し戻し（1 回）", r"planner:.+:rework", ["`${label}:rework`"]),
     ("left-verifier", "検証し残しの拾い直し（settle の前と後・再実行の入口）", rf"verifier:.+v-(?:left{N}|entry)", ["`verifier:${stage}v-${tag}`", "reworkLabel('left', n + 1)", "verifyLeft(from, 'entry'"]),
-    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy|stash|unstash)$).+", ["`flow-check:${tag}`"]),
+    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|recopy|stash|unstash)$).+", ["`flow-check:${tag}`"]),
     ("recopy", "写しの取り直し（doc_check の stdout が checksum に合わない）", r"flow-check:.+-recopy", ["label.startsWith('flow-check:') ? `${label}-recopy` : `flow-check:${label.replace(/:/g, '-')}-recopy`"]),
     ("rehold", "保持規則の書き直し", r"resolver:.+-rehold", ["`resolver:${owner}-rehold`"]),
     ("rehold-verifier", "保持規則の書き直し", r"verifier:.+-reholdv", ["`verifier:${owner}-reholdv`"]),
@@ -112,6 +111,9 @@ COVERING_TESTS = [
     "DecidedNotHeld.test_揃えても受け取れないdecidableは同じverifierに1回だけ聞き直す",
     "PlannerLint.test_lintが残ったplanner_1は1回だけ差し戻し残ればnoticesに出して進む",
     "FlowFixerRoutes.test_settleのplannerが組だけを裁定し漏らせば保険のpairsが1回起動する",
+    # 単独の flow-check:<ゲート>-answers（gates_answered の resume）。next_args で 3a・3a' から始める run は入口の flow-check が answers も実行するので、
+    # 上の run には現れない。
+    "SameSessionResume.test_回答のファイルが一部の問いに答えていなければゲートを越えない",
 ]
 
 

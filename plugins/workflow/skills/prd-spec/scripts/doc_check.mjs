@@ -2036,12 +2036,19 @@ function checkShape(name, value, file, input) {
 // readLedger: 無いファイルは null。put が書く正規形と 1 バイトでも違えば、put 以外で書かれたものとして止める
 // （Write や自作の script による全体の書き戻しを、読む側で構造的に検出するため）。
 // stored: false は put / del だけが使う（旧い欄を消す書き込みを通し、書く前に次の版を storedRejects で見る）。
-function readLedger(ws, name, doc, stored = true) {
+function readLedger(ws, name, doc, stored = true, text = undefined) {
   const file = ledgerOf(name).file(doc)
-  const value = readJsonFile(path.join(ws, file))
-  if (value === null) return null
+  // text: 読んだ中身（workspaceDocs が控えの版の meta を渡す）。無ければ W のファイルを読む。どちらも同じ正規形と形の検査を通す。
+  const raw = text !== undefined ? text : fs.existsSync(path.join(ws, file)) ? fs.readFileSync(path.join(ws, file), 'utf8') : null
+  if (raw === null) return null
+  let value
+  try {
+    value = JSON.parse(raw)
+  } catch (e) {
+    throw new Error(`${path.basename(file)} を JSON として読めません: ${e.message}`)
+  }
   checkShape(name, value, file)
-  if (fs.readFileSync(path.join(ws, file), 'utf8') !== ledgerText(value)) {
+  if (raw !== ledgerText(value)) {
     throw new Error(`${file} が正規形ではありません。台帳は doc_check put / del 以外で書かないでください`)
   }
   const bad = stored ? storedRejects(ws, name, value) : []
@@ -2266,8 +2273,8 @@ const txLedgerFile = (name) => Object.keys(LEDGERS).some((n) => n !== 'meta' && 
 // txFile: 控えを取ってよいファイル（台帳と、backup が取る文書の本文）。
 const txFile = (name) => txLedgerFile(name) || /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(name)
 
-// backup: writer は文書の本文を Edit で書き、doc_check を通らないので、put のように書き込みの前に控えを取れない。writer を起動する前に、
-// 段の token で本文の控えを取る（無い文書は無い印）。blocked の後の同じ段の再実行の入口の restore が、台帳と一緒に本文を段に入った時点へ戻す。
+// backup: writer は文書の本文を Edit で書き、doc_check を通らないので、put のように書き込みの前に控えを取れない。段 4・7 の writer が
+// 最初のコマンドで、段の token で本文の控えを取る（無い文書は無い印）。blocked の後の同じ段の再実行の入口の restore が、台帳と一緒に本文を段に入った時点へ戻す。
 // 戻さないと、止まった run が途中まで書いた本文が再実行の入力になる（expand の既存文書は S0 の原文が W から失われる）。
 function wsBackup(ws, opts) {
   const token = txToken(opts, 'backup')
@@ -2279,7 +2286,20 @@ function wsBackup(ws, opts) {
     return docFileOf(key)
   })
   for (const file of files) txBegin(ws, token, file)
-  return { backup: true, token, docs: keys }
+  return { backup: true, token, docs: keys, ...docDigests(ws, workspaceDocs(ws, token), keys) }
+}
+
+// docDigests: backup・restore の stdout の、文書の digest（tree-digest と同じ値）。digests は keys の文書ごと（本文が無ければ null）、
+// entry_digest は checks/entry.json のキーの文書から writeEntry と同じ形で作った digest（entry.json が無いかキーが 0 なら null）、
+// tree_digest は全文書の木の digest。script は段 4・7 の控えと再実行の入口の本文をこれで段の入口の本文と照らす。
+function docDigests(ws, docs, keys) {
+  const items = snapshotOf(docs)
+  const entryKeys = Object.keys(readJsonFile(path.join(ws, ENTRY_FILE)) || {})
+  return {
+    digests: Object.fromEntries(keys.map((k) => [k, items[k] ? digestOf({ [k]: items[k] }) : null])),
+    entry_digest: entryKeys.length ? digestOf(entryOf(docs, entryKeys)) : null,
+    tree_digest: digestOf(items),
+  }
 }
 
 const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : null)
@@ -2322,7 +2342,12 @@ function wsRestore(ws, opts) {
   const flowBefore = ledgerSha(ws, 'flow')
   const root = path.join(ws, TX_DIR)
   const prunedBy = fs.existsSync(dir) || !fs.existsSync(root) ? [] : fs.readdirSync(root).filter((t) => txOrder(t) && txOrder(t)[0] > txOrder(token)[0]).sort()
-  if (prunedBy.length) return { token, restored: 0, files: [], pruned_by: prunedBy, flow_before: flowBefore, flow_after: flowBefore }
+  // digests・entry_digest・tree_digest: 戻した後（pruned_by のときは今）の W の文書。digests は W にある文書だけを載せる。
+  const present = () => {
+    const docs = workspaceDocs(ws)
+    return docDigests(ws, docs, docs.map((d) => d.key))
+  }
+  if (prunedBy.length) return { token, restored: 0, files: [], pruned_by: prunedBy, flow_before: flowBefore, flow_after: flowBefore, ...present() }
   const files = []
   const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !TMP_NAME.test(n)).sort() : []
   const plan = names.map((n) => {
@@ -2339,7 +2364,7 @@ function wsRestore(ws, opts) {
     files.push({ path: file, before, after: fileSha(p) })
   }
   fs.rmSync(dir, { recursive: true, force: true })
-  return { token, restored: files.length, files, pruned_by: [], flow_before: flowBefore, flow_after: ledgerSha(ws, 'flow') }
+  return { token, restored: files.length, files, pruned_by: [], flow_before: flowBefore, flow_after: ledgerSha(ws, 'flow'), ...present() }
 }
 
 // reset: 段 1 から始める run の W を、S0 が書いたもの（依頼文・先例の一覧・existing_docs の文書）だけの状態に戻す。前のランや止まった段 1・2 の
@@ -2416,9 +2441,9 @@ function itemDigests(d) {
   }
   return new Map([...byId].map(([id, secs]) => [id, { secs, digest: digestOf({ text: secs.map((s) => s.text), trace: trace.filter((t) => t && t.item_id === id) }) }]))
 }
+const entryOf = (docs, keys) => Object.fromEntries(docs.filter((x) => keys.includes(x.key)).map((d) => [d.key, Object.fromEntries([...itemDigests(d)].map(([id, v]) => [id, v.digest]))]))
 function writeEntry(ws, keys) {
-  const entry = {}
-  for (const d of workspaceDocs(ws).filter((x) => keys.includes(x.key))) entry[d.key] = Object.fromEntries([...itemDigests(d)].map(([id, v]) => [id, v.digest]))
+  const entry = entryOf(workspaceDocs(ws), keys)
   if (keys.length) writeCheck(ws, 'entry.json', entry)
   return entry
 }
@@ -3277,15 +3302,28 @@ function isResetMeta(ws, key, meta) {
   return carry !== null && ledgerText(meta) === ledgerText({ ...emptyLedger(ledgerOf('meta')), tbd: carry.tbd })
 }
 
-function workspaceDocs(ws) {
-  return fs
-    .readdirSync(ws)
-    .filter((n) => DOC_FILE.test(n))
+// workspaceDocs: W の文書（本文と meta）。token を渡すと控えの版（ファイルごとに tx/<token>/ の .pre があればその中身、.absent があれば
+// 無い、どちらも無ければ今の W）を読む。backup・restore の digest も tree-digest・snapshot もここを通るので、meta の検査と digest は同じになる。
+// 控えの印はファイルを読むたびに確かめる（本文と meta の読みの間に並列の writer の put が meta を書けば、書いた後の meta を読む窓は残る。
+// その put は meta の控えを先に取るので、同じ token の次の backup は控えの版を読む）。
+function workspaceDocs(ws, token = null) {
+  const dir = token ? path.join(ws, TX_DIR, token) : null
+  const read = (file) => {
+    if (dir && fs.existsSync(path.join(dir, `${file}${TX_PRE}`))) return fs.readFileSync(path.join(dir, `${file}${TX_PRE}`), 'utf8')
+    if (dir && fs.existsSync(path.join(dir, `${file}${TX_ABSENT}`))) return null
+    const p = path.join(ws, file)
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
+  }
+  const marked = dir && fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(TX_PRE)).map((n) => n.slice(0, -TX_PRE.length)) : []
+  return [...new Set([...fs.readdirSync(ws), ...marked].filter((n) => DOC_FILE.test(n)))]
     .sort()
-    .map((name) => {
+    .flatMap((name) => {
+      const markdown = read(name)
+      if (markdown === null) return []
       const [, kind, topic] = DOC_FILE.exec(name)
-      const meta = readLedger(ws, 'meta', `${kind}/${topic}`)
-      return { key: `${kind}/${topic}`, kind, topic, path: name, markdown: fs.readFileSync(path.join(ws, name), 'utf8'), meta, resetMeta: isResetMeta(ws, `${kind}/${topic}`, meta) }
+      const key = `${kind}/${topic}`
+      const meta = readLedger(ws, 'meta', key, true, token ? read(ledgerOf('meta').file(key)) : undefined)
+      return [{ key, kind, topic, path: name, markdown, meta, resetMeta: isResetMeta(ws, key, meta) }]
     })
 }
 

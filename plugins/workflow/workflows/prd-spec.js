@@ -710,10 +710,9 @@ const ABOUT = {
 }
 const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, about: ABOUT }, required: ['id', 'about'] } }
 
-const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
+const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR, answers_check: STR }, required: ['flow_check'] }
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
-const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
 const RECOPY_SCHEMA = {
   type: 'object',
   properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR },
@@ -791,8 +790,9 @@ const WRITER_SCHEMA = {
     applied_findings: STRS,
     applied_routes: STRS,
     resolutions_sha256: STR,
+    backup_check: STR,
   },
-  required: ['unit', 'docs', 'changed_items', 'open_tbd', 'new_tbd', 'applied_findings', 'applied_routes', 'resolutions_sha256'],
+  required: ['unit', 'docs', 'changed_items', 'open_tbd', 'new_tbd', 'applied_findings', 'applied_routes', 'resolutions_sha256', 'backup_check'],
 }
 
 const AUDIT_SCHEMA = {
@@ -857,7 +857,7 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { FLOW_CHECK_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, RECOPY_SCHEMA, PLANNER_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { FLOW_CHECK_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, RECOPY_SCHEMA, PLANNER_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
@@ -1047,7 +1047,7 @@ const RULINGS_FLOW = cli('flow', '--rulings')
 
 // unchecked: 最後の独立な doc_check flow（verifier か flow-check が実行したもの）より後に起動した resolver の label と stdout。
 // resolver はどの呼び出しでも台帳を書き、台帳の kind・supersedes・hold は flow.json を変えずに flow の指摘と stale_refs を変える。
-// 印は起動の前に付ける（書いてから応答しなかった resolver:final の後も flow-check が数え直す。ほかの呼び出しの null は段を止める）。判断に使う stdout は independentFlow だけが返し、
+// 印は起動の前に付ける（書いてから応答しなかった resolver:final の後も flow-check が数え直す。ほかの呼び出しの null は段を止める）。判断に使う stdout は independentFlow と、問いへの変換の後の verifier（convertFailed）が返し、
 // 段の境界で印が残っていれば止める（段を回す loop）。
 // 呼び出しの場所ごとに flow-check を足す形にすると、足し忘れた呼び出しの後の判断が resolver の自己申告で決まる。
 // ownsFlow: flow.json を書ける resolver の cycle で verifier を外した（unchanged）。flow-check が版の食い違いを見つけても所有表の外の書き込みとは限らず、
@@ -1164,7 +1164,7 @@ async function issue(label, role, prompt, schema, phaseTitle, cmds) {
   if (!got && budgetOut()) throw budgetStop(label)
   const r = got && (await recopy(label, got, { ...copyCmds(role), ...cmds }, phaseTitle))
   if (r && role === 'resolver') unchecked = { ...unchecked, responded: true, claimed: flowCheckOf(r.flow_check) }
-  // flow を数え直さない flow-check（入口の reset・restore だけ、本文の控え）は印を消さない。
+  // flow を数え直さない flow-check（段 1 の入口の reset、単独の answers）は印を消さない。
   if (r && (role === 'verifier' || (role === 'flowCheck' && r.flow_check !== undefined))) unchecked = null
   if (r && rules && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: ${role} が resolutions_sha256 を返しませんでした`), { rerunStage: true })
   const badIds = r && rules ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
@@ -1681,13 +1681,21 @@ async function independentFlow(verified, phaseTitle) {
   if (unknown.length) return { error: `段 ${tag}: flow-check の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${unknown.join(', ')}`, rerun: false }
   see(fc)
   // resolutions は --rulings、lint の欄は --lint の実行にだけ出るので、両側から外して比べる（付けて実行しても申告の食い違いにしない）。
-  const plain = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'resolutions' && !k.startsWith('lint')))
-  const [ran, said] = [plain(fc), claimed && plain(claimed)]
-  const differ = !responded ? [] : said ? uniq([...Object.keys(ran), ...Object.keys(said)].filter((k) => canonicalText(ran[k]) !== canonicalText(said[k]))) : ['stdout']
-  if (differ.length) noteIntegrity(`resolver（段 ${tag}）が返した doc_check flow の stdout が、flow-check が同じ flow.json で実行した stdout と ${differ.join('・')} で違う`)
+  if (responded) noteClaim(tag, claimed, fc, 'flow-check')
   if (!verified) return { fc }
   const stale = [...verified.stale_refs, ...fc.stale_refs.filter((x) => !verified.stale_refs.some((y) => y.el === x.el && y.ref === x.ref))]
   return { fc: { ...fc, open_only: verified.open_only, stale_refs: stale } }
+}
+
+// noteClaim: resolver の申告した doc_check flow の stdout（said）を、別の役が同じ flow.json で実行した stdout（fc）と欄ごとに照らす。
+// resolutions は --rulings、lint の欄は --lint の実行にだけ出るので、両側から外して比べる（付けて実行しても申告の食い違いにしない）。
+// drop: 照らさない欄（問いへの変換の後の verifier は verifications.json を put してから flow を実行するので、合否を読む欄は正当に違いうる）。
+const VERDICT_KEYS = ['unverified', 'failed_current', 'unsettled_refs', 'stale_refs']
+function noteClaim(tag, said, fc, who, drop = []) {
+  const plain = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'resolutions' && !k.startsWith('lint') && !drop.includes(k)))
+  const [ran, told] = [plain(fc), said && plain(said)]
+  const differ = told ? uniq([...Object.keys(ran), ...Object.keys(told)].filter((k) => canonicalText(ran[k]) !== canonicalText(told[k]))) : ['stdout']
+  if (differ.length) noteIntegrity(`resolver（段 ${tag}）が返した doc_check flow の stdout が、${who} が同じ flow.json で実行した stdout と ${differ.join('・')} で違う`)
 }
 
 // unreturned: 求めた ID を resolver が求めた種類で返したか。台帳の集合に入れる前に確かめる。返らない ID はどの検証にも変換にも
@@ -1769,13 +1777,14 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
   if (qe) return qe
   const questions = todo.filter((f) => to(f) === 'question').map((f) => f.id)
   if (!questions.length) return null
-  const checked = await independentFlow(null, phaseTitle)
-  if (checked.error) return checked
-  if (!checked.fc) return { error: `段 ${stage}: 問いへの変換後に resolver の doc_check flow を独立に確認できませんでした`, rerun: false }
+  // 問いへの変換の後は flow-check で数え直さず、直後の verifier の stdout を判断に使う（absorbVerifier が版・符号・see を行う）。
+  // resolver の申告は verifier の issue が unchecked を消す前に取り、verifier の put で変わらない欄で照らす（VERDICT_KEYS を外す）。
+  const claim = unchecked && unchecked.responded ? { tag: unchecked.tag, said: unchecked.claimed } : null
   const labelV = `verifier:${owner}-convertv`
   const v = await askVerifier(labelV, `${owner}v（問いへの変換）`, questions, '', phaseTitle)
   const ve = absorbVerifier(v, state.resolutions_sha256, `${owner}-convertv`, false, null)
   if (ve) return ve
+  if (claim) noteClaim(claim.tag, claim.said, flowCheckOf(v.flow_check, true), `verifier（段 ${owner}-convertv）`, VERDICT_KEYS)
   const rejected = v.fail.filter((f) => questions.includes(f.id))
   if (rejected.length) {
     return { error: `段 ${stage}: 問いへの変換後も関連性・根拠の検証に落ちました（${rejected.map((f) => `${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}`).join(' / ')}）。条件を満たす質問として確認できるまで依頼者に提示できません`, rerun: false }
@@ -2330,10 +2339,15 @@ function answersStop(gate, from, ids, extra) {
 // answersUnchecked: 回答を当てる段に入る前に、回答のファイルが問いのすべてに答えているかを doc_check answers で確かめる。gates_answered の
 // resume と next_args の再開（段 3a・3a' から始める run）の両方が通る。落ちたら resumable を偽にする: resume すると落ちた検査の保存された結果が
 // 返り、同じ所で止まり続ける。
+// entryAnswers: next_args で 3a・3a' から始めた run の入口の flow-check が返した answers の stdout（state に載せない）。入口の後に回答待ちの問いが
+// 変われば（入口の verifyLeft が W から問いを受け取った）使わずに単独で起動する。
+let entryAnswers = null
 async function answersUnchecked(gate, from, ids) {
   const label = `flow-check:${gate}-answers`
   const cmd = cli('answers', `--file ${gateAnswers(gate)} --ids ${ids.join(',')}`)
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
+  const pre = entryAnswers && entryAnswers.gate === gate && canonicalText(entryAnswers.ids) === canonicalText(uniq(ids)) ? entryAnswers.text : undefined
+  entryAnswers = null
+  const x = pre !== undefined ? { answers_check: pre } : await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
   const ac = parseStdout(x && x.answers_check)
   const echoed = ac && ac.file === gateAnswers(gate) && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
   if (echoed && !ac.missing.length) {
@@ -2656,6 +2670,7 @@ function writerPrompt(unit, mode, extra) {
   return [
     header('writer', mode === 'draft' ? '4（初稿）' : '7（改稿）', writerLabel(unit, mode)),
     groundsBlock(),
+    `最初のコマンド（Write・Edit・put より前）: \`${backupCmd()}\`。stdout を加工せずに backup_check に入れる。控えを取る前に書いた本文は、この段の再実行で戻せない。`,
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
     deps.length ? `依存先の単位の文書（読むだけ）: ${deps.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}` : '',
     existingNote(),
@@ -2676,18 +2691,45 @@ function absorbWriter(r) {
   }
 }
 
-// backupDocs: writer は本文を Edit で書き doc_check を通らないので、writer を起動する前に段の token で本文の控えを取らせる（doc_check backup）。
-// 控えが無いと、blocked の後の同じ段の再実行の入口の restore が本文を戻せず、止まった run が途中まで書いた本文が再実行の入力になる
-// （expand の既存文書は S0 の原文が W から失われる）。
-async function backupDocs(stage, docs) {
-  const label = `flow-check:${stage}-backup`
-  const keys = uniq(docs)
-  const token = txToken()
-  const cmd = cli('backup', `${keys.map((k) => `--doc ${k}`).join(' ')} --token ${token}`)
-  const x = await once(label, 'flowCheck', [header('flowCheck', stage, label), `実行する: \`${cmd}\`。stdout を加工せずに backup_check に入れて返す。`].join('\n\n'), BACKUP_SCHEMA, PHASE_OF[stage], { backup_check: cmd })
-  const bc = parseStdout(x.backup_check)
-  if (bc && bc.backup === true && bc.token === token && canonicalText(bc.docs) === canonicalText(keys)) return
-  throw Object.assign(new Error(`flow-check（段 ${stage}）が token ${token} で文書 ${list(keys)} の本文の控えを取った doc_check backup の stdout を返しませんでした（控えが無いまま writer を起動すると、この段の再実行が止まった run の途中の本文から始まる）`), { rerunStage: true })
+// backupCmd: writer は本文を Edit で書き doc_check を通らないので、段 4・7 の writer はどれも最初のコマンドで段の token の控えを全文書について取る
+// （doc_check backup）。txBegin は同じ token・同じファイルの 2 回目から何もしないので、どの文書も最初に書いた writer の控えが段の入口の本文になる。
+// 控えが無いと、blocked の後の同じ段の再実行の入口の restore が本文を戻せない（references/workflow-io.md §3）。
+const backupCmd = () => cli('backup', `${uniq(auditDocs()).sort().map((k) => `--doc ${k}`).join(' ')} --token ${txToken()}`)
+
+// docsShaped: backup・restore の stdout の文書の digest（digests・entry_digest・tree_digest）の形。keys があれば digests のキーがちょうどそれ（backup）。
+const docsShaped = (o, keys = null) => Boolean(o) && isMap(o.digests) && (!keys || canonicalText(Object.keys(o.digests).sort()) === canonicalText(keys))
+  && Object.values(o.digests).every((v) => v === null || (typeof v === 'string' && Boolean(v)))
+  && (o.entry_digest === null || (typeof o.entry_digest === 'string' && Boolean(o.entry_digest))) && typeof o.tree_digest === 'string' && Boolean(o.tree_digest)
+// docsMoved: 文書が段の入口の本文と違う理由（同じなら null）。最初の段 4 の入口: existing_docs に無い単位の文書は無く（reset が消す）、既存の文書は
+// 段 1 の reset の直後のまま（state.entry_digest）。段 7 の入口と、最初のゲートの後に書き直す段 4 の入口（state.deferred で初稿を監査した後）:
+// 直前の監査の snapshot の木（state.audit.digest。その後の段は文書を書かない）。digests に無いキーは本文が無い。
+// bornOnly: 違うのが最初の段 4 で新しく生まれた文書だけ（段 1 の入口の reset が消すので段 1 から戻せる）。
+function docsMoved(stage, o) {
+  if (stage === '4' && !state.audit) {
+    const born = auditDocs().filter((k) => !KEEP_KEYS.includes(k) && o.digests[k] != null)
+    const moved = (o.entry_digest ?? null) !== (state.entry_digest ?? null)
+    const why = [...born.map((k) => `${k} がある`), ...(moved ? [`既存の文書の digest ${o.entry_digest} が段 1 の reset の値 ${state.entry_digest ?? null} と違う`] : [])]
+    return why.length ? { text: `段 4 の入口の本文と違う（${why.join('・')}）`, bornOnly: !moved } : null
+  }
+  return o.tree_digest === state.audit.digest ? null : { text: `木 ${o.tree_digest} が段 ${stage} の入口の監査の基準 audited-${state.audit.n}（${state.audit.digest}）と違う`, bornOnly: false }
+}
+// noteBackup: writer の返した backup の stdout（自己申告）を照らす。違えば integrity に 1 行足して段は進める（控えが要るのはこの段を同じ段から
+// 再実行するときだけで、その正否は再実行の入口で別の体が写す restore の stdout で決まる）。
+function noteBackup(stage, label, text) {
+  const keys = uniq(auditDocs()).sort()
+  const bc = parseStdout(text)
+  const shaped = bc && bc.backup === true && bc.token === txToken() && canonicalText(bc.docs) === canonicalText(keys) && docsShaped(bc, keys)
+  const m = shaped && docsMoved(stage, bc)
+  // 控えの版は、その文書に最初に控えを取った writer の時点で決まる（並列なら別の writer のことがある）ので、誰が書いたかは断定しない。
+  const d = !shaped ? `token ${txToken()} で文書 ${list(keys)} の控えを取った stdout ではない` : m ? `この token の控えの版が${m.text}` : null
+  if (d) noteIntegrity(`${label} の doc_check backup（token ${txToken()}）: ${d}（この段が止まって同じ段から再実行すると、入口の照合で止まりうる）`)
+}
+// writerBackups: writer の backup_check の写しが checksum に合わなければ取り直し（recopy）、照らす。
+async function writerBackups(stage, labels, results, phaseTitle) {
+  for (let i = 0; i < results.length; i++) {
+    results[i] = await recopy(labels[i], results[i], { backup_check: backupCmd() }, phaseTitle)
+    noteBackup(stage, labels[i], results[i].backup_check)
+  }
 }
 
 // designatedCmds: 指名された監査役の doc と tree-digest は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
@@ -2697,13 +2739,13 @@ const snapshotFault = (d) => (d && copyFault(d.audited) ? `（snapshot の stdou
 
 async function stage4() {
   const waves = unitWaves(state.units)
-  await backupDocs('4', auditDocs())
   for (const wave of waves) {
     const units = wave.map((id) => state.units.find((u) => u.id === id))
     const results = await runEach(units, (u) => call(writerPrompt(u, 'draft'), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: 'Draft', label: writerLabel(u, 'draft') }))
     const missing = units.filter((_, i) => !results[i]).map((u) => writerLabel(u, 'draft'))
     // 一度も書かれていない単位を監査に回さない。
     if (missing.length) throw notRun(missing.join(', '))
+    await writerBackups('4', units.map((u) => writerLabel(u, 'draft')), results, 'Draft')
     for (const r of results) absorbWriter(r)
   }
   state.settled_written = uniq([...usableResolutions(state), ...(state.holds || [])])
@@ -2965,8 +3007,6 @@ async function stage7() {
     log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')
     return '9'
   }
-  // 改稿する単位の文書だけでなく全文書を控える。writer が自分の単位の外の文書に書いても、再実行の restore がそれを戻せるように。
-  await backupDocs('7', auditDocs())
   const results = await runEach(targets, (t) => {
     const before = t.unit.docs.map((k) => `${k}: ${state.docs && state.docs[k] ? state.docs[k] : `${W}/checks/audited-${state.audit.n}.snapshot.json の docs["${k}"].digest`}`)
     const extra = [
@@ -2982,6 +3022,7 @@ async function stage7() {
   })
   const missing = targets.filter((_, i) => !results[i]).map((t) => writerLabel(t.unit, 'revise'))
   if (missing.length) throw notRun(missing.join(', '))
+  await writerBackups('7', targets.map((t) => writerLabel(t.unit, 'revise')), results, 'Revise')
   const changes = {}
   let unapplied = []
   targets.forEach((t, i) => {
@@ -3186,11 +3227,26 @@ async function enterFromDisk(from) {
   const label = `flow-check:${from}-entry`
   const restoring = restorePending ? RESUME_TX.restore : null
   const restore = restoring ? `最初に実行する: \`${cli('restore', `--token ${restoring}`)}\`。stdout を加工せずに restore_check に入れる。続けて ` : ''
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from])
+  // 回答を当てる段（3a・3a'）の入口は、flow の後に回答のファイルも確かめる（answersUnchecked がこの stdout を使い、単独の answers を起動しない）。
+  const answering = ['3a', "3a'"].includes(from) && pendingQuestions(state).length > 0
+  const answersCmd = answering ? cli('answers', `--file ${gateAnswers(state.gate)} --ids ${pendingQuestions(state).join(',')}`) : null
+  const flowLine = answering
+    ? `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れる。続けて実行する: \`${answersCmd}\`。stdout を加工せずに answers_check に入れる。すべて返す。`
+    : `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), flowLine].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from], answering ? { answers_check: answersCmd } : undefined)
   if (restoring) {
     const re = restored(from, x)
     if (re) return re
   }
+  // 段 4・7 の再実行の入口: 戻した後の本文が段の入口の本文と違えば、戻らない本文の上で検証も改稿も回さない（references/workflow-io.md §3）。
+  if (restoring && ['4', '7'].includes(from)) {
+    const rc = parseStdout(x.restore_check)
+    if (!docsShaped(rc)) return blocked(`flow-check（段 ${from} の入口）の doc_check restore の stdout に、戻した後の文書の digest がありません`, from)
+    const m = docsMoved(from, rc)
+    if (m && m.bornOnly) return blocked(`段 4 の入口: restore の後の文書が${m.text}。止まった run の writer が控えの前に新しい文書を書いたので、同じ段からでは消えない。段 1 の入口の reset が消すので段 1 からやり直す`, '1')
+    if (m) return blocked(`段 ${from} の入口: restore の後の文書が${m.text}。止まった run の writer が控えの前に本文を書いたので、同じ段から再実行しても段の入口の本文に戻らない（reset は既存の文書の本文を残す）。S0 からやり直す（existing_docs の文書を doc_check place で置き直す）`, null)
+  }
+  if (answering) entryAnswers = { gate: state.gate, ids: uniq(pendingQuestions(state)), text: x.answers_check }
   const fc = x && flowCheckOf(x.flow_check, true)
   if (!fc) return blocked(`flow-check（段 ${from} の入口）が doc_check flow の stdout を返しませんでした`, from)
   if (fc.content_sha256 !== state.flow_digest) {
