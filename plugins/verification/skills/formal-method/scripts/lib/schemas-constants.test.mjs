@@ -7,11 +7,16 @@ const loadSchemas = () => import('./schemas.mjs');
 
 const VALUES = {
   CALL_MAX_MS: 240000, CALL_MARGIN_MS: 30000, CLEANUP_BUDGET_MS: 30000, START_WAIT_MS: 210000, WAIT_LIMIT_MS: 210000,
-  WAIT_POLL_MS: 2000, SALVAGE_RETRY_MS: 10000, SALVAGE_RETRY_MAX: 30, LIVENESS_UNKNOWN_MAX: 30, AGENT_BATCH_MAX: 4,
+  WAIT_POLL_MS: 2000, SALVAGE_RETRY_MS: 10000, SALVAGE_RETRY_MAX: 30, LIVENESS_UNKNOWN_MAX: 30,
   AGENT_BATCH_DEADLINE_MS: 1800000, TOOL_TIME_LIMIT_MAX_S: 600, REPORT_RESERVE_MS: 60000, REVISE_ROUNDS_MAX: 2,
   TOOL_OUTPUT_MAX_BYTES: 1048576, MEMORY_SAMPLE_MS: 100, START_STOP_WAIT_MS: 5000, ABLATION_PER_PROPERTY_MAX: 12,
   WORKER_CALL_MAX_MS: 60000, UNIT_MAX_BYTES: 120000,
 };
+// 1 つの呼び出しで起動する体の数の上限は持たない（architecture.md「担当の起動」。同時実行の上限を超える分は runtime が待たせる）
+test('cli-contract 定数 AGENT_BATCH_MAX は無い（1 つの段の担当は 1 回の呼び出しで起動する）', async () => {
+  const s = await loadSchemas();
+  assert.equal('AGENT_BATCH_MAX' in s, false);
+});
 const WORKER_BASH_TIMEOUT_MS = 120000; // 担当の Bash の既定の timeout（契約の表の理由の列）
 const HOST_LIMIT_MS = 600000; // Claude Code の Bash の上限（契約の表の理由の列）
 

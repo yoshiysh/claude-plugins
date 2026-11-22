@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Run } from './lib/run.mjs';
-import { LAUNCHER, SUBMITS_MAX, markUnseen, packByUnion, runCall, sq, unionBytes, unwrap } from './lib/call.mjs';
+import { LAUNCHER, SUBMITS_MAX, markUnseen, packByUnion, runCall, runWorkers, sq, unionBytes, unwrap } from './lib/call.mjs';
 import { refFiles, expandRefHashes, WORKFLOW_SCRIPT } from './lib/agents.mjs';
 import { mergeSpans, fileLines, spanText } from './lib/target-refs.mjs';
 import { execFileSync } from 'node:child_process';
@@ -303,6 +303,29 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 1 体に詰めた担当は 1 �
   const [w] = await p;
   assert.deepEqual(w.results.map((r) => r.ok), [true, true, true]);
   assert.equal(run.calls[0].tasks, 3);
+});
+
+test('architecture 担当の起動: 1 つの段の担当は、体の数によらず 1 回の呼び出しで起動する（確認の段で 6 体なら、呼び出しは 1 つで args の workers は 6 件）', async (t) => {
+  const run = makeRun(t);
+  const p = runWorkers(run, [1, 2, 3, 4, 5, 6].map((n) => ({ items: [{ spec: reviewSpecN(n) }] })));
+  let settled = false;
+  p.then(() => { settled = true; }, () => { settled = true; });
+  // 開いた呼び出しを全て記録して閉じる（呼び出しを分ける実装でも、残りの呼び出しで止まらない）
+  const opened = [];
+  for (let i = 0; !settled && i < 500; i += 1) {
+    const s = readStatus(run.runDir);
+    if (s?.action === 'run_agents' && !opened.some((c) => c.call_id === s.call.call_id)) {
+      opened.push({ call_id: s.call.call_id, args: JSON.parse(readFileSync(s.call.args_path, 'utf8')) });
+      closeWith(run, s.call.call_id, agentsOf(0));
+    }
+    await sleep(20);
+  }
+  const out = await p;
+  assert.equal(opened.length, 1, `呼び出しは 1 つ: ${JSON.stringify(opened.map((c) => [c.call_id, c.args.workers.length]))}`);
+  assert.equal(opened[0].args.stage, '確認');
+  assert.deepEqual(opened[0].args.workers.map((w) => w.id), ['w01', 'w02', 'w03', 'w04', 'w05', 'w06']);
+  assert.equal(run.calls.length, 1);
+  assert.equal(out.length, 6, '戻り値は workers と同じ順の 6 件');
 });
 
 test('SP-FORMALMETHOD-008・013 依存つきの担当: 分割と計画を 1 体が順に担い、計画の担当は分割の担当が閉じるまで claim に出ず、分割を受理した submit の next で返る。閉じた時点で分割の結果を渡す', async (t) => {

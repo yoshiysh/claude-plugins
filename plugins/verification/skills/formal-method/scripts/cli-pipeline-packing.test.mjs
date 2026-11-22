@@ -59,6 +59,21 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 資料が UNIT_MAX_BYTES を超
   assert.deepEqual([...byWorker].sort(([a], [b]) => a.localeCompare(b)).map(([, ms]) => sorted(ms)), [['M1', 'M2', 'M3', 'M4'], ['M5']], JSON.stringify([...byWorker]));
 });
 
+test('SP-FORMALMETHOD-013 architecture 担当の起動: 確認の段の担当が 6 体（抽出の確認役 1 体と、資料が UNIT_MAX_BYTES を超える忠実さの単位 5 件）でも、確認の段の呼び出しは 1 回で、args の workers は 6 件', async (t) => {
+  const big = (i) => `(declare-const x Int)\n; ${`c${i} `.repeat(Math.ceil(UNIT_MAX_BYTES / 3) + 10)}\n(assert (and (>= x (- 8)) (<= x 8)))\n(assert (not (>= (* x x) 0)))`;
+  const props = ['P1', 'P2', 'P3', 'P4', 'P5'].map((id, i) => P(id, i + 2, { smt: big(i), scopeVariables: ['x'] }));
+  const { result, harness } = await runScenario(t, { files: FILES, scenario: perModel(props) });
+  assert.deepEqual(resultInvariants(result), []);
+  const calls = harness.memory.calls.filter((c) => c.stage === '確認');
+  assert.equal(calls.length, 1, `確認の段の呼び出しは 1 つ: ${JSON.stringify(calls.map((c) => [c.callId, c.workers.map((w) => w.role)]))}`);
+  assert.deepEqual(calls[0].workers.map((w) => w.id), ['w01', 'w02', 'w03', 'w04', 'w05', 'w06']);
+  assert.equal(calls[0].workers.filter((w) => w.role === 'fidelity-reviewer').length, 5, '忠実さの確認役は単位ごとに 1 体');
+  const st = result.performance.agent_calls.stages.find((s) => s.stage === '確認');
+  assert.equal(st.calls, 1);
+  assert.deepEqual(st.agents, { value: 6, unit: 'count' });
+  for (const p of props) assert.deepEqual(prop(result, p.id).verdict, ['検証済み'], p.id);
+});
+
 test('SP-FORMALMETHOD-012 AC-22: 判断を要する項目が無い性質は、忠実さの確認が成り立てば 検証済み になり、成り立たなければ 検証済み にならない', async (t) => {
   const ok = await runScenario(t, {});
   assert.deepEqual(ok.result.confirmations.judgments, [], '正準のシナリオに判断を要する項目は無い');
