@@ -13,11 +13,12 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 ## 受け取るもの
 
-担当は CLI の `claim` で task（[claim の Task](artifact-formats.md#claim-の-task)）を受け取り、`query` で資料を引く（手順の正本は [CLI 契約の依頼と応答](cli-contract.md#依頼と応答)）。1 回の `claim` は、その worker の出し終えていない task を全て（1 つ以上）返す。1 体が複数の task を持つのは、確認役の詰め合わせ（同じ観点の unit）、原因の分類役の束、分割と計画を順に担う worker である。
+担当は CLI の `claim` で task（[claim の Task](artifact-formats.md#claim-の-task)）を受け取り、`query` で資料を引く（手順の正本は [CLI 契約の依頼と応答](cli-contract.md#依頼と応答)）。1 回の `claim` は、その worker の出し終えていない task を全て（1 つ以上）返す。次の task は、受理された `submit` の応答の `next` で受け取る。`next` が `done: true` なら担当を終え、終わりの `claim` は流さない。1 体が複数の task を持つのは、確認役の詰め合わせ（同じ観点の unit）、原因の分類役の束、分割と計画を順に担う worker である。
 
 | 受け取るもの | 中身 | 使い方 |
 |---|---|---|
-| `claim` の `tasks` の各 task | `task_id`・`role`・`instructions`・`attempt_dir`・`result_path`・`return_schema`・`query_cmd`・`submit_cmd`・`context`（`TaskContext`） | `instructions` の 2 つのファイル（担当の指示と、この文書）を読む。`context` が担当の範囲、`return_schema` が返り値の形 |
+| `claim` の応答の最上位 | `query_cmd`・`submit_cmd`・`scratch_dir`（worker で 1 つ）と `return_schemas`（役ごとの返り値の形） | `query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd` で流す。返り値の形は `return_schemas[<task の role>]` |
+| `claim` の `tasks`（と `submit` の `next` の `tasks`）の各 task | `task_id`・`role`・`instructions`・`attempt_dir`・`result_path`・`context`（`TaskContext`） | `instructions` の 2 つのファイル（担当の指示と、この文書）を読む。`context` が担当の範囲 |
 | `query` の `inputs` | 渡された資料ごとの `{name, ref, path, spans?}`（`spans` は読む行の範囲。無ければファイルの全体） | 読む資料はここに挙がったものだけ。`spans` があればその行だけ |
 
 - 読む資料は `query` の `inputs` が指すものだけである。`claim` と `query` の出力の外を読まない。`ref` は `context.run_dir` からの相対 path か、対象のファイルを指す `target:<target_id>/<FilePath>` で、`path` は読む絶対 path（対象のファイルは元のファイル。写しは無い）。ディレクトリを指す `ref` は、その下のファイルを読んでよい。
@@ -35,10 +36,11 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 ## 書く場所と返し方
 
-- 書くのは `attempt_dir` の中だけである。run の状態（`state.json`・`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-029）。`attempt_dir` の外に書いたものは成果物として登録されない。
+- 書くのは `attempt_dir` と `scratch_dir` の中だけである。`scratch_dir` は worker ごとの作業用の領域で、成果物でない生成物（指紋を求める script など）を置く。成果物・作業記録・返り値は `attempt_dir` に書く（`scratch_dir` を指す `Ref` は成功に数えられない）。run の状態（`state.json`・`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-029）。`attempt_dir` の外に書いたものは成果物として登録されない。
 - 自分が書く全ての `Ref`（`outputs[].ref`・`record_ref`・`worklog_ref`・`query_ref`・`input_refs` など）は、`context.run_dir` からの相対 path で、`attempts/<task_id>/` で始まるか、`query` が渡した資料を指す。
-- 返り値は `return_schema` の形の JSON を `result_path` に書き、`submit_cmd` を流して出す。返り値の `task_id` は task の値、`unit_id` は `context.unit_id`、`perspective` は `context.perspective` をそのまま使う。値が違う返り値は成功に数えられない。
+- 返り値は `return_schemas[<task の role>]` の形の JSON を `result_path` に書き、`submit_cmd` を流して出す。返り値の `task_id` は task の値、`unit_id` は `context.unit_id`、`perspective` は `context.perspective` をそのまま使う。値が違う返り値は成功に数えられない。
 - Workflow の返り値（担当の最後の応答）で内容を返さない。CLI は応答を読まず、`submit` で受理した `result_path` の返り値だけを使う。
+- 書くファイルは、既にあれば上書きしてよい書き方で書く（Write の tool か、shell なら `>|`）。理由: shell の `noclobber` が効いていると `>` は既にあるファイルで失敗し、その回復に往復を使う。
 - `submit` が `done: true` を返した担当は閉じている。受理された担当の成果物と返り値を書き換えない（受理の後に attempt の領域が書き換わると、CLI は受理を取り消す）。
 - 長い作業は、書き終えた部分からファイルに書く。呼び出しの期限（CLI 契約の `AGENT_BATCH_DEADLINE_MS` と検査に使える期限の早い方）までに受理されなかった担当は欠測になる。期限の後の `submit` は拒まれる。そのため、期限より前に返り値を書き終えて `submit` を流す（条件の正本は [CLI 契約の依頼と応答](cli-contract.md#依頼と応答) と [成果物の形式の担当の返り値](artifact-formats.md#担当の返り値)）。
 

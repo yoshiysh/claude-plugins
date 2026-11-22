@@ -223,13 +223,13 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 1 つの worker は 1 つ以上の task を持つ。行の `role` は、その worker の task の役を出てくる順に `+` でつないだもの（分割と計画なら `partition-author+plan-author`）。1 体の task の model・effort は同じでなければならない（違えば CLI の内部の誤り）。同時に起動する数は `AGENT_BATCH_MAX` 体までで、超える分は次の呼び出しにする。
   - worker に結ぶ task の決め方は 3 つある。
     - 作成役（抽出役・モデル作成役）: 1 体に 1 task。
-    - 分割と計画: 1 体に 2 task。計画の task は分割の task に依存し、分割の task が閉じる（受理か失敗）まで `claim` に出さない。分割の結果は閉じた時点で `run-daemon` が受け取り、計画の task の資料と照合に使う。分割の task が閉じないまま呼び出しが閉じたら、計画の task は出さず `担当の失敗` にする。
+    - 分割と計画: 1 体に 2 task。計画の task は分割の task に依存し、分割の task が閉じる（受理か失敗）まで `claim` にも `submit` の `next` にも出さない。分割の結果は閉じた時点で `run-daemon` が受け取り、計画の task の資料と照合に使う。分割の task が閉じないまま呼び出しが閉じたら、計画の task は出さず `担当の失敗` にする。
     - 確認役: 観点ごとに、unit の並びのまま `packByUnion`（詰めた unit の資料の和集合のバイト数が `UNIT_MAX_BYTES` に収まる所まで前から詰める。next-fit）で束にし、束ごとに 1 体。観点をまたいで混ぜない。1 件で上限を超える unit は単独の束になる。原因の分類役は 1 体が束を順に取る（[段と処理の順序](#段と処理の順序)）。
     - 1 体の量は、その体の unit の `input_refs` が指すファイル（ディレクトリはその下の全て。範囲を渡す対象のファイルは渡す行だけ）の和集合のバイト数である。同じ束の unit が共有する資料（同じ行・inventory の写し・モデルなど）は 1 度だけ数える。理由: 1 体が読む量は和集合で、共有の資料を unit ごとに足すと、資料が大きい run で全ての unit が 1 体ずつに分かれる（autonoia の run 20261122T040551Z-ba04a7 では、確認の段が 11 体で、どの体も 1 unit だった）。
     - `claim` は、同じ応答で返す 2 つ以上の task が共有する資料を `shared_inputs` に 1 度だけ挙げる。担当は共有の資料を 1 度だけ読む。渡した資料の指紋は、task ごとの最初の `query` の時点で task ごとに固定する（共有の資料でも task ごとに記録する）。
   - 上限 `UNIT_MAX_BYTES` の値と根拠（実測の手順・余裕・余裕の限界）の正本は [CLI 契約の定数](cli-contract.md#定数) の `UNIT_MAX_BYTES` の根拠で、ここには写さない。
-- 担当は、`<run_dir>/formal-method-cli.mjs`（呼び出しのたびに `run-daemon` が書く入口。本物の CLI を絶対パスで import するだけで、台帳に登録しない）で `claim` を流し、`query` で資料を引き、成果物と返り値を attempt の領域に書いて `submit` を流す。落ちたら直して同じ `submit` を流し直し、`claim` が `done` を返すまで続ける。
-  - `claim` は、呼び出しと worker を照らし、その worker の出し終えていない担当の task（[claim の Task](artifact-formats.md#claim-の-task)）を全て `tasks` で返す。task は指示ファイル（`agents/<role>.md` と `agent-obligations.md`）の絶対パス、`attempt_dir`、`result_path`、`query_cmd`・`submit_cmd` を持つ。
+- 担当は、`<run_dir>/formal-method-cli.mjs`（呼び出しのたびに `run-daemon` が書く入口。本物の CLI を絶対パスで import するだけで、台帳に登録しない）で `claim` を流し、`query` で資料を引き、成果物と返り値を attempt の領域に書いて `submit` を流す。落ちたら直して同じ `submit` を流し直し、受理された `submit` の応答の `next` の task を続けて果たし、`next` が `done: true` なら終える（終わりの `claim` は流さない）。
+  - `claim` は、呼び出しと worker を照らし、その worker の出し終えていない担当の task（[claim の Task](artifact-formats.md#claim-の-task)）を全て `tasks` で返す。task は指示ファイル（`agents/<role>.md` と `agent-obligations.md`）の絶対パス、`attempt_dir`、`result_path` を持つ。worker で 1 つの `query_cmd`・`submit_cmd`・`scratch_dir` と、役ごとの返り値の形 `return_schemas` は、応答の最上位に 1 度だけ置く。
   - `query` は、その担当の `input_refs` の資料の path だけを返し、担当の外の資料を拒む。`refs` は `.` と `..` を畳んでから照らし、畳んだ後に run の領域の外を指す ref と絶対の path は担当の外とする。最初の `query` の時点で資料の指紋（`expandRefHashes`）を固定し、これを渡した資料（SP-012）として記録する。`query` を流さなかった担当の渡した資料は空である。
   - `submit` は、返り値を書いた task（前の照合から attempt の領域が変わったもの。無ければ出し終えていない全ての task）の `result_path` の返り値を照合し（[担当の返り値](artifact-formats.md#担当の返り値)と各段の照合）、task ごとに `{ok, problems, done}` を返す。受理したものは、呼び出しを閉じた後に台帳に足す。期限の後と閉じた後の `submit` は拒む。
   - 担当が見ていない前の `submit` の応答（依頼の公開から `WORKER_CALL_MAX_MS` 近くの後に書いた応答か、書けなかった応答）があり、その後に取った task の attempt の領域が 1 つも変わっていなければ、照合し直さず前の応答をそのまま返す（期限の後でも返す）。前の応答を見た後の同じ提出は、直せなかった提出として照合する（欠陥が減らなければ残った欠陥ごと受理する）。

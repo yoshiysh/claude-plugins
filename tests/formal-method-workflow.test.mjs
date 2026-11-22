@@ -58,3 +58,13 @@ test('SP-FORMALMETHOD-013 Workflow の args: 壊れた args では起動せず�
     assert.ok(logs.some((m) => m.includes('args の検査に落ちた')))
   }
 })
+
+test('SP-FORMALMETHOD-013 Workflow の prompt: 担当は submit の next で続けて next の done: true で終え（終わりの claim を流さない）、query は <query_cmd> <task_id>、生成物は scratch_dir に Write か >| で書く', async () => {
+  const seen = []
+  await runScript(ARGS, async (prompt) => { seen.push(prompt); return { notes: [] } })
+  for (const p of seen) {
+    for (const s of ['next', 'done: true', 'claim を流し直さない', '<query_cmd> <task_id>', 'return_schemas', 'scratch_dir', '>|', 'Write']) assert.ok(p.includes(s), `prompt に ${s} が無い`)
+    assert.ok(!p.includes('claim が done を返すまで'), '終わりの claim を求めない')
+    assert.ok(!p.includes('return_schema が'), 'task ごとの return_schema を前提にしない')
+  }
+})

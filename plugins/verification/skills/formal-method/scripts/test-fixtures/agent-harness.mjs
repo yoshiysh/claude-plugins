@@ -1,5 +1,6 @@
 // 担当の代わりの harness。Workflow の代わりに、call.args_path の workers の行ごとに役として振る舞う:
-// 入口（<run_dir>/formal-method-cli.mjs）で claim → query_cmd → attempt の領域に成果物と返り値を書く → submit_cmd → 落ちたら直して同じ submit → done まで。
+// 入口（<run_dir>/formal-method-cli.mjs）で claim → <query_cmd> <task_id> → attempt の領域に成果物と返り値を書く → submit_cmd → 落ちたら直して同じ submit →
+// 受理の応答の next の task を続けて果たし、next が done: true なら終える（終わりの claim は流さない。cli-contract.md「依頼と応答」）。
 // 書く形は artifact-formats.md の「担当の成果物」「担当の返り値」「claim の Task」「作業記録」だけ。task から読むのは Task と TaskContext の欄と、
 // query が返した資料（input_refs）だけ。最後に司令塔の代わりに close を呼ぶ（Workflow の返り値は {agents, tokens}）。
 // 受け取った task が契約の形（claim の Task の欄、役ごとの context）に合わなければ、その違反で失敗する。
@@ -26,7 +27,31 @@ export function linesOf(text) {
 }
 
 // ---- 受け取った task の契約の検査（claim の Task の欄と、役と context の表） ----
-const TASK_KEYS = ['attempt_dir', 'context', 'effort', 'instructions', 'model', 'query_cmd', 'result_path', 'return_schema', 'role', 'submit_cmd', 'task_id'];
+const TASK_KEYS = ['attempt_dir', 'context', 'effort', 'instructions', 'model', 'result_path', 'role', 'task_id'];
+// claim の応答の最上位（done: false のとき）。返り値の形は役ごとに 1 度、命令と scratch_dir は worker で 1 つ
+// command は CLI の出力だけが持つ（client の関数で同じ process から流すと無い）ので、比べない
+const CLAIM_KEYS = ['done', 'ok', 'query_cmd', 'return_schemas', 'scratch_dir', 'shared_inputs', 'submit_cmd', 'tasks'];
+const NEXT_KEYS = ['done', 'return_schemas', 'shared_inputs', 'tasks'];
+// claim の応答（top）か submit の next（next）の、task の外の欄の検査。schemas はこの worker が受け取った返り値の形（役 → schema）
+export function claimViolations(res, { runDir, callId, worker, kind = 'claim', schemas = null }) {
+  const v = [];
+  const at = `${worker} の ${kind}`;
+  const keys = Object.keys(res).filter((k) => k !== 'command').sort().join();
+  if (keys !== (kind === 'claim' ? CLAIM_KEYS : NEXT_KEYS).join()) v.push(`${at} の欄 ${keys}`);
+  const rs = res.return_schemas;
+  if (!rs || typeof rs !== 'object') return [...v, `${at} の return_schemas が無い`];
+  const roles = [...new Set((res.tasks ?? []).map((x) => x.role))];
+  if (Object.keys(rs).sort().join() !== [...roles].sort().join()) v.push(`${at} の return_schemas の役 ${Object.keys(rs).join()} が tasks の役 ${roles.join()} と違う`);
+  for (const [r, sc] of Object.entries(rs)) {
+    if (!sc || sc.type !== 'object') v.push(`${at} の return_schemas.${r}`);
+    if (schemas) schemas[r] = sc;
+  }
+  if (kind === 'claim') {
+    if (!String(res.submit_cmd).includes(' submit') || !String(res.query_cmd).includes(' query')) v.push(`${at} の submit_cmd・query_cmd`);
+    if (res.scratch_dir !== join(runDir, 'attempts', `${callId}-${worker}`) || !existsSync(res.scratch_dir)) v.push(`${at} の scratch_dir ${res.scratch_dir}`);
+  }
+  return v;
+}
 const ROLE_PERSPECTIVE = {
   extractor: [null], 'model-author': [null], 'plan-author': [null], 'partition-author': [null], 'cause-analyst': [null],
   'extraction-reviewer': ['extraction'], 'assurance-reviewer': ['nonformal'], 'fidelity-reviewer': ['fidelity'], 'composition-reviewer': ['composition'],
@@ -44,8 +69,6 @@ export function taskViolations(task, runDir, memory = null, worker = null) {
   if (ins.length !== 2 || !ins[0].endsWith(`/agents/${task.role}.md`) || !ins[1].endsWith('/references/agent-obligations.md') || !ins.every((x) => existsSync(x))) v.push(`${task.task_id}: instructions ${JSON.stringify(ins)}`);
   if (task.attempt_dir !== join(runDir, 'attempts', task.task_id) || task.result_path !== join(task.attempt_dir, 'return.json')) v.push(`${task.task_id}: attempt_dir・result_path`);
   if (!existsSync(task.attempt_dir)) v.push(`${task.task_id}: attempt の領域が無い`);
-  if (!task.return_schema || task.return_schema.type !== 'object') v.push(`${task.task_id}: return_schema`);
-  if (!String(task.submit_cmd).includes(' submit') || !String(task.query_cmd).includes(' query')) v.push(`${task.task_id}: submit_cmd・query_cmd`);
   // workers の行の role は、その worker が持つ担当の役を出てくる順に + でつないだもの（分割と計画を 1 体が担うとき 2 つ）
   if (worker && (!worker.role.split('+').includes(task.role) || worker.model !== task.model || worker.effort !== task.effort)) v.push(`${task.task_id}: workers の行と role・model・effort が違う`);
   if (!(ROLE_PERSPECTIVE[task.role] ?? []).includes(c.perspective)) v.push(`${task.task_id}: ${task.role} の perspective ${c.perspective}`);
@@ -357,7 +380,7 @@ function causeReturn(task, s) {
 
 // hooks:
 //   via: 'process'（既定）| 'shell'。担当の claim・query・submit と司令塔の close を、client の関数で同じ process から流すか、
-//     担当と同じく Bash の命令（入口の claim・query_cmd・submit_cmd、CLI の close）で流すか。どちらも同じ依頼・応答・受け箱のファイルを通る。
+//     担当と同じく Bash の命令（入口の claim・<query_cmd> <task_id>・submit_cmd、CLI の close）で流すか。どちらも同じ依頼・応答・受け箱のファイルを通る。
 //     既定を process にするのは、node の起動の数を減らし、時間の上限のケースの担当の進みを並列の負荷に左右させないため。
 //     入口と命令の文字列そのものは、shell で流すケース（call.test.mjs）が確かめる。
 //   beforeSubmit(status, { tasks: [task] }): 担当が成果物と返り値を書いた後、submit の前に呼ぶ（担当ごと・提出ごと）。
@@ -378,6 +401,7 @@ function publishInbox(runDir, callId, text) {
   unlinkSync(tmp);
 }
 const LATE_MARGIN_MS = 1000;
+const sq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
 const json1 = (r) => r.json ?? { ok: false, code: 'E_HARNESS', reason: `出力が 1 行の JSON でない: ${r.stdout.slice(0, 300)} ${r.stderr.slice(0, 300)}` };
 
 // 返り値（artifact-formats「担当の返り値」）を役ごとに書く。round はその役の提出の何回目か（1 から）。
@@ -406,7 +430,8 @@ export function makeHarness(scenario, hooks = {}) {
   // Workflow の返り値は、run の workspace の保存先の root（<ws>/.formal-method/。runs/<run_id> の 2 つ上）の下に置く。
   // 呼び手は workspace を消すので tmpdir() の直下に残らず、.formal-method/ は対象の集まりから除かれるので、対象の指紋も変えない
   let wfDir = null;
-  // 役の 1 体: claim が done を返すまで、取った担当（1 回の claim で 1 つ以上）を果たす。戻り値は Workflow の起動の記録の 1 行。
+  // 役の 1 体: 最初の claim で取った担当（1 つ以上）を果たし、受理の submit の応答の next の担当を続けて果たす。next が done: true なら終える
+  // （終わりの claim は流さない）。戻り値は Workflow の起動の記録の 1 行。
   async function worker(status, args, w, call, opts) {
     const rec = { role: w.role, label: `${w.role}-${w.id}`, model: w.model, effort: w.effort, ok: true };
     const roles = w.role.split('+');
@@ -420,16 +445,27 @@ export function makeHarness(scenario, hooks = {}) {
     // holdCalls: この呼び出しで束を取ったまま出さないか
     const holdRole = roles.find((r) => (scenario.holdCalls[r] ?? 0) > (memory.held[r] ?? 0));
     if (holdRole) memory.held[holdRole] = (memory.held[holdRole] ?? 0) + 1;
+    const c = await run('claim', claimCmd, base);
+    if (!c.ok || c.done) { call.claims.push({ worker: w.id, via: 'claim', ...c }); return rec; }
+    const ctx = { runDir: status.run_dir, callId: args.callId, worker: w.id };
+    // この worker が受け取った返り値の形（役 → schema）。claim と next の return_schemas で受け取る
+    const schemas = {};
+    memory.violations.push(...claimViolations(c, { ...ctx, kind: 'claim', schemas }));
+    const cmds = { query: c.query_cmd, submit: c.submit_cmd };
+    const closed = new Set();
+    let batch = c;
+    let via = 'claim';
     for (let guard = 0; guard < 40; guard += 1) {
-      const c = await run('claim', claimCmd, base);
-      if (!c.ok || c.done) { call.claims.push({ worker: w.id, ...c }); break; }
-      call.claims.push({ worker: w.id, done: false, task_ids: c.tasks.map((x) => x.task_id) });
+      call.claims.push({ worker: w.id, done: false, via, task_ids: batch.tasks.map((x) => x.task_id) });
       const got = [];
-      for (const raw of c.tasks) {
+      for (const raw of batch.tasks) {
+        if (closed.has(raw.task_id)) memory.violations.push(`${w.id} の ${via} が閉じた担当 ${raw.task_id} を返した`);
+        if (!schemas[raw.role]) memory.violations.push(`${w.id} の ${raw.task_id}: 役 ${raw.role} の返り値の形を受け取っていない`);
         let task = memory.tasks.find((x) => x.task_id === raw.task_id);
         if (!task) {
           memory.violations.push(...taskViolations(raw, status.run_dir, memory, w));
-          const q = await run('query', raw.query_cmd, { ...base, task_id: raw.task_id });
+          // query は worker で 1 つの query_cmd に task_id を引数で足して流す
+          const q = await run('query', `${cmds.query} ${sq(raw.task_id)}`, { ...base, task_id: raw.task_id });
           // 呼び出しが閉じた・期限を過ぎた（時間の上限のケース）なら、担当を終える
           if (!q.ok) { call.claims.push({ worker: w.id, query: q }); return { ...rec, ok: false }; }
           // query_inputs: query の応答の inputs をそのまま（path を見るテストのため）
@@ -441,7 +477,10 @@ export function makeHarness(scenario, hooks = {}) {
         got.push(task);
       }
       if (holdRole) return { ...rec, ok: false };
+      // 最後に受理された submit の応答の next（次の担当か done: true）
+      let next = null;
       for (const task of got) {
+        if (closed.has(task.task_id)) continue;
         const mode = (task.context.perspective && scenario.returnsByPerspective[task.context.perspective]) || scenario.returns[task.role];
         // 'missing' は、取って資料を引いたまま提出しない（返らなかった担当）
         if (mode === 'missing') return { ...rec, ok: false };
@@ -451,15 +490,29 @@ export function makeHarness(scenario, hooks = {}) {
           const round = memory.rounds[task.role];
           writeReturn(task, scenario, memory, mode);
           if (hooks.beforeSubmit) await hooks.beforeSubmit(status, { tasks: [task] });
-          const r = await run('submit', task.submit_cmd, base);
+          const r = await run('submit', cmds.submit, base);
           if (!r.ok) { memory.submits.push({ task_id: task.task_id, role: task.role, round, refused: r }); return rec; }
           const res = r.results.find((x) => x.task_id === task.task_id);
           memory.submits.push({ task_id: task.task_id, role: task.role, round, result: res });
           if (hooks.afterSubmit) await hooks.afterSubmit(status, { task, result: res });
           done = res.done;
+          const sentBack = r.results.some((x) => !x.done);
+          // 差し戻しの応答は next を持たず、差し戻しの無い応答は next を持つ（cli-contract.md「依頼と応答」）
+          if (sentBack === ('next' in r)) { memory.violations.push(`${w.id} の submit の応答: 差し戻し ${sentBack} で next ${'next' in r ? 'あり' : 'なし'}`); return { ...rec, ok: false }; }
+          if (!sentBack) next = r.next;
           if (!done && (scenario.stopAfterSubmits[task.role] ?? Infinity) <= round) return rec;
         }
+        closed.add(task.task_id);
       }
+      if (!next) { memory.violations.push(`${w.id}: 受理の後の next が無い`); return { ...rec, ok: false }; }
+      if (next.done === true) {
+        if (Object.keys(next).join() !== 'done') memory.violations.push(`${w.id} の next（done: true）の欄 ${Object.keys(next).join()}`);
+        call.claims.push({ worker: w.id, via: 'next', done: true });
+        return rec;
+      }
+      memory.violations.push(...claimViolations(next, { ...ctx, kind: 'next', schemas }));
+      batch = next;
+      via = 'next';
     }
     return rec;
   }
@@ -473,7 +526,9 @@ export function makeHarness(scenario, hooks = {}) {
     const call = { ...args, deadline_wall_ms: status.call.deadline_wall_ms, tasks: [], claims: [] };
     memory.calls.push(call);
     const agents = await Promise.all(args.workers.map((w) => worker(status, args, w, call, opts)));
-    assert.deepEqual(memory.violations, [], 'run-daemon が出した task が契約（claim の Task の欄・役と context）に合う');
+    // 契約に合わなければ、呼び出しを閉じないまま失敗にする。run-daemon が呼び出しの期限まで残らないよう、先に止める
+    if (memory.violations.length && status.daemon?.pid) { try { process.kill(status.daemon.pid, 'SIGKILL'); } catch { /* 既に終わっている */ } }
+    assert.deepEqual(memory.violations, [], 'run-daemon が出した task が契約（claim の Task の欄・役と context、claim・submit の応答の形）に合う');
     const mode = (hooks.close ? hooks.close(status, call) : null) ?? 'plain';
     assert.ok(CLOSE_MODES.includes(mode), `harness の閉じ方 ${mode}`);
     memory.closes.push({ call_id: args.callId, mode });

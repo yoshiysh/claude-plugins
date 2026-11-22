@@ -19,7 +19,7 @@ import { startTimeOf } from './lib/process.mjs';
 import { ROLES } from './lib/roles.mjs';
 import { REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS } from './lib/schemas.mjs';
 import { sha256Bytes } from './lib/canonical.mjs';
-import { makeWorkspace, removeTree, CLI } from './test-fixtures/cli-runner.mjs';
+import { makeWorkspace, removeTree, CLI, runShell } from './test-fixtures/cli-runner.mjs';
 import { runScenario } from './test-fixtures/pipeline.mjs';
 import { SM, wrongGoal, PART_SCENARIO } from './test-fixtures/pipeline-cases.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
@@ -283,7 +283,8 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 1 体に詰めた担当は 1 �
   const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
   const c = await workerCall('claim', base);
   assert.deepEqual(c.tasks.map((x) => x.context.unit_id), ['extraction-T1', 'extraction-T2', 'extraction-T3']);
-  assert.ok(c.tasks.every((x) => x.submit_cmd === c.tasks[0].submit_cmd), 'submit の命令は worker で 1 つ');
+  assert.equal(typeof c.submit_cmd, 'string', 'submit の命令は worker で 1 つ（応答の最上位）');
+  assert.ok(c.tasks.every((x) => !('submit_cmd' in x)), 'task は submit の命令を持たない');
   // 2 つだけ書いて出すと、その 2 つだけを照合して受理する
   writeReview(c.tasks[0]);
   writeReview(c.tasks[1]);
@@ -304,7 +305,7 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 1 体に詰めた担当は 1 �
   assert.equal(run.calls[0].tasks, 3);
 });
 
-test('SP-FORMALMETHOD-008・013 依存つきの担当: 分割と計画を 1 体が順に担い、計画の担当は分割の担当が閉じるまで claim に出ない。閉じた時点で分割の結果を渡す', async (t) => {
+test('SP-FORMALMETHOD-008・013 依存つきの担当: 分割と計画を 1 体が順に担い、計画の担当は分割の担当が閉じるまで claim に出ず、分割を受理した submit の next で返る。閉じた時点で分割の結果を渡す', async (t) => {
   const run = makeRun(t);
   const order = [];
   const part = { role: 'partition-author', stage: '計画', candidates: [{ id: 'C1', nodes: ['n1'] }], input_refs: [{ name: 'request', ref: 'request.json' }] };
@@ -322,14 +323,15 @@ test('SP-FORMALMETHOD-008・013 依存つきの担当: 分割と計画を 1 体�
   assert.deepEqual(c1.tasks.map((x) => x.role), ['partition-author'], '最初は分割の担当だけ');
   assert.deepEqual(order, [], '計画の spec はまだ作らない');
   writeAuthor(c1.tasks[0], 1);
-  assert.equal((await workerCall('submit', base)).results[0].done, true);
-  assert.deepEqual(order, [['part', true]], '分割の担当が閉じた時点で結果を渡す');
-  const c2 = await workerCall('claim', base);
-  assert.deepEqual(c2.tasks.map((x) => x.role), ['plan-author']);
-  assert.deepEqual(order, [['part', true], ['plan-spec']], '計画の spec は分割の結果を受けた後の claim で作る');
-  writeAuthor(c2.tasks[0], 1);
-  assert.equal((await workerCall('submit', base)).results[0].done, true);
-  assert.equal((await workerCall('claim', base)).done, true);
+  const s1 = await workerCall('submit', base);
+  assert.equal(s1.results[0].done, true);
+  assert.deepEqual(order[0], ['part', true], '分割の担当が閉じた時点で結果を渡す');
+  assert.deepEqual(s1.next?.tasks?.map((x) => x.role), ['plan-author'], `分割を受理した submit の next が計画の担当: ${JSON.stringify(s1.next)}`);
+  assert.deepEqual(order, [['part', true], ['plan-spec']], '計画の spec は分割の結果を受けた後（next を作る時点）で作る');
+  writeAuthor(s1.next.tasks[0], 1);
+  const s2 = await workerCall('submit', base);
+  assert.equal(s2.results[0].done, true);
+  assert.deepEqual(s2.next, { done: true }, '最後の受理の next は done: true（終わりの claim は要らない）');
   closeWith(run, call.call_id, agentsOf(1));
   const [w] = await p;
   assert.deepEqual(w.results.map((r) => r.ok), [true, true]);
@@ -524,17 +526,23 @@ test('SP-FORMALMETHOD-012 cli-contract 依頼と応答 query: refs の .. と . 
 test('SP-FORMALMETHOD-015 AC-19 依存つきの担当: 依存する担当が閉じた後に worker が claim しないまま呼び出しが閉じたら、そのとおりに書く（依存する担当が閉じる前とは書かない）', async (t) => {
   const run = makeRun(t);
   const part = { role: 'partition-author', stage: '計画', candidates: [{ id: 'C1', nodes: ['n1'] }], input_refs: [{ name: 'request', ref: 'request.json' }] };
+  // 分割と同じ submit で差し戻される担当（同じ model・effort の作成役）を置く。差し戻しの応答は next を持たないので、
+  // 分割が閉じても計画の担当は next に出ず、worker が claim を流さなければ取られないまま閉じる
   const items = [{ spec: part, check: () => ({ defects: [], value: null }) },
+    { spec: authorSpec(), check: () => ({ defects: defects(2), value: null }) },
     { role: 'plan-author', stage: '計画', spec: () => ({ role: 'plan-author', stage: '計画', property_ids: ['P1'], input_refs: [] }), after: 0 }];
   const p = runCall(run, { stage: '計画', workers: [{ items }] });
   const call = await waitOpen(run.runDir);
   const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
   const c = await workerCall('claim', base);
-  writeAuthor(c.tasks[0], 1);
-  assert.equal((await workerCall('submit', base)).results[0].done, true);
+  assert.deepEqual(c.tasks.map((x) => x.role), ['partition-author', 'model-author']);
+  for (const [i, task] of c.tasks.entries()) writeAuthor(task, i);
+  const s = await workerCall('submit', base);
+  assert.deepEqual(s.results.map((r) => [r.ok, r.done]), [[true, true], [false, false]]);
+  assert.ok(!('next' in s), '差し戻しを含む応答は next を持たない');
   closeWith(run, call.call_id, agentsOf(1));
   const [w] = await p;
-  assert.deepEqual(w.results.map((r) => [r.ok, Boolean(r.dependency)]), [[true, false], [false, true]]);
+  assert.deepEqual(w.results.map((r) => [r.ok, Boolean(r.dependency)]), [[true, false], [true, false], [false, true]], '差し戻した担当は書き換えが無いので前の提出を受理する');
   assert.equal(run.agentFailures.length, 1);
   assert.match(run.agentFailures[0].detail, /依存する担当が閉じた後、呼び出しが閉じるまでに worker が claim しなかった/);
   assert.doesNotMatch(run.agentFailures[0].detail, /閉じる前に/);
@@ -795,6 +803,216 @@ test('call の部品: sq は文字列を shell の 1 語にし、引用符・空
   for (const x of ['', 'plain', "it's", 'a b\nc', '$HOME `x` "q"', '{"k":"v\'s"}']) {
     assert.equal(execFileSync('sh', ['-c', `printf '%s' ${sq(x)}`], { encoding: 'utf8' }), x, JSON.stringify(x));
   }
+});
+
+// ---- 往復と応答の大きさ（cli-contract.md「コマンド」「依頼と応答」、artifact-formats.md「claim の Task」、agent-obligations.md「書く場所と返し方」） ----
+// submit の受理は next で次に出せる task（なければ done: true）を返し、担当は終わりの claim を流さない。
+// claim の応答は、役ごとの返り値の形（return_schemas）と、worker で 1 つの query_cmd・submit_cmd・scratch_dir を最上位に 1 度だけ持つ。
+const CLAIM_TASK_KEYS = ['attempt_dir', 'context', 'effort', 'instructions', 'model', 'result_path', 'role', 'task_id'];
+const partSpec = () => ({ role: 'partition-author', stage: '計画', candidates: [{ id: 'C1', nodes: ['n1'] }], input_refs: [{ name: 'request', ref: 'request.json' }] });
+const planSpec = () => ({ role: 'plan-author', stage: '計画', property_ids: ['P1'], input_refs: [{ name: 'request', ref: 'request.json' }] });
+const count = (text, needle) => text.split(needle).length - 1;
+
+test('SP-FORMALMETHOD-013 cli-contract 依頼と応答 submit の next: 受理した submit は next にまだ出していない task を claim と同じ形で返し、最後の受理は next: {done: true} を返す（終わりの claim を流さずに終えられる）', async (t) => {
+  const run = makeRun(t);
+  const p = runCall(run, { stage: '確認', workers: [{ items: [1, 2, 3].map((n) => ({ spec: reviewSpecN(n) })) }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  const ids = c.tasks.map((x) => x.task_id);
+  writeReview(c.tasks[0]);
+  const s1 = await workerCall('submit', base);
+  assert.deepEqual(s1.results.map((r) => [r.task_id, r.ok, r.done]), [[ids[0], true, true]]);
+  assert.ok(s1.next && s1.next.done === false, `受理の後に出していない task があれば next は done: false: ${JSON.stringify(s1.next)}`);
+  assert.deepEqual(s1.next.tasks.map((x) => x.task_id), ids.slice(1), 'next は出していない task（claim の tasks と同じ形）');
+  assert.ok(s1.next.tasks.every((x) => Object.keys(x).sort().join() === CLAIM_TASK_KEYS.join()), JSON.stringify(s1.next.tasks.map((x) => Object.keys(x))));
+  for (const task of c.tasks.slice(1)) writeReview(task);
+  const s2 = await workerCall('submit', base);
+  assert.deepEqual(s2.results.map((r) => [r.ok, r.done]), [[true, true], [true, true]]);
+  assert.deepEqual(s2.next, { done: true }, '出せる task が無ければ next は done: true だけ');
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.deepEqual(w.results.map((r) => r.ok), [true, true, true]);
+  assert.deepEqual(run.agentFailures, []);
+});
+
+test('SP-FORMALMETHOD-011・013 cli-contract 依頼と応答 submit の next: 束の worker は、束を出し終えた submit の next で次の束を受け取り、claim を流し直さずに全ての束を出し終える', async (t) => {
+  const run = makeRun(t);
+  const p = runCall(run, { stage: '確認', workers: [{ mode: 'fit', cap: 10, items: [1, 2, 3].map((n) => ({ spec: causeSpecN(n), bytes: 10 })) }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  assert.equal(c.tasks.length, 1);
+  const seen = [c.tasks.map((x) => x.task_id)];
+  let tasks = c.tasks;
+  for (let i = 0; i < 5; i += 1) {
+    for (const task of tasks) writeCause(task);
+    const s = await workerCall('submit', base);
+    assert.ok(s.results.every((r) => r.ok && r.done), JSON.stringify(s.results));
+    assert.ok(s.next, `受理した submit は next を持つ: ${JSON.stringify(s)}`);
+    if (s.next.done) break;
+    tasks = s.next.tasks;
+    seen.push(tasks.map((x) => x.task_id));
+  }
+  assert.deepEqual(seen.map((x) => x.length), [1, 1, 1], '上限 10 の束は 1 件ずつ');
+  assert.equal(new Set(seen.flat()).size, 3, '束は重ならない');
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.deepEqual(w.results.map((r) => r.ok), [true, true, true]);
+  assert.deepEqual(run.agentFailures, [], 'next で受け取った束は、claim で受け取った束と同じく取った担当として閉じる');
+});
+
+test('SP-FORMALMETHOD-015 cli-contract 依頼と応答 submit の next: 差し戻し（ok: false・done: false）の submit は next を持たない。失敗として閉じた task（cannot_proceed）の submit は next を持つ', async (t) => {
+  const run = makeRun(t);
+  let n = 0;
+  const check = () => { n += 1; return { defects: n === 1 ? defects(2) : [], value: null }; };
+  const p = callOf(run, 'モデル化', [{ spec: authorSpec(), check }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  writeAuthor(c.tasks[0], 1);
+  const back = await workerCall('submit', base);
+  assert.deepEqual(back.results.map((r) => [r.ok, r.done]), [[false, false]]);
+  assert.ok(!('next' in back), `差し戻しの応答に next を入れない: ${JSON.stringify(back)}`);
+  writeAuthor(c.tasks[0], 2);
+  const ok = await workerCall('submit', base);
+  assert.deepEqual(ok.results.map((r) => [r.ok, r.done]), [[true, true]]);
+  assert.deepEqual(ok.next, { done: true });
+  closeWith(run, call.call_id, agentsOf(1));
+  assert.equal((await p)[0].ok, true);
+
+  const run2 = makeRun(t);
+  const p2 = callOf(run2, 'モデル化', [{ spec: authorSpec(), check: () => ({ defects: [], value: null }) }]);
+  const call2 = await waitOpen(run2.runDir);
+  const base2 = { run_dir: run2.runDir, call_id: call2.call_id, worker: 'w01' };
+  const task = (await workerCall('claim', base2)).tasks[0];
+  writeFileSync(join(task.attempt_dir, 'worklog.json'), '{}');
+  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: '進めない', worklog_ref: rel(task, 'worklog.json') }));
+  const failed = await workerCall('submit', base2);
+  assert.deepEqual(failed.results.map((r) => [r.ok, r.done]), [[false, true]]);
+  assert.deepEqual(failed.next, { done: true }, '閉じた task の後は次へ進む');
+  closeWith(run2, call2.call_id, agentsOf(1));
+  assert.equal((await p2)[0].ok, false);
+});
+
+test('SP-FORMALMETHOD-008・013 cli-contract 依頼と応答 submit の next: 依存つきの計画の task は、分割の task が閉じるまで next に出ず、分割を受理した submit の next で返る。next は新しく出た役の返り値の形を return_schemas に持つ', async (t) => {
+  const run = makeRun(t);
+  const order = [];
+  let n = 0;
+  const items = [
+    { spec: partSpec(), check: () => { n += 1; return { defects: n === 1 ? defects(2) : [], value: null }; }, settle: (r) => order.push(['part', r.ok]) },
+    { role: 'plan-author', stage: '計画', spec: () => { order.push(['plan-spec']); return planSpec(); }, check: () => ({ defects: [], value: null }), after: 0 },
+  ];
+  const p = runCall(run, { stage: '計画', workers: [{ items }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  assert.deepEqual(c.tasks.map((x) => x.role), ['partition-author']);
+  assert.deepEqual(Object.keys(c.return_schemas ?? {}), ['partition-author'], 'claim の return_schemas は返した task の役だけ');
+  writeAuthor(c.tasks[0], 1);
+  const back = await workerCall('submit', base);
+  assert.deepEqual(back.results.map((r) => [r.ok, r.done]), [[false, false]]);
+  assert.ok(!('next' in back), '分割の差し戻しでは next を出さない');
+  assert.deepEqual(order, [], '分割が閉じるまで計画の task を作らない');
+  writeAuthor(c.tasks[0], 2);
+  const s = await workerCall('submit', base);
+  assert.deepEqual(s.results.map((r) => [r.task_id, r.ok, r.done]), [[c.tasks[0].task_id, true, true]]);
+  assert.ok(s.next && s.next.done === false, JSON.stringify(s.next));
+  assert.deepEqual(s.next.tasks.map((x) => x.role), ['plan-author'], '分割が閉じた後の next は計画の task');
+  assert.deepEqual(order, [['part', true], ['plan-spec']], '計画の spec は分割の結果を受けた後に作る');
+  assert.deepEqual(Object.keys(s.next.return_schemas ?? {}), ['plan-author']);
+  assert.equal(s.next.return_schemas['plan-author'].type, 'object');
+  writeAuthor(s.next.tasks[0], 1);
+  const last = await workerCall('submit', base);
+  assert.deepEqual(last.results.map((r) => [r.ok, r.done]), [[true, true]]);
+  assert.deepEqual(last.next, { done: true });
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.deepEqual(w.results.map((r) => r.ok), [true, true]);
+  assert.deepEqual(run.agentFailures, [], 'next で受け取った計画の task も、取った担当として閉じる');
+});
+
+test('SP-FORMALMETHOD-013 cli-contract コマンド claim: 返り値の形は最上位の return_schemas に役ごとに 1 度だけ置き、task は return_schema・query_cmd・submit_cmd を持たない', async (t) => {
+  const run = makeRun(t);
+  const p = runCall(run, { stage: '確認', workers: [{ items: [1, 2, 3, 4].map((n) => ({ spec: reviewSpecN(n) })) }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  assert.equal(c.tasks.length, 4);
+  for (const task of c.tasks) assert.deepEqual(Object.keys(task).sort(), CLAIM_TASK_KEYS, `${task.task_id} の欄`);
+  assert.deepEqual(Object.keys(c.return_schemas ?? {}), ['extraction-reviewer'], '役ごとに 1 つ');
+  const schema = c.return_schemas['extraction-reviewer'];
+  assert.equal(schema.type, 'object');
+  assert.ok(schema.properties && 'perspective' in schema.properties && 'record_ref' in schema.properties, '確認役の返り値（ReviewReturn）の形');
+  assert.equal(count(JSON.stringify(c), '"$schema"'), 1, '同じ役の task が 4 つでも、返り値の形は応答に 1 度だけ');
+  for (const task of c.tasks) writeReview(task);
+  await workerCall('submit', base);
+  closeWith(run, call.call_id, agentsOf(1));
+  await p;
+});
+
+test('SP-FORMALMETHOD-013 cli-contract コマンド claim・query: query_cmd・submit_cmd は応答の最上位に 1 度だけ置き、query_cmd に task_id を引数で足すと、その task の query になる', async (t) => {
+  const run = makeRun(t);
+  const p = runCall(run, { stage: '確認', workers: [{ items: [1, 2].map((n) => ({ spec: reviewSpecN(n) })) }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  assert.equal(typeof c.query_cmd, 'string');
+  assert.equal(typeof c.submit_cmd, 'string');
+  const text = JSON.stringify(c);
+  assert.equal(count(text, '"query_cmd"'), 1, 'query_cmd は応答に 1 度だけ');
+  assert.equal(count(text, '"submit_cmd"'), 1, 'submit_cmd は応答に 1 度だけ');
+  for (const task of c.tasks) assert.ok(!c.query_cmd.includes(task.task_id), 'query_cmd は task_id を持たない（worker で 1 つ）');
+  // 担当と同じく Bash で流す: <query_cmd> <task_id>
+  for (const task of c.tasks) {
+    const q = (await runShell(`${c.query_cmd} ${sq(task.task_id)}`)).json;
+    assert.equal(q?.ok, true, JSON.stringify(q));
+    assert.deepEqual([q.command, q.task_id], ['query', task.task_id]);
+    assert.deepEqual(q.inputs.map((x) => x.ref), ['request.json', 'targets/T1/files']);
+  }
+  // task_id を足さない query_cmd は入力の形に合わない
+  const bare = await runShell(c.query_cmd);
+  assert.deepEqual([bare.code, bare.json?.code, bare.json?.detail?.reason], [1, 'E_INPUT', 'shape'], bare.stdout);
+  // 2 語目を取るのは query だけ。claim に 2 語目を渡すと契約の誤り
+  const extra = await runShell(`printf '%s' ${sq(JSON.stringify(base))} | ${sq(process.execPath)} ${sq(CLI)} claim extra`);
+  assert.deepEqual([extra.code, extra.json?.code], [2, 'E_CONTRACT'], extra.stdout);
+  for (const task of c.tasks) writeReview(task);
+  const s = (await runShell(c.submit_cmd)).json;
+  assert.deepEqual(s?.results?.map((r) => [r.ok, r.done]), [[true, true], [true, true]], JSON.stringify(s));
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.deepEqual(w.results.map((r) => r.ok), [true, true]);
+});
+
+test('SP-FORMALMETHOD-013 agent-obligations 書く場所と返し方: claim は worker ごとに別の scratch_dir（<run_dir>/attempts/<call_id>-<worker>）を返し、そこに書いても受理を取り消さない', async (t) => {
+  const run = makeRun(t);
+  const p = callOf(run, '確認', [{ spec: reviewSpec() }, { spec: reviewSpec() }]);
+  const call = await waitOpen(run.runDir);
+  const bases = ['w01', 'w02'].map((worker) => ({ run_dir: run.runDir, call_id: call.call_id, worker }));
+  const cs = [];
+  for (const b of bases) cs.push(await workerCall('claim', b));
+  assert.deepEqual(cs.map((c) => c.scratch_dir), ['w01', 'w02'].map((wk) => join(run.runDir, 'attempts', `${call.call_id}-${wk}`)), 'worker ごとに決まった場所');
+  assert.notEqual(cs[0].scratch_dir, cs[1].scratch_dir);
+  for (const c of cs) {
+    assert.ok(existsSync(c.scratch_dir), `${c.scratch_dir} は claim の時点である`);
+    assert.ok(c.tasks.every((x) => x.attempt_dir !== c.scratch_dir && !c.scratch_dir.startsWith(`${x.attempt_dir}/`)), 'task の attempt の領域とは別');
+  }
+  assert.equal((await workerCall('claim', bases[0])).scratch_dir, cs[0].scratch_dir, '取り直しても同じ scratch_dir');
+  for (const [i, c] of cs.entries()) {
+    writeFileSync(join(c.scratch_dir, 'gen.mjs'), '// 生成物\n');
+    writeReview(c.tasks[0]);
+    assert.deepEqual((await workerCall('submit', bases[i])).results.map((r) => [r.ok, r.done]), [[true, true]]);
+    // 受理の後に scratch_dir に書いても、attempt の領域の書換えにならない
+    writeFileSync(join(c.scratch_dir, 'gen.mjs'), '// 書き直した生成物\n');
+  }
+  closeWith(run, call.call_id, agentsOf(2));
+  const out = await p;
+  assert.deepEqual(out.map((r) => r.ok), [true, true], JSON.stringify(out.map((r) => r.cause)));
+  assert.deepEqual(run.agentFailures, []);
+  // 書込み範囲（agent-obligations.md「書く場所と返し方」）に scratch_dir が入る
+  const obligations = readFileSync(new URL('../references/agent-obligations.md', import.meta.url), 'utf8');
+  const rule = obligations.split('\n').find((l) => l.startsWith('- 書くのは'));
+  assert.ok(rule && rule.includes('`attempt_dir`') && rule.includes('`scratch_dir`'), rule);
 });
 
 // ---- 本物の CLI と harness ----

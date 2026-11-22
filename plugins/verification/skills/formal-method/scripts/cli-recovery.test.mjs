@@ -190,9 +190,9 @@ test('SP-FORMALMETHOD-010 AC-10 demonstration: 互いに依存しない性質を
       await sleep(150);
     }
   })();
-  const out = await runScenario(t, { scenario: { properties: props }, tag });
-  sampling = false;
-  await sampler;
+  // runScenario が落ちても標本の loop を止める（止めないと event loop が残り、テストの file が終わらない）
+  let out;
+  try { out = await runScenario(t, { scenario: { properties: props }, tag }); } finally { sampling = false; await sampler; }
   assert.ok(maxSeen >= 2, `ps で見た道具の process の最大の数: ${maxSeen}`);
   const ivs = out.log().filter((e) => e.kind === 'query-start' && e.sleep_ms === 3000).map((e) => [e.at_ms, e.at_ms + 3000]);
   assert.ok(ivs.some((a, i) => ivs.some((b, j) => i !== j && a[0] < b[1] && b[0] < a[1])), '道具の記録でも実行が重なる');

@@ -28,7 +28,7 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 ```
 
 - 引数・標準入力・標準出力の規則（次の 2 項目と[誤りと終了コード](#誤りと終了コード)）は、[コマンド](#コマンド)の表の 7 つのコマンドに当てる。`run-daemon` の引数と標準入出力は、この節の最後の項目に従う。
-- `<command>` は 1 語。入力は標準入力の 1 つの JSON で渡す。引数で値を渡さない。
+- `<command>` は 1 語。入力は標準入力の 1 つの JSON で渡す。引数で値を渡さない。例外は `query` の 2 語目の `task_id`（`Id`）だけで、`claim` が返す worker で 1 つの `query_cmd` に足して流す（[依頼と応答](#依頼と応答)）。理由: 命令を task ごとに持たせると、絶対 path を含む命令が task の数だけ応答に並ぶ。`Id` は shell の特別な文字を含まない。
 - 出力は標準出力の 1 行の JSON。標準エラーは診断だけに使い、契約に含めない。
 - **入力の口は、各コマンドの標準入力の JSON だけ**である。検証の内容を決める入力は、`start` の `request`（依頼。SP-001）だけで、他のコマンドの入力は CLI が前に返した値である。
 - 環境変数は入力の口にしない。CLI が読む環境の値は次の 2 つだけで、どちらも依頼の内容を変えない。
@@ -49,9 +49,9 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | `close` | `{"run_dir": string, "call_id": Id, "workflow_output_path": string}` 又は `{"run_dir": string, "call_id": Id, "timed_out": true}`（`Id` は [成果物の形式の共通の型](artifact-formats.md#共通の型)の文字。合わなければ `E_INPUT` の `shape`。理由: `call_id` は受け箱の file 名になるので、path の区切りを含めない） | `{"ok": true, "command": "close", "outcome": "accepted" \| "duplicate"}` |
 | `wait` | `{"run_dir": string, "status_seq": integer ≥ 0}` | `{"ok": true, "command": "wait", "status": <Status>}`（新しい `seq`）又は `{"ok": true, "command": "wait", "outcome": "still_waiting", "status_seq": integer}` |
 | `salvage` | `{"run_dir": string}` | `{"ok": true, "command": "salvage", "status": <Status>}`（`action` は常に `terminal`） |
-| `claim`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "claim", "done": true}` 又は `{"ok": true, "command": "claim", "done": false, "tasks": [<ClaimedTask>]+, "shared_inputs": [{"ref": Ref, "path": string, "tasks": [{"task_id": Id, "spans"?: [Span]}]}]}`（`shared_inputs` は同じ応答の 2 つ以上の task が共有する資料。[依頼と応答](#依頼と応答)） |
-| `query`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id, "task_id": Id, "refs"?: [string]+}` | `{"ok": true, "command": "query", "task_id": Id, "inputs": [{"name": string \| null, "ref": Ref, "path": string, "spans"?: [Span]}]}`。`path` は読む絶対 path（対象のファイルは元のファイル）、`spans` は読む行の範囲（[担当に渡す資料](artifact-formats.md#claim-の-task)） |
-| `submit`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "submit", "results": [{"task_id": Id, "ok": boolean, "problems": [string], "done": boolean, "remaining"?: [string]}]}` |
+| `claim`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "claim", "done": true}` 又は `{"ok": true, "command": "claim", "done": false, "query_cmd": string, "submit_cmd": string, "scratch_dir": string, "return_schemas": {<role>: <JSON Schema>}, "tasks": [<ClaimedTask>]+, "shared_inputs": [{"ref": Ref, "path": string, "tasks": [{"task_id": Id, "spans"?: [Span]}]}]}`（`query_cmd`・`submit_cmd`・`scratch_dir` は worker で 1 つ、`return_schemas` は `tasks` の役ごとに 1 つ、`shared_inputs` は同じ応答の 2 つ以上の task が共有する資料。[依頼と応答](#依頼と応答)） |
+| `query`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id, "task_id": Id, "refs"?: [string]+}`。2 語目に `task_id` を渡したときは、標準入力は `task_id` を持たない（持てば `E_INPUT` の `shape`）。2 語目も標準入力の `task_id` も無ければ `E_INPUT` の `shape` | `{"ok": true, "command": "query", "task_id": Id, "inputs": [{"name": string \| null, "ref": Ref, "path": string, "spans"?: [Span]}]}`。`path` は読む絶対 path（対象のファイルは元のファイル）、`spans` は読む行の範囲（[担当に渡す資料](artifact-formats.md#claim-の-task)） |
+| `submit`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "submit", "results": [{"task_id": Id, "ok": boolean, "problems": [string], "done": boolean, "remaining"?: [string]}], "next"?: {"done": true} \| {"done": false, "return_schemas": {<role>: <JSON Schema>}, "tasks": [<ClaimedTask>]+, "shared_inputs": [...]}}`（`next` は `results` に差し戻し（`done: false`）が無いときだけ持つ。[依頼と応答](#依頼と応答)） |
 
 - `<Request>`・`<Result>` の形は [成果物の形式](artifact-formats.md#依頼request) と [結果](artifact-formats.md#結果result)。
 - `<Status>` は [status.json](#statusjson) と同じ形。
@@ -72,7 +72,7 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 
 | code | 当たるとき | 作用 |
 |---|---|---|
-| `E_CONTRACT` | 未知のコマンド、引数が 1 つでない、標準入力が JSON でない | 何も書かない |
+| `E_CONTRACT` | 未知のコマンド、引数がコマンドの 1 語でない（`query` の 2 語目の `task_id` を除く）、標準入力が JSON でない | 何も書かない |
 | `E_INPUT` | コマンドの入力の JSON が上の表の形に合わない（`run_dir` のキーが無いか文字列でない場合を含む）、又は `run_dir` のディレクトリが無い。`detail` は `{"reason": "shape" \| "run_dir_not_found"}` | 何も書かない |
 | `E_BUSY` | `salvage` か、`start` が起動の手順の 5-1 で salvage と同じ規則を当てたときに、`run.lock` の保持者（役 `run-daemon`）か `salvage.mark` の勝者（役 `salvage`）が生きているか、生死を判定できない。`detail` は `{"holder_role": "run-daemon" \| "salvage", "liveness": "alive" \| "unknown", "run_dir": string}` | 何も書かない |
 | `E_STALE` | `wait`・`claim`・`query`・`submit` で、`run.lock` の保持者が終わったが、`status.json` が `terminal` でない | 何も書かない（担当のコマンドは、依頼を出す前に判定したときは何も書かず、依頼を出した後に判定したときは依頼のファイルだけが残る） |
@@ -152,7 +152,12 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 - client は `responses/<call_id>/<req_id>.json` を待ち、現れたらその中身を出力にする。待つ上限は `WORKER_CALL_MAX_MS` で、上限に当たれば `E_CALL`（`no_response`。同じ命令を流し直してよい）を返す。待つ間に保持者が終わったら `E_STALE`、呼び出しが閉じたら `E_CALL`（`call_closed`）を返す（その前に応答をもう 1 度読む）。
 - `run-daemon` は、呼び出しが開いている間、依頼を名前の順に 1 つずつ処理し、応答を `guardedWrite`（`salvage.mark` があれば書かない）で rename して書く。処理した依頼を 2 度処理しない。
   - 依頼の `worker` が開いている呼び出しの `workers` に無ければ `E_CALL`（`unknown_worker`）。
-  - `claim`: その worker の出し終えていない task を全て `tasks` で返す。出し終えていない task が無ければ、次に出せる task を作って返す（依存する task が閉じた後の task、束の worker なら次の束）。出せる task も無ければ `done: true`。期限の後は `E_CALL`（`deadline_passed`）。中断の理由があれば新しい task を作らない。
+  - `claim`: その worker の出し終えていない task を全て `tasks` で返す。出し終えていない task が無ければ、次に出せる task を作って返す（依存する task が閉じた後の task、束の worker なら次の束）。出せる task も無ければ `done: true`。期限の後は `E_CALL`（`deadline_passed`）。中断の理由があれば新しい task を作らない。担当が `claim` を流すのは、最初と、応答を失ったときの取り直しだけである（次の task は `submit` の `next` で受け取る）。
+    - 応答の最上位に、worker で 1 つの値を 1 度だけ置く。task はこれらを持たない（[claim の Task](artifact-formats.md#claim-の-task)）。
+      - `query_cmd`: その worker の `query` を流す Bash の命令（本物の CLI の絶対 path。標準入力は `{run_dir, call_id, worker}`）。担当は `<query_cmd> <task_id>` で流す。
+      - `submit_cmd`: その worker の `submit` を流す Bash の命令。
+      - `scratch_dir`: その worker の作業用の領域 `<run_dir>/attempts/<call_id>-<worker>/` の絶対 path。`claim` の時点で作ってある。担当は成果物でない生成物（指紋を求める script など）をここに書く（[agent-obligations.md](agent-obligations.md#書く場所と返し方)）。task の attempt の領域ではないので、ここに書いても受理を取り消さず、ここを `Ref` にした成果物は attempt の領域の外として成功に数えない。台帳に登録しない。
+      - `return_schemas`: `tasks` の役ごとの返り値の形（`AuthorReturn`・`ReviewReturn`・`CauseReturn` のどれか）。担当は task の `role` で引く。理由: 同じ役の task を何件も返すと、同じ形が task の数だけ並ぶ。
     - worker への task の結び方（1 体 1 task・依存つき・詰め合わせ・束）は [architecture.md「担当の起動」](architecture.md#担当の起動) が正本である。
     - 束の worker（原因の分類役）: 残りの task を並びの順に、取る task の資料の和集合のバイト数（共有の資料は 1 度だけ数える）が束の上限に収まる所まで取る（next-fit。1 件で超える task は単独）。上限の初めは `UNIT_MAX_BYTES`。半分にする量も、取ったまま出さなかった束の資料の和集合で数える。
     - 応答の `shared_inputs` は、その応答の 2 つ以上の task の `input_refs` に同じ ref がある資料の `[{ref, path, tasks: [{task_id, spans?}]}]` で、1 つの ref を 1 度だけ挙げる。`tasks` は共有する task ごとの範囲で、和に畳まない（担当は task ごとにその task の範囲だけで判断する。[agent-obligations.md](agent-obligations.md#受け取るもの)）。指紋は持たない（指紋は task ごとの `query` で固定する）。
@@ -163,6 +168,8 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
     - それ以外は受理する（`ok: true`、`done: true`。残った欠陥は `remaining`）。受理した後の `submit` は同じ結果を返す。
     - 流し直し: その worker の前の `submit` の応答を担当が見ていない（依頼の `req_id` の時刻から `WORKER_CALL_MAX_MS` − 1000 ms 以上の後に書いたか、書けなかった）とき、取った全ての task の attempt の領域が前の `submit` の後から変わっていなければ、照合せず前の応答をそのまま返す。提出の回数は増えない。期限の後でも返す。前の応答を返した後も、その流し直しの依頼の時刻で見たかを決め直す。見ていない印は、書けなかった応答がその submit の応答のときだけ付け、拒否の応答を書けなかったときは付けない。前の応答を見た後の同じ提出は、新しい提出として照合する。理由は [architecture.md「担当の起動」](architecture.md#担当の起動)。
     - 期限の後は `E_CALL`（`deadline_passed`）。閉じた後は応答を書かないので、client が `E_CALL`（`call_closed`）を返す。
+    - `next`: 照合した応答の `results` に差し戻し（`done: false`）が無ければ、応答は `next` を持つ。中身は、その時点で同じ worker が `claim` を流したときの応答の `done`・`tasks`・`shared_inputs` と同じで、`return_schemas` は `next` の `tasks` の役ごとに 1 つ持つ（`query_cmd`・`submit_cmd`・`scratch_dir` は持たない。`claim` の値のまま）。出せる task が無ければ `{"done": true}` だけ。依存つきの task（計画）と束の次の束は、`claim` と同じ規則で、前の task が閉じた後の `next` に出る。`next` で返した task は、`claim` で返した task と同じく取った task として扱う。差し戻しを含む応答・拒否の応答は `next` を持たない。流し直しに前の応答を返すときは、前の応答の `next` をそのまま返す。
+    - 担当は `next` の `tasks` を続けて果たし、`next` が `done: true` なら終える。終わりの `claim` は要らない。理由: 最後の `submit` の後に `done` を確かめるためだけの `claim` が、worker ごとに 1 往復増える。
 - 役の入口: `run-daemon` は呼び出しを開くたびに `<run_id>/formal-method-cli.mjs` を書き直す。中身は本物の CLI（`scripts/formal-method-cli.mjs`）を絶対パスの URL で import する 1 行だけで、台帳に登録しない。理由: Workflow の args は `{state, callId, stage, workers}` だけで CLI の置き場を運べないので、担当は run の領域の下のこの名前で最初の `claim` を流す。
 
 ## 生死の判定
@@ -274,6 +281,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `<run_id>/attempts/<task_id>/return.json` | 担当 | [担当の返り値](artifact-formats.md#担当の返り値) |
 | `<run_id>/attempts/<task_id>/worklog.json` | 担当 | [作業記録](artifact-formats.md#作業記録) |
 | `<run_id>/attempts/<task_id>/<成果物>` | 担当 | 返り値の `outputs` が指すファイル |
+| `<run_id>/attempts/<call_id>-<worker>/` | `run-daemon` が作り、担当が書く | worker の `scratch_dir`（成果物でない生成物。台帳に登録しない。[依頼と応答](#依頼と応答)） |
 | `<run_id>/worklogs/cli-<段>.json` | `run-daemon` | 決定的な処理の作業記録（担当 `cli`） |
 | `<run_id>/checks/<execution_id>/{input.smt2,stdout.txt,stderr.txt,end.json}` | `run-daemon` | 道具の実行ごとの証拠。`execution_id` は、検査なら `Check.id`、道具を実行した確認（sanity・mutation・replay・静的な確認）なら `Confirmation.id`（判断を要する項目になった静的な確認なら `Judgment.id`）で、`Performance.executions[].id` と同じ値（実行と確認の id は 1 つの名前空間）。`end.json` は [終わり方](artifact-formats.md#検査の終わり方end) |
 | `<run_id>/children/<pgid>.json` | `run-daemon` | `{"pgid", "started_at"}`。道具の process group の記録 |
@@ -297,7 +305,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
     | `slack_token` | `\bxox[abprs]-[A-Za-z0-9-]{10,}\b` |
 
   - 理由: `password=` の代入や汎用の接頭辞（`sk-` など）は誤検知が多く、正しい記録まで保存できなくなる。
-- 担当は自分の `attempts/<task_id>/` の中にだけ書く。その外に書いたものは、成果物として登録されない。
+- 担当は自分の `attempts/<task_id>/` と、自分の worker の `scratch_dir`（`attempts/<call_id>-<worker>/`）の中にだけ書く。`attempts/<task_id>/` の外に書いたものは、成果物として登録されない。
 
 ## 構造の契約
 

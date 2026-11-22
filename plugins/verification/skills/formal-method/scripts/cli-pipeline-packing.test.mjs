@@ -14,11 +14,11 @@ const sorted = (xs) => [...xs].sort();
 // 性質 n 件を、1 つずつ別のモデル（M1, M2, …）に置く
 const perModel = (props) => ({ properties: props, models: props.map((p, i) => ({ id: `M${i + 1}`, propertyIds: [p.id] })) });
 const tasksOf = (harness, pred) => harness.memory.tasks.filter(pred);
-// task を最初に返した claim の worker と、その claim が返した task の id
+// task を最初に返した claim（又は submit の next）の worker と、それが返した task の id。via は 'claim' か 'next'
 function claimOf(harness, taskId) {
   for (const call of harness.memory.calls) {
     const c = call.claims.find((x) => x.task_ids?.includes(taskId));
-    if (c) return { call, worker: c.worker, task_ids: c.task_ids };
+    if (c) return { call, worker: c.worker, task_ids: c.task_ids, via: c.via };
   }
   return null;
 }
@@ -134,7 +134,7 @@ test('SP-FORMALMETHOD-011・013 原因の束: 束を取ったまま 1 件も出�
   assert.ok(result.causes.every((x) => x.cause === '対象が性質を満たさない'), JSON.stringify(result.causes));
 });
 
-test('SP-FORMALMETHOD-008・013 分割と計画: 分割の候補が 2 つ以上なら、分割と計画は同じ worker が順に受け取り、計画の担当は分割の担当が閉じた後の claim で返る', async (t) => {
+test('SP-FORMALMETHOD-008・013 分割と計画: 分割の候補が 2 つ以上なら、分割と計画は同じ worker が順に受け取り、計画の担当は分割の担当を受理した submit の next で返る', async (t) => {
   // 状態遷移を持つモデル 2 つ（依存グラフの分割の候補が 2 つになる）
   const scenario = {
     properties: [P('P1', 2, { smt: SMT_A }), P('P2', 3, { smt: SMT_A })],
@@ -151,8 +151,8 @@ test('SP-FORMALMETHOD-008・013 分割と計画: 分割の候補が 2 つ以上�
   assert.equal(a.call.callId, b.call.callId, '同じ呼び出し');
   assert.equal(a.worker, b.worker, '同じ worker');
   assert.deepEqual(a.call.workers.map((w) => w.role), ['partition-author+plan-author']);
-  assert.deepEqual(a.task_ids, [pt.task_id], '最初の claim は分割の担当だけ');
-  assert.deepEqual(b.task_ids, [pl.task_id], '計画の担当は後の claim');
+  assert.deepEqual([a.via, a.task_ids], ['claim', [pt.task_id]], '最初の claim は分割の担当だけ');
+  assert.deepEqual([b.via, b.task_ids], ['next', [pl.task_id]], '計画の担当は分割を受理した submit の next');
   const ptDone = harness.memory.submits.findIndex((s) => s.task_id === pt.task_id && s.result?.done);
   const plFirst = harness.memory.submits.findIndex((s) => s.task_id === pl.task_id);
   assert.ok(ptDone >= 0 && ptDone < plFirst, '計画の提出は分割が閉じた後');

@@ -896,7 +896,7 @@ CauseReturn = {
 
 ## claim の Task
 
-`claim` が返す task（`tasks` の各要素。1 回の `claim` は、その worker の出し終えていない task を全て返す）。呼び出しの記録 `calls/<call_id>/tasks.json`（`{ call_id, stage, deadline_wall_ms, tasks: [{ worker, task: Task, input_refs }] }`。呼び出しを開く時点の task で書き、閉じた後に claim の時点で作った task を含めて書き直す）にも同じ値が残る。
+`claim` と `submit` の `next` が返す task（`tasks` の各要素。1 回の `claim` は、その worker の出し終えていない task を全て返す）。呼び出しの記録 `calls/<call_id>/tasks.json`（`{ call_id, stage, deadline_wall_ms, tasks: [{ worker, task: Task, input_refs }] }`。呼び出しを開く時点の task で書き、閉じた後に claim の時点で作った task を含めて書き直す）にも同じ値が残る。
 
 ```text
 Task = {
@@ -906,8 +906,6 @@ Task = {
   model: string, effort: string,                // workers の行と同じ値（正本は scripts/lib/roles.mjs）
   instructions: [string, string],               // 担当の指示（agents/<role>.md）と共通の義務（references/agent-obligations.md）の絶対 path
   attempt_dir: string, result_path: string,     // 絶対 path。result_path は attempt_dir の return.json
-  return_schema: <JSON Schema>,                 // 返り値の形（AuthorReturn・ReviewReturn・CauseReturn のどれか）
-  query_cmd: string, submit_cmd: string,        // その担当の query・submit を流す Bash の命令（本物の CLI の絶対 path）
   context: TaskContext
 }
 TaskContext = {
@@ -925,6 +923,7 @@ TaskContext = {
 
 - 読む資料（`input_refs`: `[{ name, ref }]`。作成側の作業記録と attempt の領域のディレクトリは入れない）は Task に載せず、`query` が返す（[CLI 契約の依頼と応答](cli-contract.md#依頼と応答)）。理由: 渡した資料の指紋を、担当が資料を引いた時点で固定する（SP-012 の「渡した資料」）。
 - 修正の巡の欠陥は Task に載せず、`submit` の応答の `problems` で返す（同じ担当が直して出し直す）。
+- 返り値の形と命令は Task に載せず、応答の最上位に 1 度だけ置く（形の正本は [CLI 契約のコマンド](cli-contract.md#コマンド)）。返り値の形は `return_schemas[<Task.role>]`（`AuthorReturn`・`ReviewReturn`・`CauseReturn` のどれか）、`query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd`、成果物でない生成物の置き場は `scratch_dir`（worker ごと）。理由: 同じ役の task を何件も返すと、同じ形と絶対 path の命令が task の数だけ並ぶ。
 
 **役と context**（`unit_id` の作り方は決定的で、同じ run の中で一意）
 
