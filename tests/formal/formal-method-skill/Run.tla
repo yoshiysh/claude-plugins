@@ -289,15 +289,15 @@ Publish(b, content) ==
 CClose == /\ cpc = "wf" /\ (wf # "running" \/ (cb \in bdl /\ Mutation # "no_batch_deadline"))
           /\ Publish(cb, IF wf = "ret" THEN "ret" ELSE "timedout")
           /\ cpc' = "wait" /\ Seen(IF inbox[cb] # None THEN "duplicate_close" ELSE "close")
-           /\ IF Mutation = "client_writes_status"
-              THEN WriteStatus("working", 0, NoRes) /\ G("clientWrote")
-              ELSE UNCHANGED <<wk, statusSeq, statusAct, statusBatch, statusRes, ghost, bad>>
-           /\ UNCHANGED <<wk, envV, dV, runDir, rpub, dres, sres, svw, sp, cseq, cb, wf, ucnt, final, bad>>
+          /\ IF Mutation = "client_writes_status"
+             THEN WriteStatus("working", 0, NoRes) /\ G("clientWrote")
+             ELSE UNCHANGED <<wk, statusSeq, statusAct, statusBatch, statusRes, ghost, bad>>
+          /\ UNCHANGED <<wk, envV, dV, runDir, rpub, dres, sres, svw, sp, cseq, cb, wf, ucnt, final, bad>>
 \* 古い・二重の close（CLI の出力を受け取れずに呼び直した、前の呼び出しの値を送った）。
 StaleClose == /\ cpc \in {"wf", "wait"} /\ Once("stale") /\ cb # 0
               /\ \E b \in BatchStages, c \in {"ret", "timedout"} : b <= cb /\ Publish(b, c)
               /\ Seen("stale_close")
-               /\ UNCHANGED <<wk, hasLimit, deadline, psOK, dV, fV, sres, svw, sp, cV, ghost, bad>>
+              /\ UNCHANGED <<wk, hasLimit, deadline, psOK, dV, fV, sres, svw, sp, cV, ghost, bad>>
 \* wait: terminal なら seq によらず返す。seq が増えたら新しい Status、保持者が終わって terminal でなければ E_STALE、それ以外は待つ。
 \* 判定できない応答（ps が使えない）が UMax 回続いたら、結果を作らずに終える。
 \* 変異 wait_ignores_seq は seq が増えていなくても今の Status を返す。変異 stale_on_unknown は判定できないときに E_STALE を返す。

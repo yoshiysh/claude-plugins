@@ -102,7 +102,11 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 
 macOS arm64、TLC v1.7.4、8 workers での実行。137 ケースが全て期待どおり（exit 0）。
 
-**未検証**: 下の表と数は、Run.tla を提出ごとの受理・期限の後の提出の拒否・同じ体での出し直しに改めた版（担当の `WLaunch`・`WSubmit`・`WLateSubmit`、司令塔の `CClose`、性質 (3) の 4 つ、変異 `close_rejects_batch`・`accept_after_close`・`accept_after_deadline`・`revise_new_worker`、証人 `accepted_kept_timed_out`・`revise_same_body`・`late_submit_refused`・`duplicate_close`・`stale_close`）の前の結果である。改めた版では TLC をまだ流していない。流すまで、Run.tla の行の結果は改めた設計の証拠にならない。
+**未検証**: 下の表と数は、Run.tla を提出ごとの受理・期限の後の提出の拒否・同じ体での出し直しに改めた版（担当の `WLaunch`・`WSubmit`・`WLateSubmit`、司令塔の `CClose`、性質 (3) の 4 つ、変異 `close_rejects_batch`・`accept_after_close`・`accept_after_deadline`・`revise_new_worker`、証人 `accepted_kept_timed_out`・`revise_same_body`・`late_submit_refused`・`duplicate_close`・`stale_close`）の前の結果である。改めた版の TLC の結果は次のとおりで、全ケースを通した結果はまだ無い。全ケースが期待どおりになるまで、Run.tla の行の表と数は改めた設計の証拠にならない。
+
+- CI（`verification.yml`、8 シャード、commit 2bf1bdc8）: シャード 1〜3・5〜7 は期待どおり。シャード 8 は 24 ケースのうち `run-mut-client_writes_status` だけが期待と違った（TLC の誤り、exit 75）。シャード 4 は終わりを確かめていない。
+  - 原因は `CClose` の字下げである。末尾の 2 つの連言が `IF` の `ELSE` の中に入り、変異の側（`THEN`）で多くの変数が決まらなかった。字下げを直した。変異でない構成では `ELSE` の側が同じ式なので、他のケースの意味は変わらない。
+- 字下げを直した後に手元（macOS arm64、TLC v1.7.4）で流したのは `run-mut-client_writes_status` だけで、`ClientWritesNothing` の反例を出した（異なる状態 4,603）。`check.sh` の全ケースは流していない。
 
 | ケース | 範囲 | 結果 | 異なる状態 |
 |---|---|---|---|
