@@ -76,7 +76,7 @@ class CodexRunner(unittest.TestCase):
                 done = run({"args": stopped["next_args"], "ruled_at": {stage: [ruled]}})
                 self.assertIsNone(done["error"])
                 self.assertEqual(done["result"]["status"], "done")
-                self.assertNotIn("intake", done["labels"])
+                self.assertNotIn("planner:1", done["labels"])
         g0 = run({"args": self.args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         g02 = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
         self.assertEqual((g02["status"], g02["gate"]), ("needs_answers", "g2"))
@@ -86,7 +86,7 @@ class CodexRunner(unittest.TestCase):
         self.assertEqual(done["result"]["status"], "done")
 
     def test_failed_agent_and_corrupted_continuation_fail_closed(self):
-        got = run({"args": self.args(), "null_labels": ["intake"]})
+        got = run({"args": self.args(), "null_labels": ["planner:1"]})
         self.assertEqual(got["result"]["status"], "blocked")
         stopped = run({"args": self.args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         broken = {**stopped["next_args"], "from": "4"}

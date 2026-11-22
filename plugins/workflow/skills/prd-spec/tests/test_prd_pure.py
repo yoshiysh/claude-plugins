@@ -360,9 +360,9 @@ class Pure(unittest.TestCase):
                 self.assertIsNotNone(value(f"unverifiedLeft({json.dumps(fc)}, {json.dumps(st)}, false)"))
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "answer_holds": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "answer_holds": [], "open_only": [], "stale_refs": [], "unsettled_refs": [], "open_ids": [], "pair_keys": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(base))}, true)"))
-        for k in ("codes", "unverified", "failed_current", "resolutions", "answer_holds", "open_only", "stale_refs", "open_ids", "pair_keys"):
+        for k in ("codes", "unverified", "failed_current", "resolutions", "answer_holds", "open_only", "stale_refs", "unsettled_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped(broken))}, true)"), k)
             if k != "resolutions":
@@ -382,13 +382,13 @@ class Pure(unittest.TestCase):
 
     def test_flowDefectは生成者に消せない指摘を数えず表に無い符号では差し戻さずに止める(self):
         only = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
-        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p', 'settle の flow-framer')"))
-        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p', 'settle の flow-framer')")["count"], 1)
+        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p', 'settle の planner')"))
+        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p', 'settle の planner')")["count"], 1)
         mixed = {"codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
-        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p', 'settle の flow-framer')")
+        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p', 'settle の planner')")
         self.assertEqual(d["count"], 1)
-        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は settle の flow-framer が直すので触らない", d["text"])
-        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p', 'settle の flow-framer')")
+        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は settle の planner が直すので触らない", d["text"])
+        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p', 'settle の planner')")
         self.assertTrue(unknown["stop"])
         calls = value("(async () => { const calls = []; await rework(1, () => ({ count: 1, stop: true, text: 't' }), async () => { calls.push(1); return 2 }, 3); return calls })()")
         self.assertEqual(calls, [], "stop の不合格は生成者に差し戻さない")
@@ -533,7 +533,7 @@ class ContractEnums(unittest.TestCase):
     ]
 
     def _rulings_stdout(self, groups):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "answer_holds": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "answer_holds": [], "open_only": [], "stale_refs": [], "unsettled_refs": [], "open_ids": [], "pair_keys": []}
         return stamped({**base, "resolutions": groups})
 
     def test_束ねたresolutionsはflowCheckOfが同じ行にID順で戻す(self):

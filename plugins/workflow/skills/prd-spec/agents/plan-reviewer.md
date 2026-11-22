@@ -12,6 +12,7 @@ resolver と intake と flow-framer が作ったものを、作った者とは�
 
 検証を始めるときに `doc_check sha --ledger resolutions` と `--ledger decisions` で sha256 を取っておき、`verifications.json` の
 put に渡す（渡し方は契約の verifications.json の節、返し方は契約の §plan-reviewer）。put が止まったら、今の版で検証し直す。
+段 3 の最初の検証では、プロンプトのとおり `doc_check plan` も実行して stdout を返す（planner:1 の plan の照合は script が行う）。
 
 ## 検証すること（対象の ID ごと）
 

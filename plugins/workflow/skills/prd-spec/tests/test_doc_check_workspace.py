@@ -967,6 +967,98 @@ class InvariantBinding(_Workspace):
         self.assertEqual(self._destructive("D-004")[0]["stale_refs"], [])
 
 
+UNSETTLED_OPTIONS = [{"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
+                     {"label": "メール", "description": "メールで送る", "flow_effect": "F-003 がメール送信になる", "decision_text": "結果はメールで送る"}]
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class UnsettledRefs(_Workspace):
+    """unsettled_refs: 決まっていない裁定（合格していない・hold・answer の無い question）を出典か constrained_by に持つ要素（設計 3.10）。
+
+    要素の出典は flow.json・resolutions.json・verifications.json だけで決まるので、planner の自己申告に頼らずに
+    「検証を通っていない裁定を flow に写した」ことを verifier の stdout から拾える。"""
+
+    def _rs(self, id_, about, **kw):
+        return {"id": id_, "about": about, "ruling": "internal", "value": "v", "why": "w", **kw}
+
+    def _question(self, id_, about):
+        return {"id": id_, "about": about, "ruling": "question", "options": UNSETTLED_OPTIONS,
+                "question": {"header": "返し方", "text": "結果をどう返しますか", "searched": "依頼文に無い"}}
+
+    def _hold(self, id_, about):
+        return {"id": id_, "about": about, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}}
+
+    def _refs(self, *args):
+        return sorted((x["el"], x["ref"]) for x in _ok(self.ws, "flow", *args)["unsettled_refs"])
+
+    def _world(self):
+        """RS-001（合格）・RS-002（合否なし）・RS-003（不合格）・RS-004（合格した hold）・RS-005（合格した answer の無い question）を
+        source・case・on_fail・constrained_by の各位置から引く flow。"""
+        _put(self.ws, "resolutions", {"resolutions": [
+            self._rs("RS-001", {"finding": "r1-wh-all-001"}), self._rs("RS-002", {"finding": "r1-wh-all-002"}),
+            self._rs("RS-003", {"finding": "r1-wh-all-003"}), self._hold("RS-004", {"finding": "r1-wh-all-004"}),
+            self._question("RS-005", {"finding": "r1-wh-all-005"}),
+        ]})
+        _judge = lambda items: _put(self.ws, "verifications", {"items": items}, "--expect-resolutions", _sha(self.ws, "resolutions"), "--expect-decisions", _sha(self.ws, "decisions"))
+        _judge([{"id": "RS-001", "verdict": "pass"}, {"id": "RS-003", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"},
+                {"id": "RS-004", "verdict": "pass"}, {"id": "RS-005", "verdict": "pass"}])
+        f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
+        f4["cases"][0]["source"] = {"decision": "RS-003"}
+        f4["cases"][1]["source"] = {"decision": "RS-001"}
+        _put(self.ws, "flow", {"elements": [
+            {"id": "F-002", "source": {"decision": "RS-002"}, "obtain": "may_fail", "on_fail": {"as": "得られない", "source": {"decision": "RS-005"}}},
+            {"id": "F-003", "constrained_by": ["RS-004"]},
+            {"id": "F-004", "cases": f4["cases"]},
+        ]})
+
+    def test_決まっていない裁定を引く要素は位置によらず挙がり合格した裁定を引く要素は挙がらない(self):
+        self.assertEqual(_ok(self.ws, "flow")["unsettled_refs"], [], "裁定を引かない flow では空の一覧を出す（欄は常にある）")
+        self._world()
+        want = [("F-002", "RS-002"), ("F-002", "RS-005"), ("F-003", "RS-004"), ("F-004", "RS-003")]
+        self.assertEqual(self._refs(), want)
+        self.assertEqual(self._refs("--rulings"), want, "--rulings の有無によらず出す")
+        self.assertNotIn(("F-004", "RS-001"), self._refs(), "合格した裁定を出典に書くのは settle の正しい写し")
+
+    def test_候補を選んだ回答は合格を持ち越して挙がらず自由記述の回答は検証を通るまで挙がる(self):
+        self._world()
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g1.md").write_text("RS-005: 画面に出してください\n")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面に出す", "answer": {"path": "answers/g1.md", "quote": "画面に出して"}}]})
+        self.assertNotIn(("F-002", "RS-005"), self._refs(), "候補の選択は検証した decision_text を写すだけで、合格を持ち越す")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面とメールの両方に出す"}]})
+        self.assertIn(("F-002", "RS-005"), self._refs(), "候補の外の value は検証していない")
+        _put(self.ws, "verifications", {"items": [{"id": "RS-005", "verdict": "pass"}]}, "--expect-resolutions", _sha(self.ws, "resolutions"), "--expect-decisions", _sha(self.ws, "decisions"))
+        self.assertNotIn(("F-002", "RS-005"), self._refs(), "検証を通った自由記述の回答は合格")
+
+    def test_Dと台帳に無いRSは挙げない(self):
+        self._world()
+        flow = json.loads((self.ws / "flow.json").read_text())
+        els = {e["id"]: e for e in flow["elements"]}
+        els["F-003"]["constrained_by"] = ["RS-004", "RS-099"]
+        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(self.ws, "flow")
+        refs = {x["ref"] for x in out["unsettled_refs"]}
+        self.assertFalse({r for r in refs if r.startswith("D-")}, "D- は見ない（決定の無効は stale_refs が見る）")
+        self.assertNotIn("RS-099", refs, "台帳に無い RS- は実在の検査（出典は FLOW_SOURCE_UNKNOWN、constrained_by は FLOW_CONSTRAINT_UNKNOWN）に任せる")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "supersedes": ["D-001"]}]})
+        out = _ok(self.ws, "flow")
+        self.assertTrue([x for x in out["stale_refs"] if x["ref"] == "D-001"], "覆された D- は stale_refs に出る")
+        self.assertFalse([x for x in out["unsettled_refs"] if x["ref"].startswith("D-")], "覆された D- も unsettled_refs には出さない")
+
+    def test_findingsとcodesとdigestとlintは裁定の合否で変わらない(self):
+        self._world()
+        before = _ok(self.ws, "flow", "--lint")
+        self.assertTrue(before["unsettled_refs"])
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-004", "ruling": "internal", "value": "v", "why": "w", "hold": None},
+                                                      {"id": "RS-005", "ruling": "internal", "value": "v", "why": "w", "question": None, "options": None}]})
+        _put(self.ws, "verifications", {"items": [{"id": i, "verdict": "pass"} for i in ("RS-002", "RS-003", "RS-004", "RS-005")]},
+             "--expect-resolutions", _sha(self.ws, "resolutions"), "--expect-decisions", _sha(self.ws, "decisions"))
+        after = _ok(self.ws, "flow", "--lint")
+        self.assertEqual(after["unsettled_refs"], [])
+        for key in ("findings", "codes", "digest", "content_sha256", "lint", "lint_codes"):
+            with self.subTest(key=key):
+                self.assertEqual(before[key], after[key], "unsettled_refs は findings・codes・digest・lint のどれにも入れない（flow の書き手の不合格に数えない）")
+
 def _aspect_keys():
     text = (SKILL / "references" / "domain-analysis.md").read_text(encoding="utf-8")
     sec = text[text.index("\n## 2. "):text.index("\n## 3. ")]

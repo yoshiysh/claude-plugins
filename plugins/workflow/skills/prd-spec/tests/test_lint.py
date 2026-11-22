@@ -267,17 +267,20 @@ class LintStaysOutOfStopPaths(unittest.TestCase):
         self.assertFalse(LINT_CODES & flow_mode_codes())
         self.assertFalse(LINT_CODES & set(value("Object.keys(FIXERS_BY_CODE)")))
 
-    def test_prdがlintを渡すのは起草のflow_framerとwriterだけ(self):
+    def test_prdがlintを渡すのは起草のplannerとwriterだけ(self):
+        # 起草の planner は段 1（planner:1。plan の検査も持つ）と 3b（planner:3b）。settle の planner は裁定を写すだけで lint を付けない（設計 3.2・3.7）。
         src = PRD.read_text(encoding="utf-8")
         self.assertIn("--doc <キー> --lint", src[src.index("function writerPrompt("):])
         for name in ("designatedCmds", "RULINGS_FLOW", "copyCmds", "independentFlow"):
             start = src.index(name)
             self.assertNotIn("--lint", src[start:src.index("\n\n", start)], name)
-        self.assertEqual(src.count("{ lint: true }"), 2)
-        self.assertIn("], 'Flow', { lint: true })", src)
-        self.assertIn("], 'Answers', { lint: true })", src)
+        self.assertEqual(src.count("lint: true"), 2)
+        self.assertIn("'Intake', { lint: true, plan: true, specNote: false })", src)
+        self.assertIn("'Answers', { lint: true })", src)
         settle = src[src.index("async function settleRound("):]
-        self.assertIn("], phaseTitle)\n", settle[: settle.index("\n}\n")], "settle の flow-framer は lint を付けずに呼ぶ")
+        body = settle[: settle.index("\n}\n")]
+        self.assertIn("planCall(label, ", body)
+        self.assertNotIn("lint", body[body.index("planCall(label, "):].split("\n")[0], "settle の planner は lint を付けずに呼ぶ")
 
 
 if __name__ == "__main__":

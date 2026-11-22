@@ -2289,7 +2289,7 @@ const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : nul
 // 控えが無いのは、止まった run が書かなかったか、戻し終えたか、後の token の最初の書き込みが消したときである。後の段の token（通し番号が
 // 大きい）があれば最後のときで、戻す控えが失われているので何も変えずに pruned_by に挙げる（黙って 0 件を戻すと、再実行が止まった run の
 // 書き込みの上から始まる）。同じ段の後の token は再実行自身の書き込みなので数えない。
-// stash・unstash: flow-framer の lint の差し戻しの前の flow と open を控え、差し戻しで flow が閉じなくなったら戻す（lint は段を止めない）。
+// stash・unstash: flow と open を控え、控えのとおりに戻す（以前は flow-framer の lint の差し戻しの前後に使った。prd-spec.js は今は起動しない）。
 // 戻す版は stash の時点の内容で、段の token の控え（tx）は段の入口の版のまま残る。
 const STASH_LEDGERS = ['flow', 'open']
 function wsStash(ws, opts) {
@@ -3881,6 +3881,21 @@ function wsFlow(ws, opts) {
     const refs = new Set([...decisionRefs(el.source), ...decisionRefs(el.on_fail && el.on_fail.source), ...cases.flatMap((c) => decisionRefs(c && c.source)), ...constraintsOf(el)])
     return [...refs].filter((ref) => superseded.has(ref) || (inv.dead.has(ref) && constraintsOf(el).includes(ref))).map((ref) => ({ el: String(el.id), ref }))
   })
+  // unsettled_refs: 決まっていない裁定（今の版が合格していない・hold・answer の無い question）を出典か constrained_by に引く要素。裁定を flow に写すのは
+  // 検証に合格した後の別の起動なので、planner の自己申告に頼らずにここで拾う（prd-spec.js が verifier の stdout で照らす）。台帳に無い RS- は実在の検査
+  // （FLOW_SOURCE_UNKNOWN・FLOW_CONSTRAINT_UNKNOWN）に任せ、D- は見ない（stale_refs が見る）。findings・codes・digest・lint には入れない。
+  const rulingOf = new Map(resolutions.map((r) => [r.id, r]))
+  const unsettled = (ref) => {
+    const r = rulingOf.get(ref)
+    return Boolean(r) && (r.verdict !== 'pass' || r.ruling === 'hold' || (r.ruling === 'question' && !r.has_answer))
+  }
+  const unsettledRefs = els
+    .flatMap((el) => {
+      const cases = el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []
+      const refs = new Set([...decisionRefs(el.source), ...decisionRefs(el.on_fail && el.on_fail.source), ...cases.flatMap((c) => decisionRefs(c && c.source)), ...constraintsOf(el)])
+      return [...refs].filter(unsettled).map((ref) => ({ el: String(el.id), ref }))
+    })
+    .sort((a, b) => (a.el === b.el ? (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0) : a.el < b.el ? -1 : 1))
   // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
   return {
     findings: body.findings.length,
@@ -3895,6 +3910,7 @@ function wsFlow(ws, opts) {
     answer_holds: answerHolds(ws, stored),
     open_only: openOnly,
     stale_refs: staleRefs,
+    unsettled_refs: unsettledRefs,
     open_ids: [...openIds].sort(),
     pair_keys: pairKeysOf(conflictPairs(readLedger(ws, 'decisions'), flow, readLedger(ws, 'open')).pairs),
     ...(opts.lint ? lintResult(ws, 'flow.lint.json', flowLintCompact(flow, new Set(unverified), decisionIdsOf(ws), superseded)) : {}),
