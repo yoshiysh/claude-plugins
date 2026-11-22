@@ -84,21 +84,22 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-012/体数と同時実行/t1/r6",
+      "unit": "SP-BPCONFORMANCE-012/体数と同時実行/t1/r4",
       "file": "references/design.md",
       "section": [
         "設計の説明",
-        "起動数の上限"
+        "確定値"
       ],
-      "from": "Codex runner の経路では、`limits.maxAgents` を超える起動が run 全体を失敗させるので、上限 `maxLaunches` を渡された run は、単位を始める前に最悪の起動数で確かめる。確かめは `used + Σ(走っている単位の worst − 使った数) + worst(u) + R ≤ L` とし、`scripts/trace.js` の定数 `WORST`・`RESERVE` から決定的に行う。トークン量の上限 `maxTokens` は、消費量を run の中に読める native の経路でのみ入力として受け取り、既定の上限は置かない。その経路では、単位を始める前に host の budget の消費量を上限と照らし、達していれば反復の上限で止める。",
-      "to": "Codex runner の経路では、`limits.maxAgents` を超える起動が run 全体を失敗させるので、上限 `maxLaunches` を渡された run は、単位を始める前に最悪の起動数で確かめる。確かめは `used + Σ(走っている単位の worst − 使った数) + worst(u) + R ≤ L` とし、`scripts/trace.js` の定数 `WORST`・`RESERVE` から決定的に行う。トークン量の上限 `maxTokens` は、消費量を run の中に読める native の経路でのみ入力として受け取り、既定の上限は置かない。その経路では、単位を始める前に host の budget の消費量を上限と照らし、達していれば反復の上限で止める。トークン量の上限は run の入力としては受け取らず、スキル側の固定の既定上限を置いて、入力が無くてもその上限で止める。",
+      "from": "周の上限・試行の上限・乾きの周数・同じ方向の再確認の上限・同時実行の上限・役ごとのモデルと effort は `scripts/trace.js` の名前付きの定数に置き、要約の上限は `scripts/state.mjs` の名前付きの定数に置く。値は best-practices の判定基準が対象スキルに課す確定値と同じにし、別の場所に書き写さない。",
+      "to": "周の上限・試行の上限・乾きの周数・同じ方向の再確認の上限・同時実行の上限・役ごとのモデルと effort は `scripts/trace.js` の名前付きの定数に置き、要約の上限は `scripts/state.mjs` の名前付きの定数に置く。値は best-practices の判定基準が対象スキルに課す確定値と同じにし、別の場所に書き写さない。同時実行の上限などの初期値は、検証できた証拠が無くても、eval や試走の実測で決めた基準を満たすか確かめずに広げてよい。",
       "unseen": [
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r1",
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r2",
-        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r4",
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r5",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r6",
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r7",
-        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r8"
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r8",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r9"
       ]
     },
     {
@@ -179,25 +180,26 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-016/状態の書き込み/t1/r2",
-      "file": "references/roles/carrier.md",
+      "unit": "SP-BPCONFORMANCE-016/状態の書き込み/t1/r5",
+      "file": "SKILL.md",
       "section": [
-        "運搬役",
-        "運ぶもの"
+        "trace-cause",
+        "起動"
       ],
-      "from": "- 運ぶのは script が決めた書き込み（受理した事実・意図・停止）と読み出しだけ。受理するかどうかは script が検証役の結果から決めて要求に入れてあるので、あなたは要求を変えずに渡す。",
-      "to": "- 事実の候補と検証役の結果を受け取ったら、あなたが検証役の理由を読んで受理するかを決め、受理した事実だけを CLI に書く。",
+      "from": "止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`・`resumeKey`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。",
+      "to": "止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`・`resumeKey`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。再開のときは、状態 ID を新しく作り直し、新しい状態として始める。",
       "unseen": [
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r1",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r2",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r3",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r4",
-        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r5",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r6",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r7",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r8",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r9",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r10",
-        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r11"
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r11",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r13"
       ]
     },
     {
