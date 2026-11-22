@@ -1569,7 +1569,7 @@ const WORKSPACE_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: obtain may_fail（${both ? '直後の成否の判断と on_fail の両方' : '直後の成否の判断も on_fail も無い'}）`,
     issue: `may_fail の要素 ${id} の失敗が値になる場所が 1 つに決まらない。場所が無ければ得られないときの行き先を誰も決めず、2 つあれば扱いが食い違う。`,
-    fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。要求文書だけのランで、その失敗の扱いに依頼者側の発生源が無いなら、両方を外す（agents/flow-framer.md「### 要求文書だけのラン」）。`,
+    fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。要求文書だけのランで、その失敗の扱いに依頼者側の発生源が無いなら、両方を外す（agents/planner.md「#### 要求文書だけのラン」）。`,
   }),
   FLOW_ON_FAIL_AS: (id) => ({
     id: `ST-FLOW-ON-FAIL-AS-${id}`,
@@ -1789,7 +1789,7 @@ const LINT_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: effect ${effect} / obtain always`,
     issue: `状態を変える工程 ${id} が obtain always なのに、失敗しないと言える出典（obtain_source）が無い。書き込みはふつう失敗しうるので、根拠の無い always は verifier が insufficient_grounds で落とし、失敗の枝と未決が検証の後まで見つからない。`,
-    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。要求文書だけのランで、その失敗の扱いに依頼者側の発生源が無いなら、may_fail にして扱い（判断・on_fail）は付けない（agents/flow-framer.md「### 要求文書だけのラン」）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
+    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。要求文書だけのランで、その失敗の扱いに依頼者側の発生源が無いなら、may_fail にして扱い（判断・on_fail）は付けない（agents/planner.md「#### 要求文書だけのラン」）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
   }),
   LINT_GROUNDS_SHAPE: (where) => ({
     id: `LINT-GROUNDS-SHAPE-${where}`,
@@ -2777,7 +2777,7 @@ function answerHolds(ws, resolutions) {
 // answeredByRejects: answered_by は依頼者の既にある回答を別の論点に当てる裁定で、その回答の行（answerCites）を evidence に引く。引かないと
 // verifier が当てた回答を照合できず、依頼者が決めていない値が回答の顔で入る。合格した問いの回答を当てるときも、その問いの answer の行を引く。
 // 回答待ちの問いを answered_by に変えない: 候補の選択として返されると検証を飛ばして回答済みになり、依頼者が答えていない値が根拠になる。
-// その問いに既にある回答を当てるなら、問いのまま answer と value を put する（resolver.md の「回答の反映」）。
+// その問いに既にある回答を当てるなら、問いのまま answer と value を put する（planner.md の「回答の反映」）。
 function answeredByRejects(ws, cur, next, body) {
   const touched = new Set((body.resolutions || []).map((r) => r && r.id))
   const cites = (r) => answerCites(ws, r).length > 0
@@ -4128,10 +4128,8 @@ const COMMON_SECTIONS = ['共通の約束', 'W のファイルと書き手']
 // FLOW_SHAPE: 見出しは台帳のファイル名を含むので、名前は LEDGERS から取る（ファイル名の正本は LEDGERS）。
 const FLOW_SHAPE = `${ledgerOf('flow').file()} の形`
 const CONTRACT_SECTIONS = {
-  intake: [...COMMON_SECTIONS, '§intake', '決定の台帳', '現物と既存実装の扱い', '不変条件の kind'],
-  'flow-framer': [...COMMON_SECTIONS, '§flow-framer', FLOW_SHAPE, '不変条件の kind'],
-  resolver: [...COMMON_SECTIONS, '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
-  'resolver-verifier': [...COMMON_SECTIONS, '§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
+  planner: [...COMMON_SECTIONS, '§intake', '§flow-framer', '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
+  'plan-reviewer': [...COMMON_SECTIONS, '§plan-reviewer', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
   writer: [...COMMON_SECTIONS, '§writer', '決定の台帳', '現物と既存実装の扱い'],
   'writer-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '§writer-reviewer', '現物と既存実装の扱い'],
   'whole-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§whole-reviewer', '現物と既存実装の扱い'],
@@ -4142,7 +4140,7 @@ const CONTRACT_SECTIONS = {
 // 超える出力をファイルに逃がして先頭しか見せないので、上限ごとに分けた全部を最初のターンに並べて実行させる。CONTRACT_PARTS は prd-spec.js と
 // 同じ（tests が照合する）。
 const CONTRACT_BUDGET = 30000
-const CONTRACT_PARTS = 2
+const CONTRACT_PARTS = 3
 
 // contractText: 役が読む節を契約から逐語で切り出す（見出しを探して節ごとに Read する往復をなくす）。見出しが欠ければ止める（節を黙って落とさない）。
 function contractText(role) {

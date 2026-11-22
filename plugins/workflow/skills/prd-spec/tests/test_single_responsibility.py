@@ -20,10 +20,8 @@ CONTRACTS = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8
 ROLE_MAP = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
 
 ROLES = (
-    "intake",
-    "flow-framer",
-    "resolver",
-    "resolver-verifier",
+    "planner",
+    "plan-reviewer",
     "writer",
     "writer-reviewer",
     "whole-reviewer",
@@ -68,9 +66,9 @@ class RoleMapTests(unittest.TestCase):
         self.assertIn("1 role = 1 責務", ROLE_MAP)
         self.assertIn("判定と事実指摘のみ", ROLE_MAP)
 
-    def test_resolverの行に段9と事後報告が無い(self):
+    def test_plannerの行に段9と事後報告が無い(self):
         # 事後報告は doc_check report の導出物で、生成する役を持たない。
-        row = next(l for l in ROLE_MAP.splitlines() if _row_pattern("resolver").match(l))
+        row = next(l for l in ROLE_MAP.splitlines() if _row_pattern("planner").match(l))
         stages = row.split("|")[1]
         self.assertNotIn("9", stages)
         self.assertNotIn("事後報告", row)
@@ -83,7 +81,7 @@ class RoleMapTests(unittest.TestCase):
 
 class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
     SECTION = "現物と既存実装の扱い"
-    READERS = {"intake": "intake.md", "resolver": "resolver.md", "resolver-verifier": "resolver-verifier.md", "writer": "writer.md", "writer-reviewer": "writer-reviewer.md", "whole-reviewer": "whole-reviewer.md"}
+    READERS = {"planner": "planner.md", "plan-reviewer": "plan-reviewer.md", "writer": "writer.md", "writer-reviewer": "writer-reviewer.md", "whole-reviewer": "whole-reviewer.md"}
 
     def _sections(self):
         return _exported("m.CONTRACT_SECTIONS")
@@ -102,18 +100,20 @@ class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
             for phrase in phrases:
                 self.assertFalse(phrase in text, f"{path.name}: {phrase}")
             if path.name in self.READERS.values():
-                self.assertEqual(text.count(f"「## {self.SECTION}」"), 1, path.name)
+                # planner は仕事（仕分けと裁定）ごとに節を指すので、仕事の数まで指してよい。
+                count = text.count(f"「## {self.SECTION}」")
+                self.assertTrue(1 <= count <= (3 if path.name == "planner.md" else 1), (path.name, count))
 
 
 
 class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlace):
     SECTION = "flow.json の形"
-    READERS = {"flow-framer", "resolver", "resolver-verifier"}
+    READERS = {"planner", "plan-reviewer"}
 
     def test_規則を使う役だけがその節を読む(self):
         readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
         self.assertEqual(readers, self.READERS)
-        self.assertNotIn("§flow-framer", self._sections()["resolver-verifier"], "verifier に §flow-framer 全体を配らない")
+        self.assertNotIn("§flow-framer", self._sections()["plan-reviewer"], "plan reviewer に §flow-framer 全体を配らない")
 
     def test_役のファイルとreferencesは節を参照し本文を写さない(self):
         # 節の本文の 20 字（仮名・漢字 10 字以上）が、契約の他の節・agents・references に無い。
@@ -152,13 +152,13 @@ class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlac
 
     def test_短い規範句だけの写しも拾う(self):
         targets = self._targets()
-        targets["flow-framer.md"] += "".join(f"\n- 例では、{c}。\n" for c in self.INJECT)
+        targets["planner.md"] += "".join(f"\n- 例では、{c}。\n" for c in self.INJECT)
         self.assertEqual(sorted(c for _, c in self._copies(targets)), sorted(self.INJECT))
 
 
 class InvariantKindSectionIsReadByKindUsers(FlowShapeSectionIsReadByFlowUsers):
     SECTION = "不変条件の kind"
-    READERS = {"intake", "flow-framer", "resolver", "resolver-verifier"}
+    READERS = {"planner", "plan-reviewer"}
     SHARED = {}
     INJECT = ("差し替えた工程が縛りを失う",)
 

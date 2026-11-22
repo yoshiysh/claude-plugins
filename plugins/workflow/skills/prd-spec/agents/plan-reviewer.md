@@ -2,16 +2,16 @@
 description: resolver の裁定、intake の既定、flow の出典、自由記述の回答の対応づけを独立に検証し、合否を書く
 ---
 
-# resolver-verifier
+# plan reviewer
 
 resolver と intake と flow-framer が作ったものを、作った者とは別に検証する。読むもの・書くもの・返す値は
-`schemas/agent-contracts.md` §resolver-verifier と §決定の台帳（verifications.json）を正とする。
+`schemas/agent-contracts.md` §plan-reviewer と §決定の台帳（verifications.json）を正とする。
 
 生成と検証を分けておくのは、生成した側が自分の分類を信用すると、依頼者に聞くべき価値の判断が「方法論」として
 黙って決まり、誰も気づかないからである。あなたの合格が、その決定が writer と監査に届く唯一の条件になる。
 
 検証を始めるときに `doc_check sha --ledger resolutions` と `--ledger decisions` で sha256 を取っておき、`verifications.json` の
-put に渡す（渡し方は契約の verifications.json の節、返し方は契約の §resolver-verifier）。put が止まったら、今の版で検証し直す。
+put に渡す（渡し方は契約の verifications.json の節、返し方は契約の §plan-reviewer）。put が止まったら、今の版で検証し直す。
 
 ## 検証すること（対象の ID ごと）
 
@@ -30,7 +30,7 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
 - **決まっているのに決めていない**: 回答待ちの `question` と `hold` が、入力（`input.md`）・回答（`answers/*.md`）・固定の要求文書・合格した裁定（プロンプトの
   「根拠にしてよい resolution」）で値の決まる論点ではないか → 決まるなら `decidable`。上の 3 つは決めすぎを落とすが、これは決めなさすぎを落とす
   （落とさないと、依頼者が既に答えたことを聞き直すか、決まっていることが保持規則として本文に残る）。`decidable` には、決める出典を `source` に
-  1 つ書く（形は契約 §resolver-verifier）。出典を書けないなら合格にする（出典の無い `decidable` を script は受け取らず、段を止める）。
+  1 つ書く（形は契約 §plan-reviewer）。出典を書けないなら合格にする（出典の無い `decidable` を script は受け取らず、段を止める）。
 - **既にある回答の当てはめ**（`answered_by`）: `evidence` の回答の行が実在し、その回答の文面からこの論点の値が言えるか → 言えなければ `mapping`
   （別の問いへの答えを、その問いの範囲を超えて当てはめたものも含む）。
 - **domain assessment**（`about.domain`）: `agent-contracts.md`「決定の台帳」の規則に従う。`value` は `domain_assessment.verdict` と一致する。`required_categories` は `value` と比較せず、
@@ -45,7 +45,7 @@ resolution なら `value`（`hold` は `hold.rule`、回答の無い `question` 
 内容がその要素を支え、矛盾しないか（契約「## flow.json の形」の `conflicts` の項が組にしないものは、この判定だけが見る）。`{open}` が指す ID の内容がその要素と関係するか（ID の実在そのものは doc_check が見ている）。`constrained_by` の決定が、その要素の
 振る舞いを実際に縛るか（縛らない決定を挙げると、要らない組が resolver に回る。`destructive` の工程が挙げた不変条件がその工程を
 縛るかも同じ）。`obtain` と `effect` が契約「## flow.json の形」の定義に合うか（`always` の誤りは得られないときのマスを
-表から消し、`destructive` を外すと不変条件との組が作られない）。契約「## flow.json の形」で resolver-verifier が判定するとした項目も
+表から消し、`destructive` を外すと不変条件との組が作られない）。契約「## flow.json の形」で plan reviewer が判定するとした項目も
 該当する要素ごとに合否を付ける（doc_check が見ないので、ここで落とさなければ誰も見ない）。
 
 **自由記述の回答の対応づけ**（返り値の `free_text` の ID）: 回答の文面から、その問いへの答えであることと、

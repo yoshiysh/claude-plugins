@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§flow-check](#flow-check) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§writer-reviewer](#writer-reviewer) · [§whole-reviewer](#whole-reviewer) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
+**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§plan-reviewer](#plan-reviewer) · [§flow-check](#flow-check) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§writer-reviewer](#writer-reviewer) · [§whole-reviewer](#whole-reviewer) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
 
 各 agent が読むファイル・書くファイル・返す値の正本。役割と責務の境界は `schemas/role-map.md` を正とする。
 `agents/*.md` は振る舞いを書き、形はここを指す。
@@ -56,8 +56,8 @@
   |---|---|---|---|
   | intake | 全文（依頼のすべての文から決定と未決を起こす） | 全件 | — |
   | flow-framer | 全文（流れを依頼に対して閉じる） | 全件 | — |
-  | resolver | grep | get（プロンプトの ID と、その要素が引く ID。flow.json を書く呼び出しは flow.json を全件） | resolver-verifier（input.md）、監査役（台帳） |
-  | resolver-verifier | 全文（引用の逐語と、出典が要素を支えるかを照らす） | get（プロンプトの ID、`doc_check flow` の stdout の未検証の要素、それらが引く ID） | 監査役（台帳） |
+  | resolver | grep | get（プロンプトの ID と、その要素が引く ID。flow.json を書く呼び出しは flow.json を全件） | plan reviewer（input.md）、監査役（台帳） |
+  | plan-reviewer | 全文（引用の逐語と、出典が要素を支えるかを照らす） | get（プロンプトの ID、`doc_check flow` の stdout の未検証の要素、それらが引く ID） | 監査役（台帳） |
   | flow-check | 読まない | 読まない（doc_check の stdout だけを返す） | — |
   | writer | 全文（依頼の文から項目を書く） | 全件（初稿も改稿も。単位の文書は依頼と流れと決定の全体から書かれる） | — |
   | writer-reviewer | 全文（文の根拠を依頼の全体に照らす） | 全件（writer と同じ根拠。根拠が writer より少ないと、writer が決定の `why` や flow から正しく書いた記述を「根拠が無い」と誤って指摘する。実測で 3 件） | — |
@@ -119,7 +119,7 @@
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [決定の台帳](#決定の台帳) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
-| `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
+| `verifications.json` | plan reviewer。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（固定の文書の meta と、`<kind>-<topic>.tbd.json` のある文書の meta は、段 1 の入口の `doc_check reset` が `existing_docs` の `fixed` とその写しから書く。文書は司令塔が S0 で `doc_check place` で逐語で置く） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `<kind>-<topic>.tbd.json` | 司令塔（S0 で、`doc_check place` が文書と一緒に、保存した文書の隣の `.tbd.json` を逐語で置く。誰も書き換えない。段 1 の入口の `doc_check reset` がこれを meta の `tbd` に写す） | `{ "tbd": [...] }`（要素は [§writer](#writer) の meta の `tbd`） | reset が形を検査し、合わなければ何も消さずに止まる |
 | `findings/r<n>-<役>-<組>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
@@ -219,13 +219,13 @@
   `superseded_categories` はその初期 domain decision ID に紐付いた `plan.required_categories.name` の一覧、`verdict` は回答に基づく有効判定、`required_categories` はその判定の有効カテゴリとする。
   `該当` でもカテゴリが無ければ `required_categories: []`、`非該当` は必ず空配列にする。`value` は `verdict` と一致させる。初期 decision があれば `supersedes` にその ID を入れ、
   初期 decision とそこに紐付く categories を無効化する。初期 `未評価` では `supersedes` と superseded categories は空にする。根拠は `answers/g<n>.md` の逐語引用で、所有表にある回答ファイルだけを受け付ける。
-  `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、resolver-verifier は signal・有効 verdict・カテゴリ導出を検証する。
+  `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、plan reviewer は signal・有効 verdict・カテゴリ導出を検証する。
   有効な必須カテゴリは、初期 `plan.required_categories` から `supersedes` が指す初期 domain decision に紐付いたカテゴリだけを除き、後段 `domain_assessment.required_categories` を加えて導く。その他の初期カテゴリは維持し、後段カテゴリが空でも除外したカテゴリを戻さない。この集合の導出と supersession はここを正とする。writer と whole reviewer はこの有効集合を使う。
   有効カテゴリの実現要件は §writer を正とする。whole reviewer はその要件に従って文書の中身を検証し、詳細が開いた TBD として残るカテゴリは欠けとしない。
   domain assessment が 1 回修正された後も independent verifier が不合格にした場合は、question / hold に変換せず blocked にする。台帳の評価と不合格 trace は残し、writer に渡さない。
 - ドメイン再評価は `question` ではない。適用評価で必要カテゴリを出す処理と、そのカテゴリ内の具体的な価値判断を分ける。後者を質問にする場合も、`question-policy.md` の条件を別途満たす。
 - `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
-  `agents/resolver.md` が正。`answered_by` の `evidence` は回答のファイル（所有表の `answers/` の下）の行を 1 つ以上引く（put が検査する。合格した問いの回答を
+  `agents/planner.md` が正。`answered_by` の `evidence` は回答のファイル（所有表の `answers/` の下）の行を 1 つ以上引く（put が検査する。合格した問いの回答を
   当てるときも、その問いの `answer` の行を引く。引かないと verifier が当てた回答を照合できない）。どの `ruling` がどの欄を持てるかは doc_check の `LEDGERS` の欄の条件が正で、put が
   検査する。回答が当たっても `ruling` は `question` のままにし、回答の前後は `answer` の有無で分ける（依頼者が
   決めた値と resolver が決めた値を、台帳の上で区別するため）。
@@ -243,7 +243,7 @@
   `doc_check questions` はその問いを不合格にする。script は段の出口ごとに、自分の数えた回答待ちを §flow-framer の `flow --rulings` の
   `has_answer` と照合する（prd-spec.js の `questionsDrift`）。
 
-**verifications.json**（resolver-verifier が書く）
+**verifications.json**（plan reviewer が書く）
 
 ```json
 {
@@ -349,7 +349,7 @@ plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ## flow.json の形
 
-flow.json の形の正本。書くのは flow-framer と、回答を当てる resolver（3a・3a'）で、resolver-verifier が出典と欄の選択を検証する。
+flow.json の形の正本。書くのは flow-framer と、回答を当てる resolver（3a・3a'）で、plan reviewer が出典と欄の選択を検証する。
 欄の閉集合（`inputs[]` のキーを含む）と型ごとの欄の条件の正本は doc_check の `LEDGERS` で、put と台帳を読むすべてのコマンドが
 保存済みの全要素を検査し、合わない要素があれば止まる（直し方は止まったときの stderr）。
 
@@ -396,7 +396,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - 要素 X の失敗の枝: D の枝のうち、`from` が X の入力の `unknown` の値を `when` に書いた case が選ぶ枝。
 - `unknown`（`inputs[]`）: 得られないときに当たる `values` の値（新しい値でも既存の値でもよい）。そのマスと `on_fail.as` のマスは、
   `when` のその入力にその値そのものを書いた case で受ける（`上記以外` と `*` は受けたことにならない）。
-- doc_check が見ていないもの（resolver-verifier が判定する）:
+- doc_check が見ていないもの（plan reviewer が判定する）:
   - (a) の失敗の枝の先の `step` が、得られなかった値を前提にしていないか（`step` は `inputs` を持たない）。
   - 値を数えたり他の値と合わせたりする `step`・`decision` の後で、「得られない」が他の値に紛れて消えていないか（flow は値の依存を
     持たないので、script が追うと近似になる）。
@@ -408,7 +408,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   欠けは `codes` に入らず、`doc_check flow --lint` だけが見る（§flow-framer）。
 - `constrained_by`（任意）: 要素の振る舞いを縛る決定の ID（D- か RS-）か、「## 不変条件の kind」の O- の配列。`destructive` の工程は、
   `kind` が `invariant` の決定・resolution・O- を 1 件以上挙げる。挙げた不変条件がその工程を本当に縛るかは doc_check では決まらない
-  ので、resolver-verifier が判定する。
+  ので、plan reviewer が判定する。
 - doc_check `flow` は欄の欠けを `ST-FLOW-OBTAIN-MISSING-`・`ST-FLOW-UNKNOWN-CASE-`・`ST-FLOW-EFFECT-MISSING-`・
   `ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-` で指摘する。要素の digest はこれらの欄を含む。
 - 指摘の直し手: stdout の `codes`（符号 → 指摘の場所の要素 ID などの配列。件数の和は `findings`）の符号ごとに、所有表の中の
@@ -443,7 +443,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   必ず含める。3b の組み直しの前の 3a の例外は references/workflow-io.md §4 の 3a の行）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 - stdout の `unverified` は今の digest で合格の無い要素、`failed_current` は今の digest で不合格の要素である（検証の状態は
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
-  verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
+  verifier が自分の最初の `doc_check flow` から取って検証する（§plan-reviewer。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
 - `flow --rulings` の stdout の `resolutions` は、resolution ごとの `{id, about, ruling, has_answer, verdict}`（不合格は `fail_kind` も。`has_answer` は `answer` の有無）を
   `ruling`・`has_answer`・`verdict`・`fail_kind` の組ごとに束ね、組の中を ID から `about` への表にしたものである（束ね方の正本は doc_check の `rulingsCompact`、
@@ -456,7 +456,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   回答が保留か実際の選択かは決めない）。聞ける段でも問いに書き換え直させない（§resolver）。
 - script が判断に使う stdout（§flow-check）の `codes` に残った指摘は、符号によらずすべて settle に「要素: 何が無いか」（flow-framer 専用の
   符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは、その cycle で flow を書いた生成者に消せない指摘（「## flow.json の形」の直し手）と、
-  台帳の書き込みから出た指摘だけで（生成者が消せる指摘は §resolver-verifier の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
+  台帳の書き込みから出た指摘だけで（生成者が消せる指摘は §plan-reviewer の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
   resolver が台帳を変えて出た指摘が出る。どちらも flow-framer にしか直せない。直し方はその指摘の fix（`W/checks/flow.json`）で、kind が invariant の O- を `open.json` に足して `constrained_by` に挙げる
   ときは「## 不変条件の kind」に従う。足した O- を誰が裁定するかは §resolver。
 - stdout の `stale_refs` は、resolutions.json の `supersedes` で覆された決定を `source`（case の `source` と `on_fail.source` を含む）か `constrained_by` に
@@ -523,7 +523,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 - domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked にし、その他の検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、依頼者に聞かない問い（聞ける回数の上限に達した後か、前のパスで答えたか保持規則にした論点の再発）を
   hold に変える呼び出し（`<段>-hold`）と、検証に落ちた保持規則を書き直す呼び出し（`<呼び出し>-rehold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ。変換は ID ごとにプロンプトが指定した方）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
-  （変換後の question は別の resolver-verifier が relevance と根拠を再検証し、不合格なら利用者に提示する前に run を止める。返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
+  （変換後の question は別の plan reviewer が relevance と根拠を再検証し、不合格なら利用者に提示する前に run を止める。返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
   検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
 - 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、`about.domain` の resolution はこの差し戻しの対象外（「決定の台帳」の後段 domain assessment 規則が正）。verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
   それぞれ `about` を `{verification}` にした resolution を返す。合わなければ script は段を止める（返らない裁定は再検証にも変換にも回らず、
@@ -544,11 +544,11 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   flow-framer（3b の組み直しの前の 3a の反映は 3b-reframe。references/workflow-io.md §4 の 3a の行）の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
   検証を通っていない要素の出典を verifier に回す（除くものは §flow-framer の `failed_current`。起動の条件・label・聞けない段の扱いは
   references/workflow-io.md §4）。聞けない段のこの呼び出しが `questions` を返せば、script は段を止める（聞けない段の問いは、聞くゲートにも
-  段の最後の保持規則への変換にも届かない）。渡した組と O- は生成者の申告なので、script は次の verifier の stdout と照合する（§resolver-verifier）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
+  段の最後の保持規則への変換にも届かない）。渡した組と O- は生成者の申告なので、script は次の verifier の stdout と照合する（§plan-reviewer）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
   flow-framer が破壊的な工程を縛るために足した O- は、裁定の無いまま初稿に進むと何を失ってはならないかが決まらないからである
   （kind が invariant の O- の hold は、保持規則として工程を縛る）。
 
-## §resolver-verifier
+## §plan-reviewer
 
 入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/plan.json`、`W/input.md`、
 `W/answers/*.md`、script が渡す検証対象の ID（読み方は「## 共通の約束」の表）。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、

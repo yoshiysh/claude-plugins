@@ -312,7 +312,7 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
             asked = [r["id"] for r in body["resolutions"] if "question" in r]
             answered = [r["id"] for r in body["resolutions"] if "question" in r and "answer" in r]
             self.assertTrue(answered)
-            # 回答の当たった問いは聞き直せない。同じ ID の続きの問いにするときは answer と value を null で消す（resolver.md の「回答の反映」）。
+            # 回答の当たった問いは聞き直せない。同じ ID の続きの問いにするときは answer と value を null で消す（planner.md の「回答の反映」）。
             self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked), "--check")["bad_ids"], answered)
             _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin={"resolutions": [{"id": i, "answer": None, "value": None} for i in answered]})
             self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked))["questions"], len(asked))
@@ -418,12 +418,12 @@ class ContractCommand(unittest.TestCase):
         self.assertEqual(min(counts.values()), 1)
 
     def test_書かない役には書き込みの規則を配らない(self):
-        self.assertTrue(set(self.common) <= set(self.table["resolver"]))
+        self.assertTrue(set(self.common) <= set(self.table["planner"]))
         self.assertFalse(set(self.common) & set(self.table["flow-check"]))
 
     def test_節が上限を超えれば行の頭で切る(self):
         text = CONTRACTS.read_text(encoding="utf-8")
-        body = "".join(f"長い行の {i} 番目。{'あ' * 300}\n" for i in range(40))
+        body = "".join(f"長い行の {i} 番目。{'あ' * 300}\n" for i in range(70))
         self.contract.write_text(text.replace("## §flow-check\n", f"## §flow-check\n{body}", 1), encoding="utf-8")
         parts = [self._part("flow-check", n) for n in range(1, self.parts + 1)]
         self.assertTrue(all(parts))

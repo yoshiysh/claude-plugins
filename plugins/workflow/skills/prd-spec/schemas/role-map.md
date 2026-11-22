@@ -5,14 +5,14 @@
 
 ## 設計規範
 
-> **検証者（監査役・resolver-verifier）は判定と事実指摘のみ。解決策・要求文の文案・候補の起草は生成側の責務。
+> **検証者（監査役・plan reviewer）は判定と事実指摘のみ。解決策・要求文の文案・候補の起草は生成側の責務。
 > 1 role = 1 責務。司令塔は中継と状態管理だけを持ち、生成しない。**
 
 この境界を破ると何が壊れるか。検証者が文案を書くと、writer が文案にアンカリングして根拠からではなく文案から
 書き（実測）、しかもその文案は誰にも検証されない。司令塔が決定や回答の文面を書くと、依頼者の言葉と司令塔の
 言葉が同じ欄に混ざり、writer はどちらを依頼者の判断として扱うべきか区別できない（実測: 司令塔が起草した決定が
 回答の欄にも複写され、同じ決定が 2 つの出所から届いた）。だから検証者が出せるのは判定・事実・方向（`direction`）
-までで、文は常に生成側（writer・resolver）が書き、生成物は必ず別の検証者を通る。
+までで、文は常に生成側（writer・planner）が書き、生成物は必ず別の検証者を通る。
 
 ## ロール表
 
@@ -21,11 +21,9 @@
 | 最初の段 | role | 種別 | 責務（1 つ） | やらないこと | なぜ（破ると何が壊れるか） |
 |---|---|---|---|---|---|
 | S0 | 司令塔（SKILL.md） | 中継 | 依頼と回答を逐語で書く、`doc_check questions`・`doc_check report` で問いと事後報告を導出し、questions.md と report.md をそのまま見せる、SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す、保存の前の digest の文字列比較 | 決定・問い・回答・文書の文面を書くこと | 司令塔が書くと、生成と検証の分離が最後の工程で破れる |
-| 1 | flow-check | 検証（決定的な検査の実行） | 台帳を書いた resolver の後に doc_check flow を実行し、stdout をそのまま返す。blocked の後の同じ段の再実行の入口では、その前に doc_check restore を実行する。段 1 の入口では doc_check reset を、段 4・7 の writer の前では doc_check backup を、回答済みのゲートを越える前では doc_check answers を、flow-framer の lint の差し戻しの前後では doc_check stash・unstash を実行する | ファイルの書き込み（restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が行う。回答の書き足しを含む）・指摘の修正・stdout の加工 | 台帳を書いた resolver の stdout だけで進むと、少なく申告した指摘が誰にも見えないまま次の段へ届く |
-| 1 | intake | 生成（仕分けと決定の起票） | 依頼を確定・決定・未決に仕分け、観点・分割・writer の単位・自己完結の方針を決定として起票する | 問い・要求文の起草 | 問いを先に作ると流れの抜けと重複し、要求文を書くと検証されない文が決定の顔で文書に入る |
-| 2 | flow-framer | 生成（流れの起草） | 出典付きの流れ図を描き、決まらない分岐を未決に足し、doc_check で閉じる | 組の判定・要求の文面 | 流れを持たずに書くと、書かれなかった工程と分岐が初稿の後に問いとして戻る |
-| 3 | resolver | 生成（裁定と問い） | 未決・組・決定が要る指摘・新しい TBD を裁定の種類（agents/resolver.md）で閉じ、問い・保持規則を書く。回答反映後の domain 軸は、agent-contracts.md「決定の台帳」の後段 domain assessment 規則に従い、初期 verdict にかかわらず、新しい signal が有効判定を変える場合に `about.domain` の構造化 resolution として評価・記録する | 本文の改稿・裁定の自己承認・指摘の真偽の裁定 | 本文を直すと監査を迂回し、自己承認すると価値の判断が方法論として黙って決まる。初期状態だけを保存して後段の signal を評価しないと、その axis の必須カテゴリが文書へ届かない |
-| 3v | resolver-verifier | 検証 | 裁定・intake の既定・flow の出典・回答の対応づけ・domain assessment の合否（決めすぎと、決まるのに問いか保持規則にした `decidable` の両方） | 書き直し・改良案 | 検証者が書き直すと、その文を誰も検証しない。`decidable` を見ないと、答えの出ている論点が聞き直されるか保持規則になる。domain assessment の signal とカテゴリを検証しないと、評価された軸が誤った要求になる |
+| 1 | flow-check | 検証（決定的な検査の実行） | 台帳を書いた planner の裁定（resolver の呼び出し）の後に doc_check flow を実行し、stdout をそのまま返す。blocked の後の同じ段の再実行の入口では、その前に doc_check restore を実行する。段 1 の入口では doc_check reset を、段 4・7 の writer の前では doc_check backup を、回答済みのゲートを越える前では doc_check answers を、planner の流れの lint の差し戻しの前後では doc_check stash・unstash を実行する | ファイルの書き込み（restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が行う。回答の書き足しを含む）・指摘の修正・stdout の加工 | 台帳を書いた裁定の stdout だけで進むと、少なく申告した指摘が誰にも見えないまま次の段へ届く |
+| 1 | planner | 生成（前提と裁定） | 前提（仕分けた決定と流れ）を作り、その上で裁定する。仕事は 3 つ: 仕分け（intake。依頼を確定・決定・未決に仕分け、観点・分割・writer の単位・自己完結の方針を決定として起票する）、流れ（flow-framer。出典付きの流れ図を描き、決まらない分岐を未決に足し、doc_check で閉じる）、裁定（resolver。未決・組・決定が要る指摘・新しい TBD を裁定の種類（agents/planner.md）で閉じ、問い・保持規則を書く。回答反映後の domain 軸は、agent-contracts.md「決定の台帳」の後段 domain assessment 規則に従い、初期 verdict にかかわらず、新しい signal が有効判定を変える場合に `about.domain` の構造化 resolution として評価・記録する） | 要求文の起草・本文の改稿・裁定の自己承認・指摘の真偽の裁定 | 裁定は前提の上で決めるので、前提を作らない役に裁定させると前提を読み違える。問いを流れより先に作ると流れの抜けと重複し、本文を直すと監査を迂回し、自己承認すると価値の判断が方法論として黙って決まる |
+| 3v | plan-reviewer | 検証 | 裁定・intake の既定・flow の出典・回答の対応づけ・domain assessment の合否（決めすぎと、決まるのに問いか保持規則にした `decidable` の両方） | 書き直し・改良案 | 検証者が書き直すと、その文を誰も検証しない。`decidable` を見ないと、答えの出ている論点が聞き直されるか保持規則になる。domain assessment の signal とカテゴリを検証しないと、評価された軸が誤った要求になる |
 | 4 | writer | 生成 | 担当の単位の文書と meta の起草と改稿（同じファイルを Edit） | 監査の判定・他の単位のファイルの書き込み | 判定を兼ねると自己承認になり、他のファイルを書くと検証の前提が崩れる |
 | 5 | writer-reviewer | 検証 | 1 項目の中と 1 文の根拠: 着手（実装する人が手を止めないか。着手可能性・項目自身の目的に対する過不足・曖昧さ）と根拠（捏造・偽装・未決の断定・入力への違反） | 文案・項目間 | 観点が重なると同じ箇所に 2 つの指摘が付き、writer が逆向きに直す |
 | 5 | whole-reviewer | 検証 | 項目の間: 矛盾・重複・用語・上位の要求と照らした範囲・依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱・紐付け・必須の欠け。同じ回の writer reviewer の指摘を敵対的に確かめて退けるものを返し、指名されて監査の基準（`audited-<n>`）を保存する | 文案・1 項目で完結する問題・退ける理由を原文で示せない指摘の棄却 | 同上。writer reviewer の誤った指摘を誰も確かめないと、writer が正しい記述を壊してパスを使い切る |
@@ -34,12 +32,11 @@
 
 ## 責務の重複・空白の確認
 
-- **文を書くのは生成側だけ**: writer（本文と meta）、resolver（裁定・問い・保持規則）、intake（決定の値）、
-  flow-framer（流れ）。検証側（2 監査役・resolver-verifier・doc_check）は文を持たない。
+- **文を書くのは生成側だけ**: writer（本文と meta）、planner（決定の値・流れ・裁定・問い・保持規則）。検証側（2 監査役・plan reviewer・doc_check）は文を持たない。
 - **監査の観点は排他**: 1 項目の中（着手）・1 文の根拠（根拠）・項目の間、に分け、機械で判定できるものは doc_check に置く
   （`schemas/agent-contracts.md` §監査役の共通節）。
-- **指摘の一生**: 監査役が起票（route を付ける）→ whole reviewer が writer reviewer の指摘を確かめ、退けたものは閉じる → `writer` は script が束ねて改稿へ、`decision` は resolver が裁定 →
-  resolver-verifier → 改稿 → 範囲を絞った監査。残れば次のパスを回し、収束しなければ blocked。
-- **論点の一生**: intake・flow-framer が未決に起票（writer は TBD の候補を meta に起票）→ resolver が裁定 →
-  resolver-verifier → 合格すれば決定台帳に入って writer が使う。`question` は依頼者の回答で決まり、`hold` は保持規則と
+- **指摘の一生**: 監査役が起票（route を付ける）→ whole reviewer が writer reviewer の指摘を確かめ、退けたものは閉じる → `writer` は script が束ねて改稿へ、`decision` は planner が裁定 →
+  plan reviewer → 改稿 → 範囲を絞った監査。残れば次のパスを回し、収束しなければ blocked。
+- **論点の一生**: planner が未決に起票（writer は TBD の候補を meta に起票）→ planner が裁定 →
+  plan reviewer → 合格すれば決定台帳に入って writer が使う。`question` は依頼者の回答で決まり、`hold` は保持規則と
   Issue の文案になる。どの経路にも「誰の責務でもない工程」は無い。

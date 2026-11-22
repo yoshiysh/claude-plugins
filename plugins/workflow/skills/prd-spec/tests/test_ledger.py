@@ -1173,9 +1173,9 @@ class DomainAssessment(_Workspace):
 
     def test_resolver_writer_whole_reviewer_prompt使う有効カテゴリと置換規則(self):
         def contract(role):
-            return "\n".join(_run(self.ws, "contract", "--role", role, "--part", str(part)).stdout for part in (1, 2))
+            return "\n".join(_run(self.ws, "contract", "--role", role, "--part", str(part)).stdout for part in (1, 2, 3))
 
-        resolver = contract("resolver")
+        resolver = contract("planner")
         writer = contract("writer")
         whole_contract = contract("whole-reviewer")
         whole_reviewer = (SKILL / "agents" / "whole-reviewer.md").read_text(encoding="utf-8")

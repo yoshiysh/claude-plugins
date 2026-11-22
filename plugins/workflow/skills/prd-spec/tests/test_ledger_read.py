@@ -213,10 +213,12 @@ class InputReadersInContract(unittest.TestCase):
     def _rows(self):
         return {m.group(1): tuple(g.strip() for g in m.groups()[1:]) for m in self.ROLE_ROW.finditer(CONTRACTS.read_text(encoding="utf-8"))}
 
-    def test_全ての役がinput_mdの読み方を宣言しresolver_verifierとwriter_reviewerは全文(self):
+    def test_全ての役がinput_mdの読み方を宣言しplan_reviewerとwriter_reviewerは全文(self):
         rows = self._rows()
-        self.assertEqual(set(rows), {p.stem for p in (SKILL / "agents").glob("*.md")})
-        for role in ("resolver-verifier", "writer-reviewer"):
+        # planner は仕事（intake・flow-framer・resolver）ごとに読み方が違うので、仕事の名前で行を持つ。
+        jobs = {"intake", "flow-framer", "resolver"}
+        self.assertEqual(set(rows), ({p.stem for p in (SKILL / "agents").glob("*.md")} - {"planner"}) | jobs)
+        for role in ("plan-reviewer", "writer-reviewer"):
             self.assertTrue(rows[role][0].startswith("全文"), role)
 
     def test_writerと監査役は根拠を全文と全件で読む(self):

@@ -1437,9 +1437,9 @@ class Stages(unittest.TestCase):
         self.assertEqual(writers, ["writer:U-1:draft", "writer:U-2:draft"])
 
     def test_要求文書だけのrunでだけflow_framerに粒度の小節を指す(self):
-        heading = "### 要求文書だけのラン"
-        framer = (Path(PRD).resolve().parents[1] / "skills" / "prd-spec" / "agents" / "flow-framer.md").read_text()
-        self.assertIn(f"\n{heading}\n", framer, "プロンプトが指す小節は flow-framer.md に実在する")
+        heading = "#### 要求文書だけのラン"
+        framer = (Path(PRD).resolve().parents[1] / "skills" / "prd-spec" / "agents" / "planner.md").read_text()
+        self.assertIn(f"\n{heading}\n", framer, "プロンプトが指す小節は planner.md に実在する")
         both = [{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}]
         for spec, expected in (({"args": args()}, True), ({"args": args(), "units": both}, False), (self._expand(), False)):
             prompts = [p["prompt"] for p in run(spec)["prompts"] if p["label"].startswith("flow-framer")]
@@ -1448,7 +1448,7 @@ class Stages(unittest.TestCase):
 
     def test_裁定の反映と回答での組み直しのflow_framerにも同じ判定で小節を指す(self):
         # frameFlow を通る 3 つの呼び出しのうち、段 2 以外の 2 つ（settle・3b-reframe）。
-        heading = "### 要求文書だけのラン"
+        heading = "#### 要求文書だけのラン"
         both = [{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}]
         for units, expected in ((None, True), (both, False)):
             u = {"units": units} if units else {}
@@ -4932,7 +4932,7 @@ class Gates(unittest.TestCase):
         self.assertNotEqual(res["status"], "needs_answers", "回答済みの論点の再発でゲートを開かない")
         self.assertEqual(res["status"], "done", res.get("reason"))
         second = nth_prompt(r, "resolver:6", 0)
-        self.assertIn("前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: r2-wr-all-001", second)
+        self.assertIn("前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: r2-wr-all-001", second)
         self.assertIn("resolver:6-hold", r["labels"])
         self.assertIn("次の問いは依頼者に聞かない（前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない）", nth_prompt(r, "resolver:6-hold", 0))
         self.assertIn("RS-011", res["holds"])
@@ -4944,7 +4944,7 @@ class Gates(unittest.TestCase):
         findings = {**self.CROSS, "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
         spec = {"findings": findings, "about": about, "holds_at": {"6": ["RS-010"]}}
         start = stage6_at_limit({"args": args(), **spec})
-        line = "前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: r2-wr-all-001"
+        line = "前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: r2-wr-all-001"
         r = run({"args": start, **spec})
         self.assertIn("RS-010", r["result"]["holds"], r["result"].get("reason"))
         self.assertIn(line, nth_prompt(r, "resolver:6", 1))
@@ -5639,6 +5639,33 @@ class OfficialAlignment(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(r["opts"][label], {"model": "opus", "effort": "medium"})
         for old in ("implementer", "grounding", "crossDoc"):
+            with self.subTest(old=old):
+                bad = run({"args": args(role_opts={old: {"model": "opus"}})})
+                self.assertIn(f'args.role_opts の役割名が不明です: "{old}"', bad["error"] or "")
+                self.assertEqual(bad["attempted"], 0)
+
+    def test_planの役は仕事ごとに同じplannerの既定と役のファイルを使い旧い役名のrole_optsは止まる(self):
+        # 仕分け・流れ・裁定は planner の仕事で、model・effort・役のファイル・契約は役から引く（呼び出しの種類で分岐する script の照合は変えない）。
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        jobs = {"intake": "仕分け", "flow-framer": "流れ", "resolver:3": "裁定"}
+        for label, job in jobs.items():
+            with self.subTest(label=label):
+                self.assertEqual(r["opts"][label], {"model": "opus", "effort": "medium"})
+                prompt = nth_prompt(r, label, 0)
+                self.assertIn("/agents/planner.md の Read", prompt)
+                self.assertIn("contract --workspace /tmp/prd-w --role planner --part 3", prompt)
+                self.assertIn(f"仕事: {job}（agents/planner.md の「## {job}」の節）", prompt)
+                self.assertIn(f"\n## {job}\n", (Path(PRD).resolve().parents[1] / "skills" / "prd-spec" / "agents" / "planner.md").read_text(), "プロンプトが指す節は planner.md に実在する")
+        verifier = nth_prompt(r, "verifier:3v", 0)
+        self.assertEqual(r["opts"]["verifier:3v"], {"model": "opus", "effort": "medium"})
+        self.assertIn("/agents/plan-reviewer.md の Read", verifier)
+        self.assertNotIn("仕事: ", verifier)
+        # 既定がどの役も同じなので、上書きが役ごとに届くことで、どの役から引いたかを確かめる。
+        over = run({"args": args(role_opts={"planner": {"effort": "high"}, "planReviewer": {"model": "sonnet"}}), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        for label in jobs:
+            self.assertEqual(over["opts"][label], {"model": "opus", "effort": "high"}, label)
+        self.assertEqual(over["opts"]["verifier:3v"], {"model": "sonnet", "effort": "medium"})
+        for old in ("intake", "flowFramer", "resolver", "verifier"):
             with self.subTest(old=old):
                 bad = run({"args": args(role_opts={old: {"model": "opus"}})})
                 self.assertIn(f'args.role_opts の役割名が不明です: "{old}"', bad["error"] or "")
