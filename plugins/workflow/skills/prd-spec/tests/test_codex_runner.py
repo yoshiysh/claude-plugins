@@ -58,14 +58,14 @@ class CodexRunner(unittest.TestCase):
         self.assertIsNone(got["error"])
         self.assertEqual(got["result"]["status"], "done")
         self.assertIn("writer:U-1:draft", got["labels"])
-        self.assertIn("grounding:r1:requirements/x", got["labels"])
+        self.assertIn("writerReviewer:r1:all", got["labels"])
         self.assertEqual(got["receipt"]["namedWorkflow"]["name"], "workflow:prd-spec-run")
 
     def test_all_human_gates_use_next_args_and_do_not_replay_intake(self):
         # ゲートは開いた順に g1, g2, … と名乗る。段 3 の題材も段 6 の題材も、その run で最初に開くゲートなので g1。
         for name, spec, stage, ruled in [
             ("段 3", {"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, "3a", "RS-001"),
-            ("段 6", {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, "3a'", "RS-010"),
+            ("段 6", {"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, "3a'", "RS-010"),
         ]:
             with self.subTest(name):
                 stopped = run({"args": self.args(), **spec})["result"]

@@ -8,7 +8,7 @@ export const meta = {
     { title: 'Resolve', detail: '段 3・3v: 未決と組を裁定し、独立に検証する（差し戻しは 1 回）' },
     { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、最初のゲートの後は回答で flow を組み直す' },
     { title: 'Draft', detail: '段 4: writer の単位ごとに初稿を書く（依存の向きに順番、独立な単位は並列）' },
-    { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当てる' },
+    { title: 'Audit', detail: '段 5: writer reviewer を全文書に当て、whole reviewer がその指摘を確かめて文書をまたいで見る' },
     { title: 'Decide', detail: '段 6: 決定が要る指摘と新しい TBD を裁定する' },
     { title: 'Revise', detail: '段 7・8: 改稿し、変えた範囲だけを監査する（収束の条件と上限の定数で回す）' },
     { title: 'Report', detail: '段 9: 収束せずに止まったときは残った論点を保持規則にする（事後報告は司令塔が doc_check report で導出する）' },
@@ -21,8 +21,7 @@ export const meta = {
 // state は plain JSON に限る。Map・Set・class を pipeline / parallel の境界や返り値に載せると、runtime で中身が失われる。
 
 // ROLE_OPTS: 全役に既定を置く。省略するとセッションの設定を継承し、全呼び出しが最重量で走って利用上限に達する。
-// intake〜writer は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。implementer・grounding の見落としはそのまま
-// 欠陥（着手不能・捏造）になる。crossDoc は項目の間の関係を見るだけで、1 文ずつの深い判断は要らない。flowCheck は判断を要しないが、
+// intake〜writer と 2 つの監査役は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。flowCheck は判断を要しないが、
 // 数 KB の stdout を逐語で写す。値は既定であって、E2 の実測で較正する。
 const ROLE_OPTS = {
   intake: { model: 'opus', effort: 'medium' },
@@ -30,9 +29,8 @@ const ROLE_OPTS = {
   resolver: { model: 'opus', effort: 'medium' },
   verifier: { model: 'opus', effort: 'medium' },
   writer: { model: 'opus', effort: 'medium' },
-  implementer: { model: 'opus', effort: 'high' },
-  grounding: { model: 'opus', effort: 'high' },
-  crossDoc: { model: 'sonnet', effort: 'medium' },
+  writerReviewer: { model: 'opus', effort: 'medium' },
+  wholeReviewer: { model: 'opus', effort: 'medium' },
   flowCheck: { model: 'sonnet', effort: 'low' },
 }
 
@@ -44,9 +42,8 @@ const ROLE_FILES = {
   resolver: 'resolver',
   verifier: 'resolver-verifier',
   writer: 'writer',
-  implementer: 'implementer',
-  grounding: 'grounding',
-  crossDoc: 'cross-doc',
+  writerReviewer: 'writer-reviewer',
+  wholeReviewer: 'whole-reviewer',
   flowCheck: 'flow-check',
 }
 
@@ -468,40 +465,13 @@ function settledFlowFindings(pendingFindings, state, before, recurring) {
   return uniq((pendingFindings || []).filter((f) => f && toFlow(f) && closed.has(f.id)).map((f) => f.id))
 }
 
-function rolesByItem(history, findings, role) {
-  const out = JSON.parse(JSON.stringify(history || {}))
-  for (const f of findings || []) {
-    if (!f || !f.item_id) continue
-    out[f.item_id] = uniq([...(out[f.item_id] || []), role])
-  }
-  return out
-}
-
-// scopedAuditPlan: grounding は新しく入った規範文を見るので、変えた文書すべてに起動する。先頭を指名するのは、
-// 改稿の後は必ず 1 体以上起動し、木全体の diff の照合が飛ばないため。
-function scopedAuditPlan(changes, roles) {
-  const plan = []
-  const docs = Object.keys(changes || {}).sort()
-  let crossItems = []
-  for (const doc of docs) {
-    const items = uniq(changes[doc])
-    plan.push({ role: 'grounding', doc, items })
-    const im = items.filter((i) => (roles[i] || []).includes('implementer'))
-    if (im.length) plan.push({ role: 'implementer', doc, items: im })
-    crossItems = crossItems.concat(items.filter((i) => (roles[i] || []).includes('crossDoc')))
-  }
-  if (crossItems.length) plan.push({ role: 'crossDoc', doc: 'all', items: uniq(crossItems) })
-  if (plan.length) plan[0].designated = true
-  return plan
-}
-
-// undeclaredChanges: 生成した側だけに検証の範囲を決めさせないため、申告に無い項目には監査を追加で起動する。
+// undeclaredChanges: 生成した側だけに検証の範囲を決めさせないため、申告に無い項目も監査の範囲に入れる。
 function undeclaredChanges(diff, declared) {
   const all = uniq([...((diff && diff.changed) || []), ...((diff && diff.added) || []), ...((diff && diff.removed) || [])])
   return minus(all, declared)
 }
 
-// undeclaredByDoc: 監査は文書単位で起動するので、木全体の集合だけでは、何も申告しなかった単位の文書に監査が届かない。
+// undeclaredByDoc: 申告は単位ごとなので、木全体の集合だけでは、何も申告しなかった単位の文書の変更を文書に結び付けられない。
 function undeclaredByDoc(diff, changes, targetDocs) {
   const byDoc = diff && diff.by_doc
   const out = {}
@@ -817,6 +787,7 @@ const AUDIT_SCHEMA = {
   type: 'object',
   properties: {
     path: STR,
+    rejected: STRS,
     findings: {
       type: 'array',
       items: {
@@ -2630,32 +2601,58 @@ async function stage4() {
   return '5'
 }
 
-function auditorPrompt(role, doc, round, opt) {
-  const docs = auditDocs()
-  const prev = uniq(pendingFindings(state.pending).filter((f) => (opt.items || []).includes(f.item_id)).map((f) => f.id))
-  const ruled = uniq(((state.pending || {}).again || []).filter((f) => (opt.items || []).includes(f.item_id)).flatMap((f) => f.rulings))
-  const target = doc === 'all' ? `全文書: ${docs.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}、${W}/plan.json` : `文書: ${W}/${doc.replace('/', '-')}.md とその .meta.json`
+// REVIEW_MAX_BYTES・DOC_BYTES: writer reviewer 1 体が読む文書の上限と、1 文書の分量の目安（doc_check の SIZE_BUDGET.document と同じ。tests が
+// 照合する）。script はファイルの大きさを読めず、agent に申告させた値は検査できないので、文書の数で静的に決める。全文書が上限に収まる間は 1 体にする。
+const REVIEW_MAX_BYTES = 100000
+const DOC_BYTES = 23378
+const DOCS_PER_REVIEW = Math.max(1, Math.floor(REVIEW_MAX_BYTES / DOC_BYTES))
+// reviewPacks: writer reviewer の組。文書の並びの順に前から詰め、組が 1 つなら名前は all。whole reviewer は文書をまたぐ矛盾を見るので分けない。
+function reviewPacks(docs) {
+  const groups = []
+  for (let i = 0; i < docs.length; i += DOCS_PER_REVIEW) groups.push(docs.slice(i, i + DOCS_PER_REVIEW))
+  return groups.map((ds, i) => ({ role: 'writerReviewer', pack: groups.length === 1 ? 'all' : `p${i + 1}`, docs: ds }))
+}
+const wholePlan = () => ({ role: 'wholeReviewer', pack: 'all', docs: auditDocs() })
+const ROLE_TAG = { writerReviewer: 'wr', wholeReviewer: 'wh' }
+const findingsName = (p, round) => `r${round}-${ROLE_TAG[p.role]}-${p.pack}`
+const auditorLabel = (p, round) => `${p.role}:r${round}:${p.pack}`
+const docFile = (k) => `${W}/${k.replace('/', '-')}.md`
+
+// auditorPrompt: opt.changes は段 8 の writer の申告（文書ごとの項目）、opt.diff は段 8 の writer reviewer が判定の前に実行する diff、
+// opt.reviewed は whole reviewer に渡す同じ回の writer reviewer の指摘。
+function auditorPrompt(p, round, opt) {
+  const all = auditDocs()
+  const whole = p.role === 'wholeReviewer'
+  const declared = opt.changes ? p.docs.filter((d) => (opt.changes[d] || []).length).map((d) => `- ${d}: ${list(uniq(opt.changes[d]))}`) : []
+  // 前のパスの指摘は組の文書のもの全部を渡す。申告に無い変更の項目は writer reviewer が diff で読むまで script に分からないので、申告の項目に
+  // 絞ると、その項目への前の指摘と裁定が届かない。
+  const inPack = (f) => opt.changes && p.docs.includes(f.doc)
+  const prev = uniq(pendingFindings(state.pending).filter(inPack).map((f) => f.id))
+  const ruled = uniq(((state.pending || {}).again || []).filter(inPack).flatMap((f) => f.rulings))
+  const target = whole
+    ? `全文書: ${all.map(docFile).join('、')}、${W}/plan.json`
+    : `${p.docs.length === all.length ? '全文書' : `詰め合わせの組 ${p.pack} の文書（ほかの文書は別の writer reviewer が見る）`}: ${p.docs.map(docFile).join('、')} とその .meta.json`
   const lines = [
-    header(role, opt.stage, opt.label),
+    header(p.role, opt.stage, opt.label),
     groundsBlock(),
     target,
     existingNote(),
     waitingNote('auditor'),
-    opt.items ? `範囲を絞った監査: 対象は項目 ${list(opt.items)}（その項目の節から読む）。` : '',
-    opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（${FINDINGS_READ}）` : '',
-    opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
-    `指摘は ${W}/findings/${findingsName(role, doc, round, opt.extra)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
+    opt.changes ? `範囲を絞った監査: writer の申告の項目は次のとおり（その項目の節から読む）。\n${declared.join('\n') || '（なし）'}` : '',
+    opt.diff ? `判定の前に \`${opt.diff}\` を実行し、結果ファイルの by_doc のうち自分の組の文書の changed・added の項目も範囲に足す（申告に無い変更。exit 3 なら判定せずに findings: [] を返す。契約 §writer-reviewer）。` : '',
+    prev.length ? `この文書への前のパスの指摘（範囲の項目のものを照らす）: ${list(prev)}（${FINDINGS_READ}）` : '',
+    ruled.length ? `この文書への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
+    opt.reviewed
+      ? `同じ回の writer reviewer の指摘: ${list(opt.reviewed.ids)}（${opt.reviewed.files.map((f) => `${W}/findings/${f}.json`).join('、')}）。確かめて、退けるものを rejected に返す（agents/whole-reviewer.md「writer reviewer の指摘を確かめる」）。`
+      : '',
+    `指摘は ${W}/findings/${findingsName(p, round)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
   ]
   if (opt.designated) lines.push(`あなたは指名された監査役である。${opt.designated}`)
   return lines.filter(Boolean).join('\n\n')
 }
-const ROLE_TAG = { implementer: 'im', grounding: 'gr', crossDoc: 'cd' }
-// 追加の監査役は役の印に x を付ける（文書の側に付けると、キーが -extra で終わる文書の 1 体目と名前が重なる）。
-const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}${extra ? 'x' : ''}-${doc === 'all' ? 'all' : fileKey(doc)}`
-const auditorLabel = (p, round) => `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`
 
-// liveDirs: 指名された監査役が snapshot を取る間も、同じ plan の他の監査役が作業用ディレクトリを使っている。snapshot の --sweep は
-// ここに無い label の作業用ディレクトリを消すので、snapshot と並行して動く呼び出しはすべてここに挙がっていなければならない。
+// liveDirs: 指名された whole reviewer が snapshot を取るとき、同じ段の writer reviewer の作業用ディレクトリも残す（並列だった以前と同じく、
+// その段の監査役の tmp を --sweep で消さず stray にも数えない）。snapshot の --sweep はここに無い label の作業用ディレクトリを消す。
 function liveDirs(plan, round) {
   return plan.map((p) => fileKey(auditorLabel(p, round))).join(',')
 }
@@ -2679,9 +2676,9 @@ function auditDocs() {
 }
 
 // runAuditors: 未実施の監査を「指摘 0 件」にしないため、返り値の無い監査役は missing に挙げる（呼び出した段が止める）。
-async function runAuditors(plan, round, stage) {
+async function runAuditors(plan, round, stage, opt = {}) {
   const results = await runEach(plan, (p) =>
-    call(auditorPrompt(p.role, p.doc, round, { stage, items: p.items, designated: p.designatedText, extra: p.extra, label: auditorLabel(p, round) }), {
+    call(auditorPrompt(p, round, { ...opt, stage, designated: p.designatedText, label: auditorLabel(p, round) }), {
       ...OPTS[p.role],
       schema: AUDIT_SCHEMA,
       phase: stage === '5' ? 'Audit' : 'Revise',
@@ -2692,49 +2689,51 @@ async function runAuditors(plan, round, stage) {
   return { results, missing }
 }
 
-function recordFindings(plan, results) {
-  const all = []
-  plan.forEach((p, i) => {
-    const fs = (results[i] && results[i].findings) || []
-    state.roles_by_item = rolesByItem(state.roles_by_item, fs, p.role)
-    all.push(...fs)
-  })
-  return all
+// reviewed: whole reviewer に渡す、同じ回の writer reviewer の指摘のファイルと ID。
+const reviewed = (packs, results, round) => ({ files: packs.map((p) => findingsName(p, round)), ids: uniq(results.flatMap((r) => ((r && r.findings) || []).map((f) => f.id))) })
+
+// auditFindings: その回の指摘の集合。whole reviewer が退けたのは同じ回の writer reviewer の指摘の ID だけで、それ以外の ID は退けない（自分の
+// 指摘・前の回の指摘を退けると、blocking を監査役が自分で消せる）。退けた指摘は経路・再発・逆向きの判定より前に外す。
+function auditFindings(packs, results, whole, round) {
+  const fromWriter = results.flatMap((r) => (r && r.findings) || [])
+  const own = new Set(fromWriter.map((f) => f.id))
+  const asked = uniq((whole && whole.rejected) || [])
+  const rejected = asked.filter((id) => own.has(id))
+  const stray = minus(asked, rejected)
+  if (stray.length) noteIntegrity(`監査 r${round}: whole reviewer が同じ回の writer reviewer の指摘に無い ID を退けようとした（退けずに数えた）: ${list(stray)}`)
+  if (rejected.length) state.notices = [...(state.notices || []), `監査 r${round}: whole reviewer が writer reviewer の指摘 ${rejected.length} 件を退けた: ${list(rejected)}（理由は ${W}/findings/${findingsName(wholePlan(), round)}.json の rejected）`]
+  const out = new Set(rejected)
+  return [...fromWriter.filter((f) => !out.has(f.id)), ...((whole && whole.findings) || [])]
 }
 
 async function stage5() {
   state.pass = 1
-  // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路と項目の役を引き継がない（項目は書き直しで別物になる）。
+  // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路を引き継がない（項目は書き直しで別物になる）。
   // 回の番号は前の監査の続きにする。同じ回の番号で監査すると指摘の ID が前の監査の指摘と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことに
   // なって（unruled）、新しい指摘が段 6 に届かない。
   const round = state.audit ? state.audit.n + 1 : 1
   const base = `audited-${round}`
   delete state.item_routes
-  delete state.roles_by_item
   // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
   delete state.reframed
   // existing は段 4 を通らず、この run の裁定をまだどの writer にも渡していない。
   if (ENTRY === 'existing') state.settled_written = []
-  const docs = auditDocs()
-  const plan = [
-    ...docs.flatMap((doc) => [
-      { role: 'implementer', doc },
-      { role: 'grounding', doc },
-    ]),
-    { role: 'crossDoc', doc: 'all' },
-  ]
-  plan[plan.length - 1].designatedText = [
+  const packs = reviewPacks(auditDocs())
+  const whole = wholePlan()
+  const wr = await runAuditors(packs, round, '5')
+  if (wr.missing.length) throw notRun(wr.missing.join(', '))
+  whole.designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
+    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs([...packs, whole], round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
-  const { results, missing } = await runAuditors(plan, round, '5')
-  if (missing.length) throw notRun(missing.join(', '))
-  const cd = results[results.length - 1]
-  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
-  const audited = parseStdout(cd.designated && cd.designated.audited)
-  const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
-  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
+  const wh = await runAuditors([whole], round, '5', { reviewed: reviewed(packs, wr.results, round) })
+  if (wh.missing.length) throw notRun(wh.missing.join(', '))
+  const wv = wh.results[0]
+  if (wv.designated) wv.designated = await recopy(auditorLabel(whole, round), wv.designated, designatedCmds(), 'Audit')
+  const audited = parseStdout(wv.designated && wv.designated.audited)
+  const docCheck = parseStdout(wv.designated && wv.designated.doc_check)
+  if (!audited || !audited.digest) return blocked(`whole reviewer が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(wv.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
   const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
   const entry1 = entryMoved(docCheck)
@@ -2742,8 +2741,7 @@ async function stage5() {
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
   noteAudited(audited, base)
-  const findings = recordFindings(plan, results)
-  setPending(findings, docCheck, [])
+  setPending(auditFindings(packs, wr.results, wv, round), docCheck, [])
   return '6'
 }
 
@@ -2897,64 +2895,43 @@ async function stage8() {
   const n = state.audit.n
   const round = n + 1
   const { changes } = state.revised
-  const plan = scopedAuditPlan(changes, state.roles_by_item || {})
-  const designatedText = [
+  const packs = reviewPacks(auditDocs())
+  const whole = wholePlan()
+  const diffCmd = cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)
+  // 範囲は writer の申告に、申告に無い変更（diff）を足したもの。writer reviewer は判定の前に同じ diff を実行して自分の組の文書の範囲を読み、
+  // whole reviewer は指名されて diff の結果を返す（監査の間は誰も本文を書かないので、2 体の見る diff は同じ）。
+  const wr = await runAuditors(packs, round, '8', { changes, diff: diffCmd })
+  if (wr.missing.length) throw notRun(wr.missing.join(', '))
+  whole.designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
-    `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
-    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
+    `最初に（判定の前に）: \`${diffCmd}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
+    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs([...packs, whole], round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
-  plan[0].designatedText = designatedText
-  const designatedOf = (h) => (h.results[0] && h.results[0].designated) || {}
-  const readDesignated = (d) => ({ audited: parseStdout(d.audited), tree: parseStdout(d.tree_digest) })
-  const usable = (d) => {
-    const { audited, tree } = readDesignated(d)
-    return !d.diff_error && d.diff && audited && audited.digest && tree && tree.digest
-  }
-  // 追加の監査役は指名された監査役の diff だけで決まるので、plan 全体を待たずにその返り値に連ねて起動する。起動はその返り値の後
-  // （指名された監査役の snapshot の後）なので、snapshot の --live に挙げなくても stray に出ない。
-  const extraOf = (d) => undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
-  const head = runAuditors([plan[0]], round, '8')
-  const rest = runAuditors(plan.slice(1), round, '8')
-  const extraRun = head.then(async (h) => {
-    if (h.results[0] && h.results[0].designated) h.results[0].designated = await recopy(auditorLabel(plan[0], round), h.results[0].designated, designatedCmds(), 'Revise')
-    const d = designatedOf(h)
-    if (!h.results[0] || !usable(d)) return null
-    const extra = extraOf(d)
-    const extraDocs = Object.keys(extra)
-    if (!extraDocs.length) return null
-    const shown = (doc) => `${doc}: ${extra[doc].slice(0, 5).join(', ')}${extra[doc].length > 5 ? ` ほか ${extra[doc].length - 5} 件（全件は返り値の undeclared）` : ''}`
-    log(`writer の申告に無い変更がある（${extraDocs.map(shown).join(' / ')}）。その文書の項目に implementer と grounding を追加で起動します`)
-    const extraPlan = extraDocs.flatMap((doc) => [
-      { role: 'implementer', doc, items: extra[doc], extra: true },
-      { role: 'grounding', doc, items: extra[doc], extra: true },
-    ])
-    return runAuditors(extraPlan, round, '8').then((more) => ({ extraPlan, more }))
-  })
-  // 1 つの枝が throw しても残りの監査役を待ってから止める（待たずに返ると、run の後に監査役が W に指摘を書く）。
-  const settled = await Promise.allSettled([head, rest, extraRun])
-  const thrown = settled.find((x) => x.status === 'rejected')
-  if (thrown) throw thrown.reason
-  const [first, others, added] = settled.map((x) => x.value)
-  const missing = [...first.missing, ...others.missing, ...(added ? added.more.missing : [])]
-  if (missing.length) throw notRun(missing.join(', '))
-  const d = designatedOf(first)
+  const wh = await runAuditors([whole], round, '8', { changes, reviewed: reviewed(packs, wr.results, round) })
+  if (wh.missing.length) throw notRun(wh.missing.join(', '))
+  const first = wh.results[0]
+  if (first.designated) first.designated = await recopy(auditorLabel(whole, round), first.designated, designatedCmds(), 'Revise')
+  const d = first.designated || {}
   if (d.diff_error) return blocked(`監査の基準 audited-${n} の digest が一致しません。基準が差し替わっているので、この監査が何と比べたのか分かりません: ${d.diff_error}`, null)
   if (!d.diff) return blocked('指名された監査役が diff の結果を返しませんでした', '8')
-  const { audited, tree } = readDesignated(d)
-  if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
+  const audited = parseStdout(d.audited)
+  const tree = parseStdout(d.tree_digest)
+  if (!(audited && audited.digest && tree && tree.digest)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
   const moved = fixedMoved(audited, `audited-${round}`)
   if (moved) return blocked(moved.error, moved.rerun ? '8' : null)
-  const extra = extraOf(d)
+  const extra = undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
   const extraDocs = Object.keys(extra)
-  const allPlan = [...plan, ...(added ? added.extraPlan : [])]
-  const allResults = [...first.results, ...others.results, ...(added ? added.more.results : [])]
+  if (extraDocs.length) {
+    const shown = (doc) => `${doc}: ${extra[doc].slice(0, 5).join(', ')}${extra[doc].length > 5 ? ` ほか ${extra[doc].length - 5} 件（全件は返り値の undeclared）` : ''}`
+    log(`writer の申告に無い変更がある（${extraDocs.map(shown).join(' / ')}）。writer reviewer と whole reviewer に diff から範囲に足させた（script は実際に見たかを確かめない）`)
+  }
   const undeclared = { ...(state.undeclared || {}) }
   for (const doc of extraDocs) undeclared[doc] = uniq([...(undeclared[doc] || []), ...extra[doc]])
   state.undeclared = undeclared
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
-  const findings = recordFindings(allPlan, allResults)
+  const findings = auditFindings(packs, wr.results, first, round)
   const docCheck = parseStdout(d.doc_check)
   const entryN = entryMoved(docCheck)
   if (entryN) return blocked(entryN, null)

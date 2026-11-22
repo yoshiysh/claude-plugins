@@ -682,7 +682,7 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "resolutions", {"resolutions": [
             {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
             {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "value": "v", "why": "w"},
-            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
+            {"id": "RS-003", "about": {"finding": "r1-wh-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}},
         ]})
         self.assertEqual([x["verdict"] for x in _rulings(self.ws)], [None] * 4)
@@ -695,7 +695,7 @@ class FlowAndConflicts(_Workspace):
         want = [
             {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "has_answer": False, "verdict": None},
             {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
-            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "has_answer": False, "verdict": "fail", "fail_kind": "value_as_method"},
+            {"id": "RS-003", "about": {"finding": "r1-wh-all-001"}, "ruling": "internal", "has_answer": False, "verdict": "fail", "fail_kind": "value_as_method"},
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "has_answer": False, "verdict": "fail", "fail_kind": "insufficient_grounds"},
         ]
         self.assertEqual(got, want)
@@ -778,7 +778,7 @@ class FlowAndConflicts(_Workspace):
     def test_保持規則への書き換えは不合格だけを持ち越す(self):
         # hold.rule は保持規則として writer に届く規範文なので、合格の後に書いた rule は検証していない。
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
-                                                      {"id": "RS-007", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+                                                      {"id": "RS-007", "about": {"finding": "r1-wh-all-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
         self._judge([{"id": "RS-006", "verdict": "pass"}, {"id": "RS-007", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}])
         held = lambda rule: {"ruling": "hold", "value": None, "hold": {"rule": rule, "issue_draft": "d", "item_ids": []}}
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A")}, {"id": "RS-007", **held("保持規則 B")}]})

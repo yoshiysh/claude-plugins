@@ -35,8 +35,8 @@ LABEL_FAMILIES = [
     ("main-resolver", "base", rf"resolver:{S}", ["`resolver:${stage}`"]),
     ("main-verifier", "base", rf"verifier:{S}v", ["`verifier:${stage}v`"]),
     ("writer", "base", r"writer:[^:]+:(?:draft|revise)", ["`writer:${unit.id}:${mode}`"]),
-    ("audit-first", "base", r"(?:implementer|grounding|crossDoc):r1:[^:]+(?::extra)?", ["`${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`"]),
-    ("audit-scoped", "base", r"(?:implementer|grounding):r(?:[2-9]|\d{2,}):[^:]+(?::extra)?", []),
+    ("audit-first", "base", r"(?:writerReviewer|wholeReviewer):r1:(?:all|p\d+)", ["`${p.role}:r${round}:${p.pack}`"]),
+    ("audit-scoped", "base", r"writerReviewer:r(?:[2-9]|\d{2,}):(?:all|p\d+)", []),
     ("flow-check-entry", "base", r"flow-check:.+-entry", ["`flow-check:${from}-entry`", "'flow-check:1-entry'"]),
     ("flow-check-answers", "base", r"flow-check:.+-answers", ["`flow-check:${gate}-answers`"]),
     ("flow-check-backup", "base", r"flow-check:.+-backup", ["`flow-check:${stage}-backup`"]),
@@ -66,7 +66,7 @@ LABEL_FAMILIES = [
     ("rehold-verifier", "保持規則の書き直し", r"verifier:.+-reholdv", ["`verifier:${owner}-reholdv`"]),
     ("hold-left", "依頼者に聞かない問いの保持規則への変換（聞ける回数の上限・回答済みの論点の再発）", r"resolver:.+-hold", ["`resolver:${stage}-hold`"]),
     ("reframe", "段 3b の組み直し", r"flow-framer:3b-reframe", ["'flow-framer:3b-reframe'"]),
-    ("crossdoc-reaudit", "crossDoc の再監査", r"crossDoc:r(?:[2-9]|\d{2,}):all(?::extra)?", []),
+    ("whole-reaudit", "whole reviewer の再監査", r"wholeReviewer:r(?:[2-9]|\d{2,}):all", []),
 ]
 
 # AMBIGUOUS: label だけでは分かれない組と、分けるプロンプトの行。journal の started は label だけなので、組があると体数を理由ごとに数えられない。
@@ -88,7 +88,9 @@ PROMPT_CLUES = [
     ("opens", "組の再検査（O- とまとめた呼び出し）", "- まだ裁定の無い組（"),
     ("main-resolver", "収束のループの経路の変更（R6、再発した項目）", "再発した項目（項目: 前のパスの指摘 ← その裁定）: "),
     ("rework-resolver", "差し戻し（v1 の不合格）", "（差し戻し）"),
-    ("crossdoc-reaudit", "crossDoc の再監査（scopedAuditPlan が当てた項目）", "範囲を絞った監査: 対象は項目 "),
+    ("audit-scoped", "段 8 の範囲を絞った監査（writer の申告の項目）", "範囲を絞った監査: writer の申告の項目は次のとおり"),
+    ("audit-scoped", "申告に無い変更を writer reviewer の範囲に足す（diff の by_doc）", "の changed・added の項目も範囲に足す（申告に無い変更"),
+    ("whole-reaudit", "whole reviewer に同じ回の writer reviewer の指摘を渡す", "同じ回の writer reviewer の指摘: "),
 ]
 
 # SKIPPED_CLUES: 事実の条件で外した手順（返り値の skipped）。fact ごとに外した step の label の形。
@@ -120,9 +122,9 @@ def recurring_ledger_spec():
     """origin が ledger の指摘が同じ項目に 2 パス続く（再発）。ledger 由来の指摘が settle に回るのは再発したときだけで、
     「続けて出た項目」の行を持つ settle を起動する経路は既存の段のテストに無いので、ここで組む。"""
     d = test_prd_stages.Convergence.DIRECTIONS
-    findings = {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": d[0], "origin": "ledger"}],
-                "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": d[1], "origin": "ledger"}]}
-    about = {"RS-010": {"finding": "r1-cd-all-001"}, "RS-011": {"finding": "r2-gr-requirements__x-001"}}
+    findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": d[0], "origin": "ledger"}],
+                "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": d[1], "origin": "ledger"}]}
+    about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
     return {"args": test_prd_stages.args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010"], ["RS-011"]]}, "about": about}
 
 
@@ -201,7 +203,7 @@ class Clues(unittest.TestCase):
             "flow-check:3a-recopy": ("recopy",),
             "flow-check:3a-entry-recopy": ("recopy",),
             "flow-check:verifier-3v-recopy": ("recopy",),
-            "flow-check:crossDoc-r1-all-recopy": ("recopy",),
+            "flow-check:wholeReviewer-r1-all-recopy": ("recopy",),
             "flow-framer:3b-reframe": ("reframe",),
             "flow-framer:3b-reframe:rework-2": ("framer-rework",),
             "flow-framer:lint": ("framer-lint",),
@@ -209,9 +211,11 @@ class Clues(unittest.TestCase):
             "flow-check:flow-framer-lint-stash": ("lint-stash",),
             "flow-check:flow-framer-3b-reframe-lint-unstash": ("lint-stash",),
             "flow-framer:6-hold-settle-2": ("settle-framer",),
-            "crossDoc:r1:all": ("audit-first",),
-            "crossDoc:r2:all": ("crossdoc-reaudit",),
-            "grounding:r3:requirements/x:extra": ("audit-scoped",),
+            "wholeReviewer:r1:all": ("audit-first",),
+            "writerReviewer:r1:p2": ("audit-first",),
+            "wholeReviewer:r2:all": ("whole-reaudit",),
+            "writerReviewer:r3:all": ("audit-scoped",),
+            "writerReviewer:r2:p1": ("audit-scoped",),
         }
         for label, want in samples.items():
             with self.subTest(label=label):
@@ -238,8 +242,8 @@ class Launched(unittest.TestCase):
     def test_再発したledger由来の指摘だけがsettleに続けて出た項目の行で渡る(self):
         self.assertEqual(self.recurring["result"]["status"], "done")
         [first, *_] = [p["prompt"] for p in self.recurring["prompts"] if p["label"] == "flow-framer:6-settle"]
-        self.assertIn("このうち r2-gr-requirements__x-001 は改稿で直らず再発した項目の指摘である", first)
-        self.assertNotIn("r1-cd-all-001", first, "再発していない ledger 由来の指摘は flow に写さない")
+        self.assertIn("このうち r2-wr-all-001 は改稿で直らず再発した項目の指摘である", first)
+        self.assertNotIn("r1-wh-all-001", first, "再発していない ledger 由来の指摘は flow に写さない")
 
     def test_起動したagentはちょうど1つの形に当たる(self):
         bad = sorted({p["label"] for r in self.runs for p in r["prompts"] if classify(p["label"], p["prompt"]) is None})

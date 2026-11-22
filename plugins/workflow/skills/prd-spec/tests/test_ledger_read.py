@@ -208,19 +208,19 @@ class PromptLedgerNames(unittest.TestCase):
 
 class InputReadersInContract(unittest.TestCase):
     ROLE_ROW = re.compile(r"^  \| ([a-z-]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$", re.M)
-    AUDITORS = ("implementer", "grounding", "cross-doc")
+    AUDITORS = ("writer-reviewer", "whole-reviewer")
 
     def _rows(self):
         return {m.group(1): tuple(g.strip() for g in m.groups()[1:]) for m in self.ROLE_ROW.finditer(CONTRACTS.read_text(encoding="utf-8"))}
 
-    def test_全ての役がinput_mdの読み方を宣言しresolver_verifierとgroundingは全文(self):
+    def test_全ての役がinput_mdの読み方を宣言しresolver_verifierとwriter_reviewerは全文(self):
         rows = self._rows()
         self.assertEqual(set(rows), {p.stem for p in (SKILL / "agents").glob("*.md")})
-        for role in ("resolver-verifier", "grounding"):
+        for role in ("resolver-verifier", "writer-reviewer"):
             self.assertTrue(rows[role][0].startswith("全文"), role)
 
     def test_writerと監査役は根拠を全文と全件で読む(self):
-        # 理由は契約の表の implementer の行（根拠が writer より少ない監査役の誤検出）。
+        # 理由は契約の表の writer-reviewer の行（根拠が writer より少ない監査役の誤検出）。
         rows = self._rows()
         for role in ("writer", *self.AUDITORS):
             with self.subTest(role=role):

@@ -27,19 +27,18 @@
 | 3 | resolver | 生成（裁定と問い） | 未決・組・決定が要る指摘・新しい TBD を裁定の種類（agents/resolver.md）で閉じ、問い・保持規則を書く。回答反映後の domain 軸は、agent-contracts.md「決定の台帳」の後段 domain assessment 規則に従い、初期 verdict にかかわらず、新しい signal が有効判定を変える場合に `about.domain` の構造化 resolution として評価・記録する | 本文の改稿・裁定の自己承認・指摘の真偽の裁定 | 本文を直すと監査を迂回し、自己承認すると価値の判断が方法論として黙って決まる。初期状態だけを保存して後段の signal を評価しないと、その axis の必須カテゴリが文書へ届かない |
 | 3v | resolver-verifier | 検証 | 裁定・intake の既定・flow の出典・回答の対応づけ・domain assessment の合否（決めすぎと、決まるのに問いか保持規則にした `decidable` の両方） | 書き直し・改良案 | 検証者が書き直すと、その文を誰も検証しない。`decidable` を見ないと、答えの出ている論点が聞き直されるか保持規則になる。domain assessment の signal とカテゴリを検証しないと、評価された軸が誤った要求になる |
 | 4 | writer | 生成 | 担当の単位の文書と meta の起草と改稿（同じファイルを Edit） | 監査の判定・他の単位のファイルの書き込み | 判定を兼ねると自己承認になり、他のファイルを書くと検証の前提が崩れる |
-| 5 | implementer | 検証 | 1 項目の中: 着手可能性・項目自身の目的に対する過不足・曖昧さ | 文案・根拠の判定・項目間 | 観点が重なると同じ箇所に 2 つの指摘が付き、writer が逆向きに直す |
-| 5 | grounding | 検証 | 1 文の根拠: 捏造・偽装・未決の断定・入力への違反 | 文案・着手可能性・項目間 | 同上 |
-| 5 | cross-doc | 検証 | 項目の間: 矛盾・重複・用語・上位の要求と照らした範囲・依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱・紐付け・必須の欠け。段 5 で監査の基準（audited-1）を保存する | 文案・1 項目で完結する問題 | 同上 |
+| 5 | writer-reviewer | 検証 | 1 項目の中と 1 文の根拠: 着手（実装する人が手を止めないか。着手可能性・項目自身の目的に対する過不足・曖昧さ）と根拠（捏造・偽装・未決の断定・入力への違反） | 文案・項目間 | 観点が重なると同じ箇所に 2 つの指摘が付き、writer が逆向きに直す |
+| 5 | whole-reviewer | 検証 | 項目の間: 矛盾・重複・用語・上位の要求と照らした範囲・依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱・紐付け・必須の欠け。同じ回の writer reviewer の指摘を敵対的に確かめて退けるものを返し、指名されて監査の基準（`audited-<n>`）を保存する | 文案・1 項目で完結する問題・退ける理由を原文で示せない指摘の棄却 | 同上。writer reviewer の誤った指摘を誰も確かめないと、writer が正しい記述を壊してパスを使い切る |
 | 全段 | doc_check（script） | 検証（決定的） | 語尾・曖昧語・ID・trace・表と流れの網羅・開いた TBD の断定・snapshot と diff | 意味の判定 | 算術を LLM に載せると揺れ、落ちた agent が「0 件」に化ける |
 | 全段 | prd-spec.js（Workflow script） | 制御 | 段の順序・起動の条件・上限・返り値の検査と引き継ぎ | ファイルの読み書き（できない） | 実行経路を agent に任せると、段が飛ばされても誰も気づかない |
 
 ## 責務の重複・空白の確認
 
 - **文を書くのは生成側だけ**: writer（本文と meta）、resolver（裁定・問い・保持規則）、intake（決定の値）、
-  flow-framer（流れ）。検証側（3 監査役・resolver-verifier・doc_check）は文を持たない。
-- **監査の観点は排他**: 1 項目の中・1 文の根拠・項目の間、に分け、機械で判定できるものは doc_check に置く
+  flow-framer（流れ）。検証側（2 監査役・resolver-verifier・doc_check）は文を持たない。
+- **監査の観点は排他**: 1 項目の中（着手）・1 文の根拠（根拠）・項目の間、に分け、機械で判定できるものは doc_check に置く
   （`schemas/agent-contracts.md` §監査役の共通節）。
-- **指摘の一生**: 監査役が起票（route を付ける）→ `writer` は script が束ねて改稿へ、`decision` は resolver が裁定 →
+- **指摘の一生**: 監査役が起票（route を付ける）→ whole reviewer が writer reviewer の指摘を確かめ、退けたものは閉じる → `writer` は script が束ねて改稿へ、`decision` は resolver が裁定 →
   resolver-verifier → 改稿 → 範囲を絞った監査。残れば次のパスを回し、収束しなければ blocked。
 - **論点の一生**: intake・flow-framer が未決に起票（writer は TBD の候補を meta に起票）→ resolver が裁定 →
   resolver-verifier → 合格すれば決定台帳に入って writer が使う。`question` は依頼者の回答で決まり、`hold` は保持規則と

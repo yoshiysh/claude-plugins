@@ -98,7 +98,7 @@ class TestExtract(unittest.TestCase):
 
     def test_hold_draftsはholdsと別に数える(self):
         blocked = {"status": "blocked", "holds": ["RS-009"], "hold_drafts": ["RS-057", "RS-058"],
-                   "remaining_blocking": ["r3-gr-a-001", "r3-gr-a-002"], "carried_blocking": ["r3-gr-a-002"], "next_args": None}
+                   "remaining_blocking": ["r3-wr-all-001", "r3-wr-all-002"], "carried_blocking": ["r3-wr-all-002"], "next_args": None}
         with tempfile.TemporaryDirectory() as td:
             record(td, "s", "b", blocked, run_id="run1", input_ref="in1")
             rec = json.loads((Path(td) / "s" / "b.json").read_text())

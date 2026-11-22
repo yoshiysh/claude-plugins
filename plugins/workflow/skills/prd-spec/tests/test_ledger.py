@@ -282,7 +282,7 @@ class FreshRunReset(_Workspace):
         (self.ws / "answers").mkdir()
         (self.ws / "answers" / "g1.md").write_text("RS-004: 画面\n")
         (self.ws / "findings").mkdir()
-        (self.ws / "findings" / "r2-gr-requirements__auth.json").write_text("{}")
+        (self.ws / "findings" / "r2-wr-all.json").write_text("{}")
         (self.ws / "questions.md").write_text("q")
         (self.ws / "questions.json").write_text("[]")
         (self.ws / "report.md").write_text("r")
@@ -993,7 +993,9 @@ class FieldTypes(_Workspace):
             ("flow", {"elements": [{**el, "label": "承認（段 3a で足した）"}]}),
             ("flow", {"kinds": [{"name": "工程", "definition": "段 3a' で分けた処理"}]}),
             ("decisions", {"decisions": [{"id": "D-001", "why": "段 3b の問いで決まった"}]}),
-            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-im-requirements__auth-002 への対応"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-wr-all-002 への対応"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r2-wh-all-001 の指摘で直した"}]}),
+            ("verifications", {"items": [{"id": "RS-001", "verdict": "pass", "reason": "r1-wr-p2-003 と同じ向き"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "続けるか止めるかは価値の判断で、段 3a では続きの問いを聞けない"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "段 9 で聞くゲートが残っていないため保持規則にした"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "O-011 は回答の反映で行き先が決まった"}]}),
@@ -1169,14 +1171,14 @@ class DomainAssessment(_Workspace):
         self.assertIn("`非該当`", domain)
         self.assertNotIn("非適用", domain)
 
-    def test_resolver_writer_crossdoc_prompt使う有効カテゴリと置換規則(self):
+    def test_resolver_writer_whole_reviewer_prompt使う有効カテゴリと置換規則(self):
         def contract(role):
             return "\n".join(_run(self.ws, "contract", "--role", role, "--part", str(part)).stdout for part in (1, 2))
 
         resolver = contract("resolver")
         writer = contract("writer")
-        cross_doc_contract = contract("cross-doc")
-        cross_doc = (SKILL / "agents" / "cross-doc.md").read_text(encoding="utf-8")
+        whole_contract = contract("whole-reviewer")
+        whole_reviewer = (SKILL / "agents" / "whole-reviewer.md").read_text(encoding="utf-8")
         role_map = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
         contracts = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
         ledger = contracts.split("## 決定の台帳", 1)[1].split("\n## ", 1)[0]
@@ -1189,12 +1191,12 @@ class DomainAssessment(_Workspace):
         self.assertIn("この集合の導出と supersession はここを正とする", ledger)
         self.assertIn("有効な必須カテゴリの集合と supersession は「決定の台帳」", writer)
         self.assertIn("§11.1 に従って決めた項目の中身として実現", writer)
-        self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", cross_doc)
-        self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", cross_doc)
+        self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", whole_reviewer)
+        self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", whole_reviewer)
         self.assertIn("## 決定の台帳\n", writer)
-        self.assertIn("## 決定の台帳\n", cross_doc_contract)
-        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", cross_doc_contract)
-        self.assertNotIn("初期 decision に紐付いた `plan.required_categories` だけを除外", cross_doc)
+        self.assertIn("## 決定の台帳\n", whole_contract)
+        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", whole_contract)
+        self.assertNotIn("初期 decision に紐付いた `plan.required_categories` だけを除外", whole_reviewer)
         self.assertIn("初期 verdict にかかわらず", role_map)
         self.assertIn("agent-contracts.md「決定の台帳」の後段 domain assessment 規則", role_map)
         self.assertIn("domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked", contracts)

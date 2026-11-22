@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§flow-check](#flow-check) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
+**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§flow-check](#flow-check) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§writer-reviewer](#writer-reviewer) · [§whole-reviewer](#whole-reviewer) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
 
 各 agent が読むファイル・書くファイル・返す値の正本。役割と責務の境界は `schemas/role-map.md` を正とする。
 `agents/*.md` は振る舞いを書き、形はここを指す。
@@ -15,7 +15,7 @@
   そこを書き換えると、その役の検証の前提（sha256・digest の照合）が崩れる。作業用の script や一時ファイルは、
   プロンプトの「作業用ディレクトリ」（`W/tmp/<label>/`）にだけ置く（表の `tmp/<label>/` の行）。環境が案内するセッションの
   scratchpad もこれに代わらない: W の外は検査にも片付けにも乗らず、並列の agent が同じ名前を使って上書きし合う（実測: 並行した
-  grounding と implementer が scratchpad の同じ `flow.txt` に書いた）。
+  2 体の監査役が scratchpad の同じ `flow.txt` に書いた）。
 - **台帳は `doc_check put` / `del` でだけ書く。** 台帳は、下の表で「put で書く」とした JSON である。丸ごと読んで
   書き戻すと、途中で失敗したときに再実行の結果が変わる。そのため復元点としての控えが要るようになる（W に置く控えは、put・del と段 4・7 の `backup` が段の
   token ごとに取る `tx/<token>/*` だけで、agent は控えを作らない）。put は同じ
@@ -60,9 +60,8 @@
   | resolver-verifier | 全文（引用の逐語と、出典が要素を支えるかを照らす） | get（プロンプトの ID、`doc_check flow` の stdout の未検証の要素、それらが引く ID） | 監査役（台帳） |
   | flow-check | 読まない | 読まない（doc_check の stdout だけを返す） | — |
   | writer | 全文（依頼の文から項目を書く） | 全件（初稿も改稿も。単位の文書は依頼と流れと決定の全体から書かれる） | — |
-  | implementer | 全文 | 全件（writer と同じ根拠。根拠が writer より少ないと、writer が決定の `why` や flow から正しく書いた記述を「根拠が無い」と誤って指摘する。実測で 3 件） | — |
-  | grounding | 全文（文の根拠を依頼の全体に照らす） | 全件（implementer と同じ理由） | — |
-  | cross-doc | 全文（依頼に対する範囲の欠落と逸脱を見る） | 全件（implementer と同じ理由） | — |
+  | writer-reviewer | 全文（文の根拠を依頼の全体に照らす） | 全件（writer と同じ根拠。根拠が writer より少ないと、writer が決定の `why` や flow から正しく書いた記述を「根拠が無い」と誤って指摘する。実測で 3 件） | — |
+  | whole-reviewer | 全文（依頼に対する範囲の欠落と逸脱を見る） | 全件（writer-reviewer と同じ理由） | — |
 - **1 つのファイルを現行として、その場で更新する。コピーと版管理をせず、全文を作り直さない**（`.bak`・`pre*`・
   版の番号を付けたファイル名・W の外への写し・全文の再生成）。台帳は put、文書は Edit で、変える箇所だけを変える。
   - 控えが残ると、どれが現行か分からなくなる。他の役がそれを雛形として読む（実測: resolver が intake の
@@ -123,10 +122,10 @@
 | `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（固定の文書の meta と、`<kind>-<topic>.tbd.json` のある文書の meta は、段 1 の入口の `doc_check reset` が `existing_docs` の `fixed` とその写しから書く。文書は司令塔が S0 で `doc_check place` で逐語で置く） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `<kind>-<topic>.tbd.json` | 司令塔（S0 で、`doc_check place` が文書と一緒に、保存した文書の隣の `.tbd.json` を逐語で置く。誰も書き換えない。段 1 の入口の `doc_check reset` がこれを meta の `tbd` に写す） | `{ "tbd": [...] }`（要素は [§writer](#writer) の meta の `tbd`） | reset が形を検査し、合わなければ何も消さずに止まる |
-| `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
+| `findings/r<n>-<役>-<組>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
 | `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer の前に `backup` が文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
-| `tmp/<label>/` | その label の呼び出しの agent だけ。片付けは doc_check が持つ（put の `--input` は書けたら消え、監査の `snapshot --sweep` が `--live` に無い label のディレクトリを、run の後の `report` が残りのすべてを消して `swept` に出す）ので、agent は消さない（自分で消すと、消し忘れと、消した後に要る中身を W の外へ写す動きが出た）。他の label の tmp は読まない | 作業用の script・一時ファイル | 消えるまでは `snapshot`（`--sweep` なし）と `tree-digest` の `stray` に出る。消したものは `swept` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
+| `tmp/<label>/` | その label の呼び出しの agent だけ。片付けは doc_check が持つ（put の `--input` は書けたら消え、監査の `snapshot --sweep` が `--live` に無い label のディレクトリを、run の後の `report` が残りのすべてを消して `swept` に出す）ので、agent は消さない（自分で消すと、消し忘れと、消した後に要る中身を W の外へ写す動きが出た）。他の label の tmp は読まない | 作業用の script・一時ファイル | 消えるまでは `snapshot`（`--sweep` なし）と `tree-digest` の `stray` に出る。消したものは `swept` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や詰め合わせの writer reviewer が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
 
 見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`（`report` を導出しない止まり方の run では、最後の監査の snapshot の後に動いた label のものが残る）、`plan.json` に載った文書の中身（中身は snapshot と
 監査が見る）。`questions` の 2 ファイルは、1 本目の rename の後に 2 本目が落ちると片方だけが新しくなる
@@ -221,8 +220,8 @@
   `該当` でもカテゴリが無ければ `required_categories: []`、`非該当` は必ず空配列にする。`value` は `verdict` と一致させる。初期 decision があれば `supersedes` にその ID を入れ、
   初期 decision とそこに紐付く categories を無効化する。初期 `未評価` では `supersedes` と superseded categories は空にする。根拠は `answers/g<n>.md` の逐語引用で、所有表にある回答ファイルだけを受け付ける。
   `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、resolver-verifier は signal・有効 verdict・カテゴリ導出を検証する。
-  有効な必須カテゴリは、初期 `plan.required_categories` から `supersedes` が指す初期 domain decision に紐付いたカテゴリだけを除き、後段 `domain_assessment.required_categories` を加えて導く。その他の初期カテゴリは維持し、後段カテゴリが空でも除外したカテゴリを戻さない。この集合の導出と supersession はここを正とする。writer と cross-doc はこの有効集合を使う。
-  有効カテゴリの実現要件は §writer を正とする。cross-doc はその要件に従って文書の中身を検証し、詳細が開いた TBD として残るカテゴリは欠けとしない。
+  有効な必須カテゴリは、初期 `plan.required_categories` から `supersedes` が指す初期 domain decision に紐付いたカテゴリだけを除き、後段 `domain_assessment.required_categories` を加えて導く。その他の初期カテゴリは維持し、後段カテゴリが空でも除外したカテゴリを戻さない。この集合の導出と supersession はここを正とする。writer と whole reviewer はこの有効集合を使う。
+  有効カテゴリの実現要件は §writer を正とする。whole reviewer はその要件に従って文書の中身を検証し、詳細が開いた TBD として残るカテゴリは欠けとしない。
   domain assessment が 1 回修正された後も independent verifier が不合格にした場合は、question / hold に変換せず blocked にする。台帳の評価と不合格 trace は残し、writer に渡さない。
 - ドメイン再評価は `question` ではない。適用評価で必要カテゴリを出す処理と、そのカテゴリ内の具体的な価値判断を分ける。後者を質問にする場合も、`question-policy.md` の条件を別途満たす。
 - `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
@@ -507,7 +506,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 {
   "ruled": [{ "id": "RS-001", "about": { "open": "O-001" } }],
   "questions": [{ "id": "RS-004", "about": { "tbd": "TBD-RAUTH-002" } }],
-  "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
+  "holds": [{ "id": "RS-006", "about": { "finding": "r1-wr-all-004" } }],
   "supersedes": ["D-003"], "free_text": ["RS-005"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "resolutions_sha256": "書き終えた resolutions.json の sha256",
   "flow_check": "どの呼び出しでも必ず、最後に実行した doc_check flow の stdout（回答を当てる 3a・3a' 以外では、flow.json が変わっていないことを script が確かめる）",
@@ -617,7 +616,7 @@ stdout、起動していればこの stdout である（最後の verifier の s
 開いている TBD の ID（script が解消済みを除いて算出したもの）。改稿では加えて、単位の文書ごとの改稿前の
 digest と、次の 2 つ。
 
-- route が `writer` の指摘の ID を、script が項目 ID ごとに束ねたもの（`[{ "item_id": "PR-AUTH-003", "doc": "requirements/auth", "findings": ["r1-im-requirements__auth-002"] }]`）。
+- route が `writer` の指摘の ID を、script が項目 ID ごとに束ねたもの（`[{ "item_id": "PR-AUTH-003", "doc": "requirements/auth", "findings": ["r1-wr-all-002"] }]`）。
   中身は `W/findings/` の指摘のファイルで読む（読み方は「### 指摘の形」）。段 6 が起動しなくても渡る。
 - `W/routes.json` のうち自分の担当の ID（段 6 で resolver が起動したときだけ）。
 
@@ -656,7 +655,7 @@ digest と、次の 2 つ。
   "changed_items": ["PR-AUTH-003", "requirements/auth§用語", "requirements/auth§(meta)", "TBD-RAUTH-002"],
   "open_tbd": ["TBD-RAUTH-001"],
   "new_tbd": ["TBD-RAUTH-002"],
-  "applied_findings": ["r1-im-requirements__auth-002"],
+  "applied_findings": ["r1-wr-all-002"],
   "applied_routes": ["RT-001"],
   "resolutions_sha256": "読んだ resolutions.json の sha256"
 }
@@ -676,7 +675,7 @@ digest と、次の 2 つ。
 
 ## 監査役の共通節
 
-implementer・grounding・cross-doc の 3 役に共通する契約。**route の定義と観点の守備範囲はここにだけ置く。**
+writer reviewer と whole reviewer の 2 役に共通する契約。**route の定義と観点の守備範囲はここにだけ置く。**
 
 ### 読むもの
 
@@ -693,27 +692,27 @@ shunt が使えない環境では全文を読む。範囲を絞った監査（�
 
 | 観点 | 見るもの | 見ないもの |
 |---|---|---|
-| implementer | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
-| grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
-| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、要求・決定・流れと照らした仕様書の観点の不足（`references/prd-and-spec.md` §11.7）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| 着手（writer reviewer） | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
+| 根拠（writer reviewer） | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
+| 項目の間（whole reviewer） | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、要求・決定・流れと照らした仕様書の観点の不足（`references/prd-and-spec.md` §11.7）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
 | doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
 doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。
 
-### 指摘の形（`W/findings/r<n>-<役>-<文書>.json`）
+### 指摘の形（`W/findings/r<n>-<役>-<組>.json`）
 
-`<役>` は `im` / `gr` / `cd`、`<文書>` はキーを変換した名前（cross-doc は `all`）。段 8 で申告に無い変更のために追加で
-起動した監査役は、`<役>` に `x` を付けたファイル（`r2-grx-requirements__auth.json`）に書く（同じ段・同じ文書の 1 体目のファイルと、指摘の ID が重ならないため）。
+`<役>` は `wr`（writer reviewer）/ `wh`（whole reviewer）、`<組>` は `all`。writer reviewer を文書の詰め合わせに分けたときだけ、
+`p1`・`p2`・… の順に組の名前を振る（どの文書の組かはプロンプトが渡す）。
 指摘の ID はファイル名（`.json` を除く）に `-001` からの連番を付けて振る。
-指摘を ID から読むときは、この振り方を逆にたどる: ID の末尾の `-<連番>` を除いた名前のファイル（`r1-im-requirements__auth-002` なら
-`W/findings/r1-im-requirements__auth.json`）を Read し、その `findings` の中で `id` が一致する要素を読む。指摘のファイルは doc_check の
+指摘を ID から読むときは、この振り方を逆にたどる: ID の末尾の `-<連番>` を除いた名前のファイル（`r1-wr-all-002` なら
+`W/findings/r1-wr-all.json`）を Read し、その `findings` の中で `id` が一致する要素を読む。指摘のファイルは doc_check の
 台帳ではない（`describe` に載らない）ので、`get` では読めない。
 
 ```json
 {
   "findings": [
     {
-      "id": "r1-im-requirements__auth-001",
+      "id": "r1-wr-all-001",
       "doc": "requirements/auth",
       "item_id": "PR-AUTH-003",
       "quote": "問題の箇所の原文をそのまま",
@@ -731,8 +730,8 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 }
 ```
 
-- `item_id` は snapshot と同じ項目キー（[§writer](#writer)）。script はこれで指摘を項目ごとにまとめ、段 8 の
-  監査範囲を決める。
+- `item_id` は snapshot と同じ項目キー（[§writer](#writer)）。script はこれで指摘を項目ごとにまとめ、段 8 で
+  再発と既裁定の再出を判定する。
 - **`direction` は解消の方向だけを示す。新しい要求文を創作して与えない。** `direction_note` にも文案・候補値を
   書かない。検査者の文案は writer をアンカリングさせ、根拠からではなく文案から書かせる（実測）。しかもその文案は
   誰にも検証されない。
@@ -747,13 +746,13 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 
 | 値 | 意味 | 使ってよい観点 |
 |---|---|---|
-| `relax` | 規範の範囲・条件を広げる | implementer・cross-doc。grounding は `repro` に入力の行を引くときだけ |
-| `tighten` | 規範の範囲・条件を狭める | implementer・cross-doc。grounding は `repro` に入力の行を引くときだけ |
-| `make_measurable` | 判定できる基準・値にする | implementer |
-| `choose_one` | 割れている読みを 1 つにする | implementer・cross-doc |
-| `merge_or_split` | 項目をまとめる・分ける | implementer・cross-doc |
-| `align_terms` | 用語をそろえる | cross-doc |
-| `add_trace` | 紐付け（トレーサビリティ表の行・検証方法）を足す | cross-doc |
+| `relax` | 規範の範囲・条件を広げる | 着手・項目の間。根拠は `repro` に入力の行を引くときだけ |
+| `tighten` | 規範の範囲・条件を狭める | 着手・項目の間。根拠は `repro` に入力の行を引くときだけ |
+| `make_measurable` | 判定できる基準・値にする | 着手 |
+| `choose_one` | 割れている読みを 1 つにする | 着手・項目の間 |
+| `merge_or_split` | 項目をまとめる・分ける | 着手・項目の間 |
+| `align_terms` | 用語をそろえる | 項目の間 |
+| `add_trace` | 紐付け（トレーサビリティ表の行・検証方法）を足す | 項目の間 |
 | `remove` | 文・項目を削る | 全観点 |
 | `document_decision` | TBD として起票し直す | 全観点 |
 
@@ -784,7 +783,7 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 
 - 見分け方: 直した後の文が指せる根拠（決定の ID・入力の文言・他の項目）を挙げられるなら `writer`。挙げられない
   なら、それは追認ではなく発明なので `decision`。
-- 迷ったら `decision`。決定が要る指摘を writer に回すと、writer が根拠の無い規則を書き、段 8 の grounding で
+- 迷ったら `decision`。決定が要る指摘を writer に回すと、writer が根拠の無い規則を書き、段 8 の writer reviewer に
   捏造として戻るまで 1 パスを失う。writer で直せる指摘を resolver に回しても、resolver が `internal` か `method`
   で裁定して返すだけで済む。
 - `decision` の指摘は resolver が裁定する（段 6）。`writer` の指摘は script が項目ごとに束ね、routes.json を通らずに
@@ -795,27 +794,30 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 
 ### 指名されたとき
 
-script は起動した監査役のうち 1 体を指名し、プロンプトでコマンド（`<n>`・`<digest>`・`<ID>` を埋めたもの）を
-渡す。指名された 1 体は、監査の判定とは別にそれを実行し、**stdout の JSON を加工せずに**返り値に入れる。script はファイルを読めないので、この値が監査の
+script は whole reviewer を指名し、プロンプトでコマンド（`<n>`・`<digest>`・`<ID>` を埋めたもの）を渡す。指名された
+whole reviewer は、監査の判定とは別にそれを実行し、**stdout の JSON を加工せずに**返り値に入れる。script はファイルを読めないので、この値が監査の
 基準（どの版を監査したか）の唯一の記録になる。
 
 | 段 | 最初に | 最後に |
 |---|---|---|
-| 段 5（cross-doc） | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-1 --role auditor --live <label,…> --workspace W` |
-| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --live <label,…> --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
+| 段 5 | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-<n> --role auditor --live <label,…> --workspace W` |
+| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --live <label,…> --workspace W`、`doc`、`tree-digest` |
 
-- `--live` には、同じ段で並んで動いている監査役の label を script が並べる（その作業用ディレクトリを `stray` に
+- `--live` には、その段の writer reviewer と whole reviewer の label を script が並べる（その作業用ディレクトリを `stray` に
   数えないため）。snapshot の `stray`・`size_over` の件数とパスは、script が返り値の `notices` に入れる。
-- diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。
+- diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。段 8 の writer reviewer も
+  判定の前に同じ diff を実行して範囲を読む（監査の間は誰も本文を書かないので、2 体の見る diff は同じになる）。
 - `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま `designated.diff_error` に入れて返す。監査の基準が
-  差し替わっているので、その上で出した判定は何と比べたのかが分からない。
+  差し替わっているので、その上で出した判定は何と比べたのかが分からない。writer reviewer は exit 3 なら判定せずに `findings: []` を返し、
+  `checked` にそう書く。
 
-返り値（全監査役）:
+返り値（両役）:
 
 ```json
 {
-  "path": "findings/r1-im-requirements__auth.json",
-  "findings": [{ "id": "r1-im-requirements__auth-001", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer", "direction": "tighten", "origin": "text" }],
+  "path": "findings/r1-wh-all.json",
+  "findings": [{ "id": "r1-wh-all-001", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer", "direction": "tighten", "origin": "text" }],
+  "rejected": ["r1-wr-all-003"],
   "designated": {
     "doc_check": "doc の stdout（そのまま）",
     "diff": {
@@ -830,23 +832,26 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 }
 ```
 
-`designated` は指名されたときだけ、実行した項目だけを入れる。
+`rejected` と `designated` は whole reviewer だけが返し、`designated` は実行した項目だけを入れる。
+`diff.by_doc` は diff の結果ファイルの `by_doc` をそのまま入れる。script はそれを writer の申告と文書ごとに比べ、申告に無い変更を
+このパスの照合の範囲（既裁定の再出の判定）に足す。
 
-`diff.by_doc` は diff の結果ファイルの `by_doc` をそのまま入れる。script は申告に無い変更の追加監査を文書ごとに起動するので、
-木全体の集合だけでは、何も申告しなかった単位の文書に監査が届かない。
+## §writer-reviewer
 
-## §implementer
+監査役の共通節に従う。観点は着手と根拠（`agents/writer-reviewer.md`）。入力は全文書（詰め合わせに分けたときは、プロンプトが渡す組の文書）。
+範囲を絞った監査（段 8）では、プロンプトが渡す申告の項目と、判定の前に実行した `diff` の結果ファイルの `by_doc` にある自分の組の文書の
+`changed`・`added` の項目を合わせて見る（writer の申告に無い変更も監査に入れるため）。
 
-監査役の共通節に従う。入力は 1 文書（範囲を絞った監査では、その文書の対象の項目）。
+## §whole-reviewer
 
-## §grounding
+監査役の共通節に従う。観点は項目の間（`agents/whole-reviewer.md`）。入力は全文書と `plan.json`（`required_categories`・`covers`・`self_containment`）、
+同じ回の writer reviewer の指摘のファイル（プロンプトが渡す）。どの段でも指名される。
+範囲を絞った監査（段 8）でも全文書を読み、申告の項目と、指名されて実行した `diff` の `changed`・`added` の項目を中心に、それを参照する項目と
+同じ要求の下の項目を見る。`removed` の項目が担っていた範囲が、どの文書にも残っていないかも見る。
 
-監査役の共通節に従う。入力は 1 文書。範囲を絞った監査では、変わった項目と新しく入った規範文。
-
-## §cross-doc
-
-監査役の共通節に従う。入力は全文書と `plan.json`（`required_categories`・`covers`・`self_containment`）。
-段 5 では必ず指名される。
+writer reviewer の指摘を確かめて退けるものは、自分の指摘のファイルの `rejected` に `{ "id": "<writer reviewer の指摘の ID>", "reason": "退ける理由（原文・入力・台帳の行で）" }`
+の形で並べ、返り値の `rejected` に ID だけを返す。退けた指摘は script が blocking に数えず、改稿にも裁定にも回さない。扱いは
+`references/workflow-io.md` §4 の段 5 の行を正とする。
 
 ## §structural（doc_check が生成する finding）
 

@@ -25,9 +25,8 @@ ROLES = (
     "resolver",
     "resolver-verifier",
     "writer",
-    "implementer",
-    "grounding",
-    "cross-doc",
+    "writer-reviewer",
+    "whole-reviewer",
     "doc_check",
     "prd-spec.js",
     "司令塔",
@@ -49,9 +48,9 @@ class DirectionReplacesFixTests(unittest.TestCase):
 
 
 class RequestCoverageTests(unittest.TestCase):
-    def test_cross_docの守備範囲に依頼と照らした範囲がある(self):
+    def test_whole_reviewerの守備範囲に依頼と照らした範囲がある(self):
         # 要求文書の上位は依頼そのものなので、ここが無いと依頼に対する欠落と作り込みを誰も見ない。
-        row = next(l for l in CONTRACTS.splitlines() if l.startswith("| cross-doc |"))
+        row = next(l for l in CONTRACTS.splitlines() if l.startswith("| 項目の間（whole reviewer） |"))
         seen = row.split("|")[2]
         self.assertIn("依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱", seen)
 
@@ -84,7 +83,7 @@ class RoleMapTests(unittest.TestCase):
 
 class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
     SECTION = "現物と既存実装の扱い"
-    READERS = {"intake": "intake.md", "resolver": "resolver.md", "resolver-verifier": "resolver-verifier.md", "writer": "writer.md", "grounding": "grounding.md"}
+    READERS = {"intake": "intake.md", "resolver": "resolver.md", "resolver-verifier": "resolver-verifier.md", "writer": "writer.md", "writer-reviewer": "writer-reviewer.md", "whole-reviewer": "whole-reviewer.md"}
 
     def _sections(self):
         return _exported("m.CONTRACT_SECTIONS")
@@ -166,7 +165,7 @@ class InvariantKindSectionIsReadByKindUsers(FlowShapeSectionIsReadByFlowUsers):
 
 class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):
     PHRASES = ("既存の本文には trace が無い", "それ自身を原本", "既存の記述に同じ物差しを当てると")
-    READERS = ("grounding.md", "writer.md")
+    READERS = ("writer-reviewer.md", "writer.md")
 
     def test_規則は全役が読む共通の約束に1回だけある(self):
         common = re.search(r"^## 共通の約束$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)

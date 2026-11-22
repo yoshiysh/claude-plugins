@@ -1276,7 +1276,7 @@ function structuralCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(doc
   // (7) 根拠の所在。納品文書の本文には根拠句を書かない規約（document-structure.md §4）に
   //     したため、「どの記述がどこから来たか」は meta の trace にしか無い。trace が
   //     欠けた項目は、本文からも返り値からも根拠を辿れず、出所不明の断定と区別できない。
-  //     ここを検査しないと、本文から根拠句を消した瞬間に grounding の監査の入力が消え、
+  //     ここを検査しないと、本文から根拠句を消した瞬間に根拠の観点の監査の入力が消え、
   //     指摘 0 件が「健全」に化ける。
   for (const d of docs) {
     if (d.fixed) continue
@@ -1547,7 +1547,7 @@ const WORKSPACE_TEXT = {
     id: `ST-FLOW-CASE-NOSOURCE-${id}-${no}`,
     location: '工程の流れ（flow）',
     quote: `${id} cases[${no}]`,
-    issue: `判断 ${id} の ${no} 件目の case に、{ input } / { decision } / { open } の形の出典が無い。出典の無いマスは推測で埋めたものであり、grounding は flow を根拠と認めるので、そのまま要求文になる。`,
+    issue: `判断 ${id} の ${no} 件目の case に、{ input } / { decision } / { open } の形の出典が無い。出典の無いマスは推測で埋めたものであり、writer reviewer は flow を根拠と認めるので、そのまま要求文になる。`,
     fix: 'case に source を付ける。根拠から決まらないマスは open に起票し、その ID を出典にする。',
   }),
   FLOW_NO_TABLE: (id) => ({
@@ -1987,7 +1987,7 @@ const LEDGERS = {
 // 経緯の印は prd-spec の工程にしか出ない形に限る。版・旧・v2・RS-232・G1 GC・§ 3a のような語は案件の分野にも
 // 出るので、裸の G1・3a は印にせず「段 3a」の接頭辞付きの形で拾う（偽陽性で put が止まるより、取りこぼしを選ぶ）。
 const HISTORY_FIELDS = ['flow.closure', 'flow.elements.label', 'flow.kinds.definition', 'decisions.decisions.why', 'resolutions.resolutions.why', 'verifications.items.reason']
-const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)x?-/, /回答の反映/]
+const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])r\d+-(wr|wh)-/, /回答の反映/]
 
 // SIZE_BUDGET: ファイルのバイト数の目安（合否ではない）。仮の値として 2026-09-27 の cleanup-branches の試走の台帳を
 // 正規形に直した実測を置いた。段 3・5 が意図して生成物を太らせるので、試走し直した実測で決め直す。
@@ -4133,9 +4133,8 @@ const CONTRACT_SECTIONS = {
   resolver: [...COMMON_SECTIONS, '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
   'resolver-verifier': [...COMMON_SECTIONS, '§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
   writer: [...COMMON_SECTIONS, '§writer', '決定の台帳', '現物と既存実装の扱い'],
-  implementer: [...COMMON_SECTIONS, '監査役の共通節', '§implementer'],
-  grounding: [...COMMON_SECTIONS, '監査役の共通節', '§grounding', '現物と既存実装の扱い'],
-  'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§cross-doc'],
+  'writer-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '§writer-reviewer', '現物と既存実装の扱い'],
+  'whole-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§whole-reviewer', '現物と既存実装の扱い'],
   'flow-check': ['§flow-check'],
 }
 

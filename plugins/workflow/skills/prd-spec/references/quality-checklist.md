@@ -46,6 +46,6 @@
 - 各項目は **pass / fail / not-applicable / not-checked** の四値で返す。not-checked を
   fail にも pass にも丸めない（未検査は 0 件ではない）。
 - fail には該当箇所の引用を付ける。引用の無い fail は採点として受け取らない。
-- このチェックリストは監査役（implementer / grounding / cross-doc）と重なるが、役割が違う:
+- このチェックリストは監査役（writer reviewer / whole reviewer）と重なるが、役割が違う:
   監査役は**改稿のための指摘**を出し、本リストは**完成品の絶対評価**を出す。
   両方が同じ定義ファイルを正とするので、基準は drift しない。

@@ -54,10 +54,10 @@ class Usage(unittest.TestCase):
             "\n".join([_line("2026-01-01T00:00:00Z", text="/elsewhere/W2/input.md"), _line("2026-01-01T00:00:05Z", "m9", U)])
         )
         (self.tr / "agent-empty.jsonl").write_text(_line("2026-01-01T00:00:00Z", text=f"{ws}/input.md"))
-        (self.ws / "findings" / "r1-im-requirements__a.json").write_text(
+        (self.ws / "findings" / "r1-wr-all.json").write_text(
             json.dumps({"findings": [{"doc": "d", "item_id": "PR-A-1", "blocking": True}, {"doc": "d", "item_id": "PR-A-1", "blocking": False}]})
         )
-        (self.ws / "findings" / "r1-gr-requirements__a.json").write_text(json.dumps({"findings": [{"doc": "d", "item_id": "PR-A-2", "blocking": True}]}))
+        (self.ws / "findings" / "r1-wh-all.json").write_text(json.dumps({"findings": [{"doc": "d", "item_id": "PR-A-2", "blocking": True}]}))
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -87,6 +87,17 @@ class Usage(unittest.TestCase):
     def test_指摘は周回ごとに件数と項目の数を出す(self):
         s = usage.summarize(str(self.ws), [str(self.tr)])
         self.assertEqual(s["findings"], {"r1": {"findings": 3, "blocking": 2, "items": 2}})
+
+    def test_whole_reviewerが退けた指摘は数えない(self):
+        # script は退けた指摘を blocking に数えないので、実測の件数もそれに合わせる。
+        (self.ws / "findings" / "r1-wr-all.json").write_text(json.dumps({"findings": [
+            {"id": "r1-wr-all-001", "doc": "d", "item_id": "PR-A-1", "blocking": True},
+            {"id": "r1-wr-all-002", "doc": "d", "item_id": "PR-A-3", "blocking": True}]}))
+        (self.ws / "findings" / "r1-wh-all.json").write_text(json.dumps({
+            "findings": [{"id": "r1-wh-all-001", "doc": "d", "item_id": "PR-A-2", "blocking": True}],
+            "rejected": [{"id": "r1-wr-all-002", "reason": "quote が原文に無い"}, {"id": "r1-wh-all-001", "reason": "自分の指摘は退けられない"}]}))
+        s = usage.summarize(str(self.ws), [str(self.tr)])
+        self.assertEqual(s["findings"], {"r1": {"findings": 2, "blocking": 2, "items": 2}})
 
 
 def _split(i, read, c5, c1, out, total=None):
