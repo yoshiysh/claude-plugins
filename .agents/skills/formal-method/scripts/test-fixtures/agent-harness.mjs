@@ -455,6 +455,7 @@ export function makeHarness(scenario, hooks = {}) {
           if (!r.ok) { memory.submits.push({ task_id: task.task_id, role: task.role, round, refused: r }); return rec; }
           const res = r.results.find((x) => x.task_id === task.task_id);
           memory.submits.push({ task_id: task.task_id, role: task.role, round, result: res });
+          if (hooks.afterSubmit) await hooks.afterSubmit(status, { task, result: res });
           done = res.done;
           if (!done && (scenario.stopAfterSubmits[task.role] ?? Infinity) <= round) return rec;
         }

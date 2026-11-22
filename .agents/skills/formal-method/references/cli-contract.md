@@ -380,13 +380,15 @@ PublishOutcome = {
   - `sanity`: その `PlanFile.sanity[].tool_time_limit_seconds`。
   - `mutation`: 検出役の検査（`MutationsFile.mutations[].detector_check_id`）の `tool_time_limit_seconds`。
   - `replay`: 反例の検査（`Counterexample.check_id`）の `tool_time_limit_seconds`。
-  - 理由: 変異と replay は元の検査の範囲をそのまま検査するので、元の検査の値を使う。値は全て計画の照合で上限以下と確かめてあり、どの実行も[検査に使える期限](#定数)で止まるので、依頼元の時間の上限と残す時間を越えない。確認用の実行の値は、この規則で計画から導けるので、結果に値の欄を持たない。
+  - `ablation`: 節を切り取った元の性質の検査（`kind: property`）の `tool_time_limit_seconds`。
+  - 理由: 変異・replay・ablation は元の検査の範囲をそのまま検査するので、元の検査の値を使う。値は全て計画の照合で上限以下と確かめてあり、どの実行も[検査に使える期限](#定数)で止まるので、依頼元の時間の上限と残す時間を越えない。確認用の実行の値は、この規則で計画から導けるので、結果に値の欄を持たない。
 - **道具に渡す query**: 実行の `input_refs` のファイルのバイト列を、その順に、各ファイルの後に `\n` を 1 つ置いてつないだもの。これを `checks/<execution_id>/input.smt2` に保存して標準入力に渡す。
   - `input_refs` の要素は、担当が書いた query（`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`PartitionsFile` の `contracts[].query_ref`・`composition_conditions[].query_ref`）だけを指せる。対象のファイル（`target:<target_id>/<FilePath>`）など他のファイルを指せば計画の欠陥である。理由: 書いた役の段で `(check-sat)` と書かない form を照らしたファイルだけを道具に渡す。対象のファイルは秘密値の走査も受けない。
   - 担当の query は全て `(check-sat)` を持つので、下のつなぎ方の照合により、今は `input_refs` の要素はちょうど 1 つである（型の `[Ref]+` は、つなぎ方の規則とともに残す）。変異の「最後の input を置き換える」は、その 1 つを `mutation_ref` に置き換えることである。
   - 1 つの `.smt2` の `(check-sat)` の数と位置は、そのファイルを書いた役の段で照らす（[成果物の形式の担当の成果物](artifact-formats.md#担当の成果物)。欠陥の修正の巡はその役に戻る）。計画の照合は、つなぎ方だけを照らす: 検査・sanity・変異の各実行で、`(check-sat)` を持つ input が最後の 1 つだけであること。違えば計画の欠陥である。担当が書く `.smt2` は全て `(check-sat)` を持つので、実際には最後の input だけが担当の `.smt2` になる。理由: つないだ query の `(check-sat)` が最後の form でないと、その後の form が答えの後に出力を足し、答えの読みか証人を壊す。実測（Z3 5.3.3）では、誤った式（`(assert (foo))`）は `(error …)` の行と終了コード 1 を出し、`-model` の有無によらず `実行失敗` になる。未知のコマンド（`(foo)`）は `unsupported` と注釈の行を出して終了コード 0 で、`-model` を渡さない実行では読めない出力（`実行失敗`）になり、渡した実行では答えは正しく読めるがモデルの文字列が形に合わず、証人を読めない。
   - 変異の query は、検出役の検査の `input_refs` の最後を変異（`mutation_ref`）に置き換えて、同じ規則でつなぐ。
-- `-model` は、実行の種類が `property` と `composition` の実行にだけ渡す（反例になりうる実行で、反例の再実行に証人が要る）。他の種類（`contract`・`sanity`・`mutation`・`replay`）には渡さない。
+  - 静的な確認の実行（`ablation`）の query は、元の性質の検査の query（上の規則でつないだもの）から、残す節（[architecture.md「静的な確認」](architecture.md#静的な確認)の実行の表）に無いトップレベルの assert の form を除いたもの（`checks/ablation.mjs` の `ablate`。宣言・`define-fun`・`(check-sat)` は残す）。これも `checks/<execution_id>/input.smt2` に保存して標準入力に渡す。
+- `-model` は、実行の種類が `property` と `composition` の実行にだけ渡す（反例になりうる実行で、反例の再実行に証人が要る）。他の種類（`contract`・`sanity`・`mutation`・`replay`・`ablation`）には渡さない。
   - 理由: 担当の query には `get-model` を書かせない（[成果物の形式](artifact-formats.md#modelモデル作成役)）。証人を取るのは CLI の役目なので、CLI が渡す option で取る。
   - 退けた案: CLI が query の `(check-sat)` の後に `(get-model)` を足す。実測（macOS arm64、Z3 5.3.3）では、答えが `unsat` のとき標準出力に `(error "line … column …: model is not available")` が出て終了コードが 1 になる。読む順の 1 に当たって `判定以外のエラー` になり、成り立つ性質の検査が全て `実行失敗` になる。CLI は答えを前もって知らないので、`sat` のときだけ足すこともできない。
 - 子 process には環境変数を渡さない。process group を作って起動し、標準入力（query）を渡す前に `children/<pgid>.json` を記録する（pgid は起動しないと分からないので、記録は起動の後になる。z3 `-in` は入力を受けるまで何もしない）。記録できなければ、入力を渡さずに group を止め、その実行を起動の失敗とする。起動そのもの（spawn）の失敗も同じで、どちらも終わり方は `started: false`（判定は `未実行`）とし、理由を `Check.reason` か `Confirmation.reason` に書く。`children/` は記録（`RecordKind`）に数えないので、記録できないことだけでは `保存の失敗` にしない。
@@ -427,6 +429,7 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 | 前提の整合（`sanity`） | 前提（と初期状態・到達例） | `sat` | `反する`（前提の矛盾） | `満たす` | 確認の記録 |
 | 変異（`mutation`） | 検出役の検査の query の最後の input を変異に置き換えたもの | `expected_violation` | `unsat` が期待なら `満たす`（検出）、そうでなければ `反する`（検出せず） | `sat` が期待なら `満たす`、そうでなければ `反する` | 検出能力の確認 |
 | 反例の再実行（`replay`） | 反例の検査の query ∧ 証人の値（下の [証人](#証人)） | `sat` | `反する`（再現せず） | `満たす`（再現） | 確認の記録 |
+| 静的な確認（`ablation`） | 性質の検査の query から節を切り取ったもの | 実行ごと: 否定だけ・前提と否定だけ・外部の依存の前提を外した実行は `sat`。規則と否定だけ・前提を 1 つ外した実行・前提の組を外した実行は `unsat` | `unsat` が期待なら `満たす`、そうでなければ `反する` | `sat` が期待なら `満たす`、そうでなければ `反する` | 静的な確認と判断を要する項目（答えの `sat`・`unsat` を `expected` と `tool_result` から戻して使う） |
 
 - `unknown`・`timeout`・`(error` の扱いは、どの種類でも上の読む順のとおりである。
 - **出力の上限**: 標準出力が `TOOL_OUTPUT_MAX_BYTES` を超えたら、次のとおりにする。
@@ -434,6 +437,7 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
   - それ以外は、formal-method が group を止め、`stopped_by: "その他"`、`unreadable_output: true` とする（判定は `未実行`）。
 - **答えの後の停止**: `-model` を渡した実行で、答えの行を読み終えた後、モデルを読んでいる（又は読み捨てている）間に期限か停止の要求が来たら、group を止める。この実行は、答えの行を読み終えた時点で道具の結果を得たものとし、答えの行で決める（2 の終了コードの条件は当てない）。`stopped_by: null`、`time_limit_hit` は答えの値のとおり（`timeout` なら `道具`、他は null）、`abnormal_exit`・`unreadable_output` は false とし、証人は読めないものとする。理由: 判定がモデルの大きさで変わらないようにする（上の出力の上限と同じ）。止めたのはモデルの読み取りで、検査ではない。この組は、道具の結果を得た後に止めるものは無いとするオラクルの規則（網羅表の WF1）の、止めていない行と同じになる。
 - 道具を実行した確認（`sanity`・`mutation`・`replay`）の `Confirmation.result` は、その `end` に `classifyCheck` を当てた値で決める。`成功` なら `成り立つ`、`反例` なら `成り立たない`、他の値なら `確認できず`。
+- 静的な確認（`ablation`）の `Confirmation.result` は、`end` に `classifyCheck` を当てた値から答え（`成功` なら `expected`、`反例` なら `expected` でない方）を戻し、その答えで [architecture.md「静的な確認」](architecture.md#静的な確認)の「判定への写し」に従って決める（例: `goal_trivial` は sat で `成り立つ`、unsat で `成り立たない`）。答えが無い（`unknown`・時間切れ・失敗・未実行）実行は断定せず、`確認できず` の確認でなく判断を要する項目（`道具が判定できない`）にする。
 
 ### 証人
 

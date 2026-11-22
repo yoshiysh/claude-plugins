@@ -932,7 +932,7 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
   - この限界は結果の `unverified[]` に載せる。
 - **記録した model・effort**: 記録は、CLI が workers の行に書いた値である。ホストが実際にその値で動かしたかは確かめられない。
 - **担当の応答の待ち**: 担当の 1 回の `claim`・`query`・`submit` は `WORKER_CALL_MAX_MS` まで `run-daemon` の応答を待つ。`run-daemon` の照合が重く上限に当たると、担当は `no_response` を受け取り、同じ命令を流し直す。上限に当たる重さは実測していない。
-- **tokens**: Workflow の返り値の `tokens`（`budget.spent()` の差）が subagent の消費を含むかは確かめていない。
+- **tokens**: Workflow の返り値の `tokens` は `budget.spent()` の差である。autonoia での実測（run 44032e）では、script の `tokens` の合計は約 32 万で、Workflow の完了通知の subagent tokens（cache の読み込みを含む）の合計の約 154 万の約 2 割しかなかった。`tokens` は担当の消費の下限であり、通知の値より小さい。値の取り方は変えず、下限として記録する。
 - **詰め合わせ**:
   - 1 体に詰めると、同じ体の中で前の unit の判断が後の unit に影響しうる。unit ごとにその unit の資料だけで判断する義務（`agent-obligations.md`）だけが守りで、機械では止められない。
   - 上限の 1 token あたりのバイト数は 1 つの run（日本語の文書 2 つ）の実測で、他の言語やコードの対象では比が変わりうる。往復による増分も、同じ run の担当 15 体で見ただけである。

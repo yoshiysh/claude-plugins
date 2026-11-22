@@ -548,7 +548,7 @@ StopCode =
   | "対象の変化"               // 受付の後に対象のファイルが変わった（固定の前提の破れ）。段は 集約
 ```
 
-- `checks_running`・`checks_aborted` には、`Check`（`property`・`composition`・`contract`）と、道具を実行した `Confirmation`（`sanity`・`mutation`・`replay`）の両方を、`kind` を付けて入れる。
+- `checks_running`・`checks_aborted` には、`Check`（`property`・`composition`・`contract`）と、道具を実行した `Confirmation`（`sanity`・`mutation`・`replay`）と、静的な確認の実行（`ablation`。[architecture.md「静的な確認」](architecture.md#静的な確認)）を、`kind` を付けて入れる。
 - **`stop_report.stage` の決め方**:
   - 中断の理由（`依頼の不備`・`起動の失敗`・`時間の上限`・`保存の失敗`・`内部の誤り`・`処理の中断`）が 1 つ以上あれば、そのうち最初に記録されたものの段とする（`reasons` は中断の理由を記録の順に先に並べる）。理由: 中断は、それが起きた段で run が止まったことを表す。
   - 中断の理由が無く、完了の条件で止まった場合だけ、`reasons` の段のうち `Stage` の並びで最も上流の段とする。
@@ -606,7 +606,7 @@ AgentCalls = {
 
 - `build_ms` は、ビルドの無い道具では `{ status: "該当なし", reason }`。`cost` は CLI から観測できないので `取得できず`。`retries` は再試行を持たないので `{ value: 0, unit: "count" }`。
 - salvage の結果では `total_ms` と salvage の所要時間を `取得できず`（理由は [CLI 契約](cli-contract.md#salvage-の手順)）。
-- `agent_calls`: 呼び出しの受け箱が上の形で Workflow の返り値を読めたときだけ、`agents` と `launched` を返り値から写す。受け箱が無い（期限で閉じた）・`timed_out`・読めない・形が違う呼び出しは、`agents` を `取得できず`（理由はその旨）、`launched` を `[]` にする。`tokens` は返り値の `tokens` が数のときだけ数で、null か返り値が無ければ `取得できず`。
+- `agent_calls`: 呼び出しの受け箱が上の形で Workflow の返り値を読めたときだけ、`agents` と `launched` を返り値から写す。受け箱が無い（期限で閉じた）・`timed_out`・読めない・形が違う呼び出しは、`agents` を `取得できず`（理由はその旨）、`launched` を `[]` にする。`tokens` は返り値の `tokens` が数のときだけ数で、null か返り値が無ければ `取得できず`。数のときも担当の消費の下限であり、Workflow の完了通知の subagent tokens（cache の読み込みを含む）より小さい（[architecture.md「未検証と限界」](architecture.md#未検証と限界)の tokens）。
   - `stages` と `total` の `agents`・`tokens` は、含む呼び出しの値が全て数のときだけその和で、1 つでも `取得できず` なら `取得できず`（理由に、取れなかった呼び出しの `call_id` を並べる）。呼び出しが無い run の `total` は `{ value: 0 }`（起動していない）。
   - 受付で止まった結果・salvage の結果・秘密値の型で公開しない結果は、`calls: []`・`stages: []`・`total` の `agents`・`tokens` を `取得できず` にする（呼び出しの記録を持たない）。
   - 理由: SP-013 は、起動した担当の数と消費量を記録し、取れなかった値を 0 と区別することを求める。一部の呼び出しの和は、全体の下限であって値ではない。
@@ -1017,7 +1017,7 @@ Ledger = {
   entries: [{ kind: RecordKind, ref: Ref, hash: Sha256, stage: Stage,
               producer: string,           // "cli"、担当の task_id、又は "salvage"
               model: string | null, effort: string | null, permissions: [string],
-              input_refs: [RefHash] }],    // producer が担当の task_id の entry は、その task の context.input_refs を「ディレクトリの ref の指紋」で展開したもの（作業記録を含む全ての記録で同じ）。"cli"・"salvage" の entry は []
+              input_refs: [RefHash] }],    // producer が担当の task_id の entry は、その担当の最初の query の時点で取った input_refs の指紋（「ディレクトリの ref の指紋」で展開したもの。意味の確認の materials と同じ値。query を流さなかった担当は []。作業記録を含む全ての記録で同じ）。"cli"・"salvage" の entry は []
   registered_result_hash: Sha256          // 登録した結果の指紋。結果のファイルが保存されたことは示さない
 }
 ```
@@ -1059,8 +1059,8 @@ id と参照の全ての欄の、名前空間・一意の範囲・実在の確�
 | `Pointer.id`（kind `target`・`goal`・`known_requirement`） | 依頼の id | 一意 | 受付の照合 | — |
 | `fixed.manifest_ref`・`Model.ref`・`Location.file`・`evidence_refs`・`Records.*.ref`・`ledger_refs`・`steps_ref`・`materials[].ref`・`Worklog.inputs[].ref`・`unreadable_inputs[].ref`・`document_rules.ref`・`Ledger.entries[].ref`・`input_refs[].ref` | Ref（`materials[].ref`・`Worklog.inputs[].ref`・`Ledger.entries[].input_refs[].ref`・`input_refs[].ref` は、対象のファイルなら `target:<target_id>/<FilePath>`。実在は `fixed.files[].abs_path` で確かめる） | 一意 | 書いた者が書いた直後の再読込、集約の照合（結果の参照の再読込） | run |
 | `Location.pointer` | JSON Pointer か `form:` | 一意（`file` と組で） | 依存グラフの導出 | モデル・`.smt2` |
-| `PropertyResult.id`・`AuthorReturn.blocked_by_question`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中と、run の他の対象の最後に照合した inventory との重なり。重なりは `other` の欠陥）、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
-| `Inventory.properties[].source_ids`・`io_contracts[].source_ids`・`transitions[].source_ids`・`forbidden[].source_ids` | inventory の要素の id | 一意 | 洗い出しの照合（性質の出所）、モデル化の照合（モデルの出所） | — |
+| `PropertyResult.id`・`AuthorReturn.blocked_by_question`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中と、run の他の対象の最新の inventory（差し戻された提出を含む）との重なり。重なりは `other` の欠陥で、提出の順序に依らず次の側に付ける: 相手が受理済みなら今 submit している側（受理済みの側は変えない）、相手が未受理なら依頼の対象の順で後ろの側だけ（前の側の提出は欠陥にせず、後ろの側の submit で見つける））、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
+| `Inventory.properties[].source_ids`・`io_contracts[].source_ids`・`transitions[].source_ids`・`forbidden[].source_ids` | inventory の要素の id | 一意 | 洗い出しの照合（性質の出所と、他の対象の inventory との重なり。重なりの扱いは性質の id と同じ）、モデル化の照合（モデルの出所） | — |
 | `sources[].id`（kind `goal`・`known_requirement`） | 依頼の id | 一意 | 洗い出しの照合 | — |
 | `Model.id`・`Check.model_id`・`context.model_id`・`MappingFile.model_id`・`parts[].model_id`・`Contract.model_id`・`composition_conditions[].model_id`・`Cause.subject.model_id`・`PlanFile.checks[].model_id` | model_id | 一意 | モデル化の照合（mapping とモデルの組）、計画の照合 | — |
 | `goals[].property_id`・`Paths.targets[].property_id`・`Paths.verified[].property_id`・`composition_conditions[].derived_from`・`Confirmation.model_property_id`・`PlanFile.checks[].target_id`（kind `property`）・`PlanFile.sanity[].model_property_id`・`MutationsFile.mutations[].property_id`・`Contract.derived_from`・`Judgment.model_property_id` | モデルの性質の id | 一意 | モデル化の照合（goals）、計画の照合（checks・sanity・mutations・契約。分割の照合で、契約と合成の条件の `derived_from` が同じ `model_id` のモデルの性質を指すこと） | — |
@@ -1079,7 +1079,7 @@ id と参照の全ての欄の、名前空間・一意の範囲・実在の確�
 | `context.unit_id`・`ReviewReturn.unit_id`・`CauseReturn.unit_id` | unit_id | 一意 | 返り値の回収（task の `context.unit_id` と一致） | — |
 | `Status.call.call_id`・Workflow の args の `callId`・受け箱の `call_id`・依頼の `call_id` | call_id | 一意 | 依頼の照合と受け箱の読込み | — |
 | `Task.attempt_dir`・`result_path`・`instructions`・`context.run_dir`・`Status.run_dir`・`args_path`・`workflow_script`・`workflow_output_path` | 絶対 path | 一意 | 読む者が読むとき | 絶対 |
-| `AuthorReturn.outputs[].ref`・`record_ref`・`worklog_ref`・`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`contracts[].query_ref`・`composition_conditions[].query_ref`・`PlanFile.checks[].input_refs`・`sanity[].input_refs`・`mutation_ref`・`revise_defects_ref` | Ref | 一意 | 返り値の回収（attempt の領域の中にあり実在すること）、計画の照合（query と input の実在） | run |
+| `AuthorReturn.outputs[].ref`・`record_ref`・`worklog_ref`・`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`contracts[].query_ref`・`composition_conditions[].query_ref`・`PlanFile.checks[].input_refs`・`sanity[].input_refs`・`mutation_ref` | Ref | 一意 | 返り値の回収（attempt の領域の中にあり実在すること）、計画の照合（query と input の実在） | run |
 | `ReviewReturn.findings[].ref` | 自由な文（確認した箇所の表し） | — | 照合しない | — |
 | `StopReport.reasons[].item` | `Pointer` | 一意 | 受付の照合 | 依頼 |
 | `StopReport.reasons[].field`・`unverified[]` の未知のキーの表し | JSON Pointer | 一意 | — | 依頼 |

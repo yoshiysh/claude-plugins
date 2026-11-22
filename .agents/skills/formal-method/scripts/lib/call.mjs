@@ -99,8 +99,9 @@ const roleStage = (workers) => {
 // worker: { items: [item], mode?: 'all' | 'fit', cap? }
 //   mode 'all'（既定）: 最初の claim で、依存の無い全ての担当を返す。item.after（同じ worker の前の item の位置）は、その担当が閉じてから返す。
 //   mode 'fit': 出し終えた後の claim ごとに、残りの item を並びの順に、資料の和集合のバイト数（item.files、無ければ item.bytes）が cap に収まる所まで束で返す（next-fit）。
-// item: { spec | role + spec() → spec | null, stage?, check?(ret, task), observe?(ret), expect?(ret) → 文 | null, settle?(r), revoke?(r), after?, bytes? }
+// item: { spec | role + spec() → spec | null, stage?, check?(ret, task), observe?(ret), onAccept?(), expect?(ret) → 文 | null, settle?(r), revoke?(r), after?, bytes? }
 //   check は作成役の照合（欠陥が減っているうちは同じ担当に出し直させる）、expect は確認役の返り値の追加の照合（形の違いとして扱う）。
+//   onAccept は、submit の照合でその担当を受理した時点で呼ぶ（unit をまたぐ照合が、相手が受理済みかを知るため）。閉じた時点の受理では呼ばない。
 //   settle があれば、その担当が閉じた時点で結果を渡す（後の担当の spec がその結果を使うため）。呼び出しを開けなかったときも渡す。
 //   revoke は、settle で受理を渡した担当の attempt の領域が、呼び出しを閉じるまでに書き換わったときに呼ぶ（渡した受理を取り消す）。
 // 戻り値: workers と同じ順の [{ results: [r], nextCap }]。r は { spec, task, ok, ret?, cause?, materials, last?, notIssued?, released? }。
@@ -386,6 +387,7 @@ function accept(ctx, s, last, remaining) {
   s.ret = last.ret;
   s.accepted = last;
   s.snapshot = attemptHashes(ctx.run, s);
+  if (s.entry.item.onAccept) s.entry.item.onAccept();
   settleEarly(ctx, s);
   return result(s, true, [], remaining.length ? { remaining } : {});
 }

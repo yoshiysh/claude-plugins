@@ -19,9 +19,10 @@ const RETURN_TYPES = { author: AuthorReturn, review: ReviewReturn, cause: CauseR
 const returnKindOf = (task) => (task.context.perspective ? 'review' : task.role === 'cause-analyst' ? 'cause' : 'author');
 
 // input_refs の指紋（artifact-formats.md「ディレクトリの ref の指紋」）: ファイルはそのまま 1 つ、ディレクトリはその下の全てのファイルに
-// 展開する。並びは input_refs の要素の順で、1 つのディレクトリの中だけを ref の UTF-8 のバイト列の辞書順に並べる。読めない要素は入れない。
+// 展開する。並びは input_refs の要素の順で、1 つのディレクトリの中だけを ref の UTF-8 のバイト列の辞書順に並べる。読めないファイルと、
+// 実在しない対象の ref は hash: 'unreadable' で入れる。実在しない run の ref、辿れないディレクトリ、ファイルでもディレクトリでもない要素は入れない。
 // pathOf(ref) は読む path（対象の ref は元のファイル。target-refs.mjs の refPathOf）。対象の ref はファイルだけを指す。
-// 読めないファイルの指紋は 'unreadable'（読めない対象の ref も同じ）。refs の要素は ref の文字列か { ref, spans? }。spans を持つ対象の ref は、ファイル全体の指紋に加えて、範囲ごとの指紋 spans: [{ span, hash }] を持つ。
+// refs の要素は ref の文字列か { ref, spans? }。spans を持つ対象の ref は、ファイル全体の指紋に加えて、範囲ごとの指紋 spans: [{ span, hash }] を持つ。
 const UNREADABLE = 'unreadable';
 export function expandRefHashes(runDir, refs, pathOf = (ref) => join(runDir, ref)) {
   const out = [];

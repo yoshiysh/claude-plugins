@@ -389,11 +389,11 @@ export class Run {
   }
 
   // ---- 作成役の出し直し（architecture.md「段と処理の順序」の修正の巡） ----
-  // unit: { role, spec() → spec, check(ret, task) → { defects, value }, accept(last), onFail(why), observe?(ret) }
+  // unit: { role, spec() → spec, check(ret, task) → { defects, value }, accept(last), onFail(why), observe?(ret), onAccept?() }
   // 作成役は 1 体が submit ごとに照合を受け、欠陥が減っているうちは同じ体が出し直す（call.mjs の submit）。
-  // observe は、その提出の照合の前に呼ぶ（unit をまたぐ照合が、同じ呼び出しの最新の成果物と比べるため）
+  // observe は、その提出の照合の前に呼ぶ（unit をまたぐ照合が、他の unit の最新の提出と比べるため）。onAccept は submit で受理した時点で呼ぶ
   async authorRounds(units) {
-    const results = await runItems(this, units.map((u) => ({ spec: u.spec(), check: u.check, observe: u.observe })));
+    const results = await runItems(this, units.map((u) => ({ spec: u.spec(), check: u.check, observe: u.observe, onAccept: u.onAccept })));
     units.forEach((u, i) => this.settleAuthor(u, results[i]));
   }
 
@@ -454,20 +454,21 @@ export class Run {
 
   // ---- 洗い出し ----
   async extraction() {
-    // 対象をまたぐ性質と要素の id の重複（id は run の全ての inventory を通して一意）。比べる相手は、他の対象のその巡の最新の inventory
-    // （その巡に返したものは照合の前に observe で控え、その巡に出していない対象は最後に返した inventory）。1 つの重なりで両方を
-    // 修正の巡に戻さないよう、依頼の対象の順で前の対象とだけ比べ、重なりは後の対象の欠陥にする
+    // 対象をまたぐ性質と要素の id の重複（id は run の全ての inventory を通して一意）。比べる相手は、他の対象の最新の inventory
+    // （提出ごとに照合の前に observe で控える。差し戻された提出も入る）。重なりをどちらの欠陥にするかは、提出の順序に依らず次で決める:
+    // 相手が受理済みなら、今 submit している側の欠陥にする（受理済みの側は変えない）。相手が未受理なら、依頼の対象の順で後ろの側だけの
+    // 欠陥にする（今の側が前なら欠陥にせず、後ろの側が submit するときに見つかる）。未受理の 2 つが互いを差し戻し合わないため
     const latestIds = new Map();
+    const accepted = new Set();
+    const order = new Map(this.targets.map((t, i) => [t.id, i]));
     const readInventory = (ret) => {
       const outs = ret.outputs.filter((o) => o.kind === 'inventory');
       if (outs.length !== 1) return null;
       try { return { ref: outs[0].ref, data: JSON.parse(readFileSync(join(this.runDir, outs[0].ref), 'utf8')) }; } catch { return null; }
     };
     const idsOf = (data, key) => new Set((Array.isArray(data?.[key]) ? data[key] : []).map((x) => x && x.id).filter((id) => typeof id === 'string'));
-    const earlierIds = (tid, key) => {
-      const order = this.targets.map((t) => t.id);
-      return new Map(order.slice(0, order.indexOf(tid)).flatMap((id) => [...(latestIds.get(id)?.[key] ?? [])].map((x) => [x, id])));
-    };
+    const blames = (tid, other) => other !== tid && (accepted.has(other) || order.get(other) < order.get(tid));
+    const otherIds = (tid, key) => new Map([...latestIds].filter(([id]) => blames(tid, id)).flatMap(([id, ids]) => [...ids[key]].map((x) => [x, id])));
     const units = this.targets.map((t) => ({
       role: 'extractor',
       spec: () => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }, ...this.targetFileRefs(t.id)] }),
@@ -475,12 +476,13 @@ export class Run {
         const inv = readInventory(ret);
         latestIds.set(t.id, { properties: idsOf(inv?.data, 'properties'), elements: idsOf(inv?.data, 'elements') });
       },
+      onAccept: () => { accepted.add(t.id); },
       check: (ret) => {
         const outs = ret.outputs.filter((o) => o.kind === 'inventory');
         if (outs.length !== 1) return { defects: [defect('other', 'inventory-count', `inventory が ${outs.length} 個（ちょうど 1 つ）`)], value: null };
         const inv = readInventory(ret);
         if (!inv) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
-        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: earlierIds(t.id, 'properties'), otherElementIds: earlierIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id) });
+        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: otherIds(t.id, 'properties'), otherElementIds: otherIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id) });
         return { defects, value: inv };
       },
       accept: (last) => {
