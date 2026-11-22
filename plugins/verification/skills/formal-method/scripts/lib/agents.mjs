@@ -18,6 +18,8 @@ export const WORKFLOW_SCRIPT = join(SKILL_DIR, '..', '..', 'workflows', 'formal-
 // 返り値の JSON Schema は schemas.mjs の型から導く（値・列挙の正本は schemas.mjs）。
 const RETURN_TYPES = { author: AuthorReturn, review: ReviewReturn, cause: CauseReturn };
 const returnKindOf = (task) => (task.context.perspective ? 'review' : task.role === 'cause-analyst' ? 'cause' : 'author');
+// task の返り値の形。claim と submit の next は、これを役ごとに 1 度だけ応答の最上位に置く（return_schemas）
+export const returnSchemaOf = (task) => jsonSchemaOf(RETURN_TYPES[returnKindOf(task)]);
 
 // input_refs の指紋（artifact-formats.md「ディレクトリの ref の指紋」）: ファイルはそのまま 1 つ、ディレクトリはその下の全てのファイルに
 // 展開する。並びは input_refs の要素の順で、1 つのディレクトリの中だけを ref の UTF-8 のバイト列の辞書順に並べる。読めないファイルと、
@@ -107,7 +109,6 @@ export function makeTask(run, spec) {
       candidates: spec.candidates ?? [], subject: spec.subject ?? null,
     },
   };
-  task.return_schema = jsonSchemaOf(RETURN_TYPES[returnKindOf(task)]);
   return { task, inputRefs: inputRefs.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: [...x.spans] } : {}) })) };
 }
 

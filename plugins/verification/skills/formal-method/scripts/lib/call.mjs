@@ -3,10 +3,11 @@
 // 担当の受理は submit の照合で決まり、司令塔の close は Workflow の返り値（起動の記録と tokens）を記録して呼び出しを閉じるだけである。
 // 台帳と run の状態を書くのは run-daemon だけで、役と client は依頼のファイルを公開するだけ（Lock.tla・salvage の前提）。
 // 1 体の worker は 1 つ以上の担当（task）を持つ。claim はその worker の出し終えていない担当を全て返し、submit は担当ごとに受理か拒否を返す。
+// 差し戻しの無い submit の応答は、同じ claim の規則で次に出す担当を next に持つ（担当は終わりの claim を流さない）。
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { collectReturn, expandRefHashes, makeTask, WORKFLOW_SCRIPT } from './agents.mjs';
+import { collectReturn, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
 import { ROLES } from './roles.mjs';
 import { AGENT_BATCH_MAX, CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
@@ -243,16 +244,11 @@ function handle(ctx, req, name) {
   if (refuse) return refuse;
   const late = Date.now() >= ctx.deadline;
   if (req.command === 'claim') {
-    let hs = held(w);
-    if (!hs.length) {
-      if (!w.entries.some((e) => !e.state && !e.result)) return { ok: true, done: true };
-      if (late) return refusal('deadline_passed', `呼び出し ${ctx.callId} の期限（deadline_wall_ms ${ctx.deadline}）を過ぎた。worker を終える`);
-      hs = take(ctx, w);
-      if (!hs.length) return { ok: true, done: true };
-    } else if (late) return refusal('deadline_passed', `呼び出し ${ctx.callId} の期限（deadline_wall_ms ${ctx.deadline}）を過ぎた。worker を終える`);
+    const c = claimNext(ctx, w, late);
+    if (c.refuse) return c.refuse;
+    if (c.done) return { ok: true, done: true };
     w.claims += 1;
-    for (const s of hs) s.claimed = true;
-    return { ok: true, done: false, tasks: hs.map((s) => claimed(ctx, s)), shared_inputs: sharedInputs(ctx, hs) };
+    return { ok: true, ...workerFields(ctx, w), ...batchOf(ctx, c.hs) };
   }
   if (req.command === 'query') {
     const s = w.entries.map((e) => e.state).find((x) => x && x.claimed && x.task.task_id === req.task_id);
@@ -276,22 +272,23 @@ function handle(ctx, req, name) {
     return { ok: true, task_id: s.task.task_id, inputs };
   }
   if (req.command === 'submit') {
-    const mine = w.entries.map((e) => e.state).filter((x) => x && x.claimed);
+    const mine = claimedOf(w);
     if (!mine.length) return refusal('outside_task', 'この worker は担当を取っていない（claim を先に流す）');
     // 担当が見ていない前の応答（応答の待ちの上限 no_response の後か、応答を書けなかった）があり、その後に取った担当の attempt の領域
     // （result_path を含む）が 1 つも変わっていなければ、照合し直さず前の応答を返す。同じ submit の流し直しで、提出の回数と結果が変わらない
     // （期限の後でも、期限の前の提出の応答を返す）。見た応答の後の同じ提出は、直せなかった提出として照合する（欠陥が減らなければ受理する）
-    const sigOf = () => JSON.stringify(mine.map((s) => [s.task.task_id, attemptHashes(ctx.run, s)]));
+    // 取った担当は呼ぶたびに数え直す（この submit の next で取った担当も、次の流し直しの照らし合わせに入れる）
+    const sigOf = () => JSON.stringify(claimedOf(w).map((s) => [s.task.task_id, attemptHashes(ctx.run, s)]));
     const sig = sigOf();
     // 前の応答を返したときも、この流し直しの依頼の時刻で見たかを決め直す（この応答も見られなければ、次の流し直しにも同じ応答を返す）
     if (w.lastSubmit && w.lastSubmit.unseen && w.lastSubmit.sig === sig) { w.lastSubmit.unseen = unseenNow(name); return w.lastSubmit.response; }
     const hs = mine.filter((s) => !s.done);
-    if (!hs.length) return { ok: true, results: mine.map((s) => result(s, s.ok, [])) };
+    if (!hs.length) return withNext(ctx, w, late, { ok: true, results: mine.map((s) => result(s, s.ok, [])) });
     if (late) return refusal('deadline_passed', `呼び出し ${ctx.callId} の期限（deadline_wall_ms ${ctx.deadline}）を過ぎたので、提出を受け付けない`);
     w.submits += 1;
     // 照合するのは、返り値があり、前の照合から attempt の領域が変わった担当。無ければ出し終えていない全ての担当を照合する（無い返り値を返す）
     const fresh = hs.filter((s) => existsSync(s.task.result_path) && attemptHashes(ctx.run, s) !== s.evalSig);
-    const response = { ok: true, results: (fresh.length ? fresh : hs).map((s) => submit(ctx, s)) };
+    const response = withNext(ctx, w, late, { ok: true, results: (fresh.length ? fresh : hs).map((s) => submit(ctx, s)) });
     w.lastSubmit = { sig: sigOf(), response, unseen: unseenNow(name) };
     return response;
   }
@@ -300,6 +297,48 @@ function handle(ctx, req, name) {
 
 // 束の担当の資料のファイルごとのバイト数。item.files（refFiles）が無ければ、item.bytes をその担当だけのファイル 1 つとして数える
 const filesOfEntry = (e) => e.item.files ?? new Map([[`#item-${e.i}`, e.item.bytes ?? 0]]);
+
+const deadlinePassed = (ctx) => refusal('deadline_passed', `呼び出し ${ctx.callId} の期限（deadline_wall_ms ${ctx.deadline}）を過ぎた。worker を終える`);
+const claimedOf = (w) => w.entries.map((e) => e.state).filter((x) => x && x.claimed);
+
+// claim の規則（claim と submit の next が使う）: 出し終えていない担当を全て返し、無ければ次に出せる担当を作って返す
+// （依存する担当が閉じた後の担当、束の worker なら次の束）。出せる担当も無ければ done。返す担当は取った担当にする。
+// 戻り値は { refuse }（期限の後）・{ done: true }・{ hs } のどれか。
+function claimNext(ctx, w, late) {
+  let hs = held(w);
+  if (!hs.length) {
+    if (!w.entries.some((e) => !e.state && !e.result)) return { done: true };
+    if (late) return { refuse: deadlinePassed(ctx) };
+    hs = take(ctx, w);
+    if (!hs.length) return { done: true };
+  } else if (late) return { refuse: deadlinePassed(ctx) };
+  for (const s of hs) s.claimed = true;
+  return { hs };
+}
+
+// 差し戻し（done: false）の無い submit の応答に next を足す。中身は claim の応答の done・tasks・shared_inputs と return_schemas。
+// claim が期限の後で拒むとき（受理の後の同じ submit が期限の後に届いた）は、出せる担当が無いので done: true とする
+function withNext(ctx, w, late, response) {
+  if (response.results.some((r) => !r.done)) return response;
+  const c = claimNext(ctx, w, late);
+  return { ...response, next: c.hs ? batchOf(ctx, c.hs) : { done: true } };
+}
+
+// claim と next が返す担当の束: task（artifact-formats.md「claim の Task」）と、役ごとに 1 つの返り値の形と、共有の資料
+function batchOf(ctx, hs) {
+  const schemas = {};
+  for (const s of hs) if (!Object.hasOwn(schemas, s.task.role)) schemas[s.task.role] = returnSchemaOf(s.task);
+  return { done: false, return_schemas: schemas, tasks: hs.map((s) => ({ ...s.task })), shared_inputs: sharedInputs(ctx, hs) };
+}
+
+// claim の応答の最上位に 1 度だけ置く、worker で 1 つの値（cli-contract.md「依頼と応答」）。query は <query_cmd> <task_id> で流す。
+// scratch_dir は worker の作業用の領域で、claim の時点で作る。task の attempt の領域の外なので受理の照合に入らず、台帳にも登録しない
+function workerFields(ctx, w) {
+  const base = { run_dir: ctx.run.runDir, call_id: ctx.callId, worker: w.id };
+  const scratch = join(ctx.run.runDir, 'attempts', `${ctx.callId}-${w.id}`);
+  try { mkdirSync(scratch, { recursive: true }); } catch (e) { ctx.run.saveFailed('worklog', relative(ctx.run.runDir, scratch), `worker の scratch_dir を作れない（${e.code ?? e.message}）`); }
+  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratch };
+}
 
 // 出し終えた後の claim で、次に返す担当を作る。中断の理由があれば新しい担当を出さない。
 function take(ctx, w) {
@@ -342,12 +381,6 @@ function sharedInputs(ctx, hs) {
   }
   const pathOf = pathOfRun(ctx.run);
   return [...by].filter(([, ts]) => ts.length >= 2).map(([ref, ts]) => ({ ref, path: pathOf(ref), tasks: ts }));
-}
-
-// claim が返す Task（artifact-formats.md「claim の Task」）。資料は query で引く。
-function claimed(ctx, s) {
-  const base = { run_dir: ctx.run.runDir, call_id: ctx.callId, worker: s.worker.id };
-  return { ...s.task, query_cmd: cliCommand(CLI_PATH, 'query', { ...base, task_id: s.task.task_id }), submit_cmd: cliCommand(CLI_PATH, 'submit', base) };
 }
 
 // 1 つの担当の提出の照合: 返り値の形（collectReturn）と、確認役なら追加の照合（expect）、作成役なら段の照合（check）。

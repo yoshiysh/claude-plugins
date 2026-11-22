@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // formal-method の決定的な CLI（cli-contract.md「呼び方と入力の口」「コマンド」「誤りと終了コード」）。
-// 引数は 1 語、入力は標準入力の 1 つの JSON、出力は標準出力の 1 行の JSON。run-daemon は start が起動する内部のコマンド。
+// 引数は 1 語（query だけ 2 語目に task_id を受ける）、入力は標準入力の 1 つの JSON、出力は標準出力の 1 行の JSON。run-daemon は start が起動する内部のコマンド。
 import { statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { start } from './lib/start.mjs';
@@ -72,12 +72,18 @@ async function main() {
     await runDaemon({ runId: argv[1], nonce: argv[2], tmpDir: argv[3] });
     return;
   }
-  if (argv.length !== 1) { contractError('引数はコマンドの 1 語だけ'); return; }
   const command = argv[0];
+  // 2 語目を受けるのは query の task_id だけ（claim が返す worker で 1 つの query_cmd に足して流す。cli-contract.md「呼び方と入力の口」）
+  if (argv.length !== 1 && !(argv.length === 2 && command === 'query')) { contractError('引数はコマンドの 1 語だけ（query は 2 語目に task_id を受ける）'); return; }
   if (!COMMANDS.includes(command)) { contractError(`未知のコマンド: ${command}`); return; }
   const text = await readStdin();
   let input;
   try { input = JSON.parse(text); } catch { contractError('標準入力が JSON でない'); return; }
+  if (argv.length === 2) {
+    // 標準入力にも task_id があれば、どちらの task か決まらないので入力の形に合わないとする。2 語目の形は下の shapeOk が照らす
+    if (!isPlain(input) || Object.hasOwn(input, 'task_id')) { reject(command, 'E_INPUT', 'コマンドの入力の形に合わない（2 語目の task_id と標準入力の task_id の両方がある）', { reason: 'shape' }); return; }
+    input = { ...input, task_id: argv[1] };
+  }
   if (!shapeOk(command, input)) { reject(command, 'E_INPUT', 'コマンドの入力の形に合わない', { reason: 'shape' }); return; }
   if (command !== 'start' && (!isAbsolute(input.run_dir) || !isDir(input.run_dir))) {
     reject(command, 'E_INPUT', 'run_dir のディレクトリが無い', { reason: 'run_dir_not_found' });
@@ -97,7 +103,7 @@ async function main() {
 // 捕まえていない例外も、終了コード 1 と 1 つの JSON で返す（cli-contract.md「誤りと終了コード」の E_INTERNAL）。
 main().catch((e) => {
   process.stderr.write(`formal-method-cli: ${e && e.stack ? e.stack : e}\n`);
-  const command = COMMANDS.includes(process.argv[2]) && process.argv.length === 3 ? process.argv[2] : null;
+  const command = COMMANDS.includes(process.argv[2]) && (process.argv.length === 3 || (process.argv.length === 4 && process.argv[2] === 'query')) ? process.argv[2] : null;
   const text = String(e && e.message ? e.message : e).slice(0, 300) || '予期しない誤り';
   emit({ ok: false, command, code: 'E_INTERNAL', reason: `CLI の処理が予期しない誤りで続けられない: ${text}`, detail: null }, 1);
 });
