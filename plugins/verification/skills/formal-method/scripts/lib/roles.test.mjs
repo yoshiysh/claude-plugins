@@ -4,9 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { AGENT_PERMISSIONS_CONTRACT } from '../test-fixtures/ledger-check.mjs';
+import { WORKFLOW_SCRIPT } from './agents.mjs';
 
 const loadRoles = () => import('./roles.mjs');
-const WORKFLOW_TEXT = () => readFileSync(new URL('../formal-method-agents.js', import.meta.url), 'utf8');
+const WORKFLOW_TEXT = () => readFileSync(WORKFLOW_SCRIPT, 'utf8');
 
 // architecture.md「担当の起動」の手順 1〜3。成り立てば { value }、成り立たなければ { error }（手順 4 の不一致）
 function readRequirements(text) {

@@ -188,6 +188,7 @@ test('every name-form Workflow callsite has an explicit semantic portability cla
   const expected = new Map([
     ['skill-creator:skill-creator-build', 'portable'],
     ['skill-creator:skill-creator-review', 'portable'],
+    ['verification:formal-method-agents', 'workspace-write supported'],
   ])
   // prd-spec は classification 行を持たず、Codex 経路は plugins/workflow/skills/prd-spec/tests/test_codex_runner.py が実行で検証する。
   const exempt = new Set(['workflow:prd-spec-run'])

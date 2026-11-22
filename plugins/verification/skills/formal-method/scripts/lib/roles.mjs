@@ -22,7 +22,7 @@ export const ROLES = Object.freeze({
   'cause-analyst': role(CONFIRMER, 'agents/cause-analyst.md'),
 });
 
-// 担当に与える権限。Workflow script（scripts/formal-method-agents.js）の meta.requirements と同じ値（roles.test.mjs が照らす）。
+// 担当に与える権限。Workflow script（plugin の workflows/formal-method-agents.js。置き場は agents.mjs の WORKFLOW_SCRIPT）の meta.requirements と同じ値（roles.test.mjs が照らす）。
 export const AGENT_PERMISSIONS = Object.freeze(['fresh-thread', 'workspace-write']);
 
 export const OBLIGATIONS = 'references/agent-obligations.md';

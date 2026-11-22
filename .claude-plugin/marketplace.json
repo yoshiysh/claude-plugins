@@ -40,6 +40,10 @@
         {
             "name": "strata",
             "source": "./plugins/strata"
+        },
+        {
+            "name": "verification",
+            "source": "./plugins/verification"
         }
     ]
 }

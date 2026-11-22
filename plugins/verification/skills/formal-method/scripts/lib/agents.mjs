@@ -12,7 +12,8 @@ import { sha256Bytes } from './canonical.mjs';
 import { cmpBytes } from './checks/common.mjs';
 
 const SKILL_DIR = fileURLToPath(new URL('../../', import.meta.url));
-export const WORKFLOW_SCRIPT = join(SKILL_DIR, 'scripts', 'formal-method-agents.js');
+// Workflow script の置き場は plugin の workflows/（skill-creator-best-practices の best-practices.md §13「script の置き場」）。
+export const WORKFLOW_SCRIPT = join(SKILL_DIR, '..', '..', 'workflows', 'formal-method-agents.js');
 
 // 返り値の JSON Schema は schemas.mjs の型から導く（値・列挙の正本は schemas.mjs）。
 const RETURN_TYPES = { author: AuthorReturn, review: ReviewReturn, cause: CauseReturn };

@@ -1,0 +1,11 @@
+{
+    "name": "verification",
+    "version": "0.1.1",
+    "description": "要求・仕様・コードを形式手法などで機械的に検証するスキル群",
+    "author": {
+        "name": "yoshiysh"
+    },
+    "dependencies": [
+        "workflow"
+    ]
+}

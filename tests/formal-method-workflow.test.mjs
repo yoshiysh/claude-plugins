@@ -1,4 +1,4 @@
-// formal-method の Workflow script（scripts/formal-method-agents.js）を、native と同じ注入（agent・parallel・pipeline・phase・log・args・budget）で流す。
+// formal-method の Workflow script（plugins/verification/workflows/formal-method-agents.js）を、native と同じ注入（agent・parallel・pipeline・phase・log・args・budget）で流す。
 // 契約: artifact-formats.md「Workflow の返り値」（{agents, tokens} だけ）、SKILL.md「担当の起動」（args は call.args_path の JSON のまま）。
 // 役は偽物で、prompt に書かれた claim の命令（run の領域の入口）を読むだけで、CLI は流さない。
 import test from 'node:test'
@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-const WF = path.resolve(import.meta.dirname, '../.agents/skills/formal-method/scripts/formal-method-agents.js')
+const WF = path.resolve(import.meta.dirname, '../plugins/verification/workflows/formal-method-agents.js')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const BODY = readFileSync(WF, 'utf8').replace(/^export const meta = /, 'const meta = ')
 const runBody = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', BODY)

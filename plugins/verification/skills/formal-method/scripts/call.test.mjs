@@ -10,7 +10,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { Run } from './lib/run.mjs';
 import { LAUNCHER, SUBMITS_MAX, markUnseen, packByUnion, runCall, sq, unionBytes, unwrap } from './lib/call.mjs';
-import { refFiles, expandRefHashes } from './lib/agents.mjs';
+import { refFiles, expandRefHashes, WORKFLOW_SCRIPT } from './lib/agents.mjs';
 import { mergeSpans, fileLines, spanText } from './lib/target-refs.mjs';
 import { execFileSync } from 'node:child_process';
 import { close, workerCall } from './lib/client.mjs';
@@ -80,7 +80,7 @@ test('cli-contract 依頼と応答 SP-FORMALMETHOD-015 args: run_agents の call
   const p = callOf(run, '確認', [{ spec: reviewSpec() }, { spec: authorSpec(), check: () => ({ defects: [], value: null }) }]);
   const call = await waitOpen(run.runDir);
   assert.deepEqual(Object.keys(call).sort(), ['args_path', 'call_id', 'deadline_wall_ms', 'workflow_script']);
-  assert.ok(call.workflow_script.endsWith('/scripts/formal-method-agents.js'));
+  assert.equal(call.workflow_script, WORKFLOW_SCRIPT);
   const args = JSON.parse(readFileSync(call.args_path, 'utf8'));
   assert.deepEqual(Object.keys(args).sort(), ['callId', 'stage', 'state', 'workers']);
   assert.deepEqual([args.state, args.callId, args.stage], [run.runDir, call.call_id, '確認']);

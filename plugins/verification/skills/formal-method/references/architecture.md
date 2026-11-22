@@ -45,7 +45,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 依頼者が確認事項に答えて決めたことは次のとおり。
 
 - 文書の一般規約は同梱する。正本は `docs/guidelines/documentation.md` とする（[作業記録と記録台帳](#作業記録と記録台帳)）。
-- 配布先は、今は Claude Code だけとする（依頼者の決定）。Codex での動作は未検証として記録し、公開のときに実測して扱いを決める（[未検証と限界](#未検証と限界)）。
+- 配布先は Claude Code と Codex とする（依頼者の決定。公開のときに、native の `Workflow` が無い Codex で `workflow:dynamic-workflow-runner` を使う経路を足すと決めた）。Codex での動作は実測しておらず、未検証として記録する（[未検証と限界](#未検証と限界)）。
 - CPU とメモリの上限は持たない（要求と仕様の対象外。上限を守れるかが実行環境に依存するため）。
 - 初回とキャッシュの区別は持たない。要求・仕様からは外した。
 
@@ -243,7 +243,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 呼び出しを開く前に担当を出さないと決めた（中断の理由・期限・呼び出しの記録を書けない）ときも、閉じた時点で結果を渡す担当には、出さなかった結果を渡す（分割・計画・変異を `artifacts_not_created` に載せる）。
   - 依存つきの task を出さなかったときは、依存する task が呼び出しの間に閉じたかで理由を分ける（閉じる前に呼び出しが閉じた、又は閉じた後に worker が `claim` しなかった）。
 - 役ごとの model・effort の正本は `scripts/lib/roles.mjs` の 1 箇所とする。担当に与える権限（台帳の `permissions`）の正本も同じ module の `AGENT_PERMISSIONS`（`["fresh-thread", "workspace-write"]`）とする。
-  - Workflow script（`scripts/formal-method-agents.js`）は CLI の module を import できないので、`meta.requirements` に同じ値を書く。一致は unit（`scripts/lib/roles.test.mjs`）が照らす。`AGENT_PERMISSIONS` は import する。Workflow script は import せず、ファイルの本文を次の規則で読む。
+  - Workflow script（plugin の `workflows/formal-method-agents.js`。CLI は `scripts/lib/agents.mjs` の `WORKFLOW_SCRIPT` で置き場を持つ）は CLI の module を import できないので、`meta.requirements` に同じ値を書く。一致は unit（`scripts/lib/roles.test.mjs`）が照らす。`AGENT_PERMISSIONS` は import する。Workflow script は import せず、ファイルの本文を次の規則で読む。
     1. `meta` の範囲は、行頭の `export const meta = {` の行から、次の `}` だけの行まで。
     2. その範囲の行のうち、`^\s*requirements:\s*\[([^\]]*)\],?\s*$` に当たる行がちょうど 1 つある。
     3. 捕まえた中身を `,` で分け、各要素の前後の空白を除いたものが全て `^'[a-z-]+'$` に当たる。引用符を除いた並びを値とする。
@@ -261,7 +261,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - Workflow script は判断しない（coverage-audit の `coverage-audit.js` の起動部の型）。
   - `workers` の行ごとに担当を 1 体、行の model・effort で起動し、手順（claim → query → 書く → submit → 直して同じ submit → done まで）だけを prompt に置く。
   - 返すのは `{agents, tokens}` だけである。`tokens` は本体の始めと終わりの `budget.spent()` の差で、取れなければ null。担当の結論は Workflow の返り値に載らない。
-- 実行環境: 担当は native の Workflow で起動する。native の `Workflow` が無い環境では、司令塔は担当を起動せずに `close` に `timed_out: true` を入れる（`SKILL.md` の担当の起動）。その呼び出しの担当は取られないので `担当の失敗` になり、成果物は未作成になる。`workflow:dynamic-workflow-runner` への切り替え（`repository-operations.md`「実行と環境」）は実装しておらず、検証もしていない（[未検証と限界](#未検証と限界)の配布先）。
+- 実行環境: 担当は native の Workflow で起動する。native の `Workflow` が無い Codex では、`workflow:dynamic-workflow-runner` で同じ名前の Workflow を起動する（`SKILL.md` の担当の起動。`repository-operations.md`「実行と環境」）。runner は host が `workspace-write` を設定したときだけ担当を起動する。runner も使えないときは、司令塔は担当を起動せずに `close` に `timed_out: true` を入れる。その呼び出しの担当は取られないので `担当の失敗` になり、成果物は未作成になる。runner の経路は実測していない（[未検証と限界](#未検証と限界)の配布先）。
 - 独立検証者への入力は、原典・固定した成果物・検査の記録の参照だけにする。作成役の作業記録・attempt の領域のディレクトリは渡さない（「独立した確認」の定義）。
 - 担当の返り値が欠けた、形が違う、期限の後に届いた場合は、成功に数えず、停止の理由 `担当の失敗` をその task の `context.stage` を段として記録する（正本は `artifact-formats.md` の担当の返り値）。
   - その担当が作るはずの成果物は未作成になる。
@@ -918,10 +918,12 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
 - **CPU とメモリ**: 上限を持たない（要求・仕様の対象外）。同時に動かす数は内部の選択で、実行環境の CPU の数を超えない。メモリの使い方は記録するだけで、守らない。
 - **ホストの時間の上限**: 前景の 1 回の呼出しは `CALL_MAX_MS` 以内に返る。ホストの上限が `CALL_MAX_MS` + `CALL_MARGIN_MS` より短い環境は対象外とする。Codex の上限は確かめていない。
 - **配布先と detach**（設計の前提）:
-  - 配布先は、今は Claude Code だけとする（依頼者の決定）。
+  - 配布先は Claude Code と Codex とする（依頼者の決定）。Codex では、native の `Workflow` が無ければ `workflow:dynamic-workflow-runner` で担当を起動する。
   - 確かめた範囲: Claude Code（デスクトップ、macOS arm64、2026-11-08）の Bash で、Node から `detached: true` と `unref()` で起動した process は、前景のコマンドが終わった後も生き続けた。親は pid 1、process group は自分の pid だった。
   - 確かめていない範囲: session の終了やアプリの終了の後も生きるか、Linux での振る舞い。終了で殺される場合は、`wait` が `E_STALE` を観測し、salvage が保存済みの範囲で結果を作る（設計の範囲内の振る舞い）。
-  - **Codex**: 未検証である。コマンドの時間の上限と、detach した process の扱いを、公式の文書でもリポジトリ内の記述でも確かめられなかった。公式でない資料には、コマンドの timeout で process group に SIGKILL を送る修正が見えるが、既定の上限の値は食い違う。公開のときに実測して扱いを決める（依頼者の決定）。
+  - **Codex**: 未検証である。コマンドの時間の上限と、detach した process の扱いを、公式の文書でもリポジトリ内の記述でも確かめられなかった。公式でない資料には、コマンドの timeout で process group に SIGKILL を送る修正が見えるが、既定の上限の値は食い違う。公開のときに runner の経路を足したが、実測はしていない。
+    - runner の CLI の出力の包み（`{status, runDir, result}`）は `unwrap` が外さないので、runner の経路の `close` では起動の記録と tokens が残らない（`close` の照合は形の違いを記録するだけで、担当の `submit` で受理された成果物は失われない）。
+    - runner は担当の `model`・`effort` を host の `modelMap` で Codex のモデルへ写す。作成役と確認役を別のモデルにする（`roles.mjs`）ことは、host の `modelMap` が別のモデルを当てたときだけ成り立つ。
 - **ホストに殺された `start` の `.tmp-*`**: `start` がホストに殺されると、自分が起動した process の一時の領域を消す者がいない。残った `.tmp-*` は誰も消さない。`.tmp-*` は run としても結果としても扱わないので、結果は増えない。
 - **Z3 の出力の実測**: macOS arm64・Z3 5.3.3 だけで測った。Linux では未測定である。
 - **salvage の所要時間**: salvage の結果を決定的に作るため、salvage の所要時間と run 全体の所要時間は `取得できず` と理由で記録する。

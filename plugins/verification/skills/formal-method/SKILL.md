@@ -29,7 +29,7 @@ description: >
 
 判断を司令塔の散文に置くと、読む者ごとに停止の条件や期限の確かめ方が変わる。そのため、決定的に書ける判断は全て CLI が持ち、司令塔は中継だけをする。
 
-配布先は今は Claude Code だけである。Codex での動作は確かめていない（[設計の未検証と限界](references/architecture.md#未検証と限界)）。
+配布先は Claude Code と Codex である。native の `Workflow` が無い Codex では、担当の起動に `workflow:dynamic-workflow-runner` を使う（[担当の起動](#担当の起動)）。Codex での動作は実測していない（[設計の未検証と限界](references/architecture.md#未検証と限界)）。
 
 **用語**
 
@@ -131,15 +131,23 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 
    ```js
    Workflow({
-     scriptPath: "[SKILL_DIR]/scripts/formal-method-agents.js",
+     name: "verification:formal-method-agents",
      args: <args_path の JSON をそのまま>
    })
    ```
 
+   > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら native を 1 回だけ使う。
+   > native 試行後の失敗は runner へ fallback しない（その呼び出しは下の 4 の「それ以外」で閉じる）。`close` の入力の決定と停止はこの caller が持ち、runner 内 gate に移さない。
+   > **Codex classification: `workspace-write supported`**（担当は `fresh-thread` と `workspace-write` を要する（`meta.requirements`、正本は `scripts/lib/roles.mjs` の `AGENT_PERMISSIONS`）。runner は host が `workspace.mode: "workspace-write"` を設定したときだけ `workspace-write` を提供し、無ければ担当を 1 体も起動せずに `unsupported_runtime` で止まる。Codex での live の実行は実測していない）。
+   >
+   > native Workflow が現在の tool inventory に無い Codex では、この active callsite から `workflow:dynamic-workflow-runner` を内部利用する。native を試行して失敗した call は runner で実行し直さない。ユーザーに runner の指定を要求しない。
+   > host はこの verification plugin の canonical root を `trustedPluginRoots` に明示し、runner の名前付き実行契約（workflow plugin の runner に同梱の `NAMED.md`）の request 形式と照合・上限に従う。ゲートの返却・回答・保存はこの caller が持つ。
+   > request は `name` = `verification:formal-method-agents`、`args` = `args_path` の JSON をそのまま、`cwd` = 依頼の作業ツリー（run の領域 `.formal-method/runs/` がその下にある）、`workspace: {"mode": "workspace-write"}`、`requirements: ["fresh-thread", "workspace-write"]`、`modelMap` に `opus` と `sonnet`（作成役と確認役を別のモデルにするので、別の Codex のモデルを当てる）、新しい `runDir` とする。`limits` の `maxAgents` は workers の行の数以上、`timeoutMs` は `deadline_wall_ms` までの残りの時間以下にする。
+
 3. 同時に、`deadline_wall_ms` までの待ちの command を background で起動する（[待ち方](#cli-の呼び方と-timeout)）。
 4. 先に届いた通知で、`close` の入力を次のどちらか 1 つに決める。
-   - **Workflow の完了が先に届き、その通知が返り値の JSON を収めたファイルの path を示した**: `workflow_output_path` にその path を入れる。通知のファイルは、ホストが返り値を包んだ形（`{summary, agentCount, logs, result}`）のままでよい（CLI が包みを外す）。
-   - **それ以外**（待ちの command が先に終わった、Workflow が起動しなかった、途中で終わった、通知に返り値のファイルの path が無い、native の `Workflow` が無い）: `timed_out: true` を入れる。動いている Workflow は止める。
+   - **Workflow の完了が先に届き、その通知が返り値の JSON を収めたファイルの path を示した**: `workflow_output_path` にその path を入れる。通知のファイルは、ホストが返り値を包んだ形（`{summary, agentCount, logs, result}`）のままでよい（CLI が包みを外す）。runner の経路では、runner の CLI が `completed` で終わったときの標準出力（`{status, runDir, result}`）を収めたファイルの path を入れる。
+   - **それ以外**（待ちの command が先に終わった、Workflow が起動しなかった、途中で終わった、通知に返り値のファイルの path が無い、native の `Workflow` が無く runner も使えない（runner が無い、`unsupported_runtime` などで止まった、`completed` で終わらなかった））: `timed_out: true` を入れる。動いている Workflow は止める。
 5. `close` を 1 回だけ呼ぶ。後から届いたもう一方の通知では呼び直さない。同じ `call_id` の `close` を 2 回呼ぶと `duplicate` が返り、2 回目は使われない。
    - `close` は呼び出しを閉じ、起動の記録と tokens を残すだけである。担当の成果物は担当の `submit` で既に受理されているので、`timed_out: true` で閉じても、受理された成果物は失われない。
 
@@ -212,7 +220,7 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 - 対象は run の間固定している前提で、集約の段で 1 度だけ、読み直した指紋と担当の `query` の時点の指紋を受付の指紋と照らす（違えば停止の理由 `対象の変化` で、そのファイルとそれを出所に持つ性質を検証済みとして出さない）。途中で変わって元に戻り、その間に `query` が無ければ見つけられない。担当が渡された行の範囲の外を読まないことは、担当の義務だけで守る。
 - Z3 の出力の流れと終了コードは、macOS arm64・Z3 5.3.3 でだけ測った。Linux では測っていない。
 - `run-daemon` の detach は、Claude Code のデスクトップ（macOS arm64）で前景のコマンドの終了後も生きることだけを確かめた。session やアプリの終了の後と Linux での振る舞いは確かめていない。
-- Codex での動作（コマンドの時間の上限、detach した process の扱い、Workflow の実行）は確かめていない。
+- Codex での動作（コマンドの時間の上限、detach した process の扱い、runner の経路の Workflow の実行）は実測していない。CLI は runner の CLI の出力の包み（`{status, runDir, result}`）を外さないので、runner の経路の `close` では起動の記録と tokens が残らない（担当が `submit` で出した成果物は失われない）。
 
 ## 参照
 
