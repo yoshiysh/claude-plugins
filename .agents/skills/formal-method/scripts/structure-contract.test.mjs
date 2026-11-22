@@ -90,8 +90,8 @@ test('cli-contract 構造の契約: <run_id>/run.lock を消す呼出しは scri
   assert.deepEqual(vs, [], `違反:\n${report(vs)}`);
 });
 
-test('cli-contract 構造の契約: result.json・salvage.mark・salvage-ledger.json・salvage-worklog.json・inbox/<batch_id>.json を一時ファイルからの link でだけ作る', () => {
-  const vs = [...checkLinkOnly(sources(), LINK_ONLY), ...checkLinkOnly(sources(), ['inbox'])];
+test('cli-contract 構造の契約: result.json・salvage.mark・salvage-ledger.json・salvage-worklog.json・inbox/<call_id>.json・requests/<call_id>/<req_id>.json を一時ファイルからの link でだけ作る', () => {
+  const vs = [...checkLinkOnly(sources(), LINK_ONLY), ...checkLinkOnly(sources(), ['inbox', 'requests'])];
   assert.deepEqual(vs, [], `違反:\n${report(vs)}`);
 });
 

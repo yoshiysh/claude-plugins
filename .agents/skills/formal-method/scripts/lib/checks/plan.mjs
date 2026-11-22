@@ -5,6 +5,7 @@ import { MutationsFile, PlanFile, TOOL_TIME_LIMIT_MAX_S, validate } from '../sch
 import { hasCheckSat, smtViolations, ID as Z3_ID } from '../adapters/z3.mjs';
 import { noSuitableTool, RUNNABLE_TOOLS } from '../adapters/index.mjs';
 import { defect, readRunText } from './common.mjs';
+import { topAsserts } from './ablation.mjs';
 
 // ctx: { runDir, prefix（計画作成役の attempt の Ref の接頭辞）, models: [{ id, data }], partitions（採った PartitionsFile か null）,
 //        eligible: Set（形式化できる必要な性質で問いに依存しないもの）, blocked: Set（問いに依存する性質）, prepare（道具の準備の結果か null）, authorQueries: Set, smtBad: Map,
@@ -66,6 +67,8 @@ export function planCheck(plan, mutations, ctx) {
       else {
         if (mp.model_id !== c.model_id) out.push(defect('reference', `model:${c.id}`, `検査 ${c.id} の model_id ${c.model_id} が target のモデル ${mp.model_id} と違う`, { element: c.id }));
         if (mp.inv.some(notZ3)) out.push(defect('other', `not-z3:${c.id}`, `検査 ${c.id} の性質の chosen.tool が z3 でない`, { element: c.id }));
+        // 静的な確認は性質の query の節の印で検査の入力を切り取るので、検査の入力はその query を含む（含まなければ実行しない）
+        if (!c.input_refs.includes(mp.p.query_ref)) out.push(defect('reference', `input-query:${c.id}`, `検査 ${c.id} の input_refs に性質 ${c.target_id} の query ${mp.p.query_ref} が無い`, { element: c.id }));
       }
     } else {
       const x = c.kind === 'contract' ? contracts.get(c.target_id) : conds.get(c.target_id);
@@ -94,6 +97,7 @@ export function planCheck(plan, mutations, ctx) {
     const text = readRunText(ctx.runDir, m.mutation_ref);
     if (text === null) { out.push(defect('reference', `mutation-missing:${m.id}`, `変異 ${m.id} の mutation_ref が無い`, { element: m.id })); continue; }
     for (const v of smtViolations(text)) out.push(defect('syntax', `mutation-smt:${m.id}:${v}`, `変異 ${m.id} の ${m.mutation_ref}: ${v}`, { element: m.id }));
+    out.push(...mutationNameDefects(m, text, mps.get(m.property_id)?.p ?? null));
     const refs = [...det.input_refs.slice(0, -1)];
     const prev = refs.map((r) => readRunText(ctx.runDir, r));
     if (prev.some((t) => t === null || hasCheckSat(t))) out.push(defect('syntax', `mutation-checksat:${m.id}`, `変異 ${m.id} で (check-sat) を持つ input が最後の 1 つだけでない`, { element: m.id }));
@@ -117,6 +121,19 @@ export function planCheck(plan, mutations, ctx) {
     if (!plan.checks.some((c) => c.kind === kind && c.target_id === id)) out.push(defect('other', `missing-check:${id}`, `${kind === 'contract' ? '契約' : '合成の条件'} ${id} の検査が計画に無い`));
   }
   return { defects: out, valid: true, noTool, single };
+}
+
+// 変異は検出役の性質の query と同じ節の名前の集合を持つ（artifact-formats.md「plan と mutations」の変異のファイル）。
+function mutationNameDefects(m, text, mp) {
+  if (!mp) return [];
+  let asserts;
+  try { asserts = topAsserts(text); } catch { return []; }
+  const out = [];
+  if (asserts.some((a) => a.name === null)) out.push(defect('syntax', `mutation-unnamed:${m.id}`, `変異 ${m.id} の ${m.mutation_ref} に (assert (! <項> :named <name>)) の形でないトップレベルの assert がある`, { element: m.id }));
+  const got = asserts.filter((a) => a.name !== null).map((a) => a.name).sort();
+  const want = mp.clauses.map((c) => c.name).sort();
+  if (got.join('\n') !== want.join('\n')) out.push(defect('reference', `mutation-names:${m.id}`, `変異 ${m.id} の assert の名前（${got.join(', ')}）が性質 ${mp.id} の節の名前（${want.join(', ')}）と一致しない`, { element: m.id }));
+  return out;
 }
 
 // 「検査の欠け」の判定の正本（artifact-formats.md「plan と mutations」）。計画の照合と集約の両方が使う。

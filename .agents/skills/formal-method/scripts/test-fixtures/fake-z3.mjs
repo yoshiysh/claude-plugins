@@ -20,8 +20,16 @@
 //       secret:      real と同じで、String の値を秘密値の型（aws_access_key_id）の文字列にする（query には秘密値を書かない）
 //     model-text: JSON の文字列。-model を受けて答えが sat か unknown のとき、モデルとしてその文字列をそのまま出す（model より先に見る）
 //     model-sleep-ms: 答えの行とモデルの最初の行を書いた後、残りを書くまでの遅延（答えの後の停止を起こす）
+//     core:   空白で区切った節の名前（:named の名前）。query の (! … :named <名前>) にこの名前が 1 つでも欠ければ、節を切り取った
+//             静的な確認の query として、sleep-ms 以外の指示によらず ablated-result の答えを 1 行返す（終了コード 0。sleep-ms が -T を
+//             超えれば timeout）。全てあれば他の指示どおり。
+//             「前提だけで unsat」は core を前提と否定の名前に、「否定だけで unsat」は core を否定の名前にして作る
+//     ablated-result: core が欠けたときの答え（既定 sat）。unknown・timeout は答えの行としてそのまま返す
+//     answers: JSON の object。key は節の名前（:named）を辞書順に空白でつないだ文字列で、query の :named の名前の集合がちょうど key の
+//             集合のとき、その値で答える（core より先に見る。切り取った実行ごとに違う答えを返すため）。値は sat・unsat・unknown・timeout
+//             （答えの行。timeout の行は終了コード 0）、crash（何も書かずに終了コード 3）、syntax-error（(error …) の行と終了コード 1）
 //   wrapper の引数（make-fake-bin.mjs が付ける。CLI は付けない）
-//     --fake-mode=always-unsat  query の指示によらず unsat を返す（常に成功を返す道具）
+//     --fake-mode=always-unsat  query の指示（core を含む）によらず unsat を返す（常に成功を返す道具）
 //     --fake-log=<path>         呼出しごとに JSON の行を追記する（受け取った引数、環境変数の名前、時刻、query の指紋と注釈の行）
 import { appendFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -138,6 +146,32 @@ if (args.includes('-version')) {
     const modelText = pick('model-text');
     const modelSleep = Number(pick('model-sleep-ms') ?? 0);
     const timedOut = sleep > limitMs;
+    const answers = pick('answers');
+    if (answers !== null && !always) {
+      const key = [...new Set([...input.matchAll(/:named\s+([^\s()]+)/g)].map((m) => m[1]))].sort().join(' ');
+      const answer = JSON.parse(answers)[key];
+      if (answer !== undefined) {
+        log({ kind: 'query-start', query_sha256, labels, mode: 'answers', result: answer, sleep_ms: 0, with_model: withModel });
+        log({ kind: 'query-end', query_sha256, mode: 'answers', result: answer, model: null });
+        if (answer === 'crash') process.exit(3);
+        else if (answer === 'syntax-error') finish('(error "line 1 column 1: invalid command, symbol expected")\n', 1);
+        else finish(`${answer}\n`, 0);
+        return;
+      }
+    }
+    const core = pick('core');
+    if (core !== null && !always) {
+      const named = new Set([...input.matchAll(/:named\s+([^\s()]+)/g)].map((m) => m[1]));
+      if (core.split(/\s+/).some((n) => !named.has(n))) {
+        const answer = timedOut ? 'timeout' : (pick('ablated-result') ?? 'sat');
+        log({ kind: 'query-start', query_sha256, labels, mode: 'ablated', result: answer, sleep_ms: sleep, with_model: withModel });
+        setTimeout(() => {
+          log({ kind: 'query-end', query_sha256, mode: 'ablated', result: answer, model: null });
+          finish(`${answer}\n`, 0);
+        }, timedOut ? limitMs : sleep);
+        return;
+      }
+    }
     log({ kind: 'query-start', query_sha256, labels, mode, result, sleep_ms: sleep, with_model: withModel });
     setTimeout(() => {
       const answer = timedOut ? 'timeout' : result;

@@ -159,7 +159,7 @@ export function checkLockContract(files) {
   return violations;
 }
 
-// 構造の契約: result.json・salvage.mark・salvage-ledger.json・salvage-worklog.json・inbox/<batch_id>.json は
+// 構造の契約: result.json・salvage.mark・salvage-ledger.json・salvage-worklog.json・inbox/<call_id>.json・requests/<call_id>/<req_id>.json は
 // 一時ファイルからの link でだけ作る。これらの名前を指す書込み・rename・copy を違反とする。
 export const LINK_ONLY = ['result.json', 'salvage.mark', 'salvage-ledger.json', 'salvage-worklog.json'];
 export function checkLinkOnly(files, names = LINK_ONLY) {

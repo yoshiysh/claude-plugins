@@ -6,12 +6,12 @@ description: formal-method のモデル化の段で、CLI が洗い出しの後�
 
 inventory の性質を、道具で検査できる形式モデルにする。モデルが出所の意味を変えると、検査が成功しても対象については何も言えない（SP-FORMALMETHOD-005）。
 
-共通の義務（task.md の読み方、書く場所、返し方、作業記録）は、task.md の ROLE が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
 
 ## 読むもの
 
-- `context.input_refs` が指す資料: 受け付けた依頼、固定した inventory の全て、対象の写し。
-- `context.revise_defects_ref` があれば、CLI の照合が見つけた欠陥（未定義の参照、対応の欠け、query の構文など）。
+- `query` が渡す資料: 受け付けた依頼、固定した inventory の全て、対象の一覧（`manifest.json`）と対象のファイル（`path` は元のファイルの絶対パス。依頼の範囲が行を指せば `spans` の行だけ）。
+- `submit` の応答が `problems` を返したら、CLI の照合が見つけた欠陥（未定義の参照、対応の欠け、query の構文など）。同じ担当として直し、同じ `submit_cmd` を流し直す。
 - 語は [形式手法の知識](../references/formal-method-knowledge.md)。query の答えの読み方は [CLI 契約](../references/cli-contract.md#z3-の-adapter)。
 
 ## 読まないもの
@@ -24,7 +24,7 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
 
 ## 禁止
 
-- 自分のモデルを確認済みと書かない。意味の確認は忠実さ・保証の独立検証者が行う。
+- 自分のモデルを確認済みと書かない。意味の確認は忠実さの独立検証者が行う。
 - 検証の道具を実行しない。組合せを `許される`・`禁止された`・`対応できていない` に分けない（CLI が分ける）。
 - 台帳・状態・他の担当の領域に書かない。
 
@@ -39,11 +39,16 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
   - 目標・完了・停止・再開先を `goals` に書き、到達可能性の性質に結び付ける。
 - 状態遷移を扱わないなら `state_machine: null` とし、理由と入出力の契約（`io_contracts`）を書く。
 - 性質ごとに query を書く。性質の query は「前提 ∧ ¬性質」で `expected: "unsat"`。前提の整合・初期状態の存在・自明でない到達例を確かめる sanity の query（`sat` を期待）も書く。前提が矛盾すると、どの性質も成り立ってしまうためである。query は `(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/artifact-formats.md#担当の成果物)）。違反はモデル化の照合（query の構文の検査）で欠陥になり、修正の巡でこの役に戻る。
-- 性質ごとの `assurance` は、query が実際に調べる範囲で決める。有限化したなら `範囲を限った検査` と全ての境界を書き、`無界の証明` にしない。進行性には公平性の前提を書く。
+- 性質の query のトップレベルの assert は全て `(assert (! <項> :named <name>))` と書き、名前ごとに `clauses` に役を 1 つ書く（[節の名前](../references/artifact-formats.md#担当の成果物)）。CLI はこの名前で節を切り取り、性質が自明でないか・前提だけで結論が出ていないかを機械で確かめる。役を誤ると、その確認が意味を失う。
+  - `rule`: 出所の文が定める規則。`source_ids` に inventory の要素の id を 1 つ以上書く。
+  - `premise`: 規則でない前提（値の領域、環境の仮定など）。`basis` に `出所の文`・`外部の依存`・`作成役の仮定` のどれかを書き、`外部の依存` なら `external_dependency_id` に inventory の `external_dependencies[].id` を書く。
+  - `goal`: 性質の否定。1 つ以上。
+  - 名前の欠け・重なり、`clauses` に無い名前、出所の無い規則、知らない外部の依存はモデル化の照合で欠陥になり、修正の巡でこの役に戻る。
+- 性質ごとの `assurance` は、query が実際に調べる範囲で決める。有限化したなら `範囲を限った検査` と全ての境界を書き、範囲として扱う変数を `scope_variables` に query で宣言した名前で書く。範囲の変数が規則にも性質の否定にも現れなければ、CLI は保証が範囲を超えているとする。`無界の証明` にしない。進行性には公平性の前提を書く。
 - 対応表の行は、出所の要求・目標ごとに作る。形式化できるのに対応を作れない性質は、行を消さずに `relation: "対応なし"` と理由で残す。
 - 判断が要る不足は問いにし、依存する性質を `blocked_by_question` に入れる。
 
-形は [成果物の形式](../references/artifact-formats.md#担当の成果物) の `ModelFile`・`StateMachine`・`MappingFile`。
+形は [成果物の形式](../references/artifact-formats.md#担当の成果物) の `ModelFile`（`formal-method.model/2`）・`Clause`・`StateMachine`・`MappingFile`。
 
 ## 返り値
 

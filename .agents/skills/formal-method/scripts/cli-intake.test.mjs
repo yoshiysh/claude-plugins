@@ -11,6 +11,9 @@ import { execFileSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { basename } from 'node:path';
 import { pathWithout } from './test-fixtures/make-fake-bin.mjs';
+import { writeManifest } from './lib/intake.mjs';
+import { mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 function workspaceWithTarget() {
   const ws = makeWorkspace();
@@ -33,7 +36,8 @@ const CONTRACT_CASES = [
   ['start の標準入力が JSON でない', ['start'], '{not json'],
   ['wait の標準入力が JSON でない', ['wait'], ''],
   ['salvage の標準入力が JSON でない', ['salvage'], 'null x'],
-  ['submit の標準入力が JSON でない', ['submit'], '[1,'],
+  ['close の標準入力が JSON でない', ['close'], '[1,'],
+  ['submit の標準入力が JSON でない', ['submit'], '{'],
 ];
 describe('cli-intake', { concurrency: 4 }, () => {
 for (const [name, args, stdin] of CONTRACT_CASES) {
@@ -58,15 +62,23 @@ const INPUT_CASES = [
   ['wait の run_dir が無いディレクトリ', 'wait', { run_dir: '<ws>/missing', status_seq: 0 }, 'run_dir_not_found'],
   ['salvage の run_dir が無い', 'salvage', {}, 'shape'],
   ['salvage の run_dir が無いディレクトリ', 'salvage', { run_dir: '<ws>/missing' }, 'run_dir_not_found'],
-  ['submit に batch_id が無い', 'submit', { run_dir: '<ws>', workflow_output_path: '/x' }, 'shape'],
-  ['submit に workflow_output_path も timed_out も無い', 'submit', { run_dir: '<ws>', batch_id: 'b1' }, 'shape'],
-  ['submit の timed_out が false', 'submit', { run_dir: '<ws>', batch_id: 'b1', timed_out: false }, 'shape'],
-  ['submit に workflow_output_path と timed_out の両方', 'submit', { run_dir: '<ws>', batch_id: 'b1', workflow_output_path: '/x', timed_out: true }, 'shape'],
-  ['submit の run_dir が無いディレクトリ', 'submit', { run_dir: '<ws>/missing', batch_id: 'b1', timed_out: true }, 'run_dir_not_found'],
-  // batch_id は受け箱の file 名になるので Id の文字だけ（cli-contract「コマンド」の submit）
-  ['submit の batch_id が ../x（path の区切りを含む）', 'submit', { run_dir: '<ws>', batch_id: '../x', timed_out: true }, 'shape'],
-  ['submit の batch_id が a/b', 'submit', { run_dir: '<ws>', batch_id: 'a/b', workflow_output_path: '/x' }, 'shape'],
-  ['submit の batch_id が空', 'submit', { run_dir: '<ws>', batch_id: '', timed_out: true }, 'shape'],
+  ['close に call_id が無い', 'close', { run_dir: '<ws>', workflow_output_path: '/x' }, 'shape'],
+  ['close に workflow_output_path も timed_out も無い', 'close', { run_dir: '<ws>', call_id: 'c1' }, 'shape'],
+  ['close の timed_out が false', 'close', { run_dir: '<ws>', call_id: 'c1', timed_out: false }, 'shape'],
+  ['close に workflow_output_path と timed_out の両方', 'close', { run_dir: '<ws>', call_id: 'c1', workflow_output_path: '/x', timed_out: true }, 'shape'],
+  ['close の run_dir が無いディレクトリ', 'close', { run_dir: '<ws>/missing', call_id: 'c1', timed_out: true }, 'run_dir_not_found'],
+  // call_id・worker・task_id は受け箱と依頼の file 名になるので Id の文字だけ（cli-contract「コマンド」）
+  ['close の call_id が ../x（path の区切りを含む）', 'close', { run_dir: '<ws>', call_id: '../x', timed_out: true }, 'shape'],
+  ['close の call_id が a/b', 'close', { run_dir: '<ws>', call_id: 'a/b', workflow_output_path: '/x' }, 'shape'],
+  ['close の call_id が空', 'close', { run_dir: '<ws>', call_id: '', timed_out: true }, 'shape'],
+  ['claim に worker が無い', 'claim', { run_dir: '<ws>', call_id: 'c1' }, 'shape'],
+  ['claim の worker が a/b', 'claim', { run_dir: '<ws>', call_id: 'c1', worker: 'a/b' }, 'shape'],
+  ['claim に知らないキー', 'claim', { run_dir: '<ws>', call_id: 'c1', worker: 'w01', task_id: 't1' }, 'shape'],
+  ['query に task_id が無い', 'query', { run_dir: '<ws>', call_id: 'c1', worker: 'w01' }, 'shape'],
+  ['query の refs が空の配列', 'query', { run_dir: '<ws>', call_id: 'c1', worker: 'w01', task_id: 't1', refs: [] }, 'shape'],
+  ['query の refs が文字列', 'query', { run_dir: '<ws>', call_id: 'c1', worker: 'w01', task_id: 't1', refs: 'x' }, 'shape'],
+  ['submit に call_id が無い', 'submit', { run_dir: '<ws>', worker: 'w01' }, 'shape'],
+  ['submit の run_dir が無いディレクトリ', 'submit', { run_dir: '<ws>/missing', call_id: 'c1', worker: 'w01' }, 'run_dir_not_found'],
 ];
 for (const [name, command, input, detailReason] of INPUT_CASES) {
   test(`cli-contract 誤りと終了コード E_INPUT: ${name} は終了コード 1 で、何も書かない`, async (t) => {
@@ -318,5 +330,20 @@ test('SP-FORMALMETHOD-013 AC-12: 受付で止めた結果でも、CI の有無�
   const ci = await drive(ws, { goals: baseRequest().goals }, { env: cliEnv({ ci: true }) });
   assert.equal(local.result.performance.location, 'ローカル');
   assert.equal(ci.result.performance.location, 'CI');
+});
+
+test('SP-FORMALMETHOD-001 manifest: workspace_path は symbolic link を解決した path で比べ（macOS の /var → /private/var など）、".." で始まる名前のファイルを作業ツリーの外としない', (t) => {
+  const real = realpathSync(mkdtempSync(join(tmpdir(), 'fm-manifest-')));
+  t.after(() => removeTree(real));
+  const alias = join(real, 'alias');
+  mkdirSync(join(real, 'ws'));
+  symlinkSync(join(real, 'ws'), alias);
+  const files = ['..notes.md', 'sub/spec.md'].map((p) => ({ path: p, abs: join(real, 'ws', p), content_hash: 'sha256:' + '0'.repeat(64), text: true }));
+  const outside = { path: 'x.md', abs: join(real, 'x.md'), content_hash: 'sha256:' + '0'.repeat(64), text: true };
+  mkdirSync(join(real, 'run', 'targets'), { recursive: true });
+  // workspace は symbolic link の名前（解決すると ws）、ファイルの abs は解決した path
+  const w = writeManifest(join(real, 'run'), { id: 'T1', root: join(real, 'ws'), files: [...files, outside] }, alias);
+  const m = JSON.parse(readFileSync(join(real, 'run', w.ref), 'utf8'));
+  assert.deepEqual(m.files.map((f) => [f.path, f.workspace_path]), [['..notes.md', '..notes.md'], ['sub/spec.md', 'sub/spec.md'], ['x.md', null]]);
 });
 });

@@ -55,8 +55,8 @@ export function writeLock(dir, identity, role = 'run-daemon') {
 
 export function writeStatus(dir, status) { writeJsonAtomic(join(dir, 'status.json'), status); }
 
-export function statusOf(dir, { seq = 1, action = 'working', result = null, daemon = null, batch = null } = {}) {
-  return { seq, run_dir: dir, action, batch, result, daemon };
+export function statusOf(dir, { seq = 1, action = 'working', result = null, daemon = null, call = null } = {}) {
+  return { seq, run_dir: dir, action, call, result, daemon };
 }
 
 // ディレクトリの全ての項目（path・種類・大きさ・mtime・内容の指紋）。何も書かないことの確かめに使う。
@@ -95,7 +95,7 @@ const unk = (reason) => ({ status: '取得できず', reason });
 // artifact-formats.md の Result の形を満たす、最小の 停止 の結果（受付の段・依頼の不備）。区別のため marker を detail に入れる。
 export function sampleResult(marker = 'fixture') {
   return {
-    schema: 'formal-method.result/1',
+    schema: 'formal-method.result/2',
     status: '停止',
     provisional: false,
     verified_scope: {
@@ -111,7 +111,7 @@ export function sampleResult(marker = 'fixture') {
       parts: [], boundaries: [], contracts: [], composition_conditions: [],
       correspondence: { matched: [], unmatched: [], excluded: [] },
     },
-    counterexamples: [], causes: [], confirmations: { deterministic: [], meaning: [] },
+    counterexamples: [], causes: [], confirmations: { deterministic: [], meaning: [], judgments: [] },
     unverified: [], questions: [],
     records: { ledger_refs: ['ledger.json'], saved: [], unsaved: [] },
     stop_report: {
@@ -128,6 +128,7 @@ export function sampleResult(marker = 'fixture') {
         cost: unk('x'), human_interventions: unk('x'), retries: { value: 0, unit: 'count' },
       },
       executions: [], findings: [],
+      agent_calls: { calls: [], stages: [], total: { calls: 0, agents: unk('x'), tokens: unk('x') } },
     },
   };
 }

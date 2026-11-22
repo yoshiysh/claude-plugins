@@ -6,14 +6,15 @@ export const CASE_PLAN = {
   'AC-01': {
     normal: [{ id: 'cli-pipeline:同じ依頼を2回', layer: 'auto' }, { id: 'evals:1,2 人と別のスキルの依頼', layer: 'eval' }],
     recovery: { notApplicable: '依頼の正規化に部分成功・再試行の経路が無い' },
-    error: [{ id: 'cli-pipeline:範囲から除外した目標', layer: 'auto' }],
-    boundary: [{ id: 'cli-pipeline:revision を添えない版は null', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline:範囲から除外した目標', layer: 'auto' }, { id: 'cli-scope:対象の固定（run の途中の書き換え・読めなくなる・query の時点の指紋で 対象の変化、検証済みに現れない）', layer: 'auto' },
+      { id: 'call:query の時点の指紋で 対象の変化（集約が 2 度でも理由は 1 つ）', layer: 'auto' }],
+    boundary: [{ id: 'cli-pipeline:revision を添えない版は null', layer: 'auto' }, { id: 'cli-scope:節の出所だけが変わる・契約の親の出所が変わる', layer: 'auto' }],
   },
   'AC-02': {
     normal: [{ id: 'evals:3 既知の性質の一覧', layer: 'eval' }],
     recovery: [{ id: 'cli-pipeline:extraction_coverage（complete の true と false）', layer: 'auto' }],
-    error: [{ id: 'cli-scope:読めないファイル', layer: 'auto' }],
-    boundary: [{ id: 'cli-scope:バイナリ（NUL・UTF-8 でない）', layer: 'auto' }, { id: 'cli-scope:集まりの中の symbolic link', layer: 'auto' }],
+    error: [{ id: 'cli-scope:読めないファイル', layer: 'auto' }, { id: 'cli-scope:依頼の範囲の行を覆わない inventory は落ちる', layer: 'auto' }],
+    boundary: [{ id: 'cli-scope:バイナリ（NUL・UTF-8 でない）', layer: 'auto' }, { id: 'cli-scope:集まりの中の symbolic link', layer: 'auto' }, { id: 'cli-scope:依頼の範囲（span）だけを渡し、範囲だけを覆って網羅の照合を通る', layer: 'auto' }],
   },
   'AC-03': {
     normal: [{ id: 'cli-pipeline:状態×出来事の 3 区分', layer: 'auto' }],
@@ -25,7 +26,8 @@ export const CASE_PLAN = {
     normal: [{ id: 'cli-pipeline:意味の確認の記録', layer: 'auto' }, { id: 'evals:4', layer: 'eval' }],
     recovery: { notApplicable: '意味の確認の再試行は契約に無い（依頼者の決定 1: 同じ run で再試行しない）' },
     error: [{ id: 'cli-pipeline:AC-14 未確認（忠実さの確認が成り立たない）', layer: 'auto' }, { id: 'inspection:人がモデルと要求を読む', layer: 'inspection' }],
-    boundary: [{ id: 'cli-pipeline:保証の境界', layer: 'auto' }],
+    boundary: [{ id: 'cli-pipeline:保証の境界', layer: 'auto' }, { id: 'cli-scope:忠実さの確認役の資料は範囲だけ（節に無い性質の出所・外部の依存・結ばれない要素を含む）で範囲ごとの指紋', layer: 'auto' },
+      { id: 'cli-scope:原因の分類役に依頼の範囲の全体を渡す', layer: 'auto' }, { id: 'cli-pipeline-packing:範囲の行だけを数えて詰める', layer: 'auto' }],
   },
   'AC-05': {
     normal: [{ id: 'cli-pipeline:候補に Rust と Z3', layer: 'auto' }],
@@ -89,14 +91,17 @@ export const CASE_PLAN = {
   'AC-15': {
     normal: [{ id: 'cli-scope:集まりの規則', layer: 'auto' }, { id: 'cli-intake:start は run-daemon の生きている間に返り、run-daemon の argv は 4 つ', layer: 'auto' }],
     recovery: [{ id: 'cli-scope:未知のキーは拒まず unverified', layer: 'auto' }],
-    error: [{ id: 'cli-intake:受け付けない依頼（9 の code）', layer: 'auto' }, { id: 'cli-intake:秘密値の型', layer: 'auto' }, { id: 'cli-pipeline:担当の .smt2 の秘密値', layer: 'auto' }],
-    boundary: [{ id: 'cli-scope:時間の上限 1・一致する指紋・深い .formal-method', layer: 'auto' }, { id: 'cli-intake:秘密値の型に無い形', layer: 'auto' }],
+    error: [{ id: 'cli-intake:受け付けない依頼（9 の code）', layer: 'auto' }, { id: 'cli-intake:秘密値の型', layer: 'auto' }, { id: 'cli-pipeline:担当の .smt2 の秘密値', layer: 'auto' },
+      { id: 'cli-scope:revision と作業ツリーが違えば revision_mismatch', layer: 'auto' }, { id: 'cli-scope:版の blob を読めなければ target_unavailable', layer: 'auto' }],
+    boundary: [{ id: 'cli-scope:時間の上限 1・一致する指紋・深い .formal-method', layer: 'auto' }, { id: 'cli-intake:秘密値の型に無い形', layer: 'auto' },
+      { id: 'cli-scope:.gitattributes の eol を通った checkout を revision の版として受け付ける', layer: 'auto' }, { id: 'cli-intake:manifest の workspace_path（symbolic link を解決・.. で始まる名前）', layer: 'auto' }],
   },
   'AC-19': {
     normal: [{ id: 'cli-pipeline:段の分かっている処理の失敗', layer: 'auto' }],
     recovery: [{ id: 'cli-recovery:salvage の 処理の中断', layer: 'auto' }],
     error: [{ id: 'cli-pipeline:担当の失敗（返り値が無い・形が違う・cannot_proceed）× 抽出・モデル・計画', layer: 'auto' },
-      { id: 'cli-pipeline:受け箱の batch の拒否（受け箱の読めない・JSON でない・形・batch_id、Workflow の返り値の読めない・形・batch_id・received・task の集合、timed_out・期限の後・未公開）', layer: 'auto' },
+      { id: 'cli-pipeline:受け箱と close（包んだ通知・timed_out・期限の後・未公開・受け箱の JSON でない・形・call_id・返り値の読めない・形）でも受理した担当は残る', layer: 'auto' },
+      { id: 'call:取ったまま出さなかった担当・閉じた後と期限の後の submit・形の違う提出の上限・cannot_proceed は 担当の失敗（段は task の context.stage）', layer: 'auto' },
       { id: 'cli-pipeline:照合役（5 観点）と原因の分類役の失敗（返らない・形が違う）は 確認できず の確認・原因未確認 の原因', layer: 'auto' }],
     boundary: [{ id: 'cli-pipeline:道具が無い（計画）・実行失敗（実行）・集約の条件だけ', layer: 'auto' }, { id: 'decomposition-check:停止の段の規則の自己検査', layer: 'auto' }, { id: 'cli-recovery:集約の段で公開できない（保存の失敗 は 集約）', layer: 'auto' }],
   },
@@ -105,5 +110,12 @@ export const CASE_PLAN = {
     recovery: { notApplicable: '結果の形に回復の経路が無い' },
     error: [{ id: 'cli-pipeline:report.md の成功の語', layer: 'auto' }],
     boundary: [{ id: 'cli-intake:受付の停止の結果も schema に通る', layer: 'auto' }],
+  },
+  'AC-22': {
+    normal: [{ id: 'cli-pipeline-static:正準のシナリオの静的な確認が全て成り立つ', layer: 'auto' }, { id: 'model-clauses:節の印のそろったモデル', layer: 'auto' }],
+    recovery: [{ id: 'cli-pipeline-static:外部の依存・効いている前提・道具の unknown は判断を要する項目', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline-static:前提だけで導ける・否定が自明・範囲の変数が現れない・計画の欠け・規則を変えない変異', layer: 'auto' },
+      { id: 'model-clauses:名前の欠け・重なり・出所の無い規則・知らない外部の依存・宣言の無い範囲の変数', layer: 'auto' }],
+    boundary: [{ id: 'cli-pipeline-static:前提を 1 つずつ外す再検査が ABLATION_PER_PROPERTY_MAX を超える', layer: 'auto' }, { id: 'cli-pipeline-static:前提の無い性質は前提と否定だけを否定だけの答えで決める', layer: 'auto' }],
   },
 };

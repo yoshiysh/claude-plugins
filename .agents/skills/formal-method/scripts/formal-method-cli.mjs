@@ -4,13 +4,15 @@
 import { statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { start } from './lib/start.mjs';
-import { submit, wait } from './lib/client.mjs';
+import { close, wait, workerCall } from './lib/client.mjs';
 import { salvage } from './lib/store.mjs';
 import { runDaemon } from './lib/daemon.mjs';
 import { locationFromEnv } from './lib/performance.mjs';
 import { ERROR_CODES, ID_RE } from './lib/schemas.mjs';
 
-const COMMANDS = ['start', 'submit', 'wait', 'salvage'];
+// 司令塔が使う start・wait・close・salvage と、役が使う claim・query・submit（cli-contract.md「コマンド」）
+const COMMANDS = ['start', 'wait', 'close', 'salvage', 'claim', 'query', 'submit'];
+const WORKER_COMMANDS = ['claim', 'query', 'submit'];
 
 function emit(value, code) {
   process.stdout.write(`${JSON.stringify(value)}\n`, () => process.exit(code));
@@ -42,13 +44,21 @@ function shapeOk(command, input) {
   if (!nonEmptyString(input.run_dir)) return false;
   if (command === 'wait') return onlyKeys(input, ['run_dir', 'status_seq']) && Number.isSafeInteger(input.status_seq) && input.status_seq >= 0;
   if (command === 'salvage') return onlyKeys(input, ['run_dir']);
-  if (command === 'submit') {
-    // batch_id は run-daemon が作る Id の形（受け箱の名前に使うので path の成分を持たない）
-    if (!nonEmptyString(input.batch_id) || !ID_RE.test(input.batch_id) || !onlyKeys(input, ['run_dir', 'batch_id', 'workflow_output_path', 'timed_out'])) return false;
+  // call_id・worker・task_id は run-daemon が作る Id の形（受け箱・依頼の名前に使うので path の成分を持たない）
+  const isId = (v) => nonEmptyString(v) && ID_RE.test(v);
+  if (!isId(input.call_id)) return false;
+  if (command === 'close') {
+    if (!onlyKeys(input, ['run_dir', 'call_id', 'workflow_output_path', 'timed_out'])) return false;
     const hasPath = 'workflow_output_path' in input;
     const hasTimeout = 'timed_out' in input;
     if (hasPath === hasTimeout) return false;
     return hasPath ? nonEmptyString(input.workflow_output_path) : input.timed_out === true;
+  }
+  if (!isId(input.worker)) return false;
+  if (command === 'claim' || command === 'submit') return onlyKeys(input, ['run_dir', 'call_id', 'worker']);
+  if (command === 'query') {
+    if (!onlyKeys(input, ['run_dir', 'call_id', 'worker', 'task_id', 'refs']) || !isId(input.task_id)) return false;
+    return !('refs' in input) || (Array.isArray(input.refs) && input.refs.length > 0 && input.refs.every(nonEmptyString));
   }
   return false;
 }
@@ -75,7 +85,8 @@ async function main() {
   }
   let out;
   if (command === 'start') out = await start(input);
-  else if (command === 'submit') out = { ok: true, ...submit(input) };
+  else if (command === 'close') out = { ok: true, ...close(input) };
+  else if (WORKER_COMMANDS.includes(command)) out = await workerCall(command, input);
   else if (command === 'wait') out = await wait(input);
   else out = salvage(input.run_dir, { location: locationFromEnv() });
   if (!out.ok) { reject(command, out.code, out.reason, out.detail ?? null); return; }

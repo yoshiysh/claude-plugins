@@ -67,11 +67,11 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 
 ## Run.tla
 
-**範囲**: 段 7 つ（担当の batch を開く段は 3 モデル化・6 確認の 2 つ。4 つ（2・3・4・6）の場合は環境の出来事を crash・保存の失敗・時間の上限に絞って別に回す）、性質 2（P1・P2）、検査 2（K1・K2。初期状態で独立か K2 が K1 に依存するかを選ぶ）と確認用の実行 1（K2 の変異 M）、担当の返り値（ok・不良・問い・返らない）、司令塔の `start`・`submit`・`wait`・`salvage`、LIVENESS_UNKNOWN_MAX を 2 回とした。
+**範囲**: 段 7 つ（担当の batch を開く段は 3 モデル化・6 確認の 2 つ。4 つ（2・3・4・6）の場合は環境の出来事を crash・保存の失敗・時間の上限に絞って別に回す）、性質 2（P1・P2）、検査 2（K1・K2。初期状態で独立か K2 が K1 に依存するかを選ぶ）と確認用の実行 1（K2 の変異 M）、担当の提出（受理・欠陥による同じ体への出し直し 1 巡・問い）と返らない担当・期限の後の提出、Workflow の返り値（返り値のファイルの有無）、司令塔の `start`・`close`・`wait`・`salvage`、LIVENESS_UNKNOWN_MAX を 2 回とした。
 
-**非決定の出来事**（`Env` で選ぶ。基準は全て）: `run-daemon` の起動の失敗、rename の前の crash、rename の後で最初の status.json の前の crash、START_WAIT_MS までに rename しない遅い `run-daemon`、`run-daemon` の crash、保存の失敗（途中・結果・status.json）、時間の上限、ps が使えなくなる、古い・二重の submit、CLI の出力が JSON でない（salvage の到着）、ホストの時間の上限で返らない salvage の勝者とその crash、`result.json` が読めない（"corrupt"）、status.json が読めない（"statusread"。wait は seq が増えていないものとして扱い、salvage の規則 3 は当たらない）。
+**非決定の出来事**（`Env` で選ぶ。基準は全て）: `run-daemon` の起動の失敗、rename の前の crash、rename の後で最初の status.json の前の crash、START_WAIT_MS までに rename しない遅い `run-daemon`、`run-daemon` の crash、保存の失敗（途中・結果・status.json）、時間の上限、ps が使えなくなる、古い・二重の close、CLI の出力が JSON でない（salvage の到着）、ホストの時間の上限で返らない salvage の勝者とその crash、`result.json` が読めない（"corrupt"）、status.json が読めない（"statusread"。wait は seq が増えていないものとして扱い、salvage の規則 3 は当たらない）。
 
-**公平性**: `run-daemon`・`start`・司令塔の動作、時間の経過（run の期限・batch の期限）、道具の終わり（検査ごとの時間の上限）、background の salvage の完了。担当には置かない。
+**公平性**: `run-daemon`・`start`・司令塔の動作、時間の経過（run の期限・batch の期限）、道具の終わり（検査ごとの時間の上限）、background の salvage の完了。担当（Workflow の完了、worker の起動と提出）には置かない。
 
 **抽象**:
 
@@ -80,12 +80,17 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 - E_RESULT_UNREADABLE で終わった司令塔は `unreadable` の状態で止まる。
 - `SALVAGE_RETRY_MAX` は数えない。契約の関係 `SALVAGE_RETRY_MAX` × `SALVAGE_RETRY_MS` > `CALL_MAX_MS` から、勝者が 1 回の呼出しで終える間は呼び直しが尽きない、とした。
 - 判定（`classifyCheck`・`aggregateProperty`・`decideStatus`）は、完了の条件の連言に畳んだ。判定の規則そのものはオラクル（`tests/formal/formal-method-spec/`）が扱う。
+- 担当の呼び出しは段ごとに 1 つ、worker 1 体とした。1 体が複数の task を持つ詰め合わせ・束・依存つきの task、束の上限の半減、同じ段の 2 つ目以降の呼び出しは、モデルの外である（unit と結合のテスト `scripts/call.test.mjs`・`scripts/cli-pipeline-packing.test.mjs` が扱う）。
+- 受理は、提出 1 回の照合で決まる。照合の欠陥は同じ体に 1 巡だけ出し直させ（`Revise`）、その後の提出は残った欠陥ごと受理する。照合の中身は抽象の外である。
 
 | 性質（計画の番号） | 名前 | 変異 |
 |---|---|---|
 | (1) 全ての run は、ちょうど 1 つの結果か、結果を 2 つにしない誤り（E_RESULT_UNREADABLE）で終わる | `OneResult`、`UnreadableNoNewResult`、`Termination`（ps が使える間）、`CommanderEnds`（前提なしで司令塔が終わる） | `slow_no_kill`、`no_batch_deadline`、`unreadable_returns_new` |
 | (2) 時間の上限の後に、道具の実行（確認用を含む）と担当を始めない | `NothingStartsAfterDeadline` | `check_after_deadline`、`confirm_after_deadline`、`batch_after_deadline` |
-| (3) 古い・二重の submit は状態を変えない | `StaleSubmitNoEffect` | `inbox_overwrite`、`read_any_batch` |
+| (3) 担当の成果物の受理は提出ごとに決まり、呼び出しの結果は閉じるまでに受理した提出だけで決まる（timed_out・古い・二重の close と閉じた後の提出で変わらない） | `RecordMatchesAccepted` | `close_rejects_batch`（timed_out の受け箱で受理を捨てる。前の稿の batch ごとの拒否）、`accept_after_close` |
+| (3) 期限の後の提出を受理しない | `NoAcceptAfterDeadline` | `accept_after_deadline` |
+| (3) 呼び出しを閉じるのは、その呼び出しの受け箱か期限だけ | `CloseOnlyOwnOrDeadline` | `read_any_batch` |
+| (3) 出し直しは同じ体が行い、1 つの呼び出しに体を足さない | `OneBodyPerCall` | `revise_new_worker`（出し直しのたびに新しい担当を立てる。前の稿の修正の巡） |
 | (4) 保存の失敗は status.json か salvage の結果に届く | `SaveFailureReaches`、`SaveFailureStops` | `hang_on_save_failure`、`ignore_save_failure` |
 | (5) 完了は、完了の条件が全て成り立つときだけ | `CompleteOnlyIf` | `complete_ignores_confirmation`、`ignore_save_failure`、`complete_before_publish` |
 | (6) 反例・問いがあっても、独立な検査は終わるまで動く | `IndependentRunsToEnd` | `stop_on_failure`、`stop_on_question` |
@@ -96,6 +101,12 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 ## 結果
 
 macOS arm64、TLC v1.7.4、8 workers での実行。137 ケースが全て期待どおり（exit 0）。
+
+**未検証**: 下の表と数は、Run.tla を提出ごとの受理・期限の後の提出の拒否・同じ体での出し直しに改めた版（担当の `WLaunch`・`WSubmit`・`WLateSubmit`、司令塔の `CClose`、性質 (3) の 4 つ、変異 `close_rejects_batch`・`accept_after_close`・`accept_after_deadline`・`revise_new_worker`、証人 `accepted_kept_timed_out`・`revise_same_body`・`late_submit_refused`・`duplicate_close`・`stale_close`）の前の結果である。改めた版の TLC の結果は次のとおりで、全ケースを通した結果はまだ無い。全ケースが期待どおりになるまで、Run.tla の行の表と数は改めた設計の証拠にならない。
+
+- CI（`verification.yml`、8 シャード、commit 2bf1bdc8）: シャード 1〜3・5〜7 は期待どおり。シャード 8 は 24 ケースのうち `run-mut-client_writes_status` だけが期待と違った（TLC の誤り、exit 75）。シャード 4 は終わりを確かめていない。
+  - 原因は `CClose` の字下げである。末尾の 2 つの連言が `IF` の `ELSE` の中に入り、変異の側（`THEN`）で多くの変数が決まらなかった。字下げを直した。変異でない構成では `ELSE` の側が同じ式なので、他のケースの意味は変わらない。
+- 字下げを直した後に手元（macOS arm64、TLC v1.7.4）で流したのは `run-mut-client_writes_status` だけで、`ClientWritesNothing` の反例を出した（異なる状態 4,603）。`check.sh` の全ケースは流していない。
 
 | ケース | 範囲 | 結果 | 異なる状態 |
 |---|---|---|---|

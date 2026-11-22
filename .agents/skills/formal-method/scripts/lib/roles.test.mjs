@@ -63,3 +63,23 @@ test('architecture 担当の起動: roles.mjs の AGENT_PERMISSIONS は、Workfl
   assert.equal(r.error, undefined, r.error);
   assert.equal(matches(WORKFLOW_TEXT(), AGENT_PERMISSIONS), true, `${JSON.stringify(r.value)} と ${JSON.stringify(AGENT_PERMISSIONS)}`);
 });
+
+test('architecture 担当の起動: Workflow script の meta は呼び出しの args（call.args_path の JSON）を受ける形を述べ、前の稿の batch・tasks.json の受け渡しを持たない', () => {
+  const text = WORKFLOW_TEXT();
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.startsWith('export const meta = {'));
+  const end = start + 1 + lines.slice(start + 1).findIndex((l) => l === '}');
+  const meta = lines.slice(start, end + 1).join('\n');
+  assert.match(meta, /name: 'formal-method-agents'/);
+  assert.match(meta, /call\.args_path/);
+  assert.doesNotMatch(text, /batch_id|tasks\.json|output_schema/, '受け取った task の値を返す経路は無い');
+  assert.match(text, /return \{ agents, tokens: tokens\(\) \}/, '返り値は {agents, tokens} だけ');
+});
+
+test('SP-FORMALMETHOD-012 architecture 担当の起動: 作る役と確かめる役（原因の分類役を含む）は別のモデルで、全ての役がどちらか一方にだけ入る', async () => {
+  const { ROLES, AUTHOR_ROLES, CONFIRMER_ROLES } = await loadRoles();
+  assert.deepEqual([...AUTHOR_ROLES, ...CONFIRMER_ROLES].sort(), Object.keys(ROLES).sort(), '全ての役がちょうど一方に入る');
+  assert.ok(CONFIRMER_ROLES.includes('cause-analyst'), '原因の分類役は作成役を確かめる役');
+  for (const a of AUTHOR_ROLES) for (const c of CONFIRMER_ROLES) assert.notEqual(ROLES[a].model, ROLES[c].model, `${a} と ${c} の model`);
+  assert.deepEqual([ROLES['cause-analyst'].model, ROLES['cause-analyst'].effort], [ROLES['fidelity-reviewer'].model, ROLES['fidelity-reviewer'].effort], '原因の分類役は確認役と同じ組');
+});
