@@ -96,7 +96,8 @@ export const CASE_PLAN = {
     normal: [{ id: 'cli-pipeline:段の分かっている処理の失敗', layer: 'auto' }],
     recovery: [{ id: 'cli-recovery:salvage の 処理の中断', layer: 'auto' }],
     error: [{ id: 'cli-pipeline:担当の失敗（返り値が無い・形が違う・cannot_proceed）× 抽出・モデル・計画', layer: 'auto' },
-      { id: 'cli-pipeline:受け箱の batch の拒否（受け箱の読めない・JSON でない・形・batch_id、Workflow の返り値の読めない・形・batch_id・received・task の集合、timed_out・期限の後・未公開）', layer: 'auto' },
+      { id: 'cli-pipeline:受け箱と close（包んだ通知・timed_out・期限の後・未公開・受け箱の JSON でない・形・call_id・返り値の読めない・形）でも受理した担当は残る', layer: 'auto' },
+      { id: 'call:取ったまま出さなかった担当・閉じた後と期限の後の submit・形の違う提出の上限・cannot_proceed は 担当の失敗（段は task の context.stage）', layer: 'auto' },
       { id: 'cli-pipeline:照合役（5 観点）と原因の分類役の失敗（返らない・形が違う）は 確認できず の確認・原因未確認 の原因', layer: 'auto' }],
     boundary: [{ id: 'cli-pipeline:道具が無い（計画）・実行失敗（実行）・集約の条件だけ', layer: 'auto' }, { id: 'decomposition-check:停止の段の規則の自己検査', layer: 'auto' }, { id: 'cli-recovery:集約の段で公開できない（保存の失敗 は 集約）', layer: 'auto' }],
   },
@@ -105,5 +106,12 @@ export const CASE_PLAN = {
     recovery: { notApplicable: '結果の形に回復の経路が無い' },
     error: [{ id: 'cli-pipeline:report.md の成功の語', layer: 'auto' }],
     boundary: [{ id: 'cli-intake:受付の停止の結果も schema に通る', layer: 'auto' }],
+  },
+  'AC-22': {
+    normal: [{ id: 'cli-pipeline-static:正準のシナリオの静的な確認が全て成り立つ', layer: 'auto' }, { id: 'model-clauses:節の印のそろったモデル', layer: 'auto' }],
+    recovery: [{ id: 'cli-pipeline-static:外部の依存・効いている前提・道具の unknown は判断を要する項目', layer: 'auto' }],
+    error: [{ id: 'cli-pipeline-static:前提だけで導ける・否定が自明・範囲の変数が現れない・計画の欠け・規則を変えない変異', layer: 'auto' },
+      { id: 'model-clauses:名前の欠け・重なり・出所の無い規則・知らない外部の依存・宣言の無い範囲の変数', layer: 'auto' }],
+    boundary: [{ id: 'cli-pipeline-static:前提を 1 つずつ外す再検査が ABLATION_PER_PROPERTY_MAX を超える', layer: 'auto' }, { id: 'cli-pipeline-static:前提の無い性質は前提と否定だけを否定だけの答えで決める', layer: 'auto' }],
   },
 };

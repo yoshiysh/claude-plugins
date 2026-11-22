@@ -124,7 +124,7 @@ export async function start(input, { cwd = process.cwd() } = {}) {
       }
       case 'return_working': {
         const holder = lockHolder(runDir);
-        return { ok: true, status: { seq: 0, action: 'working', run_dir: runDir, batch: null, result: null, daemon: holder } };
+        return { ok: true, status: { seq: 0, action: 'working', run_dir: runDir, call: null, result: null, daemon: holder } };
       }
       case 'stop_child_and_reevaluate':
         // start は子の親で、子をまだ回収していないので pid は再利用されない。生死の判定によらずに group を止め、終了を待つ
@@ -152,4 +152,4 @@ export async function start(input, { cwd = process.cwd() } = {}) {
   }
 }
 
-const stopStatus = (result) => ({ seq: 0, run_dir: null, action: 'terminal', batch: null, result, daemon: null });
+const stopStatus = (result) => ({ seq: 0, run_dir: null, action: 'terminal', call: null, result, daemon: null });

@@ -6,15 +6,15 @@ description: formal-method の確認の段で、CLI が観点 extraction の uni
 
 対象の写しを自分で読み、固定した inventory が出所の要求・目標・状態・入出力・制約を漏れなく、足さずに取り出しているかを確かめる。行を覆ったことは CLI が機械的に照合するが、覆った行の意味を取り出したかは読まないと分からない（SP-FORMALMETHOD-004）。
 
-共通の義務（task.md の読み方、書く場所、返し方、作業記録、読む範囲）は、task.md の ROLE が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は、task の `instructions` が指す `agent-obligations.md` に従う。
 
 ## 読むもの
 
-- `context.input_refs` が指す資料だけ: `context.target_id` の対象の写し、固定した inventory、CLI の照合の記録。
+- `query` が渡す資料だけ: `context.target_id` の対象の写し、固定した inventory、CLI の照合の記録。
 
 ## 読まないもの
 
-- 抽出役の作業記録・返り値・`task.md`、`attempts/` の下のディレクトリの一覧。抽出役と同じ前提で読むと、同じ箇所を見落とす。
+- 抽出役の作業記録・返り値・呼び出しの記録（`calls/`）、`attempts/` の下のディレクトリの一覧。抽出役と同じ前提で読むと、同じ箇所を見落とす。
 
 ## 書いてよい場所
 
@@ -40,6 +40,7 @@ description: formal-method の確認の段で、CLI が観点 extraction の uni
 - `perspective`: `extraction`。`unit_id` は `context.unit_id`。
 - `result`: 漏れも追加も見つからず全ての観点を見終えたら `成り立つ`、1 つでも見つけたら `成り立たない`。
 - `findings`: 見つけたものごとに、確かめた箇所（ファイルと行）・`kind`・説明。
+- `judgments`: `[]`（判断を要する項目は忠実さの検証者が答える）。
 - `record_ref`: 観点ごとに見た箇所・結果・根拠を書いた確認の記録。
 
 ## 区別できないとき

@@ -6,12 +6,13 @@ description: formal-method の計画の段で、CLI が依存グラフから分�
 
 CLI が導いた分割の候補（`context.candidates`）ごとに、分けて検証するかを決め、分けるなら全体の性質が部分の結果から成り立つ条件を書く。候補が在ることは、その単位を独立に検証できることを示さない（SP-FORMALMETHOD-008）。
 
-共通の義務（task.md の読み方、書く場所、返し方、作業記録）は、task.md の ROLE が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
 
 ## 読むもの
 
-- `context.candidates` と、`context.input_refs` が指す資料: 依存グラフ、モデル、query、依頼の既知の要求・制約。
-- `context.revise_defects_ref` があれば、CLI の照合が見つけた欠陥（跨ぐ辺に契約が無い、前提の循環など）。
+- `context.candidates` と、`query` が渡す資料: 依存グラフ、モデル、query、依頼の既知の要求・制約。
+- `submit` の応答が `problems` を返したら、CLI の照合が見つけた欠陥（跨ぐ辺に契約が無い、前提の循環など）。同じ担当として直し、同じ `submit_cmd` を流し直す。
+- 同じ worker が、この担当が閉じた後の `claim` で計画の担当を受け取る（分割と計画を順に担う）。分割の担当を出し終えてから次の `claim` を流す。
 
 ## 読まないもの
 

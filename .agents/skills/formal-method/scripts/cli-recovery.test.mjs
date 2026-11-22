@@ -42,12 +42,14 @@ async function killedWhileWaitingForAgents(t) {
 }
 
 describe('cli-recovery', { concurrency: 4 }, () => {
-test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock を握ったまま殺すと、wait は E_STALE、submit は受け箱の外を書かず、state.json は最後の内容のまま', async (t) => {
+test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock を握ったまま殺すと、wait・claim は E_STALE、close は受け箱の外を書かず、state.json は最後の内容のまま', async (t) => {
   const { ws, env, status, dir } = await killedWhileWaitingForAgents(t);
   const stateBefore = existsSync(join(dir, 'state.json')) ? readFileSync(join(dir, 'state.json')) : null;
   expectRejected(await cli('wait', { run_dir: dir, status_seq: status.seq }, { cwd: ws, env }), 'E_STALE');
   const before = snapshotTree(dir);
-  expectOk(await cli('submit', { run_dir: dir, batch_id: status.batch.batch_id, timed_out: true }, { cwd: ws, env }), 'submit');
+  // 役の claim は依頼を出す前に呼び出しが開いているかを見て、保持者が終わっていれば E_STALE を返す（依頼のファイルは書かない）
+  expectRejected(await cli('claim', { run_dir: dir, call_id: status.call.call_id, worker: 'w01' }, { cwd: ws, env }), 'E_STALE');
+  expectOk(await cli('close', { run_dir: dir, call_id: status.call.call_id, timed_out: true }, { cwd: ws, env }), 'close');
   const after = snapshotTree(dir);
   const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);
   assert.ok(changed.every((k) => k === 'inbox' || k.startsWith('inbox/') || k === '.'), `受け箱の外が変わった: ${changed.join()}`);
@@ -157,10 +159,10 @@ test('SP-FORMALMETHOD-014 AC-13: 途中の段で保存先を書込み不可に�
     env,
     onAgents: async (s) => {
       await harness.onAgents(s);
-      if (!locked) { locked = true; chmodSync(join(s.run_dir, 'batches'), 0o555); }
+      if (!locked) { locked = true; chmodSync(join(s.run_dir, 'calls'), 0o555); }
     },
   });
-  chmodSync(join(status.run_dir ?? ws, 'batches'), 0o755);
+  chmodSync(join(status.run_dir ?? ws, 'calls'), 0o755);
   assert.equal(result.status, '停止');
   assert.ok(result.stop_report.reasons.some((x) => x.code === '保存の失敗'), JSON.stringify(result.stop_report.reasons));
   assert.ok(result.records.unsaved.length >= 1);
@@ -197,7 +199,7 @@ test('SP-FORMALMETHOD-010 AC-10 demonstration: 互いに依存しない性質を
 });
 
 test('SP-FORMALMETHOD-010 AC-10: 依頼元の時間の上限に達すると、実行中の検査（確認用を含む）を止め、始めていない検査を始めず、完了と未完了の範囲を示す', { timeout: 400000 }, async (t) => {
-  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 12/4 秒) = 3 秒）なので、担当が返る時間を残す
+  // 担当の呼び出しの期限は run の期限 − 残す時間（min(60 秒, 12/4 秒) = 3 秒）なので、担当が返る時間を残す
   const limit = 12;
   const props = [P('P1', 2, { query: { result: 'unsat', sleepMs: 20000 } }), P('P2', 3, { sanity: { result: 'sat', sleepMs: 20000 } })];
   const started = Date.now();
@@ -222,7 +224,7 @@ test('SP-FORMALMETHOD-010 AC-10: 依頼元の時間の上限に達すると、�
 });
 
 test('cli-contract 答えの後の停止 AC-10: -model の実行で答えの行の後にモデルを読む間に依頼元の期限が来ると、group を止めるが検査は答えで判定され stopped_by null。実行中の契約の検査は kind contract で stop_report に出る', { timeout: 400000 }, async (t) => {
-  // 担当の batch の期限は run の期限 − 残す時間（min(60 秒, 12/4 秒) = 3 秒）なので、担当が返る時間を残す
+  // 担当の呼び出しの期限は run の期限 − 残す時間（min(60 秒, 12/4 秒) = 3 秒）なので、担当が返る時間を残す
   const limit = 12;
   const scenario = {
     stateMachine: SM2, toolTimeLimit: 300,
@@ -359,7 +361,7 @@ test('cli-contract 状態を決める順序 SP-FORMALMETHOD-014・015: 集約の
   const bin = `${ws}-bin`;
   t.after(() => { removeTree(ws); removeTree(bin); });
   const env = cliEnv({ path: pathWithFake(makeFakeBin(bin)) });
-  // 確認の段の最後の batch を返した後、結果と台帳の公開先（run の領域）に書けなくする。status.json の書込みも失敗するので、
+  // 確認の段の最後の呼び出しを閉じた後、結果と台帳の公開先（run の領域）に書けなくする。status.json の書込みも失敗するので、
   // 結果は status.json の terminal か、E_STALE からの salvage の経路で返る。どちらでも 完了 は出ず、result.json は無い。
   let lockedDir = null;
   const harness = makeHarness(defaultScenario(), {
@@ -384,7 +386,7 @@ test('cli-contract 状態を決める順序 SP-FORMALMETHOD-014・015: 集約の
     if (j.status) st = j.status;
   }
   if (lockedDir) chmodSync(lockedDir, 0o755);
-  assert.ok(lockedDir, '確認の段の batch が出た');
+  assert.ok(lockedDir, '確認の段の呼び出しが開いた');
   assert.equal(existsSync(join(lockedDir, 'result.json')), false, '公開できなかった結果は無い');
   if (st.action === 'terminal') {
     const r = st.result;

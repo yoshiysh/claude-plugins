@@ -68,6 +68,27 @@ export function runCli(args, stdinText, { cwd, env, timeoutMs = 300000, onSpawn 
   });
 }
 
+// 担当が Bash で流す命令（claim の入口・query_cmd・submit_cmd）を、そのまま sh で流す。
+export function runShell(cmd, { cwd, env, timeoutMs = 300000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const child = spawn('/bin/sh', ['-c', cmd], { cwd, env: env ?? cliEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    const timer = setTimeout(() => { child.kill('SIGKILL'); }, timeoutMs);
+    child.on('error', (e) => { clearTimeout(timer); reject(e); });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      let json = null;
+      const lines = stdout.split('\n').filter((l) => l.length > 0);
+      if (lines.length === 1) { try { json = JSON.parse(lines[0]); } catch { json = null; } }
+      resolve({ code, signal, stdout, stderr, json, lines: lines.length, elapsedMs: Date.now() - started });
+    });
+  });
+}
+
 export async function cli(command, input, opts = {}) {
   const r = await runCli(command, typeof input === 'string' ? input : JSON.stringify(input), opts);
   return r;
@@ -130,7 +151,7 @@ export async function drive(workspace, request, { env, onAgents = null, maxSteps
     if (onStatus) await onStatus(status, statuses);
     if (status.action === 'terminal') return { status, result: status.result, statuses };
     if (status.action === 'run_agents') {
-      assert.ok(onAgents, `担当の起動を求められた（受付で止まるはずのケース）: ${JSON.stringify(status.batch)}`);
+      assert.ok(onAgents, `担当の起動を求められた（受付で止まるはずのケース）: ${JSON.stringify(status.call)}`);
       await onAgents(status);
       r = await cli('wait', { run_dir: status.run_dir, status_seq: status.seq }, opts);
     } else {

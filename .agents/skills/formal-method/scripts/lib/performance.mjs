@@ -13,6 +13,30 @@ export const HUMAN = unavailable('人の介入の回数は CLI から観測で�
 
 export const SALVAGE_TIME_REASON = 'salvage の結果は作った者と時刻によらない内容にするため、時刻を記録しない';
 
+const count = (value) => ({ value, unit: 'count' });
+const tokensOf = (value) => ({ value, unit: 'tokens' });
+// 起動した担当の数と消費量（SP-FORMALMETHOD-013、artifact-formats.md「性能の記録」の agent_calls）を、呼び出しの記録（call.mjs の recordClose）から作る。
+// 起動の記録か tokens を読めなかった呼び出しは 取得できず にし、それを含む段と全体の和も 取得できず にする（一部の和を 0 や下限として示さない）。
+export function agentCallsOf(calls) {
+  const rows = calls.map((c) => ({
+    call_id: c.call_id, stage: c.stage, workers: c.workers, tasks: c.tasks, closed_by: c.closed_by,
+    agents: c.agents ? count(c.agents.length) : unavailable(c.note ?? '起動の記録が無い'),
+    launched: c.agents ? c.agents.map((a) => ({ ...a })) : [],
+    tokens: Number.isFinite(c.tokens) ? tokensOf(c.tokens) : unavailable(c.note ?? 'tokens を取得できなかった'),
+  }));
+  const sum = (xs, key, make) => {
+    const missing = xs.filter((x) => !('value' in x[key])).map((x) => x.call_id);
+    return missing.length ? unavailable(`取得できなかった呼び出しがある: ${missing.join(', ')}`) : make(xs.reduce((n, x) => n + x[key].value, 0));
+  };
+  const stages = [...new Set(rows.map((r) => r.stage))].map((stage) => {
+    const xs = rows.filter((r) => r.stage === stage);
+    return { stage, calls: xs.length, agents: sum(xs, 'agents', count), tokens: sum(xs, 'tokens', tokensOf) };
+  });
+  return { calls: rows, stages, total: { calls: rows.length, agents: sum(rows, 'agents', count), tokens: sum(rows, 'tokens', tokensOf) } };
+}
+// 呼び出しの記録を持たない結果（受付の停止・salvage・秘密値の停止）の agent_calls。起動した数も消費量も 取得できず とする。
+const noAgentCalls = (reason) => ({ calls: [], stages: [], total: { calls: 0, agents: unavailable(reason), tokens: unavailable(reason) } });
+
 export function salvagePerformance(location) {
   const u = unavailable(SALVAGE_TIME_REASON);
   return {
@@ -22,7 +46,7 @@ export function salvagePerformance(location) {
       cpu_time_ms: unavailable('salvage は道具の CPU 時間を測らない'), peak_rss_bytes: unavailable('salvage は常駐メモリを測らない'),
       cost: COST, human_interventions: HUMAN, retries: RETRIES,
     },
-    executions: [], findings: [],
+    executions: [], findings: [], agent_calls: noAgentCalls('salvage は run-daemon の呼び出しの記録を持たない'),
   };
 }
 
@@ -31,7 +55,7 @@ export function emptyPerformance(location, reason) {
   return {
     location,
     run: { total_ms: u, preparation_ms: u, build_ms: BUILD, checks_ms: u, confirmation_ms: u, storage_ms: u, cpu_time_ms: u, peak_rss_bytes: u, cost: COST, human_interventions: HUMAN, retries: RETRIES },
-    executions: [], findings: [],
+    executions: [], findings: [], agent_calls: noAgentCalls(reason),
   };
 }
 

@@ -1,12 +1,13 @@
 // モデル化の照合（architecture.md「段と処理の順序」のモデル化）: 形・対応表・query の構文の検査（shapeCheck・mappingCheck）、
 // 状態×出来事の組合せの分類（matrixGen）、経路（pathsCheck）、図の導出と突き合わせ（deriveDiagram・diagramDiff）。
 import { MappingFile, ModelFile, validate } from '../schemas.mjs';
-import { smtViolations } from '../adapters/z3.mjs';
+import { declaredSymbols, smtViolations } from '../adapters/z3.mjs';
+import { sharedDefinitions, topAsserts } from './ablation.mjs';
 import { defect, readRunJson, readRunText } from './common.mjs';
 
 // モデル作成役の返り値の outputs を照らす。prefix は attempt の領域の Ref の接頭辞、eligible は対象にした inventory の性質の id。
 // refs は id と参照の一覧がモデル化の照合とする参照の実在の集合: { elementIds（inventory の要素）, propertyIds（inventory の性質）,
-// goalIds・knownRequirementIds・targetIds（依頼） }。
+// goalIds・knownRequirementIds・targetIds（依頼）, externalDependencyIds（inventory の external_dependencies） }。
 export function modelCheck(runDir, outputs, { prefix, eligible, refs = null }) {
   const defects = [];
   const models = [];
@@ -57,7 +58,44 @@ export function modelCheck(runDir, outputs, { prefix, eligible, refs = null }) {
     const v = smtViolations(text);
     if (v.length) { smtBad.set(ref, v); for (const x of v) defects.push(defect('syntax', `smt:${ref}:${x}`, `${ref}: ${x}`)); }
   }
+  for (const m of pairs) for (const p of m.data.properties) defects.push(...clauseDefects(p, texts.get(p.query_ref) ?? null, refs));
   return { models: pairs, defects, queryRefs, smtBad, texts };
+}
+
+// 節の印（artifact-formats.md「model」の clauses と :named の規則）。query の全てのトップレベルの assert が :named を持ち、
+// 名前の集合が clauses の名前の集合と一致し、性質の否定が 1 つ以上あり、規則と前提が出所か根拠を持ち、範囲の変数が宣言されている。
+function clauseDefects(p, text, refs) {
+  const out = [];
+  const add = (kind, key, msg) => out.push(defect(kind, `${key}:${p.id}`, `モデルの性質 ${p.id} の${msg}`));
+  const seen = new Set();
+  for (const c of p.clauses) {
+    if (seen.has(c.name)) add('other', `clause-dup:${c.name}`, `節の名前 ${c.name} が重なる`);
+    seen.add(c.name);
+    if (c.role === 'rule' && c.source_ids.length === 0) add('syntax', `clause-rule-source:${c.name}`, `規則の節 ${c.name} に source_ids が無い（1 つ以上）`);
+    if (c.role === 'premise' && c.basis === null) add('syntax', `clause-premise-basis:${c.name}`, `前提の節 ${c.name} に basis が無い`);
+    if ((c.basis === '外部の依存') !== (c.external_dependency_id !== null)) add('syntax', `clause-external:${c.name}`, `節 ${c.name} の external_dependency_id は basis が 外部の依存 のときだけ非 null`);
+    if (refs) for (const sid of c.source_ids) if (!refs.elementIds.has(sid)) add('reference', `clause-source:${c.name}:${sid}`, `節 ${c.name} の出所 ${sid} が inventory の要素に無い`);
+    if (refs?.externalDependencyIds && c.external_dependency_id !== null && !refs.externalDependencyIds.has(c.external_dependency_id)) add('reference', `clause-external-ref:${c.name}`, `節 ${c.name} の external_dependency_id ${c.external_dependency_id} が inventory の external_dependencies に無い`);
+  }
+  // 性質の否定の無い性質は、受理されても静的な確認を組み立てず（clauseShapeProblem）、syntax の欠陥として残る（検証の成功にならない）
+  if (!p.clauses.some((c) => c.role === 'goal')) add('syntax', 'clause-goal', '節に性質の否定（role goal）が無い（1 つ以上）');
+  if (text === null) return out;
+  let asserts;
+  try { asserts = topAsserts(text); } catch { return out; }
+  const named = new Set();
+  for (const [i, a] of asserts.entries()) {
+    if (a.name === null) { add('syntax', `assert-unnamed:${i}`, `query ${p.query_ref} の ${i + 1} 番目のトップレベルの assert が (assert (! <項> :named <name>)) の形でない`); continue; }
+    if (named.has(a.name)) add('syntax', `assert-dup:${a.name}`, `query ${p.query_ref} の assert の名前 ${a.name} が重なる`);
+    named.add(a.name);
+    if (!seen.has(a.name)) add('reference', `assert-clause:${a.name}`, `query ${p.query_ref} の assert の名前 ${a.name} が clauses に無い`);
+  }
+  for (const name of seen) if (!named.has(name)) add('reference', `clause-assert:${name}`, `節 ${name} の assert が query ${p.query_ref} に無い`);
+  for (const d of sharedDefinitions(text, p.clauses)) add('other', `clause-shared-definition:${d.name}`, `query ${p.query_ref} の define-fun ${d.name} は本体に宣言した記号を含み、役の違う節（${d.roles.join('・')}）が参照する（節を役ごとに切り取れない。本体を節に書くか、役ごとに定義を分ける）`);
+  if (p.assurance.kind === '範囲を限った検査') {
+    const declared = new Set(declaredSymbols(text).map((d) => d.name));
+    for (const v of p.assurance.scope_variables) if (!declared.has(v)) add('reference', `scope-variable:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} で宣言されていない`);
+  }
+  return out;
 }
 
 // 状態遷移の中の名前の一意と、状態・出来事・inventory の要素への参照の実在（artifact-formats.md「id と参照の一覧」のモデル化の照合）。

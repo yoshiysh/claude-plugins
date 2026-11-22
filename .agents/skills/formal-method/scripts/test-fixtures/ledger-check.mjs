@@ -9,15 +9,16 @@ export const LEDGER_ENTRY_KEYS = ['kind', 'ref', 'hash', 'stage', 'producer', 'm
 export const AGENT_PERMISSIONS_CONTRACT = ['fresh-thread', 'workspace-write'];
 const NON_AGENT = ['cli', 'salvage'];
 
-// run の領域の batches/*/tasks.json の全ての task を task_id で引く
+// run の領域の calls/*/tasks.json（呼び出しの記録）の全ての task を task_id で引く
 export function tasksById(runDir) {
   const out = new Map();
-  const dir = join(runDir, 'batches');
+  const dir = join(runDir, 'calls');
   if (!existsSync(dir)) return out;
   for (const b of readdirSync(dir)) {
     const p = join(dir, b, 'tasks.json');
     if (!existsSync(p)) continue;
-    for (const t of JSON.parse(readFileSync(p, 'utf8')).tasks) out.set(t.task_id, t);
+    // 資料（input_refs）は claim の Task に無く、呼び出しの記録の task ごとの input_refs が持つ
+    for (const { task, input_refs: refs } of JSON.parse(readFileSync(p, 'utf8')).tasks) out.set(task.task_id, { ...task, context: { ...task.context, input_refs: refs } });
   }
   return out;
 }

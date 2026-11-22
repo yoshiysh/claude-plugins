@@ -6,12 +6,12 @@ description: formal-method の洗い出しの段で、CLI が対象 1 つごと�
 
 `context.target_id` の対象 1 つから、検証すべき性質を出所付きで洗い出す。ここで落ちた要求は後のどの段にも現れず、検査されなかったことも結果に出ない（SP-FORMALMETHOD-004）。
 
-共通の義務（task.md の読み方、書く場所、返し方、作業記録）は、task.md の ROLE が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
 
 ## 読むもの
 
-- `context.input_refs` が指す資料: 受け付けた依頼（`request.json`）と、その対象の固定した版の写し。写しの外の作業ツリーを読まない（版を固定した内容と食い違う）。
-- `context.revise_defects_ref` があれば、CLI が見つけた欠陥（覆っていない行、出所の指紋の不一致など）。
+- `query` が渡す資料: 受け付けた依頼（`request.json`）と、その対象の固定した版の写し。写しの外の作業ツリーを読まない（版を固定した内容と食い違う）。
+- `submit` の応答が `problems` を返したら、CLI が見つけた欠陥（覆っていない行、出所の指紋の不一致など）。同じ担当として直し、同じ `submit_cmd` を流し直す。
 
 ## 読まないもの
 

@@ -123,8 +123,8 @@ d_ledger_fail d_result_fail d_result_lost d_status_fail d_save_fail_loop d_crash
 } > LockW.tla
 run_tags='start_spawn_fail start_crash_before_rename start_crash_after_rename start_slow_working start_slow_killed start_kill_after_rename
 start_status start_fail_no_dir start_salvage_saved start_salvage_new terminal_by_status terminal_by_salvage busy_daemon busy_salvage
-stale salvage_garbled salvage_hang duplicate_submit stale_submit batch_timed_out deadline_hit confirmation_stopped independent_after_cex
-dependent_skipped still_waiting_unknown save_fail status_fail'
+stale salvage_garbled salvage_hang duplicate_close stale_close batch_timed_out deadline_hit confirmation_stopped independent_after_cex
+dependent_skipped still_waiting_unknown save_fail status_fail accepted_kept_timed_out revise_same_body late_submit_refused'
 {
   echo '---- MODULE RunW ----'
   echo 'EXTENDS Run'
@@ -236,7 +236,7 @@ b2='{3, 6}' b4='{2, 3, 4, 6}'
 eall='{"crash", "save", "deadline", "ps", "stale", "garbled", "svcrash"}'
 estage='{"crash", "save", "deadline"}'
 elive='{"crash", "save", "deadline", "stale", "garbled", "svcrash"}'
-run_inv='TypeOK UnreadableNoNewResult OneResult NothingStartsAfterDeadline StaleSubmitNoEffect SaveFailureStops CompleteOnlyIf IndependentRunsToEnd ClientWritesNothing WaitReturnsOnlyOnChange BusyFollowsRole StartReturnsOnce StartFailOnlyWithoutDir'
+run_inv='TypeOK UnreadableNoNewResult OneResult NothingStartsAfterDeadline RecordMatchesAccepted NoAcceptAfterDeadline CloseOnlyOwnOrDeadline OneBodyPerCall SaveFailureStops CompleteOnlyIf IndependentRunsToEnd ClientWritesNothing WaitReturnsOnlyOnChange BusyFollowsRole StartReturnsOnce StartFailOnlyWithoutDir'
 run_case run-baseline Run baseline "$run_inv" pass "$(rc none "$b2" "$eall" FALSE)"
 eread='{"crash", "save", "garbled", "corrupt", "statusread", "svcrash"}'
 run_case run-baseline-unreadable Run baseline "$run_inv" pass "$(rc none "$b2" "$eread" FALSE)"
@@ -264,8 +264,11 @@ rmut no_batch_deadline Termination "$elive" FairSpec
 rmut check_after_deadline NothingStartsAfterDeadline
 rmut confirm_after_deadline NothingStartsAfterDeadline
 rmut batch_after_deadline NothingStartsAfterDeadline
-rmut inbox_overwrite StaleSubmitNoEffect
-rmut read_any_batch StaleSubmitNoEffect
+rmut read_any_batch CloseOnlyOwnOrDeadline
+rmut close_rejects_batch RecordMatchesAccepted
+rmut accept_after_close RecordMatchesAccepted
+rmut accept_after_deadline NoAcceptAfterDeadline
+rmut revise_new_worker OneBodyPerCall
 rmut hang_on_save_failure SaveFailureReaches '{"crash", "save", "ps"}' FairSpec
 rmut ignore_save_failure SaveFailureStops
 rmut ignore_save_failure CompleteOnlyIf

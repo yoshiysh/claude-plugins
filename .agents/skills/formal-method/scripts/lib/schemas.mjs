@@ -21,6 +21,11 @@ export const REPORT_RESERVE_MS = 60000;
 export const REVISE_ROUNDS_MAX = 2;
 export const TOOL_OUTPUT_MAX_BYTES = 1048576;
 export const MEMORY_SAMPLE_MS = 100;
+export const ABLATION_PER_PROPERTY_MAX = 12;
+// 役が claim・query・submit の応答を待つ上限（cli-contract.md「依頼と応答」）。担当の Bash の既定の timeout（120000）の半分
+export const WORKER_CALL_MAX_MS = 60000;
+// 1 体に詰める単位の本文のバイト数の上限（coverage-audit の ledger-core.mjs の写し。一致は tests/formal-method-ledger-copies.test.mjs が照らす）
+export const UNIT_MAX_BYTES = 100000
 
 export const STAGES = Object.freeze(['受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約']);
 
@@ -35,15 +40,20 @@ export const UNMET_ORDER = Object.freeze(['必要な性質が検証の成功で�
   '記録の未保存', '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査']);
 export const STOP_CODES = Object.freeze([...INTERRUPT_CODES, ...UNMET_ORDER, '担当の失敗']);
 // 誤りの code（cli-contract.md「誤りと終了コード」）
-export const ERROR_CODES = Object.freeze(['E_CONTRACT', 'E_INPUT', 'E_BUSY', 'E_STALE', 'E_INTERNAL', 'E_RESULT_UNREADABLE']);
+export const ERROR_CODES = Object.freeze(['E_CONTRACT', 'E_INPUT', 'E_BUSY', 'E_STALE', 'E_INTERNAL', 'E_RESULT_UNREADABLE', 'E_CALL']);
+// E_CALL の detail.reason（cli-contract.md「依頼と応答」）
+export const CALL_REFUSALS = Object.freeze(['call_closed', 'unknown_worker', 'outside_task', 'deadline_passed', 'no_response']);
 export const REQUEST_CODES = Object.freeze(['target_missing', 'goal_missing', 'shape_invalid', 'duplicate_id', 'exclude_without_reason',
   'pointer_unresolved', 'time_limit_invalid', 'target_unavailable', 'revision_mismatch']);
 export const RECORD_KINDS = Object.freeze(['request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions',
-  'plan', 'mutations', 'query', 'execution_evidence', 'worklog', 'review_record', 'ledger', 'result', 'report', 'salvage_worklog', 'salvage_ledger']);
-export const EXEC_KINDS = Object.freeze(['property', 'composition', 'contract', 'sanity', 'mutation', 'replay']);
-export const PERSPECTIVES = Object.freeze(['extraction', 'nonformal', 'fidelity', 'assurance', 'composition']);
+  'plan', 'mutations', 'query', 'execution_evidence', 'worklog', 'review_record', 'judgments', 'ledger', 'result', 'report', 'salvage_worklog', 'salvage_ledger']);
+export const EXEC_KINDS = Object.freeze(['property', 'composition', 'contract', 'sanity', 'mutation', 'replay', 'ablation']);
+// 確認役の観点（context.perspective）。性質ごとの保証の観点は無い（静的な確認と、忠実さの確認の節の役と保証の照合が担う。architecture.md「静的な確認」）
+export const PERSPECTIVES = Object.freeze(['extraction', 'nonformal', 'fidelity', 'composition']);
+// 意味の確認の kind: 観点ごとの確認と、判断を要する項目ごとの確認（judgment。忠実さの確認役が答える）
+export const MEANING_KINDS = Object.freeze([...PERSPECTIVES, 'judgment']);
 export const CAUSES = Object.freeze(['要求の不足', '形式モデルの欠陥', '分類処理の欠陥', '対象が性質を満たさない', '原因未確認']);
-export const RESULT_SCHEMA = 'formal-method.result/1';
+export const RESULT_SCHEMA = 'formal-method.result/2';
 export const STATE_SCHEMA = 'formal-method.state/1';
 export const LEDGER_SCHEMA = 'formal-method.ledger/1';
 export const WORKLOG_SCHEMA = 'formal-method.worklog/1';
@@ -52,6 +62,12 @@ const RELATIONS = ['形式化', '形式検証でない確認', '範囲外', '対
 const GOAL_KINDS = ['目標', '完了', '停止', '再開先'];
 const CONFIRMATION_RESULTS = ['成り立つ', '成り立たない', '確認できず'];
 const CHECK_KINDS = ['property', 'composition', 'contract'];
+// 静的な確認（SP-FORMALMETHOD-012 の表。architecture.md「静的な確認」）の kind と、そのうち判断を要する項目になりうるもの
+export const STATIC_KINDS = Object.freeze(['goal_trivial', 'premise_only', 'premise_load', 'plan_coverage', 'scope_variables', 'mutation_scope']);
+export const JUDGMENT_KINDS = Object.freeze(['goal_trivial', 'premise_only', 'premise_load']);
+export const JUDGMENT_CAUSES = Object.freeze(['外部の依存', '効いている前提', '効いている前提の組', '上限を超えた', '道具が判定できない']);
+export const CLAUSE_ROLES = Object.freeze(['rule', 'premise', 'goal']);
+export const CLAUSE_BASES = Object.freeze(['出所の文', '外部の依存', '作成役の仮定']);
 // 証人（モデル）を求める検査の kind（cli-contract.md「Z3 の adapter」の -model、反例と replay の対象）
 export const MODEL_CHECK_KINDS = Object.freeze(['property', 'composition']);
 
@@ -81,7 +97,7 @@ export const RefHash = obj({ ref: Ref, hash: Sha256 });
 export const SourceRef = obj({ target_id: Id, file: FilePath, span: Span });
 export const Stage = lit(...STAGES);
 export const Measure = oneOf(
-  obj({ value: num, unit: lit('ms', 'bytes', 'count') }),
+  obj({ value: num, unit: lit('ms', 'bytes', 'count', 'tokens') }),
   obj({ status: lit('取得できず'), reason: str }),
   obj({ status: lit('該当なし'), reason: str }),
 );
@@ -116,7 +132,7 @@ const VerifiedScope = obj({
   extraction_coverage: obj({ complete: bool, reason: str }),
 });
 export const Assurance = oneOf(
-  obj({ kind: lit('範囲を限った検査'), scope: str, bounds: arr1(obj({ item: str, bound: str })), fairness_assumptions: arr(str) }),
+  obj({ kind: lit('範囲を限った検査'), scope: str, bounds: arr1(obj({ item: str, bound: str })), scope_variables: arr(str), fairness_assumptions: arr(str) }),
   obj({ kind: lit('無界の証明'), proposition: str, open_obligations: arr(str), fairness_assumptions: arr(str) }),
   obj({ kind: lit('形式検証でない確認'), method: str }),
 );
@@ -208,10 +224,15 @@ const Counterexample = obj({
 });
 export const CauseSubject = oneOf(obj({ kind: lit('counterexample'), id: Id }), obj({ kind: lit('combination'), model_id: Id, state: str, event: str }), obj({ kind: lit('question'), id: Id }));
 const Cause = obj({ subject: CauseSubject, cause: lit(...CAUSES), grounds: str, classified_by: str });
-const DET_KINDS = ['syntax', 'reference', 'result_presence', 'output_format', 'replay', 'sanity', 'mutation'];
+const DET_KINDS = ['syntax', 'reference', 'result_presence', 'output_format', 'replay', 'sanity', 'mutation', ...STATIC_KINDS];
 const Confirmation = (kinds) => obj({
   id: Id, kind: lit(...kinds), property_ids: arr(Id), model_property_id: nullable(Id), plan_id: nullable(Id), item: str,
   result: lit(...CONFIRMATION_RESULTS), checker: str, materials: arr(RefHash), end: nullable(End), reason: str,
+});
+// 判断を要する項目（SP-FORMALMETHOD-012）。静的な確認が成り立たないと断定できない節の付け方で、意味の確認が読む。
+const Judgment = obj({
+  id: Id, kind: lit(...JUDGMENT_KINDS), cause: lit(...JUDGMENT_CAUSES), property_ids: arr(Id), model_property_id: Id, plan_id: Id,
+  clause_names: arr(str), item: str, materials: arr(RefHash), end: nullable(End), reason: str,
 });
 const Records = obj({
   ledger_refs: arr1(Ref),
@@ -226,6 +247,14 @@ const StopReport = obj({
   checks_running: arr(obj({ id: Id, kind: ExecKind })), checks_aborted: arr(obj({ id: Id, kind: ExecKind })),
   questions: arr(Id), unsaved: arr(RecordKind),
 });
+// 起動した担当の数と消費量（SP-FORMALMETHOD-013）。取れなかった値は Measure の 取得できず で示し、0 と区別する
+const LaunchedAgent = obj({ role: str, label: str, model: str, effort: str, ok: bool });
+const AgentCalls = obj({
+  calls: arr(obj({ call_id: Id, stage: Stage, workers: intGe(0), tasks: intGe(0), closed_by: lit('close', 'timed_out', 'deadline'),
+    agents: Measure, launched: arr(LaunchedAgent), tokens: Measure })),
+  stages: arr(obj({ stage: Stage, calls: intGe(1), agents: Measure, tokens: Measure })),
+  total: obj({ calls: intGe(0), agents: Measure, tokens: Measure }),
+});
 const Performance = obj({
   location: lit('ローカル', 'CI'),
   run: obj({ total_ms: Measure, preparation_ms: Measure, build_ms: Measure, checks_ms: Measure, confirmation_ms: Measure, storage_ms: Measure,
@@ -233,22 +262,23 @@ const Performance = obj({
   executions: arr(obj({ id: Id, kind: ExecKind, elapsed_ms: Measure, cpu_time_ms: Measure, peak_rss_bytes: Measure })),
   findings: arr(obj({ id: Id, problem: str, evidence: str, candidates: arr(obj({ change: str, keeps_scope_and_assurance: str })),
     decision: lit('この run では採用しない'), reason: str })),
+  agent_calls: AgentCalls,
 });
 export const Result = obj({
   schema: lit(RESULT_SCHEMA), status: lit('完了', '停止'), provisional: bool, verified_scope: VerifiedScope,
   properties: arr(PropertyResult), checks: arr(Check), models: arr(Model), decomposition: Decomposition,
   counterexamples: arr(Counterexample), causes: arr(Cause),
-  confirmations: obj({ deterministic: arr(Confirmation(DET_KINDS)), meaning: arr(Confirmation(PERSPECTIVES)) }),
+  confirmations: obj({ deterministic: arr(Confirmation(DET_KINDS)), meaning: arr(Confirmation(MEANING_KINDS)), judgments: arr(Judgment) }),
   unverified: arr(obj({ item: str, reason: str })), questions: arr(Question), records: Records,
   stop_report: nullable(StopReport), performance: Performance,
 });
 
 export const Identity = obj({ pid: int, started_at: str, nonce: str });
 export const LockFile = obj({ pid: int, started_at: str, nonce: str, role: lit('run-daemon') });
-export const Batch = obj({ batch_id: str, tasks_path: str, deadline_wall_ms: int, workflow_script: str });
+export const Call = obj({ call_id: str, args_path: str, deadline_wall_ms: int, workflow_script: str });
 export const Status = obj({
   seq: intGe(0), run_dir: nullable(str), action: lit(...STATUS_ACTIONS),
-  batch: nullable(Batch), result: nullable(Result), daemon: nullable(Identity),
+  call: nullable(Call), result: nullable(Result), daemon: nullable(Identity),
 });
 
 // ---- 担当の成果物 ----
@@ -269,11 +299,15 @@ const StateMachine = obj({
   uncovered: arr(obj({ from: str, event: str, missing_info: str })),
   goals: arr(obj({ state: str, kind: lit(...GOAL_KINDS), property_id: Id })),
 });
+// 性質の query の節（:named の名前ごとに 1 つ）。rule は出所の規則、premise は前提、goal は性質の否定。
+export const Clause = obj({
+  name: Id, role: lit(...CLAUSE_ROLES), source_ids: arr(Id), basis: nullable(lit(...CLAUSE_BASES)), external_dependency_id: nullable(Id), note: str,
+});
 export const ModelFile = obj({
-  schema: lit('formal-method.model/1'), model_id: Id, adapter_id: lit('z3'), covers: Covers,
+  schema: lit('formal-method.model/2'), model_id: Id, adapter_id: lit('z3'), covers: Covers,
   state_machine: nullable(StateMachine), no_state_machine_reason: nullable(str),
   io_contracts: arr(obj({ id: Id, pre: str, post: str, source_ids: arr(Id) })),
-  properties: arr(obj({ id: Id, inventory_property_ids: arr1(Id), query_ref: Ref, expected: lit('unsat', 'sat'), assurance: Assurance,
+  properties: arr(obj({ id: Id, inventory_property_ids: arr1(Id), query_ref: Ref, expected: lit('unsat', 'sat'), assurance: Assurance, clauses: arr1(Clause),
     sanity: arr(obj({ kind: lit('assumptions_consistent', 'initial_exists', 'nontrivial_witness'), query_ref: Ref })) })),
   behavior: Behavior, source_diagrams: arr(obj({ source: SourceRef, format: lit('mermaid') })),
   omitted_edges: arr(obj({ from: str, event: str, condition: str })),
@@ -310,25 +344,23 @@ export const AuthorReturn = obj({
 });
 export const ReviewReturn = obj({
   task_id: Id, unit_id: Id, perspective: lit(...PERSPECTIVES), result: lit(...CONFIRMATION_RESULTS),
-  findings: arr(obj({ ref: str, kind: lit('omission', 'addition', 'meaning_change', 'assurance_overclaim', 'vacuity', 'mutation_invalid', 'boundary_gap', 'circular_assumption', 'other'), note: str })),
+  findings: arr(obj({ ref: str, kind: lit('omission', 'addition', 'meaning_change', 'clause_role', 'assurance_overclaim', 'vacuity', 'mutation_invalid', 'boundary_gap', 'circular_assumption', 'other'), note: str })),
+  // 判断を要する項目ごとの答え（忠実さの確認役だけが持つ。他の観点は []）。id は Judgment.id
+  judgments: arr(obj({ id: Id, result: lit(...CONFIRMATION_RESULTS), note: str })),
   record_ref: Ref, worklog_ref: Ref,
 });
 export const CauseReturn = obj({
   task_id: Id, unit_id: Id, cause: lit(...CAUSES), grounds: str, questions: arr(Question), record_ref: Ref, worklog_ref: Ref,
 });
-export const OUTPUT_SCHEMA = Object.freeze({
-  type: 'object', additionalProperties: false, required: ['task_id', 'return_path'],
-  properties: { task_id: { type: 'string' }, return_path: { type: 'string' } },
+// Workflow の返り値（artifact-formats.md「Workflow の返り値」）。close が記録するだけで、受理には使わない
+export const WorkflowReturn = obj({
+  agents: arr(obj({ role: str, label: str, model: str, effort: str, ok: bool })),
+  tokens: (v, p, e) => v === null || (typeof v === 'number' && Number.isFinite(v)) || (e.push(`${p}: 数か null を期待`), false),
 });
-export const WorkflowOutput = obj({
-  batch_id: Id,
-  results: arr(obj({ task_id: Id, status: lit('returned', 'missing', 'error'),
-    received: obj({ task_id: Id, prompt: str, model: str, effort: str, output_schema: (v, p, e) => (v !== null && typeof v === 'object' && !Array.isArray(v)) || (e.push(`${p}: object を期待`), false) }),
-    'error?': str0 })),
-});
-export const InboxContent = oneOf(
-  obj({ batch_id: str, workflow_output_path: str }),
-  obj({ batch_id: str, timed_out: lit(true) }),
+// 受け箱（close）の中身
+export const CloseContent = oneOf(
+  obj({ call_id: str, workflow_output_path: str }),
+  obj({ call_id: str, timed_out: lit(true) }),
 );
 export const Worklog = obj({
   schema: lit(WORKLOG_SCHEMA), role: str, task_id: nullable(Id), stage: Stage, target: str, inputs: arr(RefHash),

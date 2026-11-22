@@ -11,16 +11,16 @@ import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { writerMergeScc, stopStageViolations, crossingEdges } from './test-fixtures/decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './test-fixtures/constants.mjs';
-import { P, prop, checksOf, planOf, queryOf, evidence, inputOf, callsFor, tOf, tasksOf, assertRevised, assertRecordsConsistent, canonicalRun, firstBatchWith, assertBatchRejected, assertConfirmationCommon, assertReviewFailed, assertCauseFailed, reviewTasks, REVIEW_FAIL_CASES, CAUSE_FAIL_CASES, STAGE_CASES, SM, topLevelForms, resolvePointer, CLAIM_CASES, assertGraphMatches, partitionWithUnconfirmedAssumption, SM_A, SMT_A, counterexampleQueries, assertNamedInOrder, WITNESS_SMT, WITNESS_MODEL, SECRET, assertSecretNowhere, NOT_STARTED_END, WITNESS_CASES, PART_SCENARIO, dropChecks, PART_CASES, assertNoChecksRow, NO_PLAN_CASES, z3Candidate, PLAN_DEFECTS, onlyRound1 } from './test-fixtures/pipeline-cases.mjs';
+import { P, prop, checksOf, planOf, queryOf, evidence, inputOf, callsFor, tOf, tasksOf, assertRevised, assertRecordsConsistent, canonicalRun, firstCallWith, assertAcceptedKept, assertConfirmationCommon, assertReviewFailed, assertCauseFailed, reviewTasks, REVIEW_FAIL_CASES, CAUSE_FAIL_CASES, STAGE_CASES, SM, topLevelForms, resolvePointer, CLAIM_CASES, assertGraphMatches, partitionWithUnconfirmedAssumption, SM_A, SMT_A, counterexampleQueries, assertNamedInOrder, WITNESS_SMT, WITNESS_MODEL, SECRET, assertSecretNowhere, NOT_STARTED_END, WITNESS_CASES, PART_SCENARIO, dropChecks, PART_CASES, assertNoChecksRow, NO_PLAN_CASES, z3Candidate, PLAN_DEFECTS, onlyRound1 } from './test-fixtures/pipeline-cases.mjs';
 
 describe('cli-pipeline', { concurrency: 4 }, () => {
-test('cli-contract 受け箱 batch の拒否 SP-FORMALMETHOD-015 AC-19: 確認の段の batch が timed_out だと、その確認は 確認できず になり、性質は 未確認 になり、stop_report.stage は確認', async (t) => {
-  const pick = firstBatchWith('fidelity-reviewer');
-  const out = await runScenario(t, { hooks: { reject: (s, list) => (pick(s, list) ? 'timed_out' : null) } });
-  const list = assertBatchRejected(out);
-  assert.ok(list.tasks.every((x) => x.context.stage === '確認'), '独立検証者の batch は確認の段（architecture「段と処理の順序」）');
-  assert.deepEqual(prop(out.result, 'P1').verdict, ['未確認'], '忠実さの確認が 確認できず なので meaning_confirmed が false で 未確認（artifact-formats「意味の確認から判定の入力への写し」の注）');
-  assert.equal(out.result.stop_report.stage, '確認');
+test('cli-contract 受け箱 SP-FORMALMETHOD-012・015: 確認の段の呼び出しを timed_out で閉じても、submit で受理した確認は残り、性質は 検証済み で完了する（前の稿の batch ごとの拒否の回帰）', async (t) => {
+  const pick = firstCallWith('fidelity-reviewer');
+  const out = await runScenario(t, { hooks: { close: (s, call) => (pick(s, call) ? 'timed_out' : null) } });
+  const call = assertAcceptedKept(out, 'timed_out');
+  assert.equal(call.stage, '確認', '独立検証者の呼び出しは確認の段（architecture「段と処理の順序」）');
+  assert.deepEqual(prop(out.result, 'P1').verdict, ['検証済み']);
+  assert.equal(out.result.status, '完了', JSON.stringify(out.result.stop_report?.reasons));
 });
 for (const [perspective, mode, scenario, verdicts] of REVIEW_FAIL_CASES) {
   test(`artifact-formats 確認 担当の返り値 SP-FORMALMETHOD-012・015 AC-19: ${perspective} の照合役が${mode === 'missing' ? '返らない' : '形の違う返り値を返す'}と、その unit の確認が 確認できず で 1 つでき、unverified・unconfirmed_scope に写り、確認が終わっていない で停止する`, async (t) => {
@@ -45,7 +45,7 @@ for (const [name, scenario, kind] of CAUSE_FAIL_CASES) {
 }
 
 test('artifact-formats 確認 SP-FORMALMETHOD-012: 正常に返った照合役の確認は result が返り値の result で、reason は空でない文。確認できず は unverified[] に写る', async (t) => {
-  const reviews = { fidelity: '確認できず', assurance: '成り立たない' };
+  const reviews = { fidelity: '確認できず', extraction: '成り立たない' };
   const { result, harness } = await runScenario(t, { scenario: { reviews } });
   assert.deepEqual(resultInvariants(result), []);
   const tasks = harness.memory.tasks.filter((x) => x.context.perspective);
@@ -71,9 +71,9 @@ test('artifact-formats 確認 SP-FORMALMETHOD-012: 正常に返った照合役�
 });
 
 test('artifact-formats decideStatus SP-FORMALMETHOD-012・015: 意味の確認が 成り立たない だけ（確認できず が無い）でも confirmations_unresolved が true で、確認が終わっていない で停止する', async (t) => {
-  const { result } = await runScenario(t, { scenario: { reviews: { assurance: '成り立たない' } } });
+  const { result } = await runScenario(t, { scenario: { reviews: { extraction: '成り立たない' } } });
   assert.deepEqual(resultInvariants(result), []);
-  assert.ok(result.confirmations.meaning.some((x) => x.kind === 'assurance' && x.result === '成り立たない'), '保証の確認が 成り立たない');
+  assert.ok(result.confirmations.meaning.some((x) => x.kind === 'extraction' && x.result === '成り立たない'), '抽出の確認が 成り立たない');
   assert.ok(!result.confirmations.meaning.some((x) => x.result === '確認できず'), '確認できず の意味の確認は無い');
   assert.equal(result.status, '停止');
   assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'), JSON.stringify(result.stop_report.reasons));
@@ -313,7 +313,7 @@ test('SP-FORMALMETHOD-010・015 AC-10: 時間の上限 1 秒の依頼は受け�
   for (const c of r.checks) assert.ok(c.verdict === '未実行' || c.verdict === '時間切れ', `${c.id}: ${c.verdict}`);
   // 残す時間は min(60 秒, 上限の 1/4) = 0.25 秒。期限（開始から 0.75 秒）の後に道具を始めない
   for (const e of out.log().filter((x) => x.kind === 'query-start')) assert.ok(e.at_ms <= started + 750 + 2000, '期限の後に道具を始めない');
-  for (const b of out.harness.memory.batches) assert.ok(b.deadline_wall_ms <= started + 750 + 3000, '担当の batch の期限は run の期限 − 残す時間（起動の遅れを 3 秒まで見込む）');
+  for (const b of out.harness.memory.calls) assert.ok(b.deadline_wall_ms <= started + 750 + 3000, '担当の呼び出しの期限は run の期限 − 残す時間（起動の遅れを 3 秒まで見込む）');
 });
 
 // ---- 性質の id の名前空間と、モデルが 2 つのとき ----
@@ -328,7 +328,7 @@ test('artifact-formats 性質の id の名前空間 AC-04・AC-09: モデルの�
   for (const c of sanity) { assert.deepEqual(c.property_ids, ['P1']); assert.equal(c.model_property_id, 'MP-P1'); assert.equal(c.plan_id, 'S-MP-P1', '計画の sanity の id は plan_id に残る'); assert.match(c.id, /^confirm-sanity-\d+$/); }
   for (const c of result.confirmations.deterministic.filter((x) => x.kind === 'mutation')) { assert.equal(c.model_property_id, 'MP-P1'); assert.equal(c.plan_id, 'MU-MP-P1'); }
   for (const m of prop(result, 'P1').detection.mutations) { assert.equal(m.id, 'MU-MP-P1'); assert.match(m.confirmation_id, /^confirm-mutation-\d+$/); }
-  for (const c of result.confirmations.meaning.filter((x) => x.kind === 'assurance')) assert.equal(c.model_property_id, 'MP-P1');
+  for (const c of result.confirmations.deterministic.filter((x) => ['goal_trivial', 'plan_coverage'].includes(x.kind))) assert.equal(c.model_property_id, 'MP-P1');
   assert.ok(result.decomposition.graph.nodes.some((n) => n.id === 'prop:M1/MP-P1'), 'graph の性質はモデルの性質の id');
   assert.ok(!result.decomposition.graph.nodes.some((n) => n.id === 'prop:M1/P1'));
   assert.equal(prop(result, 'P1').detection.status, '検出を確認');

@@ -24,8 +24,8 @@ description: >
 |---|---|---|---|
 | 司令塔 | このスキルを読む session | CLI を呼び、出力の値を次の呼出しへ渡し、結果の欄を提示する | 判定・状態・結果の本文を作る、直す、採点する。run の領域に書く。担当の役を代わりに行う |
 | CLI | `scripts/formal-method-cli.mjs` と、run ごとに 1 つの background の `run-daemon` | 依頼の検査、段の進行、照合、道具の実行、判定、保存の全て | 意味の判断 |
-| Workflow script | [担当の起動](#担当の起動) で起動する script | CLI が決めた task を起動し、task ごとの起動の結末を返す | 判断、返り値の中身を読むこと |
-| 担当 | Workflow が起動する agent（`agents/<role>.md`） | 抽出・モデル・分割・計画の作成と、観点ごとの独立した確認、原因の分類 | 自分の成果物の確認、台帳への書込み |
+| Workflow script | [担当の起動](#担当の起動) で起動する script | CLI が決めた worker（1 体が 1 つ以上の task を持つ）を 1 体ずつ起動し、起動の記録と tokens を返す | 判断、返り値の中身を読むこと |
+| 担当 | Workflow が起動する agent（`agents/<role>.md`） | 抽出・モデル・分割・計画の作成と、観点ごとの独立した確認（同じ観点の unit は 1 体に詰める）、原因の分類（主題を束で取る） | 自分の成果物の確認、台帳への書込み |
 
 判断を司令塔の散文に置くと、読む者ごとに停止の条件や期限の確かめ方が変わる。そのため、決定的に書ける判断は全て CLI が持ち、司令塔は中継だけをする。
 
@@ -36,7 +36,7 @@ description: >
 - `run_dir`: run の記録を置くディレクトリの絶対 path。CLI が返す値をそのまま使う。
 - `run-daemon`: run の状態を書く唯一の background の process。司令塔は直接呼ばない。
 - `status_seq`: CLI が前に返した `status.seq`（又は `still_waiting` の `status_seq`）。司令塔は自分で値を作らない。
-- `batch_id`・`task_id`・`return_path`: CLI が担当の起動ごとに決める識別子と、担当が返り値を書く path。
+- `call_id`・`args_path`: CLI が担当の呼び出しごとに決める識別子と、Workflow に渡す args の JSON の path。担当の task は担当が CLI から直接取るので、司令塔は扱わない。
 - `provisional`: 結果が記録を保存できなかった仮の結果であることを示す欄。
 
 ## 依頼の受け方
@@ -82,8 +82,10 @@ JSON
 |---|---|
 | `start` | `{"request": <依頼>}` |
 | `wait` | `{"run_dir": "<run_dir>", "status_seq": <status_seq>}` |
-| `submit` | `{"run_dir": "<run_dir>", "batch_id": "<batch_id>", "workflow_output_path": "<path>"}` 又は `{"run_dir": "<run_dir>", "batch_id": "<batch_id>", "timed_out": true}` |
+| `close` | `{"run_dir": "<run_dir>", "call_id": "<call_id>", "workflow_output_path": "<path>"}` 又は `{"run_dir": "<run_dir>", "call_id": "<call_id>", "timed_out": true}` |
 | `salvage` | `{"run_dir": "<run_dir>"}` |
+
+`claim`・`query`・`submit` は担当（Workflow が起動する agent）が使うコマンドで、司令塔は呼ばない（[CLI 契約の依頼と応答](references/cli-contract.md#依頼と応答)）。
 
 この手順が使う定数（正本は [CLI 契約の定数](references/cli-contract.md#定数)。この表は写しで、正本が変われば正本に従う）:
 
@@ -113,34 +115,35 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 | `status.action` が `working` | `wait` を `status_seq` = この `status.seq` で呼ぶ |
 | `status.action` が `terminal` | [結果の提示](#結果の提示) を行って終える |
 | `wait` の `outcome: "still_waiting"` | `wait` を、出力の `status_seq` のまま呼び直す。繰り返しても値を変えない |
-| `submit` の `outcome` が `accepted` か `duplicate` | `wait` を、`run_agents` の `status.seq` で呼ぶ |
+| `close` の `outcome` が `accepted` か `duplicate` | `wait` を、`run_agents` の `status.seq` で呼ぶ |
 | 誤り（`ok: false`） | [誤りと止まり方](#誤りと止まり方) |
 | JSON でない出力 | [誤りと止まり方](#誤りと止まり方) |
 
 - `run_dir` は、CLI が最後に返した値を使う。
-- batch は 1 つの run の中で何度も来る（洗い出し・モデル化・計画・確認の段ごと、件数が多ければ同じ段で複数）。対象が 1 つでも同じ表で進む。
+- 担当の呼び出しは 1 つの run の中で何度も来る（洗い出し・モデル化・計画・確認の段ごと、件数が多ければ同じ段で複数）。対象が 1 つでも同じ表で進む。
 
 ## 担当の起動
 
-`status.action` が `run_agents` のとき、`status.batch` の `batch_id`・`tasks_path`・`deadline_wall_ms` を使う。
+`status.action` が `run_agents` のとき、`status.call` の `call_id`・`args_path`・`deadline_wall_ms` を使う。
 
-1. `tasks_path` の JSON を Read し、その `batch_id` と `tasks` を値のまま args に入れる。値を選んだり並べ替えたりしない（Workflow script が受け取った値を返し、CLI が `tasks.json` と照合する。食い違えばその batch の返り値は全て使われない）。`attempts/` の `task.md` は読まない、書かない。
+1. `args_path` の JSON を Read し、その値をそのまま args にする。値を選んだり並べ替えたり足したりしない（args は `{state, callId, stage, workers}` だけで、担当は task と資料を CLI から直接取る）。`calls/`・`attempts/`・`requests/` のファイルは読まない、書かない。
 2. Workflow を background で起動する。
 
    ```js
    Workflow({
      scriptPath: "[SKILL_DIR]/scripts/formal-method-agents.js",
-     args: { batch_id: "<tasks.json の batch_id>", tasks: <tasks.json の tasks をそのまま> }
+     args: <args_path の JSON をそのまま>
    })
    ```
 
 3. 同時に、`deadline_wall_ms` までの待ちの command を background で起動する（[待ち方](#cli-の呼び方と-timeout)）。
-4. 先に届いた通知で、`submit` の入力を次のどちらか 1 つに決める。
-   - **Workflow の完了が先に届き、その通知が返り値の JSON を収めたファイルの path を示した**: `workflow_output_path` にその path を入れる。
+4. 先に届いた通知で、`close` の入力を次のどちらか 1 つに決める。
+   - **Workflow の完了が先に届き、その通知が返り値の JSON を収めたファイルの path を示した**: `workflow_output_path` にその path を入れる。通知のファイルは、ホストが返り値を包んだ形（`{summary, agentCount, logs, result}`）のままでよい（CLI が包みを外す）。
    - **それ以外**（待ちの command が先に終わった、Workflow が起動しなかった、途中で終わった、通知に返り値のファイルの path が無い、native の `Workflow` が無い）: `timed_out: true` を入れる。動いている Workflow は止める。
-5. `submit` を 1 回だけ呼ぶ。`timed_out: true` で出した後に Workflow の完了が届いても、`submit` を呼び直さない（期限の後の値は CLI が使わない）。同じ `batch_id` の `submit` を 2 回呼ぶと `duplicate` が返り、2 回目は使われない。
+5. `close` を 1 回だけ呼ぶ。後から届いたもう一方の通知では呼び直さない。同じ `call_id` の `close` を 2 回呼ぶと `duplicate` が返り、2 回目は使われない。
+   - `close` は呼び出しを閉じ、起動の記録と tokens を残すだけである。担当の成果物は担当の `submit` で既に受理されているので、`timed_out: true` で閉じても、受理された成果物は失われない。
 
-担当の役（抽出・モデル・確認など）を司令塔が代わりに行わない。担当が返らなかった分は、CLI が欠測として扱い、結果の未作成・`未確認` に残す。
+担当の役（抽出・モデル・確認など）を司令塔が代わりに行わない。受理されなかった担当は、CLI が欠測として扱い、結果の未作成・`未確認` に残す。
 
 ## 誤りと止まり方
 
@@ -154,7 +157,7 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 | `E_RESULT_UNREADABLE` | 結果を作らずに終える（下の表の「結果のファイルが読めない」） |
 | `E_INPUT` | 呼び直さずに終える（「入力の誤り」） |
 | `E_CONTRACT` | 呼び直さずに終える（「契約の誤り」） |
-| `run_dir` を持つ呼出し（`wait`・`submit`）の出力が JSON でない | `salvage` を呼ぶ |
+| `run_dir` を持つ呼出し（`wait`・`close`）の出力が JSON でない | `salvage` を呼ぶ |
 | `start` か `salvage` の出力が JSON でない | 呼び直さずに終える（「出力が読めない」） |
 
 - `liveness: "unknown"`（`wait` の `still_waiting`、又は `E_BUSY` の `detail.liveness`）の出力を、続けて受け取った回数を数える。`unknown` でない出力を受けたら 0 に戻す。`LIVENESS_UNKNOWN_MAX` 回に達したら、結果を作らずに終える（「保持者の生死が分からない」）。`ps` が使えない環境では生死が分からないまま待ち続けるため、司令塔の側で終わらせる。
@@ -192,7 +195,7 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 6. **停止の報告の残り**（`停止` のとき）: 確認済み・未確認の範囲、生成済み・未作成の成果物、実行中・中止した検査、保存できなかった記録（`records.unsaved`）。
 7. **限界**: [限界と未検証](#限界と未検証) のうち、結果の `unverified[]` に載ったもの。
 
-- 担当の返り値が欠けた batch があっても、結果の欄がそれを `未確認`・未作成として持つ。司令塔は、返った担当と返らなかった担当を数え直して結果に足さない。
+- 受理されなかった担当があっても、結果の欄がそれを `未確認`・未作成として持つ。司令塔は、返った担当と返らなかった担当を数え直して結果に足さない。
 - `検証済み`・`別手段で確認済み` 以外の値（`未実行`・`unknown`・`時間切れ`・`実行失敗`・`未確認`、保存できなかった記録）を、成功として述べない。
 - 語の意味（unknown、時間切れ、充足可能、反例、有限化など）を人に説明するときは、[形式手法の知識](references/formal-method-knowledge.md) の文を引く。自分の言い換えで意味を広げない。
 - 人向けの表示 `<run_dir>/report.md` が結果の記録に在れば、その path を添えてよい。
@@ -202,7 +205,9 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 解決していない限界である（正本は [設計の未検証と限界](references/architecture.md#未検証と限界)）。
 
 - 担当の書込みと読む範囲は、ホストの権限で分けていない。担当の義務だけで守り、CLI は登録の前の書換えを見つけられない。
-- 結果に記録した model・effort は、Workflow が受け取ったと返した値である。ホストが実際にその値で動かしたかは確かめられない。
+- 結果に記録した model・effort は、CLI が Workflow の args の workers の行に書いた値である。ホストが実際にその値で動かしたかは確かめられない。
+- 確認役は作成役と別のモデルで動く（値の正本は `scripts/lib/roles.mjs`）。作成役のモデルより検出が落ちないかは確かめていない。同じ観点の unit を 1 体に詰めるので、unit どうしの判断の独立は担当の義務だけで守る。
+- 起動した担当の数と tokens（`performance.agent_calls`）は Workflow の返り値の値で、`tokens` が subagent の消費を含むかは確かめていない。
 - 秘密値の走査は 4 つの型だけを検出し、それ以外の形は見逃す。対象の写しは走査しない。
 - Z3 の出力の流れと終了コードは、macOS arm64・Z3 5.3.3 でだけ測った。Linux では測っていない。
 - `run-daemon` の detach は、Claude Code のデスクトップ（macOS arm64）で前景のコマンドの終了後も生きることだけを確かめた。session やアプリの終了の後と Linux での振る舞いは確かめていない。
@@ -213,9 +218,9 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 | 読むとき | ファイル |
 |---|---|
 | コマンド・誤りの code・`status.json`・定数 | [references/cli-contract.md](references/cli-contract.md) |
-| 依頼・結果・task・返り値の形 | [references/artifact-formats.md](references/artifact-formats.md) |
+| 依頼・結果・claim の Task・返り値の形 | [references/artifact-formats.md](references/artifact-formats.md) |
 | 役割・段・停止の手順・限界の理由 | [references/architecture.md](references/architecture.md) |
 | 担当の共通の義務 | [references/agent-obligations.md](references/agent-obligations.md) |
 | 語の意味（判定、保証、unknown など） | [references/formal-method-knowledge.md](references/formal-method-knowledge.md) |
 | 作業記録に適用する文書の一般規約（CLI が run に固定して使う写し） | [references/document-rules.md](references/document-rules.md) |
-| 担当ごとの指示 | `agents/<role>.md`（task.md の ROLE が指す） |
+| 担当ごとの指示 | `agents/<role>.md`（claim の Task の `instructions` が指す） |
