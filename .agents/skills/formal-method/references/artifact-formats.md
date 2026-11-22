@@ -38,8 +38,10 @@ formal-method が受け取り、作り、返すデータの形の正本。値の
 ```text
 Id          = string                       // 英数字・「-」「_」「.」。同じ種類の中で一意
 Sha256      = string                       // "sha256:" + 64 桁の小文字 16 進
-Ref         = string                       // run の領域（<run_id>/）からの相対 path。この文書の全ての Ref に共通（担当が書く ref を含む）
-RefHash     = { ref: Ref, hash: Sha256 }
+Ref         = string                       // run の領域（<run_id>/）からの相対 path か、対象のファイルを指す "target:<target_id>/<FilePath>"（担当に渡す資料の
+                                           // ref。path は元のファイルの絶対パス）。この文書の全ての Ref に共通（担当が書く ref を含む）
+RefHash     = { ref: Ref, hash: Sha256 | "unreadable", spans?: [{ span: Span, hash: Sha256 }] }   // spans は範囲を渡した対象のファイルだけ（下の「担当に渡す資料」）。
+                                           // 指紋を取る時点で読めないファイルは "unreadable"（spans を持たない。対象のファイルなら集約の段で 対象の変化）
 Span        = string                       // "L<開始>-L<終了>"。1 始まり、両端を含む、開始 ≤ 終了
 FilePath    = string                       // 対象の根からの相対 path。"/" 区切り、"." と ".." を含まない。単一のファイルの対象では、そのファイル名。除いたディレクトリを指すときだけ末尾に "/" を付ける
 SourceRef   = { target_id: Id, file: FilePath, span: Span }
@@ -47,7 +49,7 @@ Stage       = "受付" | "洗い出し" | "モデル化" | "計画" | "実行" |
 Measure     = { value: number, unit: "ms" | "bytes" | "count" | "tokens" }
             | { status: "取得できず", reason: string }
             | { status: "該当なし", reason: string }
-RecordKind  = "request" | "target_snapshot" | "document_rules" | "inventory" | "model" | "mapping" | "partitions"
+RecordKind  = "request" | "target_snapshot" | "document_rules" | "inventory" | "model" | "mapping" | "partitions" | "material_view"
             | "plan" | "mutations" | "query" | "execution_evidence" | "worklog" | "review_record" | "judgments" | "ledger"
             | "result" | "report" | "salvage_worklog" | "salvage_ledger"
 ExecKind    = "property" | "composition" | "contract" | "sanity" | "mutation" | "replay" | "ablation"   // ablation は静的な確認の実行
@@ -111,16 +113,20 @@ Pointer   = { kind: "target" | "goal" | "known_requirement", id: Id }
 | `exclude_without_reason` | `exclude` の項目に `reason` が無い |
 | `pointer_unresolved` | `Pointer` が依頼に無い識別子か、対象に無い箇所（集まりに無いファイル、又は行の範囲がファイルの行数を超える）を指す。`SourceRef` も同じ。バイナリか読めないファイルの行を指す場合も当たる |
 | `time_limit_invalid` | `time_limit_seconds` が JSON の整数で 1 以上でない（文字列・小数・`null`・真偽値を含む）。理由: SP-001 が「1 未満又は整数でない時間の上限」を名指しするので、型の違いも `shape_invalid` でなくこちらに入れる |
-| `target_unavailable` | 対象を取得できない（`location` が無い、根を読めない、扱えない URI）。集まりの中の一部のファイルが読めないだけなら当たらない |
+| `target_unavailable` | 対象を取得できない（`location` が無い、根を読めない、扱えない URI、`revision` の版の tree にあるファイルの内容を読めない）。`revision` の無い集まりの中の一部のファイルが読めないだけなら当たらない |
 | `revision_mismatch` | `revision` の内容を取れない（git の作業ツリーの外を含む）か、`content_hash` が集まりの指紋と一致しない |
 
-- 依頼の検査・対象の取得・版と指紋の照合・写しの保存は、全て `run-daemon` が、同じ読み込みのバイト列で行う（[CLI 契約](cli-contract.md#起動の手順)）。
+- 依頼の検査・対象の取得・版と指紋の照合は、全て `run-daemon` が、同じ読み込みのバイト列で行う（[CLI 契約](cli-contract.md#起動の手順)）。対象の写しは作らない。対象は run の間固定している前提で、集約の段で 1 度だけ、元のファイルを読み直した指紋と担当の最初の `query` の時点の指紋を照らす。照らすのは受付で集まりに入れたファイルだけで、受付の後に足されたファイルは照らさない（[architecture.md「対象の固定」](architecture.md#対象の固定)）。
+- `revision` を添えた対象は、作業ツリーのファイルの内容が、その版の内容を checkout と同じ変換（`.gitattributes` の `eol`・`text`、`core.autocrlf` などの filter）に通した `git cat-file --filters <commit>:<path>` の出力と一致するときだけ受け付ける（担当には作業ツリーの元のファイルを渡すため）。一致しなければ `revision_mismatch`。版の tree にあるファイルの内容を読めなければ `target_unavailable`。記録する指紋もこの出力の指紋である。
 
 `request.json`（受け付けた依頼の正規形）は、上の形に省略の既定値を埋め、未知のキーを除き、各対象に次を足したものである。
 
 ```text
-fixed = { revision: string | null, content_hash: Sha256, snapshot_ref: Ref,     // snapshot_ref は targets/<target_id>/
-          files: [{ path: FilePath, content_hash: Sha256 | "unreadable", text: boolean }] }
+fixed = { revision: string | null, content_hash: Sha256, root: string,          // root は対象の元の絶対パス（symbolic link を解決した先）
+          manifest_ref: Ref,                                                      // targets/<target_id>/manifest.json
+          files: [{ path: FilePath, abs_path: string, content_hash: Sha256 | "unreadable", text: boolean }] }   // abs_path は元のファイルの絶対パス
+Manifest = { root: string, files: [{ path: FilePath, abs_path: string, workspace_path: string | null,   // workspace_path は作業ツリーからの相対 path（外なら null）
+             content_hash: Sha256 | "unreadable", text: boolean }] }
 ```
 
 ## 結果（Result）
@@ -539,6 +545,7 @@ StopCode =
   | "対応できていない組合せ" | "回答を待つ問い" | "記録の未保存"
   | "必要な性質が 0 件" | "検出能力未確認"
   | "反例" | "実行できない検査" | "担当の失敗"
+  | "対象の変化"               // 受付の後に対象のファイルが変わった（固定の前提の破れ）。段は 集約
 ```
 
 - `checks_running`・`checks_aborted` には、`Check`（`property`・`composition`・`contract`）と、道具を実行した `Confirmation`（`sanity`・`mutation`・`replay`）の両方を、`kind` を付けて入れる。
@@ -557,11 +564,19 @@ StopCode =
   | `反例` | `実行` |
   | `担当の失敗` | 失敗した task の `context.stage` |
   | `回答を待つ問い` | `確認`（問いは原因の分類で確定する） |
-  | `必要な性質が検証の成功でない`・`確認が終わっていない`・`記録の未保存`・`必要な性質が 0 件`・`検出能力未確認` | `集約` |
+  | `必要な性質が検証の成功でない`・`確認が終わっていない`・`記録の未保存`・`必要な性質が 0 件`・`検出能力未確認`・`対象の変化` | `集約` |
 - `保存の失敗` と `記録の未保存` の使い分け:
   - `保存の失敗`: run の途中で記録を書けず、その時点で停止の手順に入った（SP-014 の「保存できない記録があるならば停止」）。`stage` は書けなかった段。
   - `記録の未保存`: 集約の段の完了の条件で、`records.unsaved` が空でない（SP-015 の「記録を全て保存した」が成り立たない）。`stage` は `集約`。
   - 途中で書けなかった run では、両方が入る。
+- `対象の変化` のとき（集約の段の照合で、受付の指紋と違うファイルがある。[architecture.md「対象の固定」](architecture.md#対象の固定)）、結果は次のとおりにする（SP-001）。
+  - そのファイルを `verified_scope.targets[].files` に入れない。`extraction_coverage` は `complete: false`、`reason` は「受付の後に変わった対象のファイルがある」。
+  - `unverified[]` に、`item` = 「対象の変化: <target_id> の <FilePath>」、`reason` = 違いを見つけた照合（集約の段の読み直しか、担当の `query` の時点の指紋）と扱いの文で載せる。
+  - そのファイルを、性質を支える出所（`run.mjs` の `propertyScopeOf`: 性質の `source_ids` の要素と、その性質を扱うモデルの性質の `modelScope`。忠実さの確認役に渡す範囲と同じ求め方）に持つ性質か、その性質の確認の担当が `query` で受けた資料（`materials`）にそのファイルがある性質と、その性質を親に持つ契約の `verdict` が `検証済み`・`別手段で確認済み` なら `未確認` にし、`reason` にそのファイルを書く。他の判定（`反例` など）は変えない。
+- 受け付けた run の `unverified[]` には、担当の義務と照合の手順で守る限界を、次の 3 つの `item` で載せる（[architecture.md「未検証と限界」](architecture.md#未検証と限界)）。
+  - `対象の固定`: 途中で変わって元に戻り、その間に `query` が無ければ見つけられない。
+  - `担当の読む範囲`: 範囲（`spans`）の外を読まない義務は、CLI が機械では止めない。
+  - `担当の書込み範囲`: attempt の領域の外に書かない義務は担当だけで守り、登録の前の書換えは見つけられない。
 - 7 項目（段、理由、確認済み・未確認、生成済み・未作成、実行中・中止した検査、問い、保存できなかった記録）は、該当が無くてもキーを持つ。
 
 ### 性能の記録（SP-013、PR-036）
@@ -717,7 +732,9 @@ Inventory = {
   schema: "formal-method.inventory/1",
   target_id: Id, content_hash: Sha256,      // 集まりの指紋
   scanned: [{ file: FilePath, span: Span | null, status: "read" | "unread", reason: string | null }]+,
-           // 集まりの全てのファイルを覆い、テキストのファイルは全ての行を覆う。unread は reason 非 null。span が null ならファイルの全体
+           // 依頼の範囲を覆う。scope.include がその対象を target で挙げたか、その対象を指す location が無ければ全てのファイルの全体。
+           // それ以外は location が指すファイル（span があればその行、無ければ全体）だけ。範囲の外のファイル・行は求めず、unread にもしない。
+           // unread は reason 非 null。span が null ならファイルの全体
   elements: [{ id: Id, kind: "requirement" | "goal" | "state" | "input" | "output" | "constraint" | "event" | "result",
                source: { target_id: Id, file: FilePath, span: Span, quote_hash: Sha256 },  // quote_hash は span の行を "\n" でつないだ文字列の SHA-256
                text: string }],
@@ -927,18 +944,30 @@ TaskContext = {
 - 組合せの `unit_id` に状態と出来事の名前を入れないのは、名前が `Id` の文字（英数字・「-」「_」「.」）に合うとは限らないためである。`cells` の順は宣言順で決まる（[形式モデル](#形式モデルと対応sp-005006)の `Combinations`）ので、位置は同じモデルから決定的に決まる。組合せの名前は `context.subject`（`state`・`event`）が持つ。
 - `PartitionsFile.decisions` は、`context.candidates` の全ての id を 1 つずつ持つ。
 
+**担当に渡す資料**（作成役を含む全ての担当の `input_refs`。理由は [architecture.md「担当に渡す資料」](architecture.md#担当に渡す資料)）
+
+```text
+InputRef = { name: string, ref: Ref, spans?: [Span] }   // spans は対象のファイルだけが持てる。無ければファイルの全体。重ならず昇順
+```
+
+- `ref` は `run_dir` からの相対 path か、対象のファイルを指す `target:<target_id>/<FilePath>`。`query` の応答の `path` は、対象のファイルなら受付で控えた元のファイルの絶対パス（`fixed.files[].abs_path`）、他は `run_dir` の下の絶対パス。対象のファイルは、読めるテキストのファイルだけを、対象の中のファイルの並びの順で入れる。
+- 範囲（`spans`）は Span の行の規則で数える。`materials` と台帳の `input_refs` の `RefHash` は、範囲を持つ対象のファイルについて、ファイル全体の指紋（`hash`）と、範囲ごとの指紋（範囲の行を `"\n"` でつないだ文字列の SHA-256。`quote_hash` と同じ求め方）を持つ。
+- 範囲の決め方: 依頼の範囲は、`scope.include` がその対象を挙げるか、その対象を指す `location` が無ければファイルの全体、`location` が `span` を持てばその範囲（`span` の無い `location` はそのファイルの全体）。要素の範囲は inventory の `elements[].source.span`。対応表の範囲は `rows[].source` が `location` の行の `span`（無ければファイルの全体）。
+- 抽出役とモデル作成役: `request.json`、対象の `manifest.json`、依頼の範囲の対象のファイル（モデル作成役は全ての inventory も）。
+- **担当の資料の写し（`views/<unit_id>.json`、台帳の `kind: "material_view"`）**: CLI が確認の段の始めに、`fidelity` と `nonformal` の unit ごとに書く。`fidelity` は `{ unit_id, model_id, properties: [そのモデルの inventory_property_ids の inventory の性質], bound_elements: [それらの性質の source_ids の要素], unbound_elements: [その性質を持つ inventory の、どの性質の source_ids にも無い要素], external_dependencies: [その inventory の { id, text, source }] }`（要素は `{ id, kind, source: { target_id, file, span } }` で本文を持たない。本文は渡す範囲の対象のファイルで読む。他のモデルの性質にだけ結ばれた要素は入れない）、`nonformal` は `{ unit_id, properties: [その性質], elements: [その性質の source_ids の inventory の要素（本文を含む）] }`。理由: inventory の全体を渡さず、その担当が判断に要る分だけを渡す。
+
 **独立検証者と原因の分類役の `input_refs`**（CLI が作り、`query` が返す正本。担当の読む範囲は `agent-obligations.md` の独立検証者の節）
 
-- `ref` は `run_dir` からの相対 path。どの行も、先頭に `{ name: "request", ref: "request.json" }` を置く（原因の分類を含む）。
-- 「対象の写し」は `targets/<target_id>/files/`（ディレクトリ）、「照合の記録」は `worklogs/cli-<段>.json`、「検査の記録」は `checks/<execution_id>/`（ディレクトリ）を指す。
+- どの行も、先頭に `{ name: "request", ref: "request.json" }` を置く（原因の分類を含む）。
+- 「照合の記録」は `worklogs/cli-<段>.json`、「検査の記録」は `checks/<execution_id>/`（ディレクトリ）を指す。
 
 | 観点（`perspective`） | `input_refs` に入れるもの（`request` の後） |
 |---|---|
-| `extraction` | その `target_id` の写しと `manifest.json`、その対象の inventory、`worklogs/cli-洗い出し.json` |
-| `fidelity` | 全ての対象の写しとその `manifest.json`、全ての inventory、その `model_id` のモデルと対応表、そのモデルの全ての性質の `query_ref`、そのモデルの判断を要する項目の記録 `judgments/<model_id>.json` とその項目の検査の記録（あれば）、`worklogs/cli-モデル化.json`。図はモデルから CLI が導く値でファイルが無いので、モデルで代える |
-| `nonformal` | その性質の `source_ids` の要素の `target_id` の写し、その性質を持つ inventory |
+| `extraction` | その `target_id` の依頼の範囲の対象のファイルと `manifest.json`、その対象の inventory、`worklogs/cli-洗い出し.json`（漏れを探す役なので、範囲は依頼の範囲の全体） |
+| `fidelity` | `views/<unit_id>.json`、そのモデルの性質を支える出所の範囲（`run.mjs` の `modelScope`: その `model_id` の対応表の行、そのモデルの性質の `inventory_property_ids` の inventory の性質・節・遷移・禁止・入出力の契約の `source_ids` の要素、節の外部の依存の `source`）に、view の `unbound_elements` の要素とその inventory の全ての外部の依存の `source` を足した範囲の対象のファイル、その `model_id` のモデルと対応表、そのモデルの全ての性質の `query_ref`、そのモデルの判断を要する項目の記録 `judgments/<model_id>.json` とその項目の検査の記録（あれば）、`worklogs/cli-モデル化.json`。図はモデルから CLI が導く値でファイルが無いので、モデルで代える |
+| `nonformal` | `views/<unit_id>.json`、その性質の `source_ids` の要素の範囲の対象のファイル |
 | `composition` | `PartitionsFile`、全てのモデル、`contracts[]`・`composition_conditions[]` の `query_ref`、`kind` が `contract`・`composition` の検査の記録、`worklogs/cli-計画.json`。依存グラフと候補は CLI が導く値でファイルが無いので、モデルと分割で代える |
-| 原因の分類（`cause-analyst`、`perspective` は null） | 全ての対象の写し。`subject` が反例なら、その検査と replay の検査の記録、そのモデルと対応表。組合せなら、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json`。問いなら、問いを返した作成役の `outputs` のファイル |
+| 原因の分類（`cause-analyst`、`perspective` は null） | 主題から辿れる範囲に、全ての対象の依頼の範囲（`extraction` と同じ）を足した範囲の対象のファイル（`要求の不足`・`形式モデルの欠陥` は出所に無いことで決まるので）。`subject` が反例なら、その検査と replay の検査の記録、そのモデルと対応表と、反例のモデルの性質を支える出所の範囲（`modelScope` をその性質に限ったもの）。組合せなら、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json` と、その状態か出来事の遷移・禁止の `source_ids` の要素の範囲（無ければそのモデルの対応表の行の範囲）。問いなら、問いを返した作成役の `outputs` のファイルと、問いの `affected` の性質の `source_ids` の要素の範囲 |
 
 - 実行していない検査（記録のディレクトリが無いもの）は入れない。`attempts/` のディレクトリは入れない（その中のファイルは入れてよい）。
 - **ディレクトリの ref の指紋**: `materials` と台帳の `input_refs`（どちらも `[RefHash]`）では、ディレクトリを指す `input_refs` の要素を、その下の全てのファイル（再帰的に、ディレクトリ自身は除く）の `RefHash` に展開する。並びは `input_refs` の要素の順で、1 つのディレクトリから展開したものの中だけを `ref` の UTF-8 のバイト列の辞書順に並べる。ファイルを指す要素はそのまま 1 つの `RefHash` にする。指紋を取る時点は意味の確認の作り方と同じ（担当の最初の `query`）。理由: `RefHash` はファイル 1 つの指紋なので、ディレクトリの中身を渡した資料として再現できる形にする。
@@ -1026,9 +1055,9 @@ id と参照の全ての欄の、名前空間・一意の範囲・実在の確�
 | 欄 | 名前空間 | モデルが 2 つ以上で一意か | 実在を確かめる所 | 起点 |
 |---|---|---|---|---|
 | `SourceRef.target_id`・`Pointer.target_id`（kind `location`）・`unread[].target_id` | 依頼の id（target） | 一意 | 受付の照合（`pointer_unresolved`）。inventory の `elements[].source` と `external_dependencies[].source` は洗い出しの照合で、`target_id` がその inventory の対象と等しいこと | — |
-| `SourceRef.file`・`Pointer.file`・`unread[].file`・`fixed.files[].path` | FilePath | 一意 | 受付の照合。inventory の `elements[].source` と `external_dependencies[].source` は洗い出しの照合で、その対象の写しのファイルにあり、`span` が行の範囲の中にあること | 対象 |
+| `SourceRef.file`・`Pointer.file`・`unread[].file`・`fixed.files[].path` | FilePath | 一意 | 受付の照合。inventory の `elements[].source` と `external_dependencies[].source` は洗い出しの照合で、受付で読んだ対象のファイルのバイト列にあり、`span` が行の範囲の中にあること | 対象 |
 | `Pointer.id`（kind `target`・`goal`・`known_requirement`） | 依頼の id | 一意 | 受付の照合 | — |
-| `fixed.snapshot_ref`・`Model.ref`・`Location.file`・`evidence_refs`・`Records.*.ref`・`ledger_refs`・`steps_ref`・`materials[].ref`・`Worklog.inputs[].ref`・`unreadable_inputs[].ref`・`document_rules.ref`・`Ledger.entries[].ref`・`input_refs[].ref` | Ref | 一意 | 書いた者が書いた直後の再読込、集約の照合（結果の参照の再読込） | run |
+| `fixed.manifest_ref`・`Model.ref`・`Location.file`・`evidence_refs`・`Records.*.ref`・`ledger_refs`・`steps_ref`・`materials[].ref`・`Worklog.inputs[].ref`・`unreadable_inputs[].ref`・`document_rules.ref`・`Ledger.entries[].ref`・`input_refs[].ref` | Ref（`materials[].ref`・`Worklog.inputs[].ref`・`Ledger.entries[].input_refs[].ref`・`input_refs[].ref` は、対象のファイルなら `target:<target_id>/<FilePath>`。実在は `fixed.files[].abs_path` で確かめる） | 一意 | 書いた者が書いた直後の再読込、集約の照合（結果の参照の再読込） | run |
 | `Location.pointer` | JSON Pointer か `form:` | 一意（`file` と組で） | 依存グラフの導出 | モデル・`.smt2` |
 | `PropertyResult.id`・`AuthorReturn.blocked_by_question`・`Counterexample.property_id`・`mapping[].property_id`・`Model.unmapped.properties`・`Confirmation.property_ids`・`context.property_ids`・`PlanFile.selection[].property_id`・`MutationsFile.unavailable[].property_id`・`comparison_basis.property_ids`・`inventory_property_ids` | inventory の性質の id | 一意 | 洗い出しの照合（inventory の中と、run の他の対象の最後に照合した inventory との重なり。重なりは `other` の欠陥）、モデル化の照合（`inventory_property_ids`・mapping）、計画の照合（selection・unavailable） | — |
 | `Inventory.properties[].source_ids`・`io_contracts[].source_ids`・`transitions[].source_ids`・`forbidden[].source_ids` | inventory の要素の id | 一意 | 洗い出しの照合（性質の出所）、モデル化の照合（モデルの出所） | — |

@@ -11,7 +11,7 @@ import { removeTree } from './cli-runner.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './partition.mjs';
 import { stopStageViolations, deriveGraph, INTERRUPTS } from './decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './constants.mjs';
-import { expandRefs } from './ledger-check.mjs';
+import { expandRefs, runPath } from './ledger-check.mjs';
 
 export const P = (id, line, over = {}) => ({ id, file: 'spec.md', line, statement: `性質 ${id}`, query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, ...over });
 export const prop = (result, id) => result.properties.find((p) => p.id === id);
@@ -62,7 +62,7 @@ export function assertRevised(harness, role, stage) {
 // harness を渡すと、採った計画（最後の plan-author の計画）で、計画との照合（refInvariants）も当てる
 export function assertRecordsConsistent(status, result, harness = null) {
   const dir = status.run_dir;
-  const read = (ref) => (existsSync(join(dir, ref)) ? readFileSync(join(dir, ref), 'utf8') : null);
+  const read = (ref) => { const p = runPath(dir, ref); return p && existsSync(p) ? readFileSync(p, 'utf8') : null; };
   const t = harness?.memory.byRole['plan-author'];
   const adopted = t && existsSync(join(t.attempt_dir, 'plan.json')) ? { plan: runRefOf(dir, t.attempt_dir, 'plan.json'), mutations: runRefOf(dir, t.attempt_dir, 'mutations.json') } : null;
   if (harness) assert.ok(adopted || !t, '採った計画がある');
@@ -323,7 +323,7 @@ export function rederive(status, result) {
 export function assertGraphMatches(status, result) {
   const mine = rederive(status, result);
   const g = result.decomposition.graph;
-  assert.deepEqual(refInvariants(result, (ref) => (existsSync(join(status.run_dir, ref)) ? readFileSync(join(status.run_dir, ref), 'utf8') : null)), [], 'Ref とモデルの中の名前が実在する');
+  assert.deepEqual(refInvariants(result, (ref) => { const p = runPath(status.run_dir, ref); return p && existsSync(p) ? readFileSync(p, 'utf8') : null; }), [], 'Ref とモデルの中の名前が実在する');
   assert.deepEqual(g.nodes, mine.nodes, '要素（id・kind・location・並び）');
   assert.deepEqual(g.edges, mine.edges, '辺（id・from・to・kind・location・並び）');
   assert.deepEqual(g.unconfirmed.map((u) => u.relation), mine.unconfirmed.map((u) => u.relation), '未確認の関係');
@@ -400,8 +400,8 @@ export const SECRET = 'AKIAABCDEFGHIJKLMNOP';
 export function assertSecretNowhere(out, runDir) {
   assert.ok(!JSON.stringify(out.result).includes(SECRET), '結果に値が残らない');
   assert.ok(!out.statuses.some((x) => JSON.stringify(x).includes(SECRET)), 'Status に値が残らない');
-  // 担当が自分で書いた attempts/ と、対象の写し targets/ は formal-method の記録でないので見ない
-  const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (['attempts', 'targets'].includes(e.name) && d === runDir ? [] : walk(join(d, e.name))) : [join(d, e.name)]));
+  // 担当が自分で書いた attempts/ は formal-method の記録でないので見ない。targets/ は対象の一覧（manifest）だけで、対象の本文を持たないので見る
+  const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'attempts' && d === runDir ? [] : walk(join(d, e.name))) : [join(d, e.name)]));
   for (const f of walk(runDir)) assert.ok(!readFileSync(f).includes(SECRET), `${relative(runDir, f)} に値が残らない`);
 }
 
@@ -515,7 +515,7 @@ export const PLAN_DEFECTS = [
   ['担当の query 2 つを並べた検査（(check-sat) を持つ input が最後でない）', { editPlan: (plan, { mref }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [mref(`${c.target_id}-sanity.smt2`), ...c.input_refs] } : c)) }) },
     // 検出役の検査の input_refs を使う変異 MU-P1 も、最後の input を置き換えた後も (check-sat) を持つ input が最後でないので除く
     (r) => { assertExcluded(r, ['C-P1', 'MU-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認'], '検査の欠けと同じ'); }],
-  ['input_refs が担当の query でないファイル（対象の写し）を指す検査', { editPlan: (plan, { targetRef }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [targetRef('spec.md'), ...c.input_refs] } : c)) }) },
+  ['input_refs が担当の query でないファイル（対象のファイル）を指す検査', { editPlan: (plan, { targetRef }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [targetRef('spec.md'), ...c.input_refs] } : c)) }) },
     (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
   ['(check-sat) が最後の form でない変異（計画作成役の .smt2）', { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('mut-bad.smt2', '; mutation bad\n(declare-const x Int)\n(check-sat)\n(assert (> x 0))\n') })) }) },
     (r) => {
@@ -666,29 +666,34 @@ export function expectedInputRefs(task, { result, harness, runDir }) {
   const c = task.context;
   const rel = (abs) => relative(runDir, abs);
   const req = readJson(join(runDir, 'request.json'));
-  const allCopies = req.targets.map((x) => `targets/${x.id}/files`);
+  const copiesOf = (id) => req.targets.find((x) => x.id === id).fixed.files.filter((f) => f.text).map((f) => `target:${id}/${f.path}`);
   const invOf = (targetId) => rel(join(lastTask(harness, 'extractor', (x) => x.context.target_id === targetId).attempt_dir, 'inventory.json'));
-  const allInv = req.targets.map((x) => invOf(x.id));
+  // 対象のファイルの ref（写しを作らないので target:<id>/<file>）。範囲で渡す役は、出所のあるファイルだけ
+  const fileRefs = (pairs) => [...new Set(pairs.map(([tid, f]) => `target:${tid}/${f}`))];
+  const elementsAll = req.targets.flatMap((x) => readJson(join(runDir, invOf(x.id))).elements);
+  const filesOfElements = (ids) => fileRefs(elementsAll.filter((e) => ids.includes(e.id)).map((e) => [e.source.target_id, e.source.file]));
   const modelOf = (id) => { const m = harness.memory.models.filter((x) => x.id === id).at(-1); return { model: rel(join(m.task.attempt_dir, m.file)), mapping: rel(join(m.task.attempt_dir, `mapping-${id}.json`)), json: readJson(join(m.task.attempt_dir, m.file)) }; };
   const ran = (id) => existsSync(join(runDir, 'checks', id));
   const rec = (id) => `checks/${id}`;
   const plan = lastTask(harness, 'plan-author');
   switch (c.perspective) {
-    case 'extraction': return [`targets/${c.target_id}/files`, `targets/${c.target_id}/manifest.json`, invOf(c.target_id), 'worklogs/cli-洗い出し.json'];
+    case 'extraction': return [...copiesOf(c.target_id), `targets/${c.target_id}/manifest.json`, invOf(c.target_id), 'worklogs/cli-洗い出し.json'];
     case 'fidelity': {
       // 性質の query と、判断を要する項目があればその記録とその実行の記録（artifact-formats「独立検証者と原因の分類役の input_refs」）
       const m = modelOf(c.model_id);
       const mps = new Set(m.json.properties.map((p) => p.id));
       const js = result.confirmations.judgments.filter((j) => mps.has(j.model_property_id));
-      return [...allCopies, ...req.targets.map((x) => `targets/${x.id}/manifest.json`), ...allInv, m.model, m.mapping, ...m.json.properties.map((p) => p.query_ref),
+      const mapping = readJson(join(runDir, m.mapping));
+      const srcIds = m.json.properties.flatMap((p) => p.clauses.flatMap((x) => x.source_ids));
+      const files = [...new Set([...fileRefs(mapping.rows.filter((r) => r.source.kind === 'location').map((r) => [r.source.target_id, r.source.file])), ...filesOfElements(srcIds)])];
+      return [`views/fidelity-${c.model_id}.json`, ...files, m.model, m.mapping, ...m.json.properties.map((p) => p.query_ref),
         ...(js.length ? [`judgments/${c.model_id}.json`] : []), ...js.map((j) => j.id).filter(ran).map(rec), 'worklogs/cli-モデル化.json'];
     }
     case 'nonformal': {
       const pid = c.property_ids[0];
       const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => ({ x, j: readJson(join(x.attempt_dir, 'inventory.json')) })).filter(({ j }) => j.properties.some((p) => p.id === pid)).at(-1);
       const p = inv.j.properties.find((y) => y.id === pid);
-      const targets = [...new Set(p.source_ids.map((sid) => inv.j.elements.find((e) => e.id === sid).source.target_id))];
-      return [...targets.map((id) => `targets/${id}/files`), rel(join(inv.x.attempt_dir, 'inventory.json'))];
+      return [`views/nonformal-${pid}.json`, ...filesOfElements(p.source_ids)];
     }
     case 'composition': {
       const pt = lastTask(harness, 'partition-author');
@@ -704,7 +709,10 @@ export function expectedInputRefs(task, { result, harness, runDir }) {
       const cex = result.counterexamples.find((x) => x.id === s.id);
       const chk = result.checks.find((x) => x.id === cex.check_id);
       const m = modelOf(chk.model_id);
-      return [...allCopies, ...[cex.check_id, cex.replay.confirmation_id].filter((id) => id && ran(id)).map(rec), m.model, m.mapping];
+      const mp = m.json.properties.find((p) => p.id === chk.target_id) ?? m.json.properties.find((p) => p.inventory_property_ids.includes(cex.property_id));
+      const mapping = readJson(join(runDir, m.mapping));
+      const files = [...new Set([...filesOfElements(mp.clauses.flatMap((x) => x.source_ids)), ...fileRefs(mapping.rows.filter((r) => r.source.kind === 'location' && mp.inventory_property_ids.includes(r.property_id)).map((r) => [r.source.target_id, r.source.file]))])];
+      return [...files, ...[cex.check_id, cex.replay.confirmation_id].filter((id) => id && ran(id)).map(rec), m.model, m.mapping];
     }
   }
 }
@@ -717,7 +725,7 @@ export function assertInputRefs(out, tasks) {
     assert.deepEqual(refs[0], { name: 'request', ref: 'request.json' }, `${task.task_id} の先頭は request.json`);
     assert.deepEqual(refs.slice(1).map((r) => norm(r.ref)).sort(), expectedInputRefs(task, { ...out, runDir }).map(norm).sort(), `${task.task_id}（${task.context.perspective ?? task.role}）の input_refs`);
     for (const r of refs) {
-      assert.ok(existsSync(join(runDir, r.ref)), `${r.ref} は実在する（実行していない検査の記録は入れない）`);
+      assert.ok(existsSync(runPath(runDir, r.ref)), `${r.ref} は実在する（実行していない検査の記録は入れない）`);
       assert.ok(!(r.ref.startsWith('attempts/') && statSync(join(runDir, r.ref)).isDirectory()), `${r.ref}: attempts/ のディレクトリは入れない`);
     }
     // 台帳の input_refs もディレクトリを展開した RefHash（その task が作った記録の entry）

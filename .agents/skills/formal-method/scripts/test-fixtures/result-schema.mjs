@@ -56,7 +56,8 @@ export const Span = (v, p, e) => {
   return true;
 };
 export const FilePath = re(/^(?!\/)(?!.*(^|\/)\.\.?(\/|$))[^\0]+$/, 'FilePath');
-export const RefHash = obj({ ref: Ref, hash: Sha256 });
+// hash は指紋を取る時点で読めないファイルなら 'unreadable'（artifact-formats「共通の型」の RefHash）
+export const RefHash = obj({ ref: Ref, hash: oneOf(Sha256, lit('unreadable')), 'spans?': arr(obj({ span: Span, hash: Sha256 })) });
 export const SourceRef = obj({ target_id: Id, file: FilePath, span: Span });
 export const Stage = lit('受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約');
 export const Measure = oneOf(
@@ -64,7 +65,7 @@ export const Measure = oneOf(
   obj({ status: lit('取得できず'), reason: str }),
   obj({ status: lit('該当なし'), reason: str }),
 );
-export const RecordKind = lit('request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions',
+export const RecordKind = lit('request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions', 'material_view',
   'plan', 'mutations', 'query', 'execution_evidence', 'worklog', 'review_record', 'judgments', 'ledger',
   'result', 'report', 'salvage_worklog', 'salvage_ledger');
 export const ExecKind = lit('property', 'composition', 'contract', 'sanity', 'mutation', 'replay', 'ablation');
@@ -214,7 +215,7 @@ const Records = obj({
 });
 export const StopCode = lit('依頼の不備', '起動の失敗', '処理の中断', '時間の上限', '保存の失敗', '内部の誤り',
   '必要な性質が検証の成功でない', '確認が終わっていない', '対応できていない組合せ', '回答を待つ問い', '記録の未保存',
-  '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査', '担当の失敗');
+  '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査', '担当の失敗', '対象の変化');
 export const RequestCode = lit('target_missing', 'goal_missing', 'shape_invalid', 'duplicate_id', 'exclude_without_reason',
   'pointer_unresolved', 'time_limit_invalid', 'target_unavailable', 'revision_mismatch');
 const StopReport = obj({

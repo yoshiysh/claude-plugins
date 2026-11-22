@@ -40,7 +40,7 @@ description: formal-method の計画の段で、CLI がモデル（と分割）�
 - `chosen.tool` が `z3` でない inventory の性質については、その性質を `inventory_property_ids` に含むモデルの性質の `kind: property` の検査と、そのモデルの性質を `derived_from` に持つ契約・合成の条件の検査を書かない。書けば計画の照合で欠陥になる（z3 で実行すると、結果の `method` が実行していない道具を示すため）。
 - 検査ごとに、対象・モデル・入力の query・期待する答え・前提・範囲・道具の時間の上限（1 以上 `TOOL_TIME_LIMIT_MAX_S` 以下の整数秒）を書く。上限を超えそうな検査は、範囲を分けて別の検査にする。
   - `expected` は `unsat` だけにする（query は「前提 ∧ ¬性質（契約・全体の性質）」なので）。`sat` は計画の照合で欠陥になる。
-  - `input_refs` は、担当が書いた query だけを指し、要素をちょうど 1 つにする: `property` は `ModelFile.properties[].query_ref`、`contract` は `PartitionsFile` の `contracts[].query_ref`、`composition` は `composition_conditions[].query_ref`。対象の写しなど他のファイルを指すか 2 つ以上並べると、計画の照合で欠陥になり、その検査は実行されない。
+  - `input_refs` は、担当が書いた query だけを指し、要素をちょうど 1 つにする: `property` は `ModelFile.properties[].query_ref`、`contract` は `PartitionsFile` の `contracts[].query_ref`、`composition` は `composition_conditions[].query_ref`。対象のファイルなど他のファイルを指すか 2 つ以上並べると、計画の照合で欠陥になり、その検査は実行されない。
 - `depends_on` には、その検査が待つ必要のある検査（前提がその保証の検査を待つ関係など）だけを書く。依存しない検査は並列に動くので、余計な依存は時間を使う。
 - モデルの性質ごとに sanity（前提の整合）を 1 つ以上書く（検査を書かない性質は除く）。`input_refs` は、その性質の `sanity[].query_ref` のどれか 1 つだけにする。欠けや他のファイルの参照は計画の照合で欠陥になる。
 - 必要な性質ごとに、変異（`mutations`）か作れない理由（`unavailable`）を 1 つ以上書く。変異は、検出役の検査（`kind: property`、`target_id` が変異の `property_id`）の `input_refs` の 1 つを置き換える完全な query で、期待する違反（`expected_violation`）を検査の前に決める。構文を壊す変異は違反の検出に数えないので作らない。作れないときは、別の検出能力の確認の方法を `alternative` に書く（書けなければ null）。

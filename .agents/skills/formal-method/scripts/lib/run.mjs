@@ -9,9 +9,10 @@ import { writeEvidence } from './storage.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
 import { startRunClock, NODE_TIMER_CLOCK } from './clock.mjs';
 import { checkRequestShape, checkPointers, normalizeRequest } from './request.mjs';
-import { fetchTarget, writeSnapshot, lineCount } from './intake.mjs';
-import { packUnits, runItems, runWorkers } from './call.mjs';
-import { refsBytes } from './agents.mjs';
+import { fetchTarget, writeManifest, changedFiles, lineCount } from './intake.mjs';
+import { mergeSpans, parseTargetRef, refPathOf, targetRef } from './target-refs.mjs';
+import { packByUnion, runItems, runWorkers } from './call.mjs';
+import { refFiles } from './agents.mjs';
 import { ledgerEntry, newStageLog, cliWorklog, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
 import { coverageCheck } from './checks/coverage.mjs';
 import { modelCheck, matrixGen } from './checks/model.mjs';
@@ -82,6 +83,7 @@ export class Run {
     this.confIds = new ConfirmationIds();
     this.confirmations = { deterministic: [], meaning: [], judgments: [] };
     this.judgmentRefs = new Map();
+    this.viewRefs = new Map();
     this.counterexamples = [];
     this.causes = [];
     this.resultQuestions = [];
@@ -90,6 +92,160 @@ export class Run {
     this.checkedDefects = [];
     this.partitionRejected = false;
     this.partitionRevoked = false;
+    this.targetChanges = [];
+    this.changedTargets = null;
+    this.queriedMaterials = [];
+  }
+
+  // ref → 読む path（対象の ref は受付で控えた元のファイル。target-refs.mjs）
+  pathOf(ref) { return refPathOf(this.runDir, this.targets)(ref); }
+  // 対象のファイルの資料（architecture.md「担当に渡す資料」）。sel: Map<target_id, Map<FilePath, Span[] | null>>（null はファイルの全体）。
+  // 読めるテキストのファイルだけを、対象の中の順（バイト列の辞書順）で返す。範囲は畳んで spans に置く
+  targetRefsOf(sel) {
+    const out = [];
+    for (const t of this.targets) {
+      const files = sel.get(t.id);
+      if (!files) continue;
+      for (const f of t.files) {
+        if (!f.text || !files.has(f.path)) continue;
+        const spans = files.get(f.path);
+        out.push({ name: `target-${t.id}-${f.path}`, ref: targetRef(t.id, f.path), ...(spans ? { spans: mergeSpans(spans) } : {}) });
+      }
+    }
+    return out;
+  }
+  // 依頼の範囲（scope.include）の、その対象のファイルと行の範囲。対象を挙げたか、対象を指す location が 1 つも無ければファイルの全体
+  requestScopeOf(tid) {
+    const t = this.targets.find((x) => x.id === tid);
+    const files = new Map();
+    if (!t) return new Map();
+    const include = this.request?.scope?.include ?? [];
+    const locs = include.filter((p) => p.kind === 'location' && p.target_id === tid);
+    const whole = include.some((p) => p.kind === 'target' && p.id === tid) || locs.length === 0;
+    for (const f of t.files) {
+      if (whole) { files.set(f.path, null); continue; }
+      const mine = locs.filter((p) => p.file === f.path);
+      if (!mine.length) continue;
+      files.set(f.path, mine.some((p) => !p.span) ? null : mine.map((p) => p.span));
+    }
+    return new Map([[tid, files]]);
+  }
+  // inventory の要素の id の出所の範囲（見つからない id は無視する）
+  elementScopeOf(ids, into = new Map()) {
+    for (const id of ids) {
+      const e = this.inventories.flatMap((i) => i.data.elements).find((x) => x.id === id);
+      if (!e) continue;
+      const { target_id: tid, file, span } = e.source;
+      if (!into.has(tid)) into.set(tid, new Map());
+      const files = into.get(tid);
+      if (files.has(file) && files.get(file) === null) continue;
+      files.set(file, [...(files.get(file) ?? []), span]);
+    }
+    return into;
+  }
+  // 対応表の行の location の範囲（span が無い行はファイルの全体）
+  mappingScopeOf(rows, into = new Map()) {
+    for (const r of rows) {
+      if (r.source.kind !== 'location') continue;
+      const { target_id: tid, file, span } = r.source;
+      if (!into.has(tid)) into.set(tid, new Map());
+      const files = into.get(tid);
+      if (!span || (files.has(file) && files.get(file) === null)) { files.set(file, null); continue; }
+      files.set(file, [...(files.get(file) ?? []), span]);
+    }
+    return into;
+  }
+  // 範囲（Map<target_id, Map<FilePath, Span[] | null>>）を into に足す。null（ファイルの全体）が勝つ
+  mergeScope(into, sel) {
+    for (const [tid, files] of sel) {
+      if (!into.has(tid)) into.set(tid, new Map());
+      const to = into.get(tid);
+      for (const [file, spans] of files) {
+        if (spans === null || to.get(file) === null) { to.set(file, null); continue; }
+        to.set(file, [...(to.get(file) ?? []), ...spans]);
+      }
+    }
+    return into;
+  }
+  // 外部の依存の出所の範囲（source が null の依存は無視する）
+  dependencyScopeOf(deps, into = new Map()) {
+    for (const d of deps) {
+      if (!d.source) continue;
+      const { target_id: tid, file, span } = d.source;
+      if (!into.has(tid)) into.set(tid, new Map());
+      const files = into.get(tid);
+      if (files.get(file) === null) continue;
+      files.set(file, [...(files.get(file) ?? []), span]);
+    }
+    return into;
+  }
+  // そのモデルの性質（mps。null なら全て）が扱う inventory の性質の id と、それを持つ inventory
+  modelInventoryOf(m, mps = null) {
+    const props = m.data.properties.filter((p) => !mps || mps.includes(p.id));
+    const invIds = new Set(props.flatMap((p) => p.inventory_property_ids));
+    return { props, invIds, inventories: this.inventories.filter((i) => i.data.properties.some((p) => invIds.has(p.id))) };
+  }
+  // モデルの性質を支える出所の要素の id: そのモデルの性質が扱う inventory の性質の source_ids、節の source_ids、そのモデルの状態遷移・禁止・
+  // 入出力の契約の source_ids。inventory の性質の出所を入れるのは、節に出所の無い要求（モデルが落とした要求）の本文も確認役に渡すため
+  modelSourceIds(m, mps = null) {
+    const { props, invIds } = this.modelInventoryOf(m, mps);
+    const invSources = this.inventoryProperties().filter((p) => invIds.has(p.id)).flatMap((p) => p.source_ids);
+    const sm = m.data.state_machine;
+    return [...invSources, ...props.flatMap((p) => p.clauses.flatMap((c) => c.source_ids)), ...(sm ? [...sm.transitions, ...sm.forbidden].flatMap((x) => x.source_ids) : []), ...m.data.io_contracts.flatMap((c) => c.source_ids)];
+  }
+  // モデルの性質を支える出所の範囲の正本（architecture.md「担当に渡す資料」）。忠実さの確認役・原因の分類役（反例）に渡す範囲と、結果の
+  // 対象の変化の判定（propertyScopeOf）が同じこれを使う。modelSourceIds の要素、その性質の対応表の行の location、節の外部の依存の source。
+  // view（忠実さの確認役）なら、加えてそのモデルの inventory の全ての外部の依存と、どの性質にも結ばれない要素の範囲（漏れを本文で探すため）
+  modelScope(m, { mps = null, view = false } = {}, into = new Map()) {
+    const { props, invIds, inventories } = this.modelInventoryOf(m, mps);
+    this.elementScopeOf(this.modelSourceIds(m, mps), into);
+    this.mappingScopeOf(mps ? m.mapping.data.rows.filter((r) => invIds.has(r.property_id)) : m.mapping.data.rows, into);
+    const extIds = new Set(props.flatMap((p) => p.clauses.map((c) => c.external_dependency_id).filter((x) => x !== null)));
+    const deps = inventories.flatMap((i) => i.data.external_dependencies);
+    this.dependencyScopeOf(view ? deps : deps.filter((d) => extIds.has(d.id)), into);
+    if (view) this.elementScopeOf(this.unboundElements(inventories).map((e) => e.id), into);
+    return into;
+  }
+  // どの性質の source_ids にも結ばれない要素（その inventory の中で）
+  unboundElements(inventories) {
+    return inventories.flatMap((i) => { const bound = new Set(i.data.properties.flatMap((p) => p.source_ids)); return i.data.elements.filter((e) => !bound.has(e.id)); });
+  }
+  // inventory の性質を支える出所の範囲: その性質の source_ids と、その性質を扱う全てのモデルの性質の modelScope（mps をその性質の分に限る）
+  propertyScopeOf(pid) {
+    const p = this.inventoryProperties().find((x) => x.id === pid);
+    const sel = this.elementScopeOf(p ? p.source_ids : []);
+    for (const m of this.models) {
+      const mps = m.data.properties.filter((x) => x.inventory_property_ids.includes(pid)).map((x) => x.id);
+      if (mps.length) this.modelScope(m, { mps }, sel);
+    }
+    return sel;
+  }
+  targetFileRefs(tid) { return this.targetRefsOf(this.requestScopeOf(tid)); }
+
+  // 担当の最初の query で固定した資料の指紋（call.mjs）を控える。集約の段で、対象のファイルの指紋を受付の指紋と照らす
+  noteMaterials(materials) { this.queriedMaterials.push(materials); }
+
+  // 固定の前提の照合（architecture.md「対象の固定」）。集約の段で 1 度だけ、全ての対象のファイルを読み直した指紋と、担当の query の時点の
+  // 指紋を、受付の指紋と比べる。違うファイルは changedTargets（target_id → Map<FilePath, 理由>）に控え、結果で検証済みとして出さない。
+  // 集約が 2 度呼ばれても（内部の誤りの後の集約）、照らすのは 1 度だけで、停止の理由も 1 度だけ足す
+  checkTargetsFixed() {
+    if (this.changedTargets) return;
+    const changed = new Map();
+    const add = (tid, file, why) => {
+      if (!changed.has(tid)) changed.set(tid, new Map());
+      const m = changed.get(tid);
+      m.set(file, m.has(file) && m.get(file) !== why ? `${m.get(file)}。${why}` : why);
+    };
+    for (const t of this.targets) for (const file of changedFiles(t)) add(t.id, file, '集約の段で読み直した指紋が受付の指紋と違う');
+    for (const ms of this.queriedMaterials) {
+      for (const x of ms) {
+        const r = parseTargetRef(x.ref);
+        const f = r ? this.targets.find((t) => t.id === r.targetId)?.files.find((y) => y.path === r.file) : null;
+        if (f && x.hash !== f.content_hash) add(r.targetId, r.file, '担当の query の時点の指紋が受付の指紋と違う');
+      }
+    }
+    this.changedTargets = changed;
+    for (const [tid, files] of changed) this.targetChanges.push(reason('対象の変化', '集約', `対象 ${tid} のファイル ${[...files.keys()].join(', ')} が受付の後に変わった（対象は run の間固定している前提）`));
   }
 
   nextTaskNo() { this.taskNo += 1; return this.taskNo; }
@@ -203,15 +359,21 @@ export class Run {
     for (const t of raw.targets) {
       const tg = fetched.get(t.id);
       let written;
-      try { written = writeSnapshot(this.runDir, tg); } catch (e) { this.saveFailed('target_snapshot', `targets/${t.id}`, `対象の写しを書けない（${e.code ?? e.message}）`); continue; }
-      for (const w of written) this.entries.push(ledgerEntry({ kind: 'target_snapshot', ref: w.ref, hash: w.hash, stage: '受付' }));
-      fixedById.set(t.id, { revision: tg.revision, content_hash: tg.content_hash, snapshot_ref: join('targets', t.id), files: tg.files.map((f) => ({ path: f.path, content_hash: f.content_hash, text: f.text })) });
+      try { written = writeManifest(this.runDir, tg, this.workspace); } catch (e) { this.saveFailed('target_snapshot', `targets/${t.id}/manifest.json`, `対象の一覧を書けない（${e.code ?? e.message}）`); continue; }
+      this.entries.push(ledgerEntry({ kind: 'target_snapshot', ref: written.ref, hash: written.hash, stage: '受付' }));
+      fixedById.set(t.id, { revision: tg.revision, content_hash: tg.content_hash, root: tg.root, manifest_ref: written.ref,
+        files: tg.files.map((f) => ({ path: f.path, abs_path: f.abs, content_hash: f.content_hash, text: f.text })) });
       this.targets.push(tg);
     }
     if (!this.halted()) {
       this.request = normalizeRequest(raw, fixedById);
       this.writeRecordFile('request.json', JSON.stringify(this.request, null, 2), { kind: 'request' });
-      log.results.push(`依頼を受け付けた。対象 ${this.targets.length} 件の写しを保存した。`);
+      log.results.push(`依頼を受け付けた。対象 ${this.targets.length} 件の一覧と指紋を保存した（写しは作らない）。`);
+      // 固定の前提の確かめ方の限界（architecture.md「対象の固定」）
+      this.unverified.push({ item: '対象の固定', reason: '固定の前提は、集約の段の読み直しと、担当の query の時点の指紋でしか確かめない。途中で変わって元に戻り、その間に query が無ければ見つけられない' });
+      // 担当の義務だけで守る限界（architecture.md「未検証と限界」の担当の書込み範囲と、担当に渡す資料の範囲）
+      this.unverified.push({ item: '担当の読む範囲', reason: '担当が渡された行の範囲（spans）の外を読まないことは担当の義務だけで守り、CLI は機械では止めない（query が拒むのは資料の外の ref だけ）' });
+      this.unverified.push({ item: '担当の書込み範囲', reason: '担当は workspace-write で動き、attempt の領域の外（状態・台帳・他の担当の領域）に書かないことは担当の義務だけで守る。CLI は登録した成果物の改ざんを指紋で見つけるが、登録の前の書換えは見つけられない' });
     }
     this.requestScope = this.scopeOf(raw);
     this.leaveStage('受付');
@@ -308,7 +470,7 @@ export class Run {
     };
     const units = this.targets.map((t) => ({
       role: 'extractor',
-      spec: () => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }] }),
+      spec: () => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }, ...this.targetFileRefs(t.id)] }),
       observe: (ret) => {
         const inv = readInventory(ret);
         latestIds.set(t.id, { properties: idsOf(inv?.data, 'properties'), elements: idsOf(inv?.data, 'elements') });
@@ -318,7 +480,7 @@ export class Run {
         if (outs.length !== 1) return { defects: [defect('other', 'inventory-count', `inventory が ${outs.length} 個（ちょうど 1 つ）`)], value: null };
         const inv = readInventory(ret);
         if (!inv) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
-        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: earlierIds(t.id, 'properties'), otherElementIds: earlierIds(t.id, 'elements') });
+        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: earlierIds(t.id, 'properties'), otherElementIds: earlierIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id) });
         return { defects, value: inv };
       },
       accept: (last) => {
@@ -348,7 +510,7 @@ export class Run {
       return;
     }
     const eligibleSet = new Set(eligible.map((p) => p.id));
-    const inputs = [{ name: 'request', ref: 'request.json' }, ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref })), ...this.targets.map((t) => ({ name: `manifest-${t.id}`, ref: join('targets', t.id, 'manifest.json') }))];
+    const inputs = [{ name: 'request', ref: 'request.json' }, ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref })), ...this.targets.flatMap((t) => [{ name: `manifest-${t.id}`, ref: join('targets', t.id, 'manifest.json') }, ...this.targetFileRefs(t.id)])];
     const unit = {
       role: 'model-author',
       spec: () => ({ role: 'model-author', stage: 'モデル化', property_ids: eligible.map((p) => p.id), input_refs: inputs }),
@@ -912,34 +1074,32 @@ export class Run {
   }
 
   // ---- 確認 ----
-  // 確認役は観点（役）ごとに、単位を packUnits で 1 体に詰める（UNIT_MAX_BYTES まで、next-fit）。原因の分類役は 1 体が主題を束で取る。
+  // 確認役は観点（役）ごとに、単位を packByUnion で 1 体に詰める（資料の和集合が UNIT_MAX_BYTES まで、next-fit）。原因の分類役は 1 体が主題を束で取る。
   async confirmation() {
     const t0 = process.hrtime.bigint();
     const invProps = this.inventoryProperties();
     const nonformal = invProps.filter((p) => !p.formalizable && !this.blockedBy.has(p.id));
     this.writeJudgmentRecords();
     const units = reviewUnits({ inventories: this.inventories, nonformal, models: this.models, partitionsAdopted: Boolean(this.partitions?.data.adopted), judgments: this.confirmations.judgments });
+    this.writeViews(units);
     const subjects = this.causeSubjects();
     // input_refs は観点ごとの表のとおり（artifact-formats.md「独立検証者と原因の分類役の input_refs」）。先頭は request.json、
     // 実在しない ref（実行していない検査の記録など）は入れない
     const R = (name, ref) => ({ name, ref });
-    const exists = (ref) => { try { statSync(join(this.runDir, ref)); return true; } catch { return false; } };
+    const exists = (ref) => { const p = this.pathOf(ref); if (p === null) return false; try { statSync(p); return true; } catch { return false; } };
     const withRequest = (refs) => [R('request', 'request.json'), ...refs.filter((x) => x.ref && exists(x.ref))];
-    const copyOf = (tid) => R(`copy-${tid}`, join('targets', tid, 'files'));
+    const copyOf = (tid) => this.targetFileRefs(tid);
     const manifestOf = (tid) => R(`manifest-${tid}`, join('targets', tid, 'manifest.json'));
-    const allCopies = () => this.targets.map((t) => copyOf(t.id));
-    const allInventories = () => this.inventories.map((i) => R(`inventory-${i.target_id}`, i.ref));
     const modelRefs = (m) => [R(`model-${m.id}`, m.ref), R(`mapping-${m.id}`, m.mapping.ref)];
     const execRecord = (id) => R(`checks-${id}`, join('checks', id));
     const worklog = (stage) => R(`worklog-${stage}`, join('worklogs', `cli-${stage}.json`));
     const refsFor = (u) => {
-      if (u.perspective === 'extraction') return [copyOf(u.target_id), manifestOf(u.target_id), ...this.inventories.filter((i) => i.target_id === u.target_id).map((i) => R('inventory', i.ref)), worklog('洗い出し')];
+      if (u.perspective === 'extraction') return [...copyOf(u.target_id), manifestOf(u.target_id), ...this.inventories.filter((i) => i.target_id === u.target_id).map((i) => R('inventory', i.ref)), worklog('洗い出し')];
+      // 形式化できない性質: その性質と出所の要素だけの資料（views）と、出所の要素の範囲
       if (u.perspective === 'nonformal') {
-        const inv = this.inventories.find((i) => i.data.properties.some((p) => p.id === u.property_ids[0]));
-        if (!inv) return [];
-        const p = inv.data.properties.find((x) => x.id === u.property_ids[0]);
-        const tids = [...new Set(p.source_ids.map((sid) => inv.data.elements.find((e) => e.id === sid)?.source.target_id).filter(Boolean))];
-        return [...tids.map(copyOf), R(`inventory-${inv.target_id}`, inv.ref)];
+        const p = this.inventoryProperties().find((x) => x.id === u.property_ids[0]);
+        if (!p) return [];
+        return [...(this.viewRefs.has(u.unit_id) ? [R('view', this.viewRefs.get(u.unit_id))] : []), ...this.targetRefsOf(this.elementScopeOf(p.source_ids))];
       }
       if (u.perspective === 'composition') {
         const parts = this.partitions?.data;
@@ -947,43 +1107,62 @@ export class Run {
         const execs = this.planChecks().filter((c) => c.kind === 'contract' || c.kind === 'composition').map((c) => execRecord(c.id));
         return [...(this.partitions ? [R('partitions', this.partitions.ref)] : []), ...this.models.map((m) => R(`model-${m.id}`, m.ref)), ...queries, ...execs, worklog('計画')];
       }
-      // fidelity: 節の役を出所と照らすための性質の query と、そのモデルの判断を要する項目の記録とその実行の記録
+      // fidelity: 対応表の行の範囲と、そのモデルが扱う inventory の性質・節・遷移・入出力の契約の出所の範囲だけを渡す。inventory はその
+      // モデルの性質の分と、その inventory の要素の一覧（id と範囲。文の本文は持たない。モデルに無い出所の要求を探すため）を views に置く
       const m = this.models.find((x) => x.id === u.model_id);
       const queries = m.data.properties.map((p) => R(`query-${p.id}`, p.query_ref));
       const jref = this.judgmentRefs.get(m.id);
-      return [...allCopies(), ...this.targets.map((t) => manifestOf(t.id)), ...allInventories(), ...modelRefs(m), ...queries,
+      const sel = this.modelScope(m, { view: true });
+      return [...(this.viewRefs.has(u.unit_id) ? [R('view', this.viewRefs.get(u.unit_id))] : []), ...this.targetRefsOf(sel), ...modelRefs(m), ...queries,
         ...(jref ? [R(`judgments-${m.id}`, jref)] : []), ...u.judgment_ids.map(execRecord), worklog('モデル化')];
     };
+    // 原因の分類役は「要求の不足」「形式モデルの欠陥」を「無いこと」で確かめるので、主題から辿れる範囲に、全ての対象の依頼の範囲を足す
+    // （抽出の確認役と同じ。architecture.md「担当に渡す資料」）
+    const causeTargets = (sel) => { for (const t of this.targets) this.mergeScope(sel, this.requestScopeOf(t.id)); return this.targetRefsOf(sel); };
     const causeRefsFor = (s) => {
       if (s.kind === 'counterexample') {
         const x = this.counterexamples.find((c) => c.id === s.id);
         const check = this.planChecks().find((c) => c.id === x.check_id);
         const m = this.models.find((y) => y.id === check?.model_id);
-        return [...allCopies(), execRecord(x.check_id), ...(x.replayId ? [execRecord(x.replayId)] : []), ...(m ? modelRefs(m) : [])];
+        // 反例 → 検査 → モデルの性質 → 節の出所と、その性質の対応表の行の範囲
+        const mp = m ? m.data.properties.find((p) => p.id === x.mp) : null;
+        const sel = m && mp ? this.modelScope(m, { mps: [mp.id] }) : new Map();
+        return [...causeTargets(sel), execRecord(x.check_id), ...(x.replayId ? [execRecord(x.replayId)] : []), ...(m ? modelRefs(m) : [])];
       }
-      if (s.kind === 'combination') return [...allCopies(), ...this.models.filter((m) => m.id === s.model_id).flatMap(modelRefs), worklog('モデル化')];
+      if (s.kind === 'combination') {
+        // 組合せ → その状態か出来事の遷移・禁止の出所。無ければそのモデルの対応表の行の範囲
+        const m = this.models.find((y) => y.id === s.model_id);
+        const sm = m?.data.state_machine;
+        const ids = sm ? [...sm.transitions.filter((t) => t.from === s.state || t.event === s.event), ...sm.forbidden.filter((f) => f.from === s.state || f.event === s.event)].flatMap((t) => t.source_ids) : [];
+        const sel = m ? (ids.length ? this.elementScopeOf(ids) : this.mappingScopeOf(m.mapping.data.rows)) : new Map();
+        return [...causeTargets(sel), ...(m ? modelRefs(m) : []), worklog('モデル化')];
+      }
+      // 問い → 影響する性質の出所
       const q = this.authorQuestions.find((x) => x.q.id === s.id);
-      return [...allCopies(), ...(q?.outputRefs ?? []).map((ref, i) => R(`output-${i + 1}`, ref))];
+      const affected = this.inventoryProperties().filter((p) => (q?.q.affected ?? []).includes(p.id)).flatMap((p) => p.source_ids);
+      return [...causeTargets(this.elementScopeOf(affected)), ...(q?.outputRefs ?? []).map((ref, i) => R(`output-${i + 1}`, ref))];
     };
-    const bytesOf = (spec) => refsBytes(this.runDir, spec.input_refs.map((x) => x.ref));
-    // 確認役: 役ごとに単位の並びのまま packUnits で詰め、詰めた束ごとに 1 体
+    // 1 体に詰める量は、その体の単位の資料の和集合のバイト数（共有の資料は 1 度だけ数える。call.mjs の packByUnion）
+    // 範囲を持つ対象の ref は spans ごと渡し、範囲の行だけを数える
+    const filesOf = (spec) => refFiles(this.runDir, spec.input_refs.map((x) => ({ ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })), (ref) => this.pathOf(ref));
+    // 確認役: 役ごとに単位の並びのまま packByUnion で詰め、詰めた束ごとに 1 体
     const byRole = new Map();
     for (const u of units) { if (!byRole.has(u.role)) byRole.set(u.role, []); byRole.get(u.role).push(u); }
     const reviewWorkers = [];
     for (const us of byRole.values()) {
       const specs = us.map((u) => ({ role: u.role, stage: '確認', unit_id: u.unit_id, perspective: u.perspective, target_id: u.target_id, model_id: u.model_id, property_ids: u.property_ids, input_refs: withRequest(refsFor(u)) }));
-      const sizes = specs.map(bytesOf);
-      for (const pack of packUnits(specs.map((_, i) => i), (i) => sizes[i])) {
+      const files = specs.map(filesOf);
+      for (const pack of packByUnion(specs.map((_, i) => i), (i) => files[i])) {
         reviewWorkers.push({ items: pack.map((i) => ({ spec: specs[i], unit: us[i], expect: judgmentAnswers(us[i].judgment_ids) })) });
       }
     }
     // 原因の分類役: 1 体が主題を束で取る（next-fit、上限 cap）。取ったまま 1 件も出さなかった束の後は、次の束の上限が半分になる
-    let pool = subjects.map((s) => { const spec = { role: 'cause-analyst', stage: '確認', unit_id: causeUnitId(s, this.combinations ?? []), subject: s, input_refs: withRequest(causeRefsFor(s)) }; return { subject: s, spec, bytes: bytesOf(spec) }; });
+    let pool = subjects.map((s) => { const spec = { role: 'cause-analyst', stage: '確認', unit_id: causeUnitId(s, this.combinations ?? []), subject: s, input_refs: withRequest(causeRefsFor(s)) }; return { subject: s, spec, files: filesOf(spec) }; });
     this.log().actions.push(`確認の unit ${units.length} 件を ${reviewWorkers.length} 体に詰め、原因の分類 ${subjects.length} 件を 1 体の束で出した。`);
     let cap = UNIT_MAX_BYTES;
     let first = true;
     for (;;) {
-      const causeWorker = pool.length ? { mode: 'fit', cap, items: pool.map((x) => ({ spec: x.spec, bytes: x.bytes })) } : null;
+      const causeWorker = pool.length ? { mode: 'fit', cap, items: pool.map((x) => ({ spec: x.spec, files: x.files })) } : null;
       const workers = [...(first ? reviewWorkers : []), ...(causeWorker ? [causeWorker] : [])];
       if (!workers.length) break;
       const out = await runWorkers(this, workers);
@@ -1021,6 +1200,37 @@ export class Run {
     }
   }
 
+  // 担当に渡す範囲の資料（architecture.md「担当に渡す資料」）。fidelity はそのモデルの性質の inventory の分、結ばれた要素とどの性質にも
+  // 結ばれない要素の一覧（id と範囲だけ）、その inventory の外部の依存。nonformal はその性質と出所の要素。unit ごとに views/<unit_id>.json に書く（台帳の kind: "material_view"）
+  writeViews(units) {
+    const elements = this.inventories.flatMap((i) => i.data.elements);
+    const props = this.inventoryProperties();
+    for (const u of units) {
+      let view = null;
+      if (u.perspective === 'fidelity') {
+        const m = this.models.find((x) => x.id === u.model_id);
+        const { invIds, inventories } = this.modelInventoryOf(m);
+        const mine = props.filter((p) => invIds.has(p.id));
+        // 要素は 2 つに分ける: (a) このモデルの性質に結ばれた要素、(b) どの性質にも結ばれない要素。他のモデルの性質にだけ結ばれた要素は入れない。
+        // どちらも id と範囲だけを持ち、本文は渡す範囲（modelScope の view）の対象のファイルで読む
+        const short = (e) => ({ id: e.id, kind: e.kind, source: { target_id: e.source.target_id, file: e.source.file, span: e.source.span } });
+        const boundIds = new Set(mine.flatMap((p) => p.source_ids));
+        view = { unit_id: u.unit_id, model_id: m.id, properties: mine.map(({ target_id: _t, ...p }) => p),
+          bound_elements: inventories.flatMap((i) => i.data.elements).filter((e) => boundIds.has(e.id)).map(short),
+          unbound_elements: this.unboundElements(inventories).map(short),
+          external_dependencies: inventories.flatMap((i) => i.data.external_dependencies).map((d) => ({ id: d.id, text: d.text, source: d.source ? { ...d.source } : null })) };
+      } else if (u.perspective === 'nonformal') {
+        const p = props.find((x) => x.id === u.property_ids[0]);
+        if (!p) continue;
+        const { target_id: _t, ...prop } = p;
+        view = { unit_id: u.unit_id, properties: [prop], elements: elements.filter((e) => p.source_ids.includes(e.id)) };
+      }
+      if (!view) continue;
+      const ref = join('views', `${u.unit_id}.json`);
+      if (this.writeRecordFile(ref, JSON.stringify(view, null, 2), { kind: 'material_view' })) this.viewRefs.set(u.unit_id, ref);
+    }
+  }
+
   causeSubjects() {
     const out = [];
     for (const x of this.counterexamples) out.push({ kind: 'counterexample', id: x.id });
@@ -1036,7 +1246,7 @@ export class Run {
     const fidelityProps = () => { const m = this.models.find((x) => x.id === u.model_id); return [...new Set(m.data.properties.flatMap((p) => p.inventory_property_ids))].sort(); };
     const propertyIds = u.perspective === 'fidelity' ? fidelityProps() : u.perspective === 'nonformal' ? [...u.property_ids] : [];
     const checker = r.task ? r.task.task_id : 'cli';
-    const materials = (r.materials ?? []).map((m) => ({ ref: m.ref, hash: m.hash }));
+    const materials = (r.materials ?? []).map((m) => ({ ref: m.ref, hash: m.hash, ...(m.spans ? { spans: m.spans.map((x) => ({ ...x })) } : {}) }));
     const conf = {
       id: this.confIds.next(u.perspective), kind: u.perspective, property_ids: propertyIds, model_property_id: null, plan_id: null,
       item: u.unit_id, result: '確認できず', checker, materials, end: null, reason: '',

@@ -49,8 +49,8 @@ node <SKILL_DIR>/scripts/formal-method-cli.mjs <command> < input.json
 | `close` | `{"run_dir": string, "call_id": Id, "workflow_output_path": string}` 又は `{"run_dir": string, "call_id": Id, "timed_out": true}`（`Id` は [成果物の形式の共通の型](artifact-formats.md#共通の型)の文字。合わなければ `E_INPUT` の `shape`。理由: `call_id` は受け箱の file 名になるので、path の区切りを含めない） | `{"ok": true, "command": "close", "outcome": "accepted" \| "duplicate"}` |
 | `wait` | `{"run_dir": string, "status_seq": integer ≥ 0}` | `{"ok": true, "command": "wait", "status": <Status>}`（新しい `seq`）又は `{"ok": true, "command": "wait", "outcome": "still_waiting", "status_seq": integer}` |
 | `salvage` | `{"run_dir": string}` | `{"ok": true, "command": "salvage", "status": <Status>}`（`action` は常に `terminal`） |
-| `claim`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "claim", "done": true}` 又は `{"ok": true, "command": "claim", "done": false, "tasks": [<ClaimedTask>]+}` |
-| `query`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id, "task_id": Id, "refs"?: [string]+}` | `{"ok": true, "command": "query", "task_id": Id, "inputs": [{"name": string \| null, "ref": Ref, "path": string}]}` |
+| `claim`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "claim", "done": true}` 又は `{"ok": true, "command": "claim", "done": false, "tasks": [<ClaimedTask>]+, "shared_inputs": [{"ref": Ref, "path": string, "tasks": [{"task_id": Id, "spans"?: [Span]}]}]}`（`shared_inputs` は同じ応答の 2 つ以上の task が共有する資料。[依頼と応答](#依頼と応答)） |
+| `query`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id, "task_id": Id, "refs"?: [string]+}` | `{"ok": true, "command": "query", "task_id": Id, "inputs": [{"name": string \| null, "ref": Ref, "path": string, "spans"?: [Span]}]}`。`path` は読む絶対 path（対象のファイルは元のファイル）、`spans` は読む行の範囲（[担当に渡す資料](artifact-formats.md#claim-の-task)） |
 | `submit`（担当） | `{"run_dir": string, "call_id": Id, "worker": Id}` | `{"ok": true, "command": "submit", "results": [{"task_id": Id, "ok": boolean, "problems": [string], "done": boolean, "remaining"?: [string]}]}` |
 
 - `<Request>`・`<Result>` の形は [成果物の形式](artifact-formats.md#依頼request) と [結果](artifact-formats.md#結果result)。
@@ -108,7 +108,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 ## 起動の手順
 
-`start` は依頼を検査しない。依頼の検査・対象の取得・版の照合・写しの保存は、全て `run-daemon` が同じバイト列で行う。理由: 照合したバイト列と保存する写しを同じ process が同じ読み込みで扱えば、その間に内容が変わる余地が無い。また、受付で止めた run の記録も、`run-daemon` が lock の下で保存できる。
+`start` は依頼を検査しない。依頼の検査・対象の取得・版の照合と一覧（manifest）の保存は、全て `run-daemon` が同じバイト列で行う。対象の写しは作らない（対象は run の間固定している前提。集約の段で 1 度だけ、元のファイルを読み直した指紋と、担当の最初の `query` の時点の指紋を受付の指紋と照らし、違えば停止の理由 `対象の変化` を足す。[architecture.md「対象の固定」](architecture.md#対象の固定)）。理由: 照合したバイト列と一覧の指紋を同じ process が同じ読み込みで扱えば、受付の中で内容が変わる余地が無い。また、受付で止めた run の記録も、`run-daemon` が lock の下で保存できる。
 
 1. **入力の形**: 標準入力が `{"request": <JSON の値>}` の形か（`request` があるか）だけを見る。無ければ `E_INPUT`。`request` の中身は見ない。
 2. **保存先の能力の確認**: 保存先の root（`<workspace>/.formal-method/runs/`）に一時のディレクトリ（名前は `.probe-<nonce>/`。`.tmp-*` とは別の形）を作り、ファイルの書込み・fsync・ディレクトリの fsync を試し、作ったものを消す。
@@ -154,8 +154,9 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
   - 依頼の `worker` が開いている呼び出しの `workers` に無ければ `E_CALL`（`unknown_worker`）。
   - `claim`: その worker の出し終えていない task を全て `tasks` で返す。出し終えていない task が無ければ、次に出せる task を作って返す（依存する task が閉じた後の task、束の worker なら次の束）。出せる task も無ければ `done: true`。期限の後は `E_CALL`（`deadline_passed`）。中断の理由があれば新しい task を作らない。
     - worker への task の結び方（1 体 1 task・依存つき・詰め合わせ・束）は [architecture.md「担当の起動」](architecture.md#担当の起動) が正本である。
-    - 束の worker（原因の分類役）: 残りの task を並びの順に、資料のバイト数の和が束の上限に収まる所まで取る（next-fit。1 件で超える task は単独）。上限の初めは `UNIT_MAX_BYTES`。
-  - `query`: その worker が取った task の `task_id` で、`refs` が無ければ task の全ての `input_refs` を、あれば `refs` の資料（`.` と `..` を畳んだ後で、`input_refs` の ref と同じか、ディレクトリの ref の下）を返す。返す `ref` は畳んだもの。畳んだ後に run の領域の外を指す ref と絶対の path は担当の外とする。外れた task・資料は `E_CALL`（`outside_task`）。最初の `query` の時点で、task の `input_refs` の指紋（[ディレクトリの ref の指紋](artifact-formats.md#claim-の-task)）を固定し、渡した資料（`materials`）とする。
+    - 束の worker（原因の分類役）: 残りの task を並びの順に、取る task の資料の和集合のバイト数（共有の資料は 1 度だけ数える）が束の上限に収まる所まで取る（next-fit。1 件で超える task は単独）。上限の初めは `UNIT_MAX_BYTES`。半分にする量も、取ったまま出さなかった束の資料の和集合で数える。
+    - 応答の `shared_inputs` は、その応答の 2 つ以上の task の `input_refs` に同じ ref がある資料の `[{ref, path, tasks: [{task_id, spans?}]}]` で、1 つの ref を 1 度だけ挙げる。`tasks` は共有する task ごとの範囲で、和に畳まない（担当は task ごとにその task の範囲だけで判断する。[agent-obligations.md](agent-obligations.md#受け取るもの)）。指紋は持たない（指紋は task ごとの `query` で固定する）。
+  - `query`: その worker が取った task の `task_id` で、`refs` が無ければ task の全ての `input_refs` を、あれば `refs` の資料（`.` と `..` を畳んだ後で、`input_refs` の ref と同じか、ディレクトリの ref の下）を返す。返す `ref` は畳んだもの。畳んだ後に run の領域の外を指す ref と絶対の path は担当の外とする。外れた task・資料は `E_CALL`（`outside_task`）。最初の `query` の時点で、task の `input_refs` の指紋（[ディレクトリの ref の指紋](artifact-formats.md#claim-の-task)）を固定し、渡した資料（`materials`）とする。そのうち対象のファイルの指紋は、集約の段で受付の指紋と照らす（違えば `対象の変化`。[architecture.md「対象の固定」](architecture.md#対象の固定)）。
   - `submit`: その worker が取った出し終えていない task のうち、`result_path` の返り値があり、前の照合から attempt の領域が変わったものを照合する（無ければ出し終えていない全ての task を照合する）。照合は [担当の返り値](artifact-formats.md#担当の返り値)の「成功に数えない」場合と、作成役なら段の照合。照合した task ごとに `{task_id, ok, problems, done}` を返す。出し終えていない task が無ければ、取った全ての task の結果を返す。
     - 返り値の形が合わなければ `ok: false` と原因を返す。`cannot_proceed` か、その task の提出が `REVISE_ROUNDS_MAX` + 1 回に達したら、その task を失敗として閉じる（`done: true`）。提出の回数は task ごとに数える。
     - 作成役の段の照合に欠陥があり、提出が `REVISE_ROUNDS_MAX` + 1 回に達しておらず、欠陥が前の提出より減っていれば、`ok: false` と欠陥を返し（`done: false`）、欠陥を `revisions/<task_id>-<提出の回数>-defects.json` に記録する。同じ担当が直して同じ `submit` を流し直す。
@@ -260,7 +261,8 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `<run_id>/state.json` | `run-daemon`（rename） | 内部の状態。形は契約の外で、client と salvage は保存済みの範囲を知るためだけに読む（結果の有無の判定には使わない） |
 | `<run_id>/status.json` | `run-daemon`（rename） | `Status` |
 | `<run_id>/request.json` | `run-daemon` | 受け付けた依頼の正規形（[依頼](artifact-formats.md#依頼request)） |
-| `<run_id>/targets/<target_id>/files/<FilePath>` と `<run_id>/targets/<target_id>/manifest.json` | `run-daemon` | 対象の集まりの固定した版の写し（ファイルごとのバイト列）と、`fixed.files` と同じ一覧 |
+| `<run_id>/targets/<target_id>/manifest.json` | `run-daemon` | 対象の集まりの一覧（ファイルごとの元の絶対パス・作業ツリーからの相対パス・指紋。[成果物の形式の Manifest](artifact-formats.md#依頼request)）。対象の写しは作らない |
+| `<run_id>/views/<unit_id>.json` | `run-daemon` | 確認役に渡す資料の写し（`fidelity`・`nonformal` の unit の分の inventory。[成果物の形式の担当に渡す資料](artifact-formats.md#claim-の-task)） |
 | `<run_id>/document-rules/<指紋>.md` | `run-daemon` | 適用した文書の一般規約の不変の写し |
 | `<run_id>/inbox/<call_id>.json` | client（`close`。link） | [受け箱](#受け箱) |
 | `<run_id>/requests/<call_id>/<req_id>.json` | client（`claim`・`query`・`submit`。link） | [依頼と応答](#依頼と応答)の依頼 |
@@ -285,7 +287,6 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 
 - 記録は全て、一時ファイル・fsync・rename（又は link）・ディレクトリの fsync で書く。同じ path を別の内容で上書きしない（`state.json`・`status.json`・`formal-method-cli.mjs` と、`calls/<call_id>/tasks.json` の閉じた後の書き直しを除く）。
 - **秘密値の走査**（依頼者の決定）: formal-method が書く記録（依頼の写し、担当の返り値・成果物（担当が書いた `.smt2` を含む）・作業記録、確認の記録、道具に渡す query（全ての実行の `checks/<execution_id>/input.smt2`。CLI が証人から作る replay の query（[証人](#証人)）を含む）、道具の標準出力・標準エラー、作業記録、台帳、結果、表示）は、書く直前に下の型で走査する。見つかれば書かずに、その記録を保存できなかったもの（`records.unsaved`、停止の理由 `保存の失敗`）として扱い、値は診断にも残さない（型と行の番号だけ）。
-  - 対象の写し（`targets/`）は走査しない。理由: 利用者の作業ツリーに既にある内容で、写しによって新しく露出するものではない。
   - 型は誤検知の少ないものだけに絞り、次の閉じた集合とする。この集合に無い形は検出しない。
 
     | 型 | 形（正規表現） |
@@ -381,7 +382,7 @@ PublishOutcome = {
   - `replay`: 反例の検査（`Counterexample.check_id`）の `tool_time_limit_seconds`。
   - 理由: 変異と replay は元の検査の範囲をそのまま検査するので、元の検査の値を使う。値は全て計画の照合で上限以下と確かめてあり、どの実行も[検査に使える期限](#定数)で止まるので、依頼元の時間の上限と残す時間を越えない。確認用の実行の値は、この規則で計画から導けるので、結果に値の欄を持たない。
 - **道具に渡す query**: 実行の `input_refs` のファイルのバイト列を、その順に、各ファイルの後に `\n` を 1 つ置いてつないだもの。これを `checks/<execution_id>/input.smt2` に保存して標準入力に渡す。
-  - `input_refs` の要素は、担当が書いた query（`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`PartitionsFile` の `contracts[].query_ref`・`composition_conditions[].query_ref`）だけを指せる。対象の写し（`targets/`）など他のファイルを指せば計画の欠陥である。理由: 書いた役の段で `(check-sat)` と書かない form を照らしたファイルだけを道具に渡す。対象の写しは秘密値の走査も受けない。
+  - `input_refs` の要素は、担当が書いた query（`ModelFile.properties[].query_ref`・`sanity[].query_ref`・`PartitionsFile` の `contracts[].query_ref`・`composition_conditions[].query_ref`）だけを指せる。対象のファイル（`target:<target_id>/<FilePath>`）など他のファイルを指せば計画の欠陥である。理由: 書いた役の段で `(check-sat)` と書かない form を照らしたファイルだけを道具に渡す。対象のファイルは秘密値の走査も受けない。
   - 担当の query は全て `(check-sat)` を持つので、下のつなぎ方の照合により、今は `input_refs` の要素はちょうど 1 つである（型の `[Ref]+` は、つなぎ方の規則とともに残す）。変異の「最後の input を置き換える」は、その 1 つを `mutation_ref` に置き換えることである。
   - 1 つの `.smt2` の `(check-sat)` の数と位置は、そのファイルを書いた役の段で照らす（[成果物の形式の担当の成果物](artifact-formats.md#担当の成果物)。欠陥の修正の巡はその役に戻る）。計画の照合は、つなぎ方だけを照らす: 検査・sanity・変異の各実行で、`(check-sat)` を持つ input が最後の 1 つだけであること。違えば計画の欠陥である。担当が書く `.smt2` は全て `(check-sat)` を持つので、実際には最後の input だけが担当の `.smt2` になる。理由: つないだ query の `(check-sat)` が最後の form でないと、その後の form が答えの後に出力を足し、答えの読みか証人を壊す。実測（Z3 5.3.3）では、誤った式（`(assert (foo))`）は `(error …)` の行と終了コード 1 を出し、`-model` の有無によらず `実行失敗` になる。未知のコマンド（`(foo)`）は `unsupported` と注釈の行を出して終了コード 0 で、`-model` を渡さない実行では読めない出力（`実行失敗`）になり、渡した実行では答えは正しく読めるがモデルの文字列が形に合わず、証人を読めない。
   - 変異の query は、検出役の検査の `input_refs` の最後を変異（`mutation_ref`）に置き換えて、同じ規則でつなぐ。
@@ -480,10 +481,18 @@ Linux（CI の ubuntu）の値は未測定で、F が CI で実測してこの�
 | `TOOL_OUTPUT_MAX_BYTES` | 1048576 | 道具の標準出力の上限 |
 | `MEMORY_SAMPLE_MS` | 100 | 性能の記録のための常駐メモリの標本の間隔 |
 | `WORKER_CALL_MAX_MS` | 60000 | 担当の `claim`・`query`・`submit` が `run-daemon` の応答を待つ上限（[依頼と応答](#依頼と応答)）。< `CALL_MAX_MS` − `CLEANUP_BUDGET_MS`。理由: 担当の Bash の既定の timeout（120000）の半分で、命令が殺される前に `no_response` を返す |
-| `UNIT_MAX_BYTES` | 100000 | 1 体に詰める unit の資料のバイト数の和の上限（確認役の詰め合わせ `packUnits` と、原因の分類役の束の上限の初め）。coverage-audit の `ledger-core.mjs` の写しで、`packUnits` も写し（一致は `tests/formal-method-ledger-copies.test.mjs` が照らす） |
+| `UNIT_MAX_BYTES` | 120000 | 1 体に詰める unit の資料の和集合のバイト数の上限（確認役の詰め合わせ `packByUnion` と、原因の分類役の束の上限の初め）。範囲を渡す対象のファイルは渡す行だけを数える。値と根拠は表の下の「`UNIT_MAX_BYTES` の根拠」 |
 | `ABLATION_PER_PROPERTY_MAX` | 12 | 1 つの性質の検査あたりの、静的な確認の道具の実行の上限（否定だけ・前提と否定だけ・規則と否定だけの 3 つと、前提を 1 つずつ外す再検査の和）。超える性質は前提ごとの再検査をせず、全ての前提を判断を要する項目にする（[architecture.md「静的な確認」](architecture.md#静的な確認)）。理由: 前提の数に比例して道具の実行が増え、同じ同時実行の数と期限を他の検査と分け合うため |
 
-値の根拠は実測していない。値を変えるときは、表の関係の検査を通す。
+**`UNIT_MAX_BYTES` の根拠**（値と根拠の正本はこの節。`architecture.md`・`schemas.mjs` はここを指す）: 文脈 200k token の 1/4（50k token）を資料に当てる。1 token あたりのバイト数は、run ba04a7 の担当 15 体の記録（Workflow の `agent-*.jsonl`）で実測した。
+
+- 求め方: 担当の要求ごとに入力の token（`input_tokens` + `cache_creation_input_tokens` + `cache_read_input_tokens`）を取り、次の要求との差から前の要求の出力の token（`output_tokens`）を引いた値を、その間に返った道具の結果（`tool_result` の文字列）の UTF-8 のバイト数と並べる。道具の結果が 4000 バイト以上の 79 の間で、バイト数の和 1,263,347 ÷ token の和 509,030 = 2.48 バイト/token（間ごとの中央値 2.56、10% 点 1.77、90% 点 2.83）。
+- 値: 50k token × 2.48 ≒ 124,000 バイトを切り下げて 120,000 とする。
+- 余裕: 担当の最初の要求は指示と prompt で約 70k token ある。資料の他に往復で増える分（出力・思考・書いた返り値など。最初の要求からの増分から、読んだ道具の結果の token を引いたもの）は、確認役で最大約 60k token、作成役（モデル作成役）で約 74k token だった。確認役では 70k + 50k + 60k = 180k で、200k に 20k の余裕が残る。作成役は詰め合わせず、資料をこの上限で抑えない（今の 1 体 1 task のまま）。
+- 余裕の限界: 2.48 は和の比で、間ごとの中央値（2.56）に近い値である。比が 10% 点の 1.77 の資料なら、120,000 バイトは約 68k token になり、70k + 68k + 60k = 198k で 200k に近づく。1 件で上限を超える unit は単独の束になり、上限で抑えないので（run ba04a7 の m-apply の unit は約 160KB）、比によっては 200k を超えうる（[architecture.md「未検証と限界」](architecture.md#未検証と限界)の詰め合わせ）。
+- 前の値 100000 は coverage-audit の値を同じ値で持っていたもので、formal-method の資料では測っていなかった。今は formal-method の値として持ち、coverage-audit の値との一致は検査しない。
+
+表の定数のうち `UNIT_MAX_BYTES` を除く値は、根拠を実測していない（`UNIT_MAX_BYTES` だけは上の根拠のとおり実測で決めた）。値を変えるときは、表の関係の検査を通す。
 
 **検査に使える期限**: 担当の呼び出しの期限も道具の実行の期限も、run の期限 − 残す時間とする（残す時間は `REPORT_RESERVE_MS` の行）。この時点で実行中の道具は止め、終わり方は `stopped_by: "時間"`・`time_limit_hit: "依頼元"`（判定は `時間切れ`）とする。理由: 依頼元の時間の上限までに結果を返すには（SP-010・015）、集約と保存の時間をその上限の中に含めるしかない。そのため、検査に使える依頼元の時間の上限は、run の期限 − 残す時間である。
 

@@ -9,7 +9,10 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Run } from './lib/run.mjs';
-import { LAUNCHER, SUBMITS_MAX, markUnseen, packUnits, runCall, unwrap } from './lib/call.mjs';
+import { LAUNCHER, SUBMITS_MAX, markUnseen, packByUnion, runCall, sq, unionBytes, unwrap } from './lib/call.mjs';
+import { refFiles, expandRefHashes } from './lib/agents.mjs';
+import { mergeSpans, fileLines, spanText } from './lib/target-refs.mjs';
+import { execFileSync } from 'node:child_process';
 import { close, workerCall } from './lib/client.mjs';
 import { readStatus } from './lib/store.mjs';
 import { startTimeOf } from './lib/process.mjs';
@@ -270,13 +273,6 @@ function writeCause(task) {
   writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, unit_id: task.context.unit_id, cause: '対象が性質を満たさない', grounds: '根拠', questions: [],
     record_ref: rel(task, 'cause.json'), worklog_ref: rel(task, 'worklog.json') }));
 }
-
-test('SP-FORMALMETHOD-013 AC-12 packUnits: 単位の並びのまま UNIT_MAX_BYTES まで前から詰め（next-fit）、上限を超える単位は単独の束になる', () => {
-  const sizes = { a: 30000, b: 30000, c: UNIT_MAX_BYTES + 1, d: 30000, e: 50000, f: 30000 };
-  assert.deepEqual(packUnits(Object.keys(sizes), (id) => sizes[id]), [['a', 'b'], ['c'], ['d', 'e'], ['f']]);
-  assert.deepEqual(packUnits(['x', 'y'], () => UNIT_MAX_BYTES / 2), [['x', 'y']], '和がちょうど上限なら同じ束');
-  assert.deepEqual(packUnits([], () => 1), []);
-});
 
 test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 1 体に詰めた担当は 1 回の claim で全て返り、submit は返り値を書いた担当ごとに受理か拒否を返す', async (t) => {
   const run = makeRun(t);
@@ -649,6 +645,156 @@ test('SP-FORMALMETHOD-015 cli-contract 依頼と応答 流し直し: 書けな�
   assert.equal(w.lastSubmit.unseen, false);
   markUnseen({ ws: [w] }, { command: 'submit', worker: 'w01' }, w.lastSubmit.response);
   assert.equal(w.lastSubmit.unseen, true);
+});
+
+// ---- 詰め合わせの量は資料の和集合（共有の資料は 1 度だけ数える） ----
+const filesMap = (o) => new Map(Object.entries(o));
+test('SP-FORMALMETHOD-013 AC-12 packByUnion: 共有の資料 60KB と固有の資料 5KB ずつの単位 5 件は、和集合 85KB で 1 体に入る（単位ごとの和なら 325KB）', () => {
+  const files = (i) => filesMap({ 'targets/T1/files/spec.md': 60000, [`attempts/u${i}.json`]: 5000 });
+  assert.deepEqual(packByUnion([1, 2, 3, 4, 5], files), [[1, 2, 3, 4, 5]]);
+  assert.equal(unionBytes([1, 2, 3, 4, 5].map(files)), 85000);
+  assert.ok([1, 2, 3, 4, 5].reduce((n, i) => n + unionBytes([files(i)]), 0) > UNIT_MAX_BYTES, '単位ごとの和なら上限を超える');
+});
+
+test('SP-FORMALMETHOD-013 AC-12 packByUnion: 単位を足して和集合が UNIT_MAX_BYTES を超えたら次の体に移る（ちょうど上限は同じ体）。1 件で超える単位は単独の束', () => {
+  const files = (i) => filesMap({ shared: 60000, [`u${i}`]: 5000 });
+  const fit = (UNIT_MAX_BYTES - 60000) / 5000;
+  const ids = Array.from({ length: fit + 1 }, (_, i) => i + 1);
+  assert.deepEqual(packByUnion(ids, files), [ids.slice(0, fit), [fit + 1]], `60000 + ${fit} × 5000 = UNIT_MAX_BYTES はちょうど上限`);
+  const big = (id) => (id === 'b' ? filesMap({ big: UNIT_MAX_BYTES + 1 }) : filesMap({ shared: 60000, [id]: 5000 }));
+  assert.deepEqual(packByUnion(['a', 'b', 'c', 'd'], big), [['a'], ['b'], ['c', 'd']], '上限を超える単位は単独で、前に戻って詰めない');
+  assert.deepEqual(packByUnion([], files), []);
+});
+
+test('SP-FORMALMETHOD-011・013 原因の束: mode fit の束も資料の和集合で上限と比べ、半分にする量も和集合で数える', async (t) => {
+  const run = makeRun(t);
+  const items = [1, 2, 3].map((n) => ({ spec: causeSpecN(n), files: filesMap({ shared: 60, [`own-${n}`]: 10 }) }));
+  const p = runCall(run, { stage: '確認', workers: [{ mode: 'fit', cap: 90, items }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  assert.equal((await workerCall('claim', base)).tasks.length, 3, '和集合 90 は上限 90 に収まる（和なら 210）');
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.equal(w.nextCap, 45, '束の和集合 90 の半分');
+});
+
+test('SP-FORMALMETHOD-012・013 詰め合わせ: claim は同じ体の担当が共有する資料を shared_inputs に 1 度だけ挙げ、渡した資料の指紋は担当ごとの最初の query の時点で残る', async (t) => {
+  const run = makeRun(t);
+  writeFileSync(join(run.runDir, 'shared.txt'), 'v1');
+  writeFileSync(join(run.runDir, 'a.txt'), 'a');
+  writeFileSync(join(run.runDir, 'b.txt'), 'b');
+  const spec = (n, own) => ({ ...reviewSpecN(n), input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'shared', ref: 'shared.txt' }, { name: 'own', ref: own }] });
+  const p = runCall(run, { stage: '確認', workers: [{ items: [{ spec: spec(1, 'a.txt') }, { spec: spec(2, 'b.txt') }] }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  const ts = c.tasks.map((x) => ({ task_id: x.task_id }));
+  assert.deepEqual(c.shared_inputs, [{ ref: 'request.json', path: join(run.runDir, 'request.json'), tasks: ts }, { ref: 'shared.txt', path: join(run.runDir, 'shared.txt'), tasks: ts }]);
+  await workerCall('query', { ...base, task_id: c.tasks[0].task_id });
+  writeFileSync(join(run.runDir, 'shared.txt'), 'v2');
+  await workerCall('query', { ...base, task_id: c.tasks[1].task_id });
+  for (const task of c.tasks) writeReview(task);
+  await workerCall('submit', base);
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  const refsOf = (r) => r.materials.map((m) => m.ref);
+  assert.deepEqual(w.results.map(refsOf), [['request.json', 'shared.txt', 'a.txt'], ['request.json', 'shared.txt', 'b.txt']], '担当ごとに自分の資料だけ');
+  const hashOf = (r, ref) => r.materials.find((m) => m.ref === ref).hash;
+  assert.equal(hashOf(w.results[0], 'shared.txt'), sha256Bytes(Buffer.from('v1')));
+  assert.equal(hashOf(w.results[1], 'shared.txt'), sha256Bytes(Buffer.from('v2')), '共有の資料も担当ごとの最初の query の時点の指紋');
+});
+
+// 対象のファイルを持つ run（受付の段を通さず、受付が控えるのと同じ targets[].files を置く）
+function withTarget(run, text) {
+  const abs = join(run.root, 'spec-src.md');
+  writeFileSync(abs, text);
+  run.targets = [{ id: 'T1', files: [{ path: 'spec.md', abs, bytes: Buffer.from(text), text: true, content_hash: sha256Bytes(Buffer.from(text)) }] }];
+  return abs;
+}
+
+test('SP-FORMALMETHOD-012 詰め合わせ: shared_inputs は共有する資料の範囲を task ごとに残し、和に畳まない', async (t) => {
+  const run = makeRun(t);
+  withTarget(run, 'a\nb\nc\n');
+  const spec = (n, span) => ({ ...reviewSpecN(n), input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'target', ref: 'target:T1/spec.md', spans: [span] }] });
+  const p = runCall(run, { stage: '確認', workers: [{ items: [{ spec: spec(1, 'L1-L1') }, { spec: spec(2, 'L3-L3') }] }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  const shared = c.shared_inputs.find((x) => x.ref === 'target:T1/spec.md');
+  assert.deepEqual(shared.tasks, [{ task_id: c.tasks[0].task_id, spans: ['L1-L1'] }, { task_id: c.tasks[1].task_id, spans: ['L3-L3'] }]);
+  assert.equal(shared.path, run.targets[0].files[0].abs, '対象の ref の path は元のファイルの絶対パス');
+  for (const task of c.tasks) await workerCall('query', { ...base, task_id: task.task_id });
+  for (const task of c.tasks) writeReview(task);
+  await workerCall('submit', base);
+  closeWith(run, call.call_id, agentsOf(1));
+  await p;
+});
+
+test('architecture 対象の固定: query の時点の対象の指紋が受付と違えば、集約の段で読み直した指紋が受付と同じでも 対象の変化 になり、2 度照らしても理由は 1 つ', async (t) => {
+  const run = makeRun(t);
+  const abs = withTarget(run, 'a\nb\n');
+  const p = callOf(run, '確認', [{ spec: { ...reviewSpec(), input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'target', ref: 'target:T1/spec.md' }] } }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  writeFileSync(abs, 'changed\n');
+  await workerCall('query', { ...base, task_id: c.tasks[0].task_id });
+  writeFileSync(abs, 'a\nb\n');
+  writeReview(c.tasks[0]);
+  await workerCall('submit', base);
+  closeWith(run, call.call_id, agentsOf(1));
+  await p;
+  assert.equal(run.queriedMaterials.length, 1, '最初の query の資料の指紋を控える');
+  run.checkTargetsFixed();
+  run.checkTargetsFixed();
+  assert.equal(run.targetChanges.length, 1);
+  assert.match(run.targetChanges[0].detail, /対象 T1 のファイル spec\.md が受付の後に変わった/);
+  assert.deepEqual([...run.changedTargets.get('T1').entries()], [['spec.md', '担当の query の時点の指紋が受付の指紋と違う']]);
+});
+
+test('architecture 担当の起動: refFiles は範囲を持つ対象の ref の範囲の行だけを、行ごとに（行のバイト数 + 改行）数え、重なった行は 1 度だけ数える', async (t) => {
+  const run = makeRun(t);
+  withTarget(run, 'aa\nbbb\ncccc\n');
+  const pathOf = (ref) => run.pathOf(ref);
+  const m = refFiles(run.runDir, [{ ref: 'target:T1/spec.md', spans: ['L2-L3', 'L3-L3'] }, { ref: 'request.json' }], pathOf);
+  assert.deepEqual([...m.entries()], [['target:T1/spec.md#L2', 4], ['target:T1/spec.md#L3', 5], ['request.json', readFileSync(join(run.runDir, 'request.json')).length]]);
+  const whole = refFiles(run.runDir, ['target:T1/spec.md'], pathOf);
+  assert.deepEqual([...whole.entries()], [['target:T1/spec.md', 12]], '範囲が無ければファイルの全体');
+});
+
+test('target-refs: mergeSpans は重なりと隣り合いを畳み、読めない Span は誤りにする。fileLines・spanText は Span の行の規則（linesOf・parseSpan）に従う', () => {
+  assert.deepEqual(mergeSpans(['L5-L6', 'L1-L2', 'L3-L3', 'L2-L2']), ['L1-L3', 'L5-L6']);
+  for (const bad of ['L0-L1', 'L3-L2', 'x', null]) assert.throws(() => mergeSpans(['L1-L1', bad]), /読めない Span/, String(bad));
+  const lines = fileLines(Buffer.from('a\r\nb\n\nc\n'));
+  assert.deepEqual(lines, ['a\r', 'b', '', 'c'], '末尾の \\n の後の空の要素は数えず、\\r は行に残す');
+  assert.equal(spanText(lines, 'L2-L9'), 'b\n\nc', '行数を超える部分は切る');
+  assert.equal(spanText(lines, 'L2'), null);
+});
+
+test('architecture 対象の固定: expandRefHashes は読めないファイルを例外にせず unreadable として記録する（範囲の有無によらず）', async (t) => {
+  const run = makeRun(t);
+  const abs = withTarget(run, 'a\nb\n');
+  if (typeof process.getuid === 'function' && process.getuid() === 0) { t.skip('root では読めないファイルを作れない'); return; }
+  chmodSync(abs, 0o000);
+  const got = expandRefHashes(run.runDir, ['target:T1/spec.md', { ref: 'target:T1/spec.md', spans: ['L1-L1'] }], (ref) => run.pathOf(ref));
+  chmodSync(abs, 0o644);
+  assert.deepEqual(got, [{ ref: 'target:T1/spec.md', hash: 'unreadable' }, { ref: 'target:T1/spec.md', hash: 'unreadable' }]);
+});
+
+test('call の部品: unwrap は native Workflow の完了通知 {summary, agentCount, result} の包みだけを外し、他の値はそのまま返す', () => {
+  const inner = { agents: [{ role: 'extractor' }], tokens: 5 };
+  assert.deepEqual(unwrap({ summary: '1 体', agentCount: 1, logs: [], result: inner }), inner);
+  assert.deepEqual(unwrap({ summary: '1 体', agentCount: 1, result: null }), null, 'result が null でも包みを外す');
+  for (const v of [inner, { summary: 1, agentCount: 1, result: inner }, { summary: 's', agentCount: '1', result: inner }, { summary: 's', result: inner }, [inner], null, 'x']) {
+    assert.deepEqual(unwrap(v), v, JSON.stringify(v));
+  }
+});
+
+test('call の部品: sq は文字列を shell の 1 語にし、引用符・空白・改行・$ をそのまま渡す', () => {
+  assert.equal(sq("a'b"), "'a'\\''b'");
+  for (const x of ['', 'plain', "it's", 'a b\nc', '$HOME `x` "q"', '{"k":"v\'s"}']) {
+    assert.equal(execFileSync('sh', ['-c', `printf '%s' ${sq(x)}`], { encoding: 'utf8' }), x, JSON.stringify(x));
+  }
 });
 
 // ---- 本物の CLI と harness ----

@@ -324,17 +324,17 @@ test('expandRefs の自己検査: ディレクトリの中は UTF-8 のバイト
   // 's'（0x73）は EF・F0 より前なので sub/b.txt は a.txt の次。U+FF61（EF）は U+1F600（F0）より前
   assert.deepEqual(refs, ['z.json', 'd/a.txt', 'd/sub/b.txt', `d/${HALFWIDTH}.txt`, `d/${EMOJI}.txt`], 'ファイルの要素はそのまま先、ディレクトリの中はバイト列の順');
 });
-test('artifact-formats ディレクトリの ref の指紋: 対象の写しに UTF-16 の順とずれる名前のファイルがあっても、materials と台帳の input_refs は UTF-8 のバイト列の順に展開される', async (t) => {
+test('artifact-formats 担当に渡す資料の順: 対象に UTF-16 の順とずれる名前のファイルがあっても、対象の全体を渡す抽出の確認役の materials は UTF-8 のバイト列の順に並ぶ', async (t) => {
   const files = { 'target/spec.md': SPEC_TEXT, [`target/${HALFWIDTH}.md`]: '半角の句点\n', [`target/${EMOJI}.md`]: '絵文字\n' };
   const out = await runScenario(t, { files, scenario: {} });
   assert.deepEqual(resultInvariants(out.result), []);
-  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective === 'extraction' || x.context.perspective === 'fidelity');
+  const tasks = out.harness.memory.tasks.filter((x) => x.context.perspective === 'extraction');
   assert.ok(tasks.length >= 1);
   for (const task of tasks) {
     const conf = out.result.confirmations.meaning.find((c) => c.checker === task.task_id);
     const refs = conf.materials.map((m) => m.ref);
-    const iH = refs.indexOf(`targets/T1/files/${HALFWIDTH}.md`);
-    const iE = refs.indexOf(`targets/T1/files/${EMOJI}.md`);
+    const iH = refs.indexOf(`target:T1/${HALFWIDTH}.md`);
+    const iE = refs.indexOf(`target:T1/${EMOJI}.md`);
     assert.ok(iH >= 0 && iE >= 0 && iH < iE, `${task.task_id}: ${refs.join(', ')}`);
     assert.deepEqual(conf.materials, expandRefs(out.status.run_dir, task.context.input_refs));
   }

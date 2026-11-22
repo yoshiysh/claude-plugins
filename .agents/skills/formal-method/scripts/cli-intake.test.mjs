@@ -11,6 +11,9 @@ import { execFileSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { basename } from 'node:path';
 import { pathWithout } from './test-fixtures/make-fake-bin.mjs';
+import { writeManifest } from './lib/intake.mjs';
+import { mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 function workspaceWithTarget() {
   const ws = makeWorkspace();
@@ -327,5 +330,20 @@ test('SP-FORMALMETHOD-013 AC-12: 受付で止めた結果でも、CI の有無�
   const ci = await drive(ws, { goals: baseRequest().goals }, { env: cliEnv({ ci: true }) });
   assert.equal(local.result.performance.location, 'ローカル');
   assert.equal(ci.result.performance.location, 'CI');
+});
+
+test('SP-FORMALMETHOD-001 manifest: workspace_path は symbolic link を解決した path で比べ（macOS の /var → /private/var など）、".." で始まる名前のファイルを作業ツリーの外としない', (t) => {
+  const real = realpathSync(mkdtempSync(join(tmpdir(), 'fm-manifest-')));
+  t.after(() => removeTree(real));
+  const alias = join(real, 'alias');
+  mkdirSync(join(real, 'ws'));
+  symlinkSync(join(real, 'ws'), alias);
+  const files = ['..notes.md', 'sub/spec.md'].map((p) => ({ path: p, abs: join(real, 'ws', p), content_hash: 'sha256:' + '0'.repeat(64), text: true }));
+  const outside = { path: 'x.md', abs: join(real, 'x.md'), content_hash: 'sha256:' + '0'.repeat(64), text: true };
+  mkdirSync(join(real, 'run', 'targets'), { recursive: true });
+  // workspace は symbolic link の名前（解決すると ws）、ファイルの abs は解決した path
+  const w = writeManifest(join(real, 'run'), { id: 'T1', root: join(real, 'ws'), files: [...files, outside] }, alias);
+  const m = JSON.parse(readFileSync(join(real, 'run', w.ref), 'utf8'));
+  assert.deepEqual(m.files.map((f) => [f.path, f.workspace_path]), [['..notes.md', '..notes.md'], ['sub/spec.md', 'sub/spec.md'], ['x.md', null]]);
 });
 });

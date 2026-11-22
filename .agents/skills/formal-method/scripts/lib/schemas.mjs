@@ -24,8 +24,8 @@ export const MEMORY_SAMPLE_MS = 100;
 export const ABLATION_PER_PROPERTY_MAX = 12;
 // 役が claim・query・submit の応答を待つ上限（cli-contract.md「依頼と応答」）。担当の Bash の既定の timeout（120000）の半分
 export const WORKER_CALL_MAX_MS = 60000;
-// 1 体に詰める単位の本文のバイト数の上限（coverage-audit の ledger-core.mjs の写し。一致は tests/formal-method-ledger-copies.test.mjs が照らす）
-export const UNIT_MAX_BYTES = 100000
+// 1 体に詰める資料の和集合のバイト数の上限。値と根拠の正本は cli-contract.md「定数」の「UNIT_MAX_BYTES の根拠」
+export const UNIT_MAX_BYTES = 120000;
 
 export const STAGES = Object.freeze(['受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約']);
 
@@ -38,14 +38,15 @@ export const INTERRUPT_CODES = Object.freeze(['依頼の不備', '起動の失�
 // decideStatus の述語の順（artifact-formats.md「decideStatus」）
 export const UNMET_ORDER = Object.freeze(['必要な性質が検証の成功でない', '確認が終わっていない', '対応できていない組合せ', '回答を待つ問い',
   '記録の未保存', '必要な性質が 0 件', '検出能力未確認', '反例', '実行できない検査']);
-export const STOP_CODES = Object.freeze([...INTERRUPT_CODES, ...UNMET_ORDER, '担当の失敗']);
+// 対象の変化: 受付の後に対象のファイルが変わった（固定の前提の破れ。集約の段で 1 度だけ照らす）
+export const STOP_CODES = Object.freeze([...INTERRUPT_CODES, ...UNMET_ORDER, '担当の失敗', '対象の変化']);
 // 誤りの code（cli-contract.md「誤りと終了コード」）
 export const ERROR_CODES = Object.freeze(['E_CONTRACT', 'E_INPUT', 'E_BUSY', 'E_STALE', 'E_INTERNAL', 'E_RESULT_UNREADABLE', 'E_CALL']);
 // E_CALL の detail.reason（cli-contract.md「依頼と応答」）
 export const CALL_REFUSALS = Object.freeze(['call_closed', 'unknown_worker', 'outside_task', 'deadline_passed', 'no_response']);
 export const REQUEST_CODES = Object.freeze(['target_missing', 'goal_missing', 'shape_invalid', 'duplicate_id', 'exclude_without_reason',
   'pointer_unresolved', 'time_limit_invalid', 'target_unavailable', 'revision_mismatch']);
-export const RECORD_KINDS = Object.freeze(['request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions',
+export const RECORD_KINDS = Object.freeze(['request', 'target_snapshot', 'document_rules', 'inventory', 'model', 'mapping', 'partitions', 'material_view',
   'plan', 'mutations', 'query', 'execution_evidence', 'worklog', 'review_record', 'judgments', 'ledger', 'result', 'report', 'salvage_worklog', 'salvage_ledger']);
 export const EXEC_KINDS = Object.freeze(['property', 'composition', 'contract', 'sanity', 'mutation', 'replay', 'ablation']);
 // 確認役の観点（context.perspective）。性質ごとの保証の観点は無い（静的な確認と、忠実さの確認の節の役と保証の照合が担う。architecture.md「静的な確認」）
@@ -78,7 +79,7 @@ export const FILE_PATH_RE = /^(?!\/)(?!.*(^|\/)\.\.?(\/|$))[^\0]+$/;
 export const SPAN_RE = /^L(\d+)-L(\d+)$/;
 export const Id = re(ID_RE, 'Id');
 export const Sha256 = re(SHA256_RE, 'Sha256');
-export const Ref = re(/^(?!\/)(?!.*(^|\/)\.\.(\/|$)).+$/, 'run の領域からの相対 path');
+export const Ref = re(/^(?!\/)(?!.*(^|\/)\.\.(\/|$)).+$/, 'run の領域からの相対 path か target:<target_id>/<FilePath>');
 // Span の読み方の正本: L<開始>-L<終了>、1 ≤ 開始 ≤ 終了。合わなければ null。
 export function parseSpan(span) {
   const m = typeof span === 'string' ? span.match(SPAN_RE) : null;
@@ -93,7 +94,9 @@ export const Span = Object.assign((v, p, e) => {
 }, { json: { type: 'string', pattern: SPAN_RE.source } });
 export const FilePath = re(FILE_PATH_RE, 'FilePath');
 const FilePathOrDir = re(/^(?!\/)[^\0]+$/, 'FilePath');
-export const RefHash = obj({ ref: Ref, hash: Sha256 });
+// spans は範囲を渡した対象の ref だけが持つ（範囲ごとの指紋。artifact-formats.md「担当に渡す資料」）
+// hash は読めないファイルなら 'unreadable'（artifact-formats.md「共通の型」の RefHash）
+export const RefHash = obj({ ref: Ref, hash: oneOf(Sha256, lit('unreadable')), 'spans?': arr(obj({ span: Span, hash: Sha256 })) });
 export const SourceRef = obj({ target_id: Id, file: FilePath, span: Span });
 export const Stage = lit(...STAGES);
 export const Measure = oneOf(

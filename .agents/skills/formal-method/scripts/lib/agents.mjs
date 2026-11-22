@@ -3,10 +3,12 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AuthorReturn, CauseReturn, ReviewReturn, conforms } from './schemas.mjs';
+import { AuthorReturn, CauseReturn, ReviewReturn, conforms, parseSpan } from './schemas.mjs';
 import { jsonSchemaOf } from './check-shape.mjs';
+import { fileLines, parseTargetRef, spanText } from './target-refs.mjs';
 import { ROLES, OBLIGATIONS } from './roles.mjs';
 import { hashFile } from './storage.mjs';
+import { sha256Bytes } from './canonical.mjs';
 import { cmpBytes } from './checks/common.mjs';
 
 const SKILL_DIR = fileURLToPath(new URL('../../', import.meta.url));
@@ -18,13 +20,27 @@ const returnKindOf = (task) => (task.context.perspective ? 'review' : task.role 
 
 // input_refs の指紋（artifact-formats.md「ディレクトリの ref の指紋」）: ファイルはそのまま 1 つ、ディレクトリはその下の全てのファイルに
 // 展開する。並びは input_refs の要素の順で、1 つのディレクトリの中だけを ref の UTF-8 のバイト列の辞書順に並べる。読めない要素は入れない。
-export function expandRefHashes(runDir, refs) {
+// pathOf(ref) は読む path（対象の ref は元のファイル。target-refs.mjs の refPathOf）。対象の ref はファイルだけを指す。
+// 読めないファイルの指紋は 'unreadable'（読めない対象の ref も同じ）。refs の要素は ref の文字列か { ref, spans? }。spans を持つ対象の ref は、ファイル全体の指紋に加えて、範囲ごとの指紋 spans: [{ span, hash }] を持つ。
+const UNREADABLE = 'unreadable';
+export function expandRefHashes(runDir, refs, pathOf = (ref) => join(runDir, ref)) {
   const out = [];
-  for (const ref of refs) {
-    const p = join(runDir, ref);
+  for (const item of refs) {
+    const ref = typeof item === 'string' ? item : item.ref;
+    const spans = typeof item === 'string' ? null : item.spans ?? null;
+    const p = pathOf(ref);
+    if (p === null) continue;
     let st;
-    try { st = statSync(p); } catch { continue; }
-    if (st.isFile()) { out.push({ ref, hash: hashFile(p) }); continue; }
+    try { st = statSync(p); } catch { if (parseTargetRef(ref)) out.push({ ref, hash: UNREADABLE }); continue; }
+    if (st.isFile()) {
+      // 読めないファイルは例外にせず unreadable として記録する（対象のファイルなら、集約の段の照合で 対象の変化 になる）
+      let bytes;
+      try { bytes = readFileSync(p); } catch { out.push({ ref, hash: UNREADABLE }); continue; }
+      if (!spans) { out.push({ ref, hash: sha256Bytes(bytes) }); continue; }
+      const lines = fileLines(bytes);
+      out.push({ ref, hash: sha256Bytes(bytes), spans: spans.map((span) => ({ span, hash: sha256Bytes(Buffer.from(spanText(lines, span), 'utf8')) })) });
+      continue;
+    }
     if (!st.isDirectory()) continue;
     const files = [];
     const walk = (rel) => {
@@ -36,25 +52,40 @@ export function expandRefHashes(runDir, refs) {
     };
     try { walk(ref.replace(/\/+$/, '')); } catch { continue; }
     files.sort(cmpBytes);
-    for (const r of files) out.push({ ref: r, hash: hashFile(join(runDir, r)) });
+    for (const r of files) { let hash; try { hash = hashFile(join(runDir, r)); } catch { hash = UNREADABLE; } out.push({ ref: r, hash }); }
   }
   return out;
 }
 
-// input_refs の資料のバイト数の和（ディレクトリはその下の全てのファイル）。1 体に詰める量（UNIT_MAX_BYTES）と比べる。読めない要素は数えない。
-export function refsBytes(runDir, refs) {
-  let n = 0;
-  const walk = (p) => {
+// input_refs の資料のファイルごとのバイト数（run の領域からの相対 path → バイト数。ディレクトリはその下の全てのファイル）。
+// 1 体に詰める量は、詰めた単位のこの Map の和集合で数える（call.mjs の packByUnion）。読めない要素は入れない。
+// 範囲を持つ対象の ref は、範囲の行ごとに <ref>#L<n> → その行のバイト数 + 1（改行）で数える（重なった範囲は和集合で 1 度だけ数える）。
+export function refFiles(runDir, refs, pathOf = null) {
+  const out = new Map();
+  const spansOf = new Map(refs.filter((x) => typeof x !== 'string' && x.spans).map((x) => [x.ref, x.spans]));
+  const walk = (rel) => {
+    const own = pathOf && parseTargetRef(rel) ? pathOf(rel) : null;
+    if (own !== null && spansOf.has(rel)) {
+      let lines;
+      try { lines = fileLines(readFileSync(own)); } catch { return; }
+      for (const span of spansOf.get(rel)) {
+        const p = parseSpan(span);
+        if (!p) throw new Error(`読めない Span: ${JSON.stringify(span)}`);
+        for (let i = p.from; i <= Math.min(p.to, lines.length); i += 1) out.set(`${rel}#L${i}`, Buffer.byteLength(lines[i - 1], 'utf8') + 1);
+      }
+      return;
+    }
+    if (own !== null) { try { out.set(rel, statSync(own).size); } catch { /* 読めない要素は入れない */ } return; }
     let st;
-    try { st = statSync(p); } catch { return; }
-    if (st.isFile()) { n += st.size; return; }
+    try { st = statSync(join(runDir, rel)); } catch { return; }
+    if (st.isFile()) { out.set(rel, st.size); return; }
     if (!st.isDirectory()) return;
     let names = [];
-    try { names = readdirSync(p); } catch { return; }
-    for (const name of names) walk(join(p, name));
+    try { names = readdirSync(join(runDir, rel)); } catch { return; }
+    for (const name of names) walk(posix.join(rel, name));
   };
-  for (const ref of refs) walk(join(runDir, ref));
-  return n;
+  for (const item of refs) { const ref = typeof item === 'string' ? item : item.ref; walk(parseTargetRef(ref) ? ref : posix.normalize(ref).replace(/\/+$/, '')); }
+  return out;
 }
 
 // task を作る。資料（input_refs）は claim では渡さず、query が返してその時点の指紋を固定する（artifact-formats.md「claim の Task」）。
@@ -75,7 +106,7 @@ export function makeTask(run, spec) {
     },
   };
   task.return_schema = jsonSchemaOf(RETURN_TYPES[returnKindOf(task)]);
-  return { task, inputRefs: inputRefs.map((x) => ({ name: x.name, ref: x.ref })) };
+  return { task, inputRefs: inputRefs.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: [...x.spans] } : {}) })) };
 }
 
 const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };

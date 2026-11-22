@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
 import { fileHash } from './fabricate.mjs';
 
 export const LEDGER_ENTRY_KEYS = ['kind', 'ref', 'hash', 'stage', 'producer', 'model', 'effort', 'permissions', 'input_refs'];
@@ -23,13 +24,31 @@ export function tasksById(runDir) {
   return out;
 }
 
+// ref → 読む path。対象の ref（target:<id>/<FilePath>）は request.json の fixed.files の abs_path（写しは作らない）、他は run の領域の下。
+// CLI の target-refs.mjs と独立に、受け付けた依頼の記録から引く
+export function runPath(runDir, ref) {
+  const m = /^target:([^/]+)\/(.+)$/.exec(ref);
+  if (!m) return join(runDir, ref);
+  const req = JSON.parse(readFileSync(join(runDir, 'request.json'), 'utf8'));
+  return req.targets.find((t) => t.id === m[1])?.fixed.files.find((f) => f.path === m[2])?.abs_path ?? null;
+}
+
 // input_refs をファイルの RefHash の並びにする（artifact-formats「ディレクトリの ref の指紋」）。
 // ファイルはそのまま 1 つ、ディレクトリは下の全てのファイル（再帰、ディレクトリ自身は除く）を、そのディレクトリの中だけ
 // ref の UTF-8 のバイト列の辞書順（Buffer.compare）に並べる。並びは input_refs の要素の順
 export function expandRefs(runDir, inputRefs) {
   const out = [];
-  for (const { ref } of inputRefs) {
-    const p = join(runDir, ref);
+  for (const { ref, spans } of inputRefs) {
+    const p = runPath(runDir, ref);
+    // 範囲を持つ対象の ref は、ファイル全体の指紋と、範囲の行を "\n" でつないだ文字列の指紋（quote_hash と同じ求め方）
+    if (spans) {
+      const text = readFileSync(p, 'utf8');
+      const lines = text === '' ? [] : text.split('\n');
+      if (lines.length && lines[lines.length - 1] === '') lines.pop();
+      const hashOf = (sp) => { const [, a, b] = sp.match(/^L(\d+)-L(\d+)$/).map(Number); return `sha256:${createHash('sha256').update(lines.slice(a - 1, b).join('\n'), 'utf8').digest('hex')}`; };
+      out.push({ ref, hash: fileHash(p), spans: spans.map((span) => ({ span, hash: hashOf(span) })) });
+      continue;
+    }
     if (!statSync(p).isDirectory()) { out.push({ ref, hash: fileHash(p) }); continue; }
     const files = [];
     const walk = (d) => { for (const n of readdirSync(join(runDir, d))) { const r = posix.join(d, n); if (statSync(join(runDir, r)).isDirectory()) walk(r); else files.push(r); } };

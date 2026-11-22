@@ -1,18 +1,22 @@
 // 洗い出しの照合（architecture.md「段と処理の順序」の洗い出し）: 走査範囲の網羅・出所・引用の指紋。
-import { join } from 'node:path';
 import { sha256Bytes } from '../canonical.mjs';
 import { Inventory, parseSpan, validate } from '../schemas.mjs';
-import { defect, linesOf, readRunText } from './common.mjs';
+import { defect, linesOf } from './common.mjs';
 
 // otherPropertyIds・otherElementIds: 他の対象の inventory の性質・要素の id → その対象の id（どちらも run の全ての inventory を通して一意）
-export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(), otherElementIds = new Map() } = {}) {
+// scope: 依頼の範囲（Map<FilePath, Span[] | null>。null はファイルの全体。run.mjs の requestScopeOf）。覆うべきものは依頼の範囲だけで、
+// 範囲の外のファイル・行は求めない（抽出役には範囲だけを渡すので、範囲の外を unread にさせない）。null なら全てのファイルの全体
+export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(), otherElementIds = new Map(), scope = null } = {}) {
   const shapeErrs = validate(Inventory, inv);
   if (shapeErrs.length) return [defect('syntax', 'inventory-shape', `inventory の形に合わない: ${shapeErrs.slice(0, 3).join('; ')}`)];
   const out = [];
   if (inv.target_id !== target.id) out.push(defect('reference', 'inventory-target', `target_id ${inv.target_id} が task の対象 ${target.id} と違う`));
   if (inv.content_hash !== target.content_hash) out.push(defect('other', 'inventory-hash', 'content_hash が集まりの指紋と違う'));
-  const text = (file) => readRunText(runDir, join('targets', target.id, 'files', file));
+  // 受付で読んだバイト列で照らす（写しは作らない。対象は run の間固定している前提で、集約の段で 1 度だけ読み直して照らす）
+  const text = (file) => { const f = target.files.find((x) => x.path === file); return f && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null; };
   for (const f of target.files) {
+    if (scope && !scope.has(f.path)) continue;
+    const want = scope ? scope.get(f.path) : null;
     const entries = inv.scanned.filter((s) => s.file === f.path);
     if (entries.length === 0) { out.push(defect('other', `scan-missing:${f.path}`, `scanned が ${f.path} を覆わない`)); continue; }
     if (!f.text) continue;
@@ -27,7 +31,11 @@ export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(
       if (!s || s.to > n) { out.push(defect('other', `scan-span:${f.path}:${e.span}`, `${f.path} の span ${e.span} が行数 ${n} を超える`)); continue; }
       for (let i = s.from; i <= s.to; i += 1) covered.add(i);
     }
-    if (covered.size < n) out.push(defect('other', `scan-lines:${f.path}`, `${f.path} の全ての行を覆わない`));
+    // 覆うべき行: 依頼の範囲の span の行（行数を超える部分は無い行として切る）。範囲が無ければファイルの全ての行
+    const need = [];
+    if (want) for (const sp of want) { const s = parseSpan(sp); if (s) for (let i = s.from; i <= Math.min(s.to, n); i += 1) need.push(i); }
+    else for (let i = 1; i <= n; i += 1) need.push(i);
+    if (need.some((i) => !covered.has(i))) out.push(defect('other', `scan-lines:${f.path}`, want ? `${f.path} の依頼の範囲（${want.join(', ')}）の全ての行を覆わない` : `${f.path} の全ての行を覆わない`));
   }
   const ids = new Set();
   for (const e of inv.elements) {

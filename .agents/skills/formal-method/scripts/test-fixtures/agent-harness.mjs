@@ -103,6 +103,8 @@ export function defaultScenario(over = {}) {
     modelPropPrefix: '',    // モデルの性質の id = 接頭辞 + inventory の性質の id
     models: null,           // [{ id, propertyIds, stateMachine? }]（モデルを 2 つ以上にするとき）
     stopAfterSubmits: {},   // 役 → n: その役の提出が n 回になったら、done でなくても流し直さずに worker を終える（閉じた時点の受理の経路）
+    scanDropLast: false,    // true なら抽出役は依頼の範囲の最後の行を scanned で覆わない（網羅の照合が落ちるケース）
+    extraElements: [],      // [{ file, line }]: どの性質にも結ばれない要素（id は E-X<line>）を inventory に足す
     ...over,
   };
 }
@@ -115,7 +117,7 @@ export function smtQuery(label, d, body = null) {
 }
 
 // 性質の query の節（artifact-formats「model」の clauses と :named の規則）。1 行に 1 つのトップレベルの assert を、現れた順に
-// p.roles（既定: 最後を goal、他を rule）の役で名付ける。名前は <mp>-<役の頭文字><番号>。
+// p.roles（既定: 最後を goal、他を rule）の役で名付ける。名前は <mp>-<役の頭文字><番号>。rule と goal の source_ids は p.clauseSources（既定 [E-<p.id>]）。
 // 偽の z3 の指示 fake-core（既定: rule と goal の名前。p.fakeCore で変える）を先頭に置き、静的な確認の query（節を切り取ったもの）の答えを決める。
 // mutate なら最初の rule の項を (not …) に変える（変異は名前を保ち、規則の節を変える。agents/plan-author.md）。
 export function namedClauses(text, mp, p, { mutate = false } = {}) {
@@ -131,7 +133,7 @@ export function namedClauses(text, mp, p, { mutate = false } = {}) {
     if (mutate && role === 'rule' && !mutated) { term = `(not ${term})`; mutated = true; }
     lines[i] = `(assert (! ${term} :named ${name}))`;
     const basis = role === 'premise' ? (p.premiseBasis?.[name] ?? '作成役の仮定') : null;
-    clauses.push({ name, role, source_ids: role === 'premise' ? [] : [`E-${p.id}`], basis, external_dependency_id: basis === '外部の依存' ? (p.externalDependencyId ?? 'X1') : null, note: `harness の ${role} の節` });
+    clauses.push({ name, role, source_ids: role === 'premise' ? [] : (p.clauseSources ?? [`E-${p.id}`]), basis, external_dependency_id: basis === '外部の依存' ? (p.externalDependencyId ?? 'X1') : null, note: `harness の ${role} の節` });
   });
   const core = p.fakeCore ? p.fakeCore(clauses) : clauses.filter((c) => c.role !== 'premise').map((c) => c.name);
   // p.fakeAnswers(clauses) → [[残す節の名前の並び, 答え]]: 切り取った実行ごとの答え（偽の z3 の fake-answers。core より先に見る）
@@ -185,11 +187,30 @@ const ROLE = {
   extractor(task, s) {
     const req = readJson(join(task.context.run_dir, 'request.json'));
     const target = req.targets.find((t) => t.id === task.context.target_id);
-    const snap = (f) => join(task.context.run_dir, target.fixed.snapshot_ref, 'files', f);
-    const scanned = target.fixed.files.map((f) => {
-      if (!f.text || f.content_hash === 'unreadable') return { file: f.path, span: null, status: 'unread', reason: 'テキストでない' };
+    // 写しは作らないので、元のファイル（fixed.files の abs_path）を読む
+    const snap = (f) => target.fixed.files.find((x) => x.path === f).abs_path;
+    // 覆うのは依頼の範囲（scope.include）だけ（run.mjs の requestScopeOf と同じ決め方）。範囲の外のファイル・行は scanned に入れない
+    const include = req.scope?.include ?? [];
+    const locs = include.filter((p) => p.kind === 'location' && p.target_id === target.id);
+    const whole = include.some((p) => p.kind === 'target' && p.id === target.id) || locs.length === 0;
+    const scopeOf = (file) => {
+      if (whole) return null;
+      const mine = locs.filter((p) => p.file === file);
+      if (!mine.length) return undefined;
+      return mine.some((p) => !p.span) ? null : mine.map((p) => p.span);
+    };
+    const scanned = target.fixed.files.filter((f) => scopeOf(f.path) !== undefined).flatMap((f) => {
+      if (!f.text || f.content_hash === 'unreadable') return [{ file: f.path, span: null, status: 'unread', reason: 'テキストでない' }];
       const n = linesOf(readFileSync(snap(f.path), 'utf8')).length;
-      return n === 0 ? { file: f.path, span: null, status: 'read', reason: null } : { file: f.path, span: `L1-L${n}`, status: 'read', reason: null };
+      const spans = scopeOf(f.path) ?? (n === 0 ? [] : [`L1-L${n}`]);
+      if (spans.length === 0) return [{ file: f.path, span: null, status: 'read', reason: null }];
+      const out = spans.map((span) => ({ file: f.path, span, status: 'read', reason: null }));
+      if (s.scanDropLast) {
+        const last = out[out.length - 1];
+        const [, a, b] = last.span.match(/^L(\d+)-L(\d+)$/).map(Number);
+        if (a === b) out.pop(); else last.span = `L${a}-L${b - 1}`;
+      }
+      return out;
     });
     const elements = [];
     const properties = [];
@@ -199,6 +220,10 @@ const ROLE = {
       properties.push({ id: p.id, source_ids: [`E-${p.id}`], statement: p.statement, formalizable: p.formalizable !== false,
         nonformal_reason: p.formalizable === false ? '数で表せない' : null, nonformal_method: p.formalizable === false ? '文書の読み合わせ' : null,
         assumptions: [], scope: '対象の全体', blocked_by_question: [...(p.blocked_by_question ?? []), ...questionsOf(s, ['extractor'], p.id)] });
+    }
+    for (const x of s.extraElements ?? []) {
+      const line = linesOf(readFileSync(snap(x.file), 'utf8'))[x.line - 1];
+      elements.push({ id: `E-X${x.line}`, kind: 'requirement', source: { target_id: target.id, file: x.file, span: `L${x.line}-L${x.line}`, quote_hash: sha(line) }, text: line });
     }
     write(task, 'inventory.json', { schema: 'formal-method.inventory/1', target_id: target.id, content_hash: target.fixed.content_hash, scanned, elements, properties, external_dependencies: s.externalDependencies ?? [] });
     return [{ kind: 'inventory', ref: runRef(task, 'inventory.json') }];
@@ -232,7 +257,8 @@ const ROLE = {
         const el = p.formalizable === false ? p.id : mpid(s, p);
         return [
           ...s.goalIds.map((g) => ({ source: { kind: 'goal', id: g }, property_id: p.id, model_element: el, relation, reason })),
-          { source: { kind: 'location', target_id: 'T1', file: p.file, span: `L${p.line}-L${p.line}` }, property_id: p.id, model_element: el, relation, reason },
+          // p.mappingLocation === false なら、出所の行の対応を書かない（性質の出所が対応表にも節にも無い場面）
+          ...(p.mappingLocation === false ? [] : [{ source: { kind: 'location', target_id: 'T1', file: p.file, span: `L${p.line}-L${p.line}` }, property_id: p.id, model_element: el, relation, reason }]),
         ];
       }) });
       memory.models.push({ id: m.id, file, task });
@@ -270,8 +296,8 @@ const ROLE = {
     const all = modelsOf(s).flatMap((m) => m.props.map((p) => ({ m, p, mp: mpid(s, p) })));
     const blocked = all.filter(({ p }) => questionsOf(s, ['model-author', 'plan-author'], p.id).length > 0);
     const pairs = all.filter((x) => !blocked.includes(x));
-    // targetRef: 対象の写しの中のファイル（run の領域からの Ref。担当が書いたものでない資料）
-    const targetRef = (file) => { const req = readJson(join(task.context.run_dir, 'request.json')); return join(req.targets[0].fixed.snapshot_ref, 'files', file); };
+    // targetRef: 対象のファイルの ref（target:<target_id>/<FilePath>。担当が書いたものでない資料）
+    const targetRef = (file) => { const req = readJson(join(task.context.run_dir, 'request.json')); return `target:${req.targets[0].id}/${file}`; };
     const ctx = { round: memory.rounds[task.role], pairs, mref, targetRef, put: (name, body) => { write(task, name, body); return runRef(task, name); } };
     // 変異の .smt2 は計画作成役自身の attempt に書き、mutation_ref はそこを指す（artifact-formats「変異のファイル」、agents/plan-author.md）
     for (const { p, mp } of pairs.filter(({ p }) => p.mutation)) write(task, `${mp}-mut.smt2`, namedClauses(smtQuery(`mutation ${mp}`, p.mutation, p.smt), mp, p, { mutate: true }).text);
@@ -406,7 +432,8 @@ export function makeHarness(scenario, hooks = {}) {
           const q = await run('query', raw.query_cmd, { ...base, task_id: raw.task_id });
           // 呼び出しが閉じた・期限を過ぎた（時間の上限のケース）なら、担当を終える
           if (!q.ok) { call.claims.push({ worker: w.id, query: q }); return { ...rec, ok: false }; }
-          task = { ...raw, context: { ...raw.context, input_refs: q.inputs.map((x) => ({ name: x.name, ref: x.ref })) } };
+          // query_inputs: query の応答の inputs をそのまま（path を見るテストのため）
+          task = { ...raw, query_inputs: q.inputs, context: { ...raw.context, input_refs: q.inputs.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })) } };
           memory.tasks.push(task);
           call.tasks.push(task);
           memory.byRole[task.role] = task;

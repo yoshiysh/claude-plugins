@@ -10,7 +10,7 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
 
 ## 読むもの
 
-- `query` が渡す資料: 受け付けた依頼、固定した inventory の全て、対象の写し。
+- `query` が渡す資料: 受け付けた依頼、固定した inventory の全て、対象の一覧（`manifest.json`）と対象のファイル（`path` は元のファイルの絶対パス。依頼の範囲が行を指せば `spans` の行だけ）。
 - `submit` の応答が `problems` を返したら、CLI の照合が見つけた欠陥（未定義の参照、対応の欠け、query の構文など）。同じ担当として直し、同じ `submit_cmd` を流し直す。
 - 語は [形式手法の知識](../references/formal-method-knowledge.md)。query の答えの読み方は [CLI 契約](../references/cli-contract.md#z3-の-adapter)。
 

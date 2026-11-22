@@ -27,31 +27,37 @@ const UNSEEN_MARGIN_MS = 1000;
 export const LAUNCHER = 'formal-method-cli.mjs';
 export const launcherText = () => `// 生成物: run-daemon が呼び出しのたびに書き直す。本物の CLI を流すだけ。\nimport ${JSON.stringify(pathToFileURL(CLI_PATH).href)};\n`;
 
-// 以下の 3 つは coverage-audit の ledger-cli.mjs・ledger-core.mjs の写し（一致は tests/formal-method-ledger-copies.test.mjs が照らす）。
+// sq・unwrap は formal-method 独自の実装（coverage-audit の同名の関数の写しではなく、一致も検査しない。architecture.md「部品の責務」）。
 // shell の 1 語にする（' は '\'' に置き換える）。
-const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
-// native Workflow の完了通知（返り値を result に包んだ形）も、そのまま受け付ける。
+export const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+// native Workflow の完了通知（返り値を result に包んだ形 {summary, agentCount, logs, result}）も、そのまま受け付ける。
 export function unwrap(v) {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return v
-  return Object.hasOwn(v, 'result') && typeof v.summary === 'string' && typeof v.agentCount === 'number' ? v.result : v
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
+  return Object.hasOwn(v, 'result') && typeof v.summary === 'string' && typeof v.agentCount === 'number' ? v.result : v;
 }
-// 詰め合わせ: 単位の並び（ids の順）で前から、本文のバイト数の和が UNIT_MAX_BYTES に収まる所まで 1 体に詰める（next-fit。前に戻って詰めない）。
-// 1 件だけで超える単位は単独の束になる。bytesOf(id) は単位の資料のバイト数。
-export function packUnits(ids, bytesOf) {
-  const out = []
-  let cur = null
+
+// 詰め合わせ（formal-method の数え方）: 単位の並び（ids の順）で前から、詰めた単位の資料の和集合のバイト数が cap に収まる所まで 1 体に詰める
+// （next-fit。前に戻って詰めない）。同じ体の単位が共有する資料（対象のファイルの同じ行・inventory など）は 1 度だけ数える。1 件だけで超える単位は単独の束になる。
+// filesOf(id) は単位の資料のファイルごとのバイト数（agents.mjs の refFiles。範囲を渡す対象のファイルは行ごと）。
+export const unionBytes = (maps) => { const seen = new Map(); for (const m of maps) for (const [k, v] of m) seen.set(k, v); let n = 0; for (const v of seen.values()) n += v; return n; };
+export function packByUnion(ids, filesOf, cap = UNIT_MAX_BYTES) {
+  const out = [];
+  let cur = null;
   for (const id of ids) {
-    const n = bytesOf(id)
-    if (cur && cur.bytes + n <= UNIT_MAX_BYTES) { cur.ids.push(id); cur.bytes += n; continue }
-    cur = { ids: [id], bytes: n }
-    out.push(cur)
+    const f = filesOf(id);
+    if (cur && unionBytes([cur.files, f]) <= cap) { cur.ids.push(id); cur.files = new Map([...cur.files, ...f]); continue; }
+    cur = { ids: [id], files: new Map(f) };
+    out.push(cur);
   }
-  return out.map((x) => x.ids)
+  return out.map((x) => x.ids);
 }
 
 // CLI の 1 回の呼び出しの命令（標準入力の 1 つの JSON）。via は CLI の path（本物か入口）。
 export const cliCommand = (via, command, input) => `printf '%s' ${sq(JSON.stringify(input))} | ${sq(process.execPath)} ${sq(via)} ${command}`;
 const refusal = (reason, text) => ({ ok: false, code: 'E_CALL', reason: text, detail: { reason } });
+
+// ref → 担当に渡す path（対象の ref は元のファイルの絶対パス）。run が pathOf を持たなければ run の領域の下
+const pathOfRun = (run) => (run.pathOf ? (ref) => run.pathOf(ref) : (ref) => join(run.runDir, ref));
 
 // run の領域の中の相対の ref に正規化する（. と .. を畳み、末尾の / を除く）。絶対の path か、畳んだ後に領域の外を指す ref は null。
 const normRef = (ref) => {
@@ -92,7 +98,7 @@ const roleStage = (workers) => {
 // 1 つの呼び出しを開き、閉じるまで依頼を処理する。workers の行は w01, w02, … の順。
 // worker: { items: [item], mode?: 'all' | 'fit', cap? }
 //   mode 'all'（既定）: 最初の claim で、依存の無い全ての担当を返す。item.after（同じ worker の前の item の位置）は、その担当が閉じてから返す。
-//   mode 'fit': 出し終えた後の claim ごとに、残りの item を並びの順に item.bytes の和が cap に収まる所まで束で返す（next-fit）。
+//   mode 'fit': 出し終えた後の claim ごとに、残りの item を並びの順に、資料の和集合のバイト数（item.files、無ければ item.bytes）が cap に収まる所まで束で返す（next-fit）。
 // item: { spec | role + spec() → spec | null, stage?, check?(ret, task), observe?(ret), expect?(ret) → 文 | null, settle?(r), revoke?(r), after?, bytes? }
 //   check は作成役の照合（欠陥が減っているうちは同じ担当に出し直させる）、expect は確認役の返り値の追加の照合（形の違いとして扱う）。
 //   settle があれば、その担当が閉じた時点で結果を渡す（後の担当の spec がその結果を使うため）。呼び出しを開けなかったときも渡す。
@@ -245,7 +251,7 @@ function handle(ctx, req, name) {
     } else if (late) return refusal('deadline_passed', `呼び出し ${ctx.callId} の期限（deadline_wall_ms ${ctx.deadline}）を過ぎた。worker を終える`);
     w.claims += 1;
     for (const s of hs) s.claimed = true;
-    return { ok: true, done: false, tasks: hs.map((s) => claimed(ctx, s)) };
+    return { ok: true, done: false, tasks: hs.map((s) => claimed(ctx, s)), shared_inputs: sharedInputs(ctx, hs) };
   }
   if (req.command === 'query') {
     const s = w.entries.map((e) => e.state).find((x) => x && x.claimed && x.task.task_id === req.task_id);
@@ -255,9 +261,17 @@ function handle(ctx, req, name) {
     const outside = refs.filter((r) => !within(s.inputRefs, r));
     if (outside.length) return refusal('outside_task', `担当の資料の外: ${outside.join(', ')}`);
     // 渡した資料の指紋は、最初の query の時点で固定する（SP-FORMALMETHOD-012 の「渡した資料」）
-    if (!s.materials) s.materials = expandRefHashes(ctx.run.runDir, s.inputRefs.map((x) => x.ref));
-    const inputs = req.refs ? refs.map(normRef).map((ref) => ({ name: (s.inputRefs.find((x) => normRef(x.ref) === ref) ?? { name: null }).name, ref, path: join(ctx.run.runDir, ref) }))
-      : s.inputRefs.map((x) => ({ name: x.name, ref: x.ref, path: join(ctx.run.runDir, x.ref) }));
+    if (!s.materials) {
+      s.materials = expandRefHashes(ctx.run.runDir, s.inputRefs, pathOfRun(ctx.run));
+      // 対象のファイルの指紋は、集約の段で受付の指紋と照らす（run.mjs の checkTargetsFixed）
+      if (ctx.run.noteMaterials) ctx.run.noteMaterials(s.materials);
+    }
+    const pathOf = pathOfRun(ctx.run);
+    // 範囲を持つ資料は spans を返す（担当はその行だけを読む。agent-obligations.md）。refs で引いたディレクトリの下のファイルは範囲を持たない
+    const spansOf = (ref) => s.inputRefs.find((x) => normRef(x.ref) === ref)?.spans;
+    const one = (name, ref) => ({ name, ref, path: pathOf(ref), ...(spansOf(ref) ? { spans: [...spansOf(ref)] } : {}) });
+    const inputs = req.refs ? refs.map(normRef).map((ref) => one((s.inputRefs.find((x) => normRef(x.ref) === ref) ?? { name: null }).name, ref))
+      : s.inputRefs.map((x) => one(x.name, x.ref));
     return { ok: true, task_id: s.task.task_id, inputs };
   }
   if (req.command === 'submit') {
@@ -283,6 +297,9 @@ function handle(ctx, req, name) {
   return { ok: false, code: 'E_INPUT', reason: `未知の依頼: ${req.command}`, detail: { reason: 'shape' } };
 }
 
+// 束の担当の資料のファイルごとのバイト数。item.files（refFiles）が無ければ、item.bytes をその担当だけのファイル 1 つとして数える
+const filesOfEntry = (e) => e.item.files ?? new Map([[`#item-${e.i}`, e.item.bytes ?? 0]]);
+
 // 出し終えた後の claim で、次に返す担当を作る。中断の理由があれば新しい担当を出さない。
 function take(ctx, w) {
   if (ctx.run.halted()) return [];
@@ -290,12 +307,9 @@ function take(ctx, w) {
   let pick;
   if (w.mode === 'fit') {
     pick = [];
-    let bytes = 0;
     for (const e of pending) {
-      const n = e.item.bytes ?? 0;
-      if (pick.length && bytes + n > w.cap) break;
+      if (pick.length && unionBytes([...pick, e].map(filesOfEntry)) > w.cap) break;
       pick.push(e);
-      bytes += n;
     }
   } else pick = pending.filter((e) => e.item.after === undefined || Boolean(w.entries[e.item.after].state?.done || w.entries[e.item.after].result));
   const out = [];
@@ -314,6 +328,20 @@ function take(ctx, w) {
 }
 
 const result = (s, ok, problems, extra = {}) => ({ task_id: s.task.task_id, ok, problems, done: s.done, ...extra });
+
+// 同じ claim で返す 2 つ以上の task が共有する資料（input_refs の同じ ref）を 1 度だけ挙げる。担当はこれを 1 度だけ読み、task ごとの
+// query の応答に同じ ref が出ても読み直さない。渡した資料の指紋は task ごとの最初の query で固定するので、ここでは指紋を取らない。
+// 範囲は task ごとに残す（tasks: [{ task_id, spans? }]。和に畳まない）。担当は task ごとにその task の範囲だけで判断する（agent-obligations.md）
+function sharedInputs(ctx, hs) {
+  const by = new Map();
+  for (const s of hs) for (const x of s.inputRefs) {
+    if (!by.has(x.ref)) by.set(x.ref, []);
+    const ts = by.get(x.ref);
+    if (!ts.some((y) => y.task_id === s.task.task_id)) ts.push({ task_id: s.task.task_id, ...(x.spans ? { spans: [...x.spans] } : {}) });
+  }
+  const pathOf = pathOfRun(ctx.run);
+  return [...by].filter(([, ts]) => ts.length >= 2).map(([ref, ts]) => ({ ref, path: pathOf(ref), tasks: ts }));
+}
 
 // claim が返す Task（artifact-formats.md「claim の Task」）。資料は query で引く。
 function claimed(ctx, s) {
@@ -397,7 +425,7 @@ function finalizeWorker(ctx, w) {
   const releaseHeld = w.mode === 'fit' && unsent.length > 0 && (w.submits > 0 || unsent.length >= 2);
   let nextCap = w.mode === 'fit' ? (w.submits > 0 ? UNIT_MAX_BYTES : w.cap) : null;
   if (w.mode === 'fit' && w.submits === 0 && unsent.length >= 2) {
-    nextCap = Math.floor(unsent.reduce((n, s) => n + (s.entry.item.bytes ?? 0), 0) / 2);
+    nextCap = Math.floor(unionBytes(unsent.map((s) => filesOfEntry(s.entry))) / 2);
     run.log(ctx.run.stage).actions.push(`呼び出し ${ctx.callId} の ${w.row.role} は束 ${unsent.length} 件を取ったまま 1 件も出さなかったので、試行に数えずに手放し、次の束の上限を ${nextCap} バイトにした。`);
   }
   for (const e of w.entries) {

@@ -205,4 +205,20 @@ test('SP-FORMALMETHOD-013 AC-12 agent_calls: 起動の記録か tokens を取れ
   assert.match(ac.total.agents.reason, /取得できなかった呼び出しがある/);
   assert.equal(ac.total.tokens.status, '取得できず');
 });
+
+test('SP-FORMALMETHOD-013 AC-12 詰め合わせ 結合: UNIT_MAX_BYTES を超える同じ対象のファイルの範囲だけを渡す形式化できない性質の単位 2 件は、範囲の行だけを数えて 1 体に入る', async (t) => {
+  // ファイルの全体を数えると 1 件で上限を超えて 1 体ずつに分かれる（範囲の行だけを数えれば、2 件の和は数十バイト）
+  const pad = `${'x'.repeat(78)}\n`.repeat(Math.ceil(UNIT_MAX_BYTES / 79) + 10);
+  const files = { 'target/spec.md': `# 対象\nR1: 性質 1 が成り立つ。\nR2: 性質 2 が成り立つ。\nR3: 性質 3 が成り立つ。\n${pad}` };
+  const props = [P('P1', 2), P('P2', 3, { formalizable: false }), P('P3', 4, { formalizable: false })];
+  const { result, harness } = await runScenario(t, { files, scenario: { properties: props } });
+  assert.deepEqual(resultInvariants(result), []);
+  const nf = tasksOf(harness, (x) => x.context.perspective === 'nonformal');
+  assert.equal(nf.length, 2);
+  const c = claimOf(harness, nf[0].task_id);
+  assert.deepEqual(sorted(c.task_ids), sorted(nf.map((x) => x.task_id)), '1 回の claim が 2 つの担当を返す');
+  assert.equal(c.call.workers.filter((w) => w.role === 'assurance-reviewer').length, 1, '形式化できない性質の確認役は 1 体');
+  for (const task of nf) assert.ok(task.context.input_refs.find((x) => x.ref === 'target:T1/spec.md')?.spans, `${task.task_id}: 範囲で渡す`);
 });
+});
+

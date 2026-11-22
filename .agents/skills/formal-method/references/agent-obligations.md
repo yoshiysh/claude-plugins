@@ -18,14 +18,19 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | 受け取るもの | 中身 | 使い方 |
 |---|---|---|
 | `claim` の `tasks` の各 task | `task_id`・`role`・`instructions`・`attempt_dir`・`result_path`・`return_schema`・`query_cmd`・`submit_cmd`・`context`（`TaskContext`） | `instructions` の 2 つのファイル（担当の指示と、この文書）を読む。`context` が担当の範囲、`return_schema` が返り値の形 |
-| `query` の `inputs` | 渡された資料ごとの `{name, ref, path}` | 読む資料はここに挙がったものだけ |
+| `query` の `inputs` | 渡された資料ごとの `{name, ref, path, spans?}`（`spans` は読む行の範囲。無ければファイルの全体） | 読む資料はここに挙がったものだけ。`spans` があればその行だけ |
 
-- 読む資料は `query` の `inputs` が指すものだけである。`claim` と `query` の出力の外を読まない。`ref` は `context.run_dir` からの相対 path で、`path` はその絶対 path。ディレクトリを指す `ref`（対象の写しなど）は、その下のファイルを読んでよい。例外は文書の一般規約の写し（`<run_dir>/document-rules/` の中の 1 つのファイル）で、作業記録を書くためだけに、資料の外でも読んでよい（下の作業記録の節）。
-  - 理由: 渡した資料（SP-012）は、最初の `query` の時点の指紋で記録される。その外を読むと、記録された資料と読んだ資料が食い違う。担当の外の資料を `query` で引くと、CLI が拒む。
+- 読む資料は `query` の `inputs` が指すものだけである。`claim` と `query` の出力の外を読まない。`ref` は `context.run_dir` からの相対 path か、対象のファイルを指す `target:<target_id>/<FilePath>` で、`path` は読む絶対 path（対象のファイルは元のファイル。写しは無い）。ディレクトリを指す `ref` は、その下のファイルを読んでよい。
+- `inputs` の要素が `spans`（`L<開始>-L<終了>` の並び）を持てば、そのファイルはその行だけを読む。範囲ごとに、範囲の行だけを開く手段で読む（Read の `offset` = 開始の行・`limit` = 終了 − 開始 + 1、`sed -n '<開始>,<終了>p' <path>` など）。ファイルの全体を開いてから範囲を探さない。例外は文書の一般規約の写し（`<run_dir>/document-rules/` の中の 1 つのファイル）で、作業記録を書くためだけに、資料の外でも読んでよい（下の作業記録の節）。
+  - 理由: 渡した資料（SP-012）は、最初の `query` の時点の指紋で、範囲ごとに記録される。その外を読むと、記録された資料と読んだ資料が食い違う。担当の外の資料を `query` で引くと、CLI が拒む。
+- 範囲の外の文脈（前後の行、他のファイル）が要るときは、範囲の外を読まずに、要った範囲（ファイルと行）と理由を作業記録の `unconfirmed` に書く。そのうえで、役ごとに次のとおりにする（どれも既存の欄で表す）。
+  - 確認役・原因の分類役: その点を `確認できず` にし、要った範囲を確認の記録（`findings` の文か `note`）にも書く。
+  - 作成役（抽出役・モデル作成役）: 範囲の中で取り出せる要素・性質は取り出し、範囲の外の文脈が要って決められない点は、推測で埋めずに `unconfirmed` に要った範囲として残す。判断が要る不足なら問い（`questions`）にする。範囲の外の文脈を補って書いた要素・節を、範囲の中の出所だけで書いたように見せない。
 - `submit` の応答が `ok: false` で `problems` を返したら、CLI が見つけた欠陥か返り値の形の違いである。同じ担当として成果物と返り値を直し、同じ `submit_cmd` を流し直す。
 - `submit` は、返り値を書いた task（前の照合から attempt の領域が変わったもの）を照合し、task ごとに結果を返す。書き終えた task から出す。
 - 命令が `no_response` を返したら、何も書き換えずに同じ命令を 1 度だけ流し直す（それでも `ok: false` なら、理由を書いて担当を終える。Workflow の prompt と同じ）。応答を見られなかった `submit` を書き換えずに流し直すと、CLI は照合し直さず前の応答を返す（提出の回数は増えない）。応答を見た後に、直せないまま同じ成果物を出し直すと、新しい提出として照合される（欠陥が減らなければ残った欠陥ごと受理される）。
-- 複数の task を持つときも、task ごとにその task の `query` の資料だけで判断し、task ごとに返り値を書く。他の task の資料を根拠にしない（task ごとの渡した資料と判断が記録から読めなくなる）。
+- `claim` の応答の `shared_inputs` に挙がった資料は、同じ claim の複数の task が共有する資料である。`tasks` は共有する task ごとの `{task_id, spans?}` で、範囲は task ごとに違いうる。1 度だけ読み、task ごとの `query` の応答に同じ ref が出ても読み直さない。各 task の `query` は流す（task ごとの渡した資料の指紋はその時点で記録される）。
+- 複数の task を持つときも、task ごとにその task の `query` の資料（範囲を持つ資料はその task の `spans` の行）だけで判断し、task ごとに返り値を書く。共有の資料を 1 度に読んでも、他の task の範囲の行や他の task の資料を根拠にしない（task ごとの渡した資料と判断が記録から読めなくなる）。
 - 語と値は仕様（`docs/specifications/formal-method.md`）と [形式手法の知識](formal-method-knowledge.md) に従う。一般の形式手法の語で置き換えると、CLI の照合と結果の値が食い違う。
 
 ## 書く場所と返し方
@@ -46,7 +51,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | `role`・`task_id` | task の `role` と `task_id` |
 | `stage` | `context.stage` |
 | `target` | 対象（`context.target_id`、`model_id`、`unit_id` など、この task が扱うもの） |
-| `inputs` | 読んだ資料ごとの `{ref, hash}`。ディレクトリを指す `ref` は、実際に読んだファイルごとに 1 要素 |
+| `inputs` | 読んだ資料ごとの `{ref, hash}`。ディレクトリを指す `ref` は、実際に読んだファイルごとに 1 要素。範囲（`spans`）だけを読んだ対象のファイルは `{ref, hash, spans: [{span, hash}]}` で、`hash` はファイル全体の指紋、`spans` は読んだ範囲ごとの指紋（範囲の行を `\n` でつないだ文字列の SHA-256。`agents/extractor.md` の `quote_hash` の command で求める）。読まなかった範囲は書かない |
 | `actions`・`results`・`grounds` | したこと、得たこと、その根拠 |
 | `failures`・`unconfirmed` | できなかったこととその理由、確かめられなかったこと |
 | `unreadable_inputs` | 読めなかった資料と理由 |
@@ -77,9 +82,9 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 | 観点（`perspective`） | 読むもの |
 |---|---|
-| `extraction` | 対象の固定した写し、固定した inventory、CLI の照合の記録 |
-| `fidelity` | 対象の写しと一覧（manifest）、inventory、モデル、対応表、性質の query、CLI のモデル化の段の作業記録、そのモデルの判断を要する項目の記録とその実行の記録（あれば）。図・組合せ・経路はモデルから導けるので、モデルで読む |
-| `nonformal` | 対象の写しと、その性質の inventory の記述（`nonformal_method` を含む）。モデルは使わない |
+| `extraction` | 依頼の範囲の対象のファイルと一覧、固定した inventory、CLI の照合の記録 |
+| `fidelity` | 対応表の行と、そのモデルの性質が扱う inventory の性質・節・遷移の出所の範囲の対象のファイル、そのモデルの性質の inventory の記述とその inventory の要素の一覧（`views/<unit_id>.json`）、モデル、対応表、性質の query、CLI のモデル化の段の作業記録、そのモデルの判断を要する項目の記録とその実行の記録（あれば）。図・組合せ・経路はモデルから導けるので、モデルで読む |
+| `nonformal` | その性質の出所の範囲の対象のファイルと、その性質と出所の要素の記述（`views/<unit_id>.json`。`nonformal_method` を含む）。モデルは使わない |
 | `composition` | 分割、全てのモデル、契約と合成の条件、それらの検査の記録、CLI の照合の記録 |
 | 原因の分類（`cause-analyst`、`perspective` は null） | `context.subject` が指す反例・組合せ・問いと、その出所・モデル・検査の記録 |
 
@@ -96,5 +101,5 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 - 未実行・`unknown`・時間切れ・実行失敗・確認できず・読めない資料を、成り立つ・満たすと書かない。結果を決める CLI が、担当の文を成功の根拠にしてしまう。
 - 打ち切った作業・読み切れなかった範囲は、`failures`・`unconfirmed`・`unreadable_inputs` に書く。黙って打ち切ると「全て見た」と読まれる。
-- 秘密値（鍵・token・パスワード）を成果物・作業記録・返り値に書かない。CLI の走査が検出するのは [CLI 契約](cli-contract.md#run-の領域の配置) の 4 つの型だけで、それ以外の形は見逃す。対象の写しの中にある秘密値を引用しない。
-- 限界: 担当の書込み範囲と読む範囲は、ホストの権限では分けていない（`workspace-write`）。この文書の義務だけが守りで、CLI は登録の前の書換えを見つけられない。この限界は結果の `unverified[]` に載る。
+- 秘密値（鍵・token・パスワード）を成果物・作業記録・返り値に書かない。CLI の走査が検出するのは [CLI 契約](cli-contract.md#run-の領域の配置) の 4 つの型だけで、それ以外の形は見逃す。対象のファイルの中にある秘密値を引用しない。
+- 限界: 担当の書込み範囲と読む範囲は、ホストの権限では分けていない（`workspace-write`）。この文書の義務だけが守りで、CLI は登録の前の書換えを見つけられない。範囲（`spans`）の外を読まない義務も、CLI は機械では止めない（`query` が拒むのは資料の外の ref だけで、範囲の外の行を読むことは止められない）。この 2 つの限界は、受け付けた run の結果の `unverified[]` に `担当の書込み範囲`・`担当の読む範囲` として載る。

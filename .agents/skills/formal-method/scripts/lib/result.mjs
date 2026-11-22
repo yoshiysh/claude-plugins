@@ -159,6 +159,7 @@ export function buildSalvageResult(runDir, { location, unpublished = false, work
 
 // ---- run-daemon の集約の段の結果（artifact-formats.md「結果」「判定の 3 関数」「stop_report.stage の決め方」） ----
 import { aggregateProperty, decideStatus, classifyCheck, isSuccess as SUCCESS } from './verdict.mjs';
+import { parseTargetRef } from './target-refs.mjs';
 import { NOT_STARTED_END } from './scheduler.mjs';
 import { agentCallsOf, compareCandidates, findings, ms, bytes, unavailable, BUILD, COST, HUMAN, RETRIES } from './performance.mjs';
 import { pathsCheck, deriveDiagram } from './checks/model.mjs';
@@ -229,6 +230,18 @@ export function buildResult(run) {
   const questionIds = new Set(run.resultQuestions.map((q) => q.id));
   const qDeps = (pid) => uniq([...(run.blockedBy.get(pid) ?? []), ...run.resultQuestions.filter((q) => q.affected.includes(pid)).map((q) => q.id)]);
   const mappingRows = run.models.flatMap((m) => m.mapping.data.rows.map((r) => ({ ...r, model_id: m.id })));
+  // 受付の後に変わった対象のファイル（run.mjs の checkTargetsFixed）。そのファイルを出所に持つ性質の判定は、検証の成功として出さない（SP-001）
+  const changed = run.changedTargets ?? new Map();
+  const isChanged = (tid, file) => Boolean(changed.get(tid)?.has(file));
+  // 性質を支える出所（run.propertyScopeOf。忠実さの確認役に渡す範囲と同じ求め方）と、その性質の確認の担当が query で受けた資料
+  // （confirmations の materials）のうち、変わったファイル
+  const changedSourcesOf = (p) => {
+    const fromScope = [...run.propertyScopeOf(p.id)].flatMap(([tid, files]) => [...files.keys()].filter((file) => isChanged(tid, file)).map((file) => `${tid} の ${file}`));
+    const fromMaterials = [...run.confirmations.deterministic, ...run.confirmations.meaning].filter((c) => (c.property_ids ?? []).includes(p.id))
+      .flatMap((c) => c.materials ?? []).map((x) => parseTargetRef(x.ref)).filter((r) => r && isChanged(r.targetId, r.file)).map((r) => `${r.targetId} の ${r.file}`);
+    return uniq([...fromScope, ...fromMaterials]);
+  };
+  const demote = (verdict) => (SUCCESS(verdict) ? ['未確認'] : verdict);
   // 検出能力
   const detectionOf = (p) => {
     if (!p.formalizable) {
@@ -310,8 +323,11 @@ export function buildResult(run) {
       meaning_confirmed: allHold(compositionConfs), composition_applies: false, composition_confirmed: false,
       detection_performed: false, detection_confirmed: false, alternative_confirmed: false,
     };
-    const verdict = aggregateProperty(facts);
-    const reasonText = ids.length === 0 ? '計画にこの契約の検査が無い' : verdict.includes('反例') ? `契約の検査 ${ids.join(', ')} が反例を返した` : `契約の検査 ${ids.join(', ')} の判定と、親の性質の確認から判定した`;
+    const parentChanged = uniq(run.parentsOf(k.derived_from).flatMap((pid) => { const p = props.find((x) => x.id === pid); return p ? changedSourcesOf(p) : []; }));
+    const verdict0 = aggregateProperty(facts);
+    const verdict = parentChanged.length ? demote(verdict0) : verdict0;
+    const reasonText0 = ids.length === 0 ? '計画にこの契約の検査が無い' : verdict.includes('反例') ? `契約の検査 ${ids.join(', ')} が反例を返した` : `契約の検査 ${ids.join(', ')} の判定と、親の性質の確認から判定した`;
+    const reasonText = verdict !== verdict0 ? `${reasonText0}。親の性質の出所のファイル（${parentChanged.join('、')}）が受付の後に変わったので、検証の成功として出さない` : reasonText0;
     return { id: k.id, model_id: k.model_id, derived_from: k.derived_from, part_id: k.part_id, statement: k.statement, verdict, check_ids: ids, reason: reasonText };
   });
   const corr = run.partitions?.data.adopted ? correspondenceOf(run.graph, run.partitions.data.parts) : { matched: [], unmatched: [], excluded: [] };
@@ -343,12 +359,15 @@ export function buildResult(run) {
   };
   const properties = props.map((p) => {
     const f = baseFacts.get(p.id);
-    const verdict = aggregateProperty(f);
+    const verdict0 = aggregateProperty(f);
+    const changedSrc = changedSourcesOf(p);
+    const verdict = changedSrc.length ? demote(verdict0) : verdict0;
     const ids = checkIdsOf(p.id);
     const mps = mpsOf(p.id);
     const firstMp = mps.length ? run.mpInfo(mps[0]).p : null;
     const why = [];
-    if (verdict.includes('検証済み')) why.push('検査が全て成功し、対応・意味の確認・決定的な検査・検出能力の確認が成り立った');
+    if (verdict !== verdict0) why.push(`出所のファイル（${changedSrc.join('、')}）が受付の後に変わったので、検証の成功として出さない（判定の集約は ${verdict0.join('・')}）`);
+    else if (verdict.includes('検証済み')) why.push('検査が全て成功し、対応・意味の確認・決定的な検査・検出能力の確認が成り立った');
     else if (verdict.includes('別手段で確認済み')) why.push('形式化できない性質で、別の方法による独立した確認が成り立った');
     else {
       if (f.check_verdicts.some((v) => v !== '成功')) why.push(`成功でない検査がある（${uniq(f.check_verdicts.filter((v) => v !== '成功')).join('・')}）`);
@@ -454,11 +473,13 @@ export function buildResult(run) {
     }
   }
   for (const u of unread) unverified.push({ item: `読めない箇所: ${u.target_id} の ${u.file}${u.span ? ` ${u.span}` : ''}`, reason: u.reason });
+  // 受付の後に変わった対象のファイル: 検証済みの範囲（verified_scope.targets[].files）から外し、理由つきで未検証に載せる
+  for (const [tid, files] of changed) for (const [file, why] of files) unverified.push({ item: `対象の変化: ${tid} の ${file}`, reason: `${why}。受付の後に変わったので、このファイルは検証済みの範囲に入れず、このファイルを出所に持つ性質を検証の成功として出さない` });
   // 範囲
   const extractionConfs = run.confirmations.meaning.filter((c) => c.kind === 'extraction');
-  const coverageOk = unread.length === 0 && run.targets.length > 0 && extractionConfs.length === run.targets.length && allHold(extractionConfs);
+  const coverageOk = unread.length === 0 && changed.size === 0 && run.targets.length > 0 && extractionConfs.length === run.targets.length && allHold(extractionConfs);
   const verifiedScope = {
-    targets: run.targets.map((t) => ({ id: t.id, location: t.location, resolved_location: t.resolved_location, revision: t.revision, content_hash: t.content_hash, files: t.files.map((f) => ({ path: f.path, content_hash: f.content_hash, text: f.text })) })),
+    targets: run.targets.map((t) => ({ id: t.id, location: t.location, resolved_location: t.resolved_location, revision: t.revision, content_hash: t.content_hash, files: t.files.filter((f) => !isChanged(t.id, f.path)).map((f) => ({ path: f.path, content_hash: f.content_hash, text: f.text })) })),
     include: structuredClone(run.requestScope?.include ?? []),
     exclude: [
       ...(run.requestScope?.exclude ?? []).map((x) => ({ item: structuredClone(x.item), reason: x.reason, origin: '依頼元' })),
@@ -467,7 +488,7 @@ export function buildResult(run) {
     external_assumptions: run.inventories.flatMap((i) => i.data.external_dependencies.map((d) => ({ id: d.id, text: d.text, source: d.source ? structuredClone(d.source) : null }))),
     unread,
     internal_time_limits: { ...INTERNAL_TIME_LIMITS },
-    extraction_coverage: { complete: coverageOk, reason: coverageOk ? '読めなかった箇所が無く、抽出の独立した確認が全て成り立った' : unread.length ? '読めなかった箇所が残る' : extractionConfs.length < run.targets.length || run.targets.length === 0 ? '抽出の独立した確認が無い対象がある' : '抽出の独立した確認が成り立たない' },
+    extraction_coverage: { complete: coverageOk, reason: coverageOk ? '読めなかった箇所が無く、抽出の独立した確認が全て成り立った' : changed.size ? '受付の後に変わった対象のファイルがある' : unread.length ? '読めなかった箇所が残る' : extractionConfs.length < run.targets.length || run.targets.length === 0 ? '抽出の独立した確認が無い対象がある' : '抽出の独立した確認が成り立たない' },
   };
   // 性能
   const execs = [...run.exec.values()].map((e) => ({
@@ -527,7 +548,7 @@ export function finalizeResult(run, parts, records) {
     反例: `反例を持つ性質: ${properties.filter((p) => p.verdict.includes('反例')).map((p) => p.id).join('、')}`,
     実行できない検査: `検査を実行できない性質: ${properties.filter((p) => p.verdict.includes('未実行') || p.verdict.includes('実行失敗')).map((p) => p.id).join('、')}`,
   };
-  const reasons = [...run.interrupts, ...run.agentFailures, ...decision.unmet.map((code) => reason(code, STAGE[code] ?? '集約', DETAIL[code]))];
+  const reasons = [...run.interrupts, ...run.agentFailures, ...(run.targetChanges ?? []), ...decision.unmet.map((code) => reason(code, STAGE[code] ?? '集約', DETAIL[code]))];
   const stopped = decision.status === '停止' || reasons.length > 0;
   const execStopped = [...run.exec.values()].filter((e) => e.outcome && e.outcome.end.stopped_by !== null).map((e) => ({ id: e.id, kind: e.kind }));
   const execAborted = [...run.exec.values()].filter((e) => (!e.outcome || !e.outcome.end.started) && e.aborted).map((e) => ({ id: e.id, kind: e.kind }));
