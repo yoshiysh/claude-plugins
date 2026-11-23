@@ -14,7 +14,6 @@ export const WAIT_POLL_MS = 2000;
 export const SALVAGE_RETRY_MS = 10000;
 export const SALVAGE_RETRY_MAX = 30;
 export const LIVENESS_UNKNOWN_MAX = 30;
-export const AGENT_BATCH_MAX = 4;
 export const AGENT_BATCH_DEADLINE_MS = 1800000;
 export const TOOL_TIME_LIMIT_MAX_S = 600;
 export const REPORT_RESERVE_MS = 60000;

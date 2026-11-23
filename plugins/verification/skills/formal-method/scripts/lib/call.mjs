@@ -9,7 +9,7 @@ import { join, posix, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { collectReturn, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
 import { ROLES } from './roles.mjs';
-import { AGENT_BATCH_MAX, CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
+import { CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
 
 const CLI_PATH = fileURLToPath(new URL('../formal-method-cli.mjs', import.meta.url));
@@ -76,20 +76,16 @@ const within = (inputRefs, ref) => {
 const roleOfItem = (item) => item.role ?? item.spec.role;
 const rowRole = (items) => [...new Set(items.map(roleOfItem))].join('+');
 
-// 担当の項目（items）を AGENT_BATCH_MAX 件ずつの呼び出しに分けて順に出す。1 体に 1 担当。戻り値は items と同じ順の結果。
+// 担当の項目（items）を 1 つの呼び出しに出す。1 体に 1 担当。戻り値は items と同じ順の結果。
 export async function runItems(run, items) {
   const out = await runWorkers(run, items.map((item) => ({ items: [item] })));
   return out.map((w) => w.results[0]);
 }
 
-// worker（1 体が持つ担当の並び）を AGENT_BATCH_MAX 体ずつの呼び出しに分けて順に出す。戻り値は workers と同じ順の [{ results, nextCap }]。
+// worker（1 体が持つ担当の並び）を 1 つの呼び出しに出す。戻り値は workers と同じ順の [{ results, nextCap }]。
 export async function runWorkers(run, workers) {
-  const out = [];
-  for (let i = 0; i < workers.length; i += AGENT_BATCH_MAX) {
-    const chunk = workers.slice(i, i + AGENT_BATCH_MAX);
-    out.push(...await runCall(run, { stage: roleStage(chunk), workers: chunk }));
-  }
-  return out;
+  if (workers.length === 0) return [];
+  return runCall(run, { stage: roleStage(workers), workers });
 }
 const roleStage = (workers) => {
   const it = workers[0].items[0];
