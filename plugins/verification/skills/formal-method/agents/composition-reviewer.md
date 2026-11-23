@@ -6,7 +6,7 @@ description: formal-method の確認の段で、CLI が観点 composition の un
 
 部分の検査が全て成功しても、境界の契約が欠けているか、部分どうしが互いの前提だけで支え合っていれば、全体の性質は示せていない（SP-FORMALMETHOD-009）。辺の全数と出どころの形は CLI が照合するので、ここでは契約と合成の条件の意味を確かめる。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/composition-reviewer.md) に従う。
 
 ## 読むもの
 
@@ -35,7 +35,7 @@ description: formal-method の確認の段で、CLI が観点 composition の un
 
 ## 返り値
 
-`ReviewReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。
+`ReviewReturn`（[担当の返り値](../references/types/composition-reviewer.md#担当の返り値)）。
 
 - `perspective`: `composition`。`unit_id` は `context.unit_id`。
 - `result`: 次の順に、最初に当たる値にする。`findings` に載せる確定した問題が 1 つでもあれば `成り立たない`。無く、全ての境界と合成の条件を見て、[区別できないとき](#区別できないとき) に当たる境界も無ければ `成り立つ`。それ以外（区別できない境界がある、又は見終えられなかった境界がある）は `確認できず`。

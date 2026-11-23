@@ -25,7 +25,14 @@ export const ROLES = Object.freeze({
 // 担当に与える権限。Workflow script（plugin の workflows/formal-method-agents.js。置き場は agents.mjs の WORKFLOW_SCRIPT）の meta.requirements と同じ値（roles.test.mjs が照らす）。
 export const AGENT_PERMISSIONS = Object.freeze(['fresh-thread', 'workspace-write']);
 
-export const OBLIGATIONS = 'references/agent-obligations.md';
+// 担当の義務の正本は references/agent-obligations.md。担当には、作る役と確かめる役の分ごとに生成したファイル（scripts/role-references.mjs）だけを
+// 渡す。型の抜粋も同じ script が references/artifact-formats.md から役ごとに作る（role-references.test.mjs が正本との一致を照らす）
+export const OBLIGATIONS_SOURCE = 'references/agent-obligations.md';
+export const OBLIGATION_FILES = Object.freeze({ author: 'references/obligations/author.md', confirmer: 'references/obligations/confirmer.md' });
+export const TYPES_DIR = 'references/types';
+export const obligationClassOf = (name) => (AUTHOR_ROLES.includes(name) ? 'author' : 'confirmer');
+// task の instructions（skill の根からの相対 path）: 役の指示、その役の分の義務、その役の型の抜粋
+export const instructionsOf = (name) => [roleOf(name).instructions, OBLIGATION_FILES[obligationClassOf(name)], `${TYPES_DIR}/${name}.md`];
 
 export function roleOf(name) {
   if (!Object.prototype.hasOwnProperty.call(ROLES, name)) throw new Error(`未知の役: ${name}`);

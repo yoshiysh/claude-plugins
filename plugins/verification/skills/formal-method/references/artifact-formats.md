@@ -736,7 +736,8 @@ Inventory = {
            // それ以外は location が指すファイル（span があればその行、無ければ全体）だけ。範囲の外のファイル・行は求めず、unread にもしない。
            // unread は reason 非 null。span が null ならファイルの全体
   elements: [{ id: Id, kind: "requirement" | "goal" | "state" | "input" | "output" | "constraint" | "event" | "result",
-               source: { target_id: Id, file: FilePath, span: Span, quote_hash: Sha256 },  // quote_hash は span の行を "\n" でつないだ文字列の SHA-256
+               source: { target_id: Id, file: FilePath, span: Span, quote_hash: Sha256 },  // quote_hash は span の行を "\n" でつないだ文字列の SHA-256。
+                                                                                              // 抽出役は省いてよく、submit の照合で CLI が補う（書けば照らす）
                text: string }],
   properties: [{ id: Id, source_ids: [Id]+, statement: string, formalizable: boolean,
                  nonformal_reason: string | null, nonformal_method: string | null,
@@ -904,7 +905,9 @@ Task = {
   role: "extractor" | "model-author" | "partition-author" | "plan-author"
       | "extraction-reviewer" | "fidelity-reviewer" | "assurance-reviewer" | "composition-reviewer" | "cause-analyst",
   model: string, effort: string,                // workers の行と同じ値（正本は scripts/lib/roles.mjs）
-  instructions: [string, string],               // 担当の指示（agents/<role>.md）と共通の義務（references/agent-obligations.md）の絶対 path
+  instructions: [string, string, string],       // 担当の指示（agents/<role>.md）、その役の分の義務（references/obligations/<author|confirmer>.md）、
+                                                // その役の型の抜粋（references/types/<role>.md）の絶対 path。後の 2 つは scripts/role-references.mjs が
+                                                // 正本（agent-obligations.md・この文書）から作る生成物
   attempt_dir: string, result_path: string,     // 絶対 path。result_path は attempt_dir の return.json
   context: TaskContext
 }
@@ -923,6 +926,7 @@ TaskContext = {
 
 - 読む資料（`input_refs`: `[{ name, ref }]`。作成側の作業記録と attempt の領域のディレクトリは入れない）は Task に載せず、`query` が返す（[CLI 契約の依頼と応答](cli-contract.md#依頼と応答)）。理由: 渡した資料の指紋を、担当が資料を引いた時点で固定する（SP-012 の「渡した資料」）。
 - 修正の巡の欠陥は Task に載せず、`submit` の応答の `problems` で返す（同じ担当が直して出し直す）。
+- 適用する文書の一般規約（`document_rules`: `{ref, version}`）は Task に載せず、`claim` の応答の最上位に 1 度だけ置く。担当は写しを読まない。
 - 返り値の形と命令は Task に載せず、応答の最上位に 1 度だけ置く（形の正本は [CLI 契約のコマンド](cli-contract.md#コマンド)）。返り値の形は `return_schemas[<Task.role>]`（`AuthorReturn`・`ReviewReturn`・`CauseReturn` のどれか）、`query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd`、成果物でない生成物の置き場は `scratch_dir`（worker ごと）。理由: 同じ役の task を何件も返すと、同じ形と絶対 path の命令が task の数だけ並ぶ。
 
 **役と context**（`unit_id` の作り方は決定的で、同じ run の中で一意）
@@ -953,7 +957,7 @@ InputRef = { name: string, ref: Ref, spans?: [Span] }   // spans は対象のフ
 - 範囲（`spans`）は Span の行の規則で数える。`materials` と台帳の `input_refs` の `RefHash` は、範囲を持つ対象のファイルについて、ファイル全体の指紋（`hash`）と、範囲ごとの指紋（範囲の行を `"\n"` でつないだ文字列の SHA-256。`quote_hash` と同じ求め方）を持つ。
 - 範囲の決め方: 依頼の範囲は、`scope.include` がその対象を挙げるか、その対象を指す `location` が無ければファイルの全体、`location` が `span` を持てばその範囲（`span` の無い `location` はそのファイルの全体）。要素の範囲は inventory の `elements[].source.span`。対応表の範囲は `rows[].source` が `location` の行の `span`（無ければファイルの全体）。
 - 抽出役とモデル作成役: `request.json`、対象の `manifest.json`、依頼の範囲の対象のファイル（モデル作成役は全ての inventory も）。
-- **担当の資料の写し（`views/<unit_id>.json`、台帳の `kind: "material_view"`）**: CLI が確認の段の始めに、`fidelity` と `nonformal` の unit ごとに書く。`fidelity` は `{ unit_id, model_id, properties: [そのモデルの inventory_property_ids の inventory の性質], bound_elements: [それらの性質の source_ids の要素], unbound_elements: [その性質を持つ inventory の、どの性質の source_ids にも無い要素], external_dependencies: [その inventory の { id, text, source }] }`（要素は `{ id, kind, source: { target_id, file, span } }` で本文を持たない。本文は渡す範囲の対象のファイルで読む。他のモデルの性質にだけ結ばれた要素は入れない）、`nonformal` は `{ unit_id, properties: [その性質], elements: [その性質の source_ids の inventory の要素（本文を含む）] }`。理由: inventory の全体を渡さず、その担当が判断に要る分だけを渡す。
+- **担当の資料の写し（`views/<unit_id>.json`、台帳の `kind: "material_view"`）**: CLI が確認の段の始めに、`fidelity` と `nonformal` の unit ごとに書く。`fidelity` は `{ unit_id, model_id, properties: [そのモデルの inventory_property_ids の inventory の性質], bound_elements: [それらの性質の source_ids の要素], unbound_elements: [その性質を持つ inventory の、どの性質の source_ids にも無い要素], external_dependencies: [その inventory の { id, text, source }], model_properties: [そのモデルの性質ごとの { id, inventory_property_ids, expected, assurance, clauses, query_path }] }`（`clauses`・`assurance` は `ModelFile.properties[]` の値のまま、`query_path` はその性質の `query_ref` の絶対パス。担当がモデルのファイルから性質ごとの節を切り出さなくてよくする。要素は `{ id, kind, source: { target_id, file, span } }` で本文を持たない。本文は渡す範囲の対象のファイルで読む。他のモデルの性質にだけ結ばれた要素は入れない）、`nonformal` は `{ unit_id, properties: [その性質], elements: [その性質の source_ids の inventory の要素（本文を含む）] }`。理由: inventory の全体を渡さず、その担当が判断に要る分だけを渡す。
 
 **独立検証者と原因の分類役の `input_refs`**（CLI が作り、`query` が返す正本。担当の読む範囲は `agent-obligations.md` の独立検証者の節）
 
@@ -1002,6 +1006,7 @@ Worklog = {
 ```
 
 - 文の欄（`actions` など）は、文書の一般規約（`document_rules` が指す写し）に従って書く。
+- 担当の作業記録の `inputs[].hash`・`inputs[].spans[].hash`・`document_rules` は、担当が省いてよい。`submit` の照合で、CLI が省いた値を補い（指紋はその担当の `materials`（最初の `query` の時点の指紋）の値。`materials` に無い ref と範囲は今のファイルとその範囲の行で求める。`document_rules` は `claim` の値）、`worklog.json` を書き直してから照合する。担当が書いた値が CLI の値と違えば、作業記録の欠陥として `problems` で差し戻す。登録する作業記録は補った後の、この形のファイルである。理由: 指紋を CLI だけが持てば、担当が手で求めた値との食い違いが起きない。
 - salvage の作業記録は時刻を含まない。
 
 ## 記録台帳

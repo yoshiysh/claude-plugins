@@ -6,7 +6,7 @@ description: formal-method の洗い出しの段で、CLI が対象 1 つごと�
 
 `context.target_id` の対象 1 つから、検証すべき性質を出所付きで洗い出す。ここで落ちた要求は後のどの段にも現れず、検査されなかったことも結果に出ない（SP-FORMALMETHOD-004）。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/extractor.md) に従う。
 
 ## 読むもの
 
@@ -29,22 +29,18 @@ description: formal-method の洗い出しの段で、CLI が対象 1 つごと�
 
 ## すること
 
-- 依頼の範囲を `scanned` で覆う。依頼の範囲は、`query` が渡した対象のファイル（`spans` があればその行、無ければファイルの全体）と、`request.json` の `scope.include` が指す範囲の中で `manifest.json` が `text: false` とするファイル（`query` の資料には入らない）である。テキストのファイルは範囲の全ての行を覆い、範囲の中の読めないファイル・バイナリは `status: "unread"` と理由で残す。範囲の外のファイル・行は覆わなくてよく、`unread` にしない（`unread` は結果の読めない箇所に載る）。CLI の照合が求めるのも範囲だけである。範囲の要求を取り出すのに範囲の外の文脈が要るときは、範囲の外を読まずに、要った範囲（ファイルと行）と理由を作業記録の `unconfirmed` に書き、決められない点は問いにする（`agent-obligations.md` の範囲の外の規則）。読めなかった範囲を残したまま覆ったと書くと、網羅済みと誤って報告される。
-- 依頼の範囲（`scope.include`・`exclude`）に入る要求・目標・状態・入力・出力・制約・出来事・結果を `elements` にする。`source` は対象の中の行の範囲で、`quote_hash` はその行を `\n` でつないだ文字列の SHA-256。行はファイルを `\n` で分けたもので、ファイル末尾の `\n` の後の空の要素は数えず、`\r` は行の中身に残す。`sed` などで切り出すと末尾の改行まで指紋に入り、CLI の照合に通らないので、次の command で求める。
-
-  ```bash
-  node -e 'const [f,a,b]=process.argv.slice(1);const l=require("fs").readFileSync(f,"utf8").split("\n");if(l[l.length-1]==="")l.pop();console.log("sha256:"+require("crypto").createHash("sha256").update(l.slice(a-1,b).join("\n")).digest("hex"))' <対象のファイルの絶対 path（query の path）> <開始の行> <終了の行>
-  ```
+- 依頼の範囲を `scanned` で覆う。依頼の範囲は、`query` が渡した対象のファイル（`spans` があればその行、無ければファイルの全体）と、`request.json` の `scope.include` が指す範囲の中で `manifest.json` が `text: false` とするファイル（`query` の資料には入らない）である。テキストのファイルは範囲の全ての行を覆い、範囲の中の読めないファイル・バイナリは `status: "unread"` と理由で残す。範囲の外のファイル・行は覆わなくてよく、`unread` にしない（`unread` は結果の読めない箇所に載る）。CLI の照合が求めるのも範囲だけである。範囲の要求を取り出すのに範囲の外の文脈が要るときは、範囲の外を読まずに、要った範囲（ファイルと行）と理由を作業記録の `unconfirmed` に書き、決められない点は問いにする（共通の義務の範囲の外の規則）。読めなかった範囲を残したまま覆ったと書くと、網羅済みと誤って報告される。
+- 依頼の範囲（`scope.include`・`exclude`）に入る要求・目標・状態・入力・出力・制約・出来事・結果を `elements` にする。`source` は対象の中の行の範囲（`target_id`・`file`・`span`）で、`quote_hash` は書かなくてよい。CLI が `submit` の照合で出所の行から補う（その行を `\n` でつないだ文字列の SHA-256）。書くならその値で、違えば欠陥として差し戻される。
 - 要素から性質を作り、`source_ids` で要素に結び付ける。1 つの出所から複数の性質、複数の出所から 1 つの性質を作ってよい。依頼の目標から作った性質も出所の要素を持つ。
 - 形式化できない性質は消さず、`formalizable: false`、`nonformal_reason`、確かめる方法（`nonformal_method`）を書く。方法を書けなければ `nonformal_method: null` とし、理由を `nonformal_reason` に足す。
 - 対象が依存する外部のもの（他のサービス、ライブラリ、環境）は `external_dependencies` に書き、性質の前提に入れない。
 - 判断が要る不足は、推測で埋めずに問いにする。書かれている遷移・条件は要素として取り出し、問いに変えない。
 
-形は [成果物の形式](../references/artifact-formats.md#担当の成果物) の `Inventory`。
+形は [型の抜粋](../references/types/extractor.md#担当の成果物) の `Inventory`。
 
 ## 返り値
 
-`AuthorReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。
+`AuthorReturn`（[担当の返り値](../references/types/extractor.md#担当の返り値)）。
 
 - `status`: 作れたら `done`、問いがあれば `needs_answer`（`questions` に 1 つ以上、依存する性質の id を `blocked_by_question`）、対象を読めず作れなければ `cannot_proceed`（`reason`）。
 - `outputs`: `{"kind": "inventory", "ref": <inventory の Ref>}` を 1 つ。

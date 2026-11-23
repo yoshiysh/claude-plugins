@@ -229,7 +229,7 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 | コマンド・誤りの code・`status.json`・定数 | [references/cli-contract.md](references/cli-contract.md) |
 | 依頼・結果・claim の Task・返り値の形 | [references/artifact-formats.md](references/artifact-formats.md) |
 | 役割・段・停止の手順・限界の理由 | [references/architecture.md](references/architecture.md) |
-| 担当の共通の義務 | [references/agent-obligations.md](references/agent-obligations.md) |
+| 担当の共通の義務（正本。担当には役の分の生成物 `references/obligations/`・`references/types/` を渡す） | [references/agent-obligations.md](references/agent-obligations.md) |
 | 語の意味（判定、保証、unknown など） | [references/formal-method-knowledge.md](references/formal-method-knowledge.md) |
 | 作業記録に適用する文書の一般規約（CLI が run に固定して使う写し） | [references/document-rules.md](references/document-rules.md) |
-| 担当ごとの指示 | `agents/<role>.md`（claim の Task の `instructions` が指す） |
+| 担当ごとの指示 | `agents/<role>.md`（claim の Task の `instructions` が、役の分の義務と型の抜粋と共に指す） |

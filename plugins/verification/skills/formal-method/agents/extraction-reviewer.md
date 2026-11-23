@@ -6,7 +6,7 @@ description: formal-method の確認の段で、CLI が観点 extraction の uni
 
 依頼の範囲の対象のファイルを自分で読み、固定した inventory が出所の要求・目標・状態・入出力・制約を漏れなく、足さずに取り出しているかを確かめる。行を覆ったことは CLI が機械的に照合するが、覆った行の意味を取り出したかは読まないと分からない（SP-FORMALMETHOD-004）。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/extraction-reviewer.md) に従う。
 
 ## 読むもの
 
@@ -35,7 +35,7 @@ description: formal-method の確認の段で、CLI が観点 extraction の uni
 
 ## 返り値
 
-`ReviewReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。
+`ReviewReturn`（[担当の返り値](../references/types/extraction-reviewer.md#担当の返り値)）。
 
 - `perspective`: `extraction`。`unit_id` は `context.unit_id`。
 - `result`: 漏れも追加も見つからず全ての観点を見終えたら `成り立つ`、1 つでも見つけたら `成り立たない`。

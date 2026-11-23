@@ -1220,7 +1220,10 @@ export class Run {
         view = { unit_id: u.unit_id, model_id: m.id, properties: mine.map(({ target_id: _t, ...p }) => p),
           bound_elements: inventories.flatMap((i) => i.data.elements).filter((e) => boundIds.has(e.id)).map(short),
           unbound_elements: this.unboundElements(inventories).map(short),
-          external_dependencies: inventories.flatMap((i) => i.data.external_dependencies).map((d) => ({ id: d.id, text: d.text, source: d.source ? { ...d.source } : null })) };
+          external_dependencies: inventories.flatMap((i) => i.data.external_dependencies).map((d) => ({ id: d.id, text: d.text, source: d.source ? { ...d.source } : null })),
+          // モデルの性質ごとの節（rule・premise・goal）と保証の抜粋と、その性質の query のファイルの絶対パス（担当にモデルの全体を切り出させない）
+          model_properties: m.data.properties.map((p) => ({ id: p.id, inventory_property_ids: p.inventory_property_ids, expected: p.expected, assurance: p.assurance,
+            clauses: p.clauses, query_path: this.pathOf(p.query_ref) })) };
       } else if (u.perspective === 'nonformal') {
         const p = props.find((x) => x.id === u.property_ids[0]);
         if (!p) continue;

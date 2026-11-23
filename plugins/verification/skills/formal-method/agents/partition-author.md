@@ -6,7 +6,7 @@ description: formal-method の計画の段で、CLI が依存グラフから分�
 
 CLI が導いた分割の候補（`context.candidates`）ごとに、分けて検証するかを決め、分けるなら全体の性質が部分の結果から成り立つ条件を書く。候補が在ることは、その単位を独立に検証できることを示さない（SP-FORMALMETHOD-008）。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/partition-author.md) に従う。
 
 ## 読むもの
 
@@ -42,14 +42,14 @@ CLI が導いた分割の候補（`context.candidates`）ごとに、分けて�
 - 対象から読み取っただけの外部のもの（`external_assumptions`）は、依頼元が与えた事実ではないので、出どころにしない。そうした前提は `確認できない前提` とする。
 - 部分の契約（`contracts`）は親の性質（モデルの性質の id）から作り、`derived_from` に親を書く。合成の条件（`composition_conditions`）は「契約の連言 ∧ ¬全体の性質」の query で、`depends_on` に先に確かめる契約を書く。
 - 合成の条件ごとに、`derived_from` に親の性質（同じ `model_id` のモデルの性質の id）を書く。契約に依らない合成の条件にも書く。1 つの合成の条件が複数の親の性質に関わるときは、親ごとに 1 つずつ合成の条件を書く（`derived_from` は 1 つの id しか持てない）。親を指さない `derived_from` は分割の照合で欠陥になり、修正の巡でこの役に戻る。
-- 契約と合成の条件の `.smt2` は、`(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/artifact-formats.md#担当の成果物)）。違反は計画の段の分割の照合で欠陥になり、修正の巡でこの役に戻る。
+- 契約と合成の条件の `.smt2` は、`(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/types/partition-author.md#担当の成果物)）。違反は計画の段の分割の照合で欠陥になり、修正の巡でこの役に戻る。
 - 前提が互いの保証だけで支え合う循環を作らない。共同不変条件を出どころにしないので、循環は分割の照合で欠陥になり修正の巡に戻る。循環を避けられない候補は採らない。
 
-形は [成果物の形式](../references/artifact-formats.md#担当の成果物) の `PartitionsFile` と [分割と合成](../references/artifact-formats.md#分割と合成sp-008009)。
+形は [型の抜粋](../references/types/partition-author.md#担当の成果物) の `PartitionsFile` と [分割と合成](../references/types/partition-author.md#分割と合成sp-008009)。
 
 ## 返り値
 
-`AuthorReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。
+`AuthorReturn`（[担当の返り値](../references/types/partition-author.md#担当の返り値)）。
 
 - `outputs`: `{"kind": "partitions", ...}` を 1 つ。
 - `status`: `done`・`needs_answer`・`cannot_proceed` の使い方は抽出役と同じ。

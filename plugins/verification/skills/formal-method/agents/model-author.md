@@ -6,7 +6,7 @@ description: formal-method のモデル化の段で、CLI が洗い出しの後�
 
 inventory の性質を、道具で検査できる形式モデルにする。モデルが出所の意味を変えると、検査が成功しても対象については何も言えない（SP-FORMALMETHOD-005）。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/model-author.md) に従う。
 
 ## 読むもの
 
@@ -38,8 +38,8 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
   - `forbidden` には、出所に禁止が書かれている組だけを `source_ids` 付きで入れる。遷移が書かれていないことは禁止の根拠にならない。決まりが無い組は `uncovered` に、足りない情報を `missing_info` に書く。
   - 目標・完了・停止・再開先を `goals` に書き、到達可能性の性質に結び付ける。
 - 状態遷移を扱わないなら `state_machine: null` とし、理由と入出力の契約（`io_contracts`）を書く。
-- 性質ごとに query を書く。性質の query は「前提 ∧ ¬性質」で `expected: "unsat"`。前提の整合・初期状態の存在・自明でない到達例を確かめる sanity の query（`sat` を期待）も書く。前提が矛盾すると、どの性質も成り立ってしまうためである。query は `(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/artifact-formats.md#担当の成果物)）。違反はモデル化の照合（query の構文の検査）で欠陥になり、修正の巡でこの役に戻る。
-- 性質の query のトップレベルの assert は全て `(assert (! <項> :named <name>))` と書き、名前ごとに `clauses` に役を 1 つ書く（[節の名前](../references/artifact-formats.md#担当の成果物)）。CLI はこの名前で節を切り取り、性質が自明でないか・前提だけで結論が出ていないかを機械で確かめる。役を誤ると、その確認が意味を失う。
+- 性質ごとに query を書く。性質の query は「前提 ∧ ¬性質」で `expected: "unsat"`。前提の整合・初期状態の存在・自明でない到達例を確かめる sanity の query（`sat` を期待）も書く。前提が矛盾すると、どの性質も成り立ってしまうためである。query は `(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/types/model-author.md#担当の成果物)）。違反はモデル化の照合（query の構文の検査）で欠陥になり、修正の巡でこの役に戻る。
+- 性質の query のトップレベルの assert は全て `(assert (! <項> :named <name>))` と書き、名前ごとに `clauses` に役を 1 つ書く（[節の名前](../references/types/model-author.md#担当の成果物)）。CLI はこの名前で節を切り取り、性質が自明でないか・前提だけで結論が出ていないかを機械で確かめる。役を誤ると、その確認が意味を失う。
   - `rule`: 出所の文が定める規則。`source_ids` に inventory の要素の id を 1 つ以上書く。
   - `premise`: 規則でない前提（値の領域、環境の仮定など）。`basis` に `出所の文`・`外部の依存`・`作成役の仮定` のどれかを書き、`外部の依存` なら `external_dependency_id` に inventory の `external_dependencies[].id` を書く。
   - `goal`: 性質の否定。1 つ以上。
@@ -48,11 +48,11 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
 - 対応表の行は、出所の要求・目標ごとに作る。形式化できるのに対応を作れない性質は、行を消さずに `relation: "対応なし"` と理由で残す。
 - 判断が要る不足は問いにし、依存する性質を `blocked_by_question` に入れる。
 
-形は [成果物の形式](../references/artifact-formats.md#担当の成果物) の `ModelFile`（`formal-method.model/2`）・`Clause`・`StateMachine`・`MappingFile`。
+形は [型の抜粋](../references/types/model-author.md#担当の成果物) の `ModelFile`（`formal-method.model/2`）・`Clause`・`StateMachine`・`MappingFile`。
 
 ## 返り値
 
-`AuthorReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。
+`AuthorReturn`（[担当の返り値](../references/types/model-author.md#担当の返り値)）。
 
 - `outputs`: モデルごとに `{"kind": "model", ...}` と `{"kind": "mapping", ...}`。
 - `status`: `done`・`needs_answer`・`cannot_proceed` の使い方は抽出役と同じ。

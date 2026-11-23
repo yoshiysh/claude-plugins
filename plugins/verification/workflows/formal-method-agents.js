@@ -31,7 +31,7 @@ const promptOf = (w) => `## 共通の前提
 - 1 回の claim は、この worker の出し終えていない担当を全て（1 つ以上）返す。担当ごとに役の指示が違うことがある（task の instructions に従う）。次の担当は、受理された submit の出力の next で受け取る。
 - run の状態と台帳を書くのは CLI だけ。あなたの入力は claim・query・submit の出力と、そこが指すファイルにあり、出力は担当ごとの result_path に書いて submit で出す。返り値で内容を返さない。
 - CLI の命令は、どれも Bash で timeout 120000 を明示して流す。出力は 1 行の JSON。ok が false で code が E_CALL・E_STALE なら、reason を notes に書いて終える（detail.reason が no_response のときだけ、同じ命令を 1 度流し直してよい）。
-- ファイルは Write の tool で書く。shell で書くときは > でなく >| を使う（既にあるファイルでも失敗しない）。成果物・作業記録・返り値は task の attempt_dir に、成果物でない生成物（指紋を求める script など）は claim の出力の scratch_dir に置く。他の場所（共有の一時ディレクトリなど）に書かない。
+- ファイルは Write の tool で書く。shell で書くときは > でなく >| を使う（既にあるファイルでも失敗しない）。成果物・作業記録・返り値は task の attempt_dir に、成果物でない生成物（途中の抜き出しなど）は claim の出力の scratch_dir に置く。指紋は CLI が持つので求めない（query の hash と submit の照合）。他の場所（共有の一時ディレクトリなど）に書かない。
 
 ### 担当を取る命令（この行をそのまま Bash で流す）
 printf '%s' ${sq(JSON.stringify({ run_dir: A.state, call_id: A.callId, worker: w.id }))} | node ${sq(cliOf(A.state))} claim
@@ -39,7 +39,7 @@ printf '%s' ${sq(JSON.stringify({ run_dir: A.state, call_id: A.callId, worker: w
 ### 手順
 1. 最初に取る命令を流す（流し直すのは 7 の場合だけ）。出力が done: true なら、手順を終えて返り値を返す。出力の最上位の query_cmd・submit_cmd・scratch_dir は、この worker の全ての担当に共通である。return_schemas は役ごとの返り値の形で、担当の task の role で引く（next の出力の return_schemas も、同じく役ごとに足す）。
 2. 出力の tasks の担当ごとに、次の 3〜5 を順に行う。同じ instructions のファイルは 1 度読めばよく、既に query した担当は query し直さない。
-3. task の instructions の 2 つのファイル（役の指示と、担当の共通の義務）を Read で全て読み、従う。task の context が担当の範囲で、return_schemas の task の role の値が返り値の形である。
+3. task の instructions の 3 つのファイル（役の指示、役の分の義務、役の型の抜粋）を Read で全て読み、従う。task の context が担当の範囲で、return_schemas の task の role の値が返り値の形である。
 4. query_cmd の後に空白と task_id を足して Bash で流す（<query_cmd> <task_id>）。出力の inputs の path が、この担当に渡された資料の全てである。資料はそこだけを読む（claim と query の出力の外を読まない）。inputs の要素が spans（L<開始>-L<終了> の並び）を持てば、そのファイルはその行だけを開いて読む（範囲の外の行を読まない。範囲の外の文脈が要れば、共通の義務の書き方で記録する）。
 5. 指示に従って、成果物と作業記録を task の attempt_dir の中に書き、返り値の JSON を task の result_path に Write で書く。書いたら submit_cmd をそのまま Bash で流す（担当ごとに流してよい。書き終えた担当から出す）。出力の results の要素ごとに:
    - ok が false で done が false なら、problems の欠陥を読んでその担当の成果物と返り値を直し、同じ submit_cmd を流し直す（欠陥が減らなくなると CLI が残った欠陥ごと受理する）。この出力には next が無い。

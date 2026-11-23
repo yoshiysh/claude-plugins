@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { AuthorReturn, CauseReturn, ReviewReturn, conforms, parseSpan } from './schemas.mjs';
 import { jsonSchemaOf } from './check-shape.mjs';
 import { fileLines, parseTargetRef, spanText } from './target-refs.mjs';
-import { ROLES, OBLIGATIONS } from './roles.mjs';
+import { ROLES, instructionsOf } from './roles.mjs';
 import { hashFile } from './storage.mjs';
 import { sha256Bytes } from './canonical.mjs';
 import { cmpBytes } from './checks/common.mjs';
@@ -92,6 +92,75 @@ export function refFiles(runDir, refs, pathOf = null) {
   return out;
 }
 
+// ---- 担当の下書きを CLI が補う（agent-obligations.md「作業記録」、artifact-formats.md「作業記録」「inventory」） ----
+// 指紋は CLI が持つ。担当が書かなかった指紋は補い、書いた指紋は照らして、違えば欠陥の文を返す。戻り値は { worklog, problems, changed }。
+// materials は最初の query の時点で固定した指紋（[RefHash]）。その ref は固定した指紋で、無い ref（query を流さなかった担当など）は今のファイルで求める。
+// 範囲の指紋は、固定した範囲と同じ範囲ならその指紋、無ければそのファイルの範囲の行で求める（quote_hash と同じ求め方）。
+// inputs が配列でない作業記録は、作業記録の下書きでないので何もしない（形は登録の側の照合に任せる）。
+export function completeWorklog(worklog, { materials = [], pathOf, docRules = null }) {
+  if (!worklog || typeof worklog !== 'object' || !Array.isArray(worklog.inputs)) return { worklog, problems: [], changed: false };
+  const fixed = new Map((materials ?? []).map((m) => [m.ref, m]));
+  const problems = [];
+  let changed = false;
+  const bytesCache = new Map();
+  const bytesOf = (ref) => {
+    if (!bytesCache.has(ref)) {
+      let b = null;
+      try { const p = pathOf(ref); b = p === null ? null : readFileSync(p); } catch { b = null; }
+      bytesCache.set(ref, b);
+    }
+    return bytesCache.get(ref);
+  };
+  const fill = (obj, key, want, what) => {
+    if (want === null) { if (obj[key] === undefined) problems.push(`作業記録の inputs の ${what} の指紋を補えない（ファイルを読めない）`); return; }
+    if (obj[key] === undefined) { obj[key] = want; changed = true; return; }
+    if (obj[key] !== want) problems.push(`作業記録の inputs の ${what} の指紋 ${obj[key]} が渡した資料の指紋 ${want} と違う`);
+  };
+  const inputs = worklog.inputs.map((x) => {
+    if (!x || typeof x !== 'object' || typeof x.ref !== 'string') return x;
+    const out = { ...x };
+    const m = fixed.get(x.ref);
+    const bytes = m ? null : bytesOf(x.ref);
+    fill(out, 'hash', m ? m.hash : bytes === null ? null : sha256Bytes(bytes), x.ref);
+    if (Array.isArray(x.spans)) {
+      out.spans = x.spans.map((sp) => {
+        if (!sp || typeof sp !== 'object' || !parseSpan(sp.span)) { problems.push(`作業記録の inputs の ${x.ref} の範囲 ${JSON.stringify(sp?.span ?? sp)} を読めない`); return sp; }
+        const o = { ...sp };
+        const own = m?.spans?.find((y) => y.span === sp.span);
+        let want = own ? own.hash : null;
+        if (!own) { const b = bytesOf(x.ref); want = b === null ? null : sha256Bytes(Buffer.from(spanText(fileLines(b), sp.span), 'utf8')); }
+        fill(o, 'hash', want, `${x.ref} の ${sp.span}`);
+        return o;
+      });
+    }
+    return out;
+  });
+  const next = { ...worklog, inputs };
+  if (docRules) {
+    if (worklog.document_rules === undefined) { next.document_rules = { ref: docRules.ref, version: docRules.version }; changed = true; }
+    else if (!worklog.document_rules || worklog.document_rules.ref !== docRules.ref || worklog.document_rules.version !== docRules.version) {
+      problems.push(`作業記録の document_rules が claim の document_rules（${docRules.ref}・${docRules.version}）と違う`);
+    }
+  }
+  return { worklog: next, problems, changed };
+}
+
+// inventory の要素の quote_hash を、出所の行から補う（書いた値の照合は coverage.mjs の洗い出しの照合が持つ）。
+// textOf(target_id, file) は受付で固定した対象のファイルの文字列か null。読めない出所・読めない Span は補わない（照合が欠陥にする）。
+export function completeQuoteHashes(inventory, textOf) {
+  if (!inventory || typeof inventory !== 'object' || !Array.isArray(inventory.elements)) return { inventory, changed: false };
+  let changed = false;
+  const elements = inventory.elements.map((e) => {
+    const src = e && typeof e === 'object' ? e.source : null;
+    if (!src || typeof src !== 'object' || src.quote_hash !== undefined || !parseSpan(src.span)) return e;
+    const text = textOf(src.target_id, src.file);
+    if (typeof text !== 'string') return e;
+    changed = true;
+    return { ...e, source: { ...src, quote_hash: sha256Bytes(Buffer.from(spanText(fileLines(Buffer.from(text, 'utf8')), src.span), 'utf8')) } };
+  });
+  return { inventory: changed ? { ...inventory, elements } : inventory, changed };
+}
+
 // task を作る。資料（input_refs）は claim では渡さず、query が返してその時点の指紋を固定する（artifact-formats.md「claim の Task」）。
 export function makeTask(run, spec) {
   const n = run.nextTaskNo();
@@ -101,7 +170,7 @@ export function makeTask(run, spec) {
   const inputRefs = (spec.input_refs ?? []).filter((x) => x && x.ref);
   const task = {
     task_id: taskId, role: spec.role, model: role.model, effort: role.effort,
-    instructions: [join(SKILL_DIR, role.instructions), join(SKILL_DIR, OBLIGATIONS)],
+    instructions: instructionsOf(spec.role).map((rel) => join(SKILL_DIR, rel)),
     attempt_dir: attemptDir, result_path: join(attemptDir, 'return.json'),
     context: {
       run_dir: run.runDir, stage: spec.stage, unit_id: spec.unit_id ?? null, perspective: spec.perspective ?? null,

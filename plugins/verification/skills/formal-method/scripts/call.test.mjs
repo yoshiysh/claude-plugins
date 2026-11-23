@@ -66,6 +66,7 @@ function writeAuthor(task, n) {
   writeFileSync(join(task.attempt_dir, 'worklog.json'), JSON.stringify({ n }));
   writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, status: 'done', outputs: [], questions: [], blocked_by_question: [], reason: null, worklog_ref: rel(task, 'worklog.json') }));
 }
+const RULES = { ref: `document-rules/${'a'.repeat(64)}.md`, version: `sha256:${'a'.repeat(64)}` };
 const defects = (n) => Array.from({ length: n }, (_, i) => ({ kind: 'other', key: `d${i}`, text: `欠陥 ${i}` }));
 function closeWith(run, callId, value) {
   const f = join(run.root, `wf-${callId}.json`);
@@ -1151,6 +1152,113 @@ test('architecture 修正の巡 結合: モデル作成役が 1 回目に欠陥�
     assert.equal(Boolean(subs[1].result.remaining?.length), !verdictDone, persist ? '残った欠陥ごと受理' : '欠陥の無い受理');
   }
 });
+
+// ---- 役ごとの参照と、CLI が持つ指紋（artifact-formats.md「claim の Task」、cli-contract.md「依頼と応答」、agent-obligations.md「作業記録」） ----
+const worklogDraft = (task, inputs, extra = {}) => ({ schema: 'formal-method.worklog/1', role: task.role, task_id: task.task_id, stage: task.context.stage, target: 'T1', inputs,
+  actions: '読んだ。', results: '書いた。', grounds: 'テスト。', failures: [], unconfirmed: [], unreadable_inputs: [], ...extra });
+function writeReviewWith(task, worklog) {
+  writeFileSync(join(task.attempt_dir, 'worklog.json'), JSON.stringify(worklog));
+  writeFileSync(join(task.attempt_dir, 'review.json'), '{}');
+  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, unit_id: task.context.unit_id, perspective: task.context.perspective, result: '成り立つ', findings: [],
+    judgments: [], record_ref: rel(task, 'review.json'), worklog_ref: rel(task, 'worklog.json') }));
+}
+
+test('SP-FORMALMETHOD-013・014 claim: task の instructions は役の指示・役の分の義務・役の型の抜粋の 3 つで、応答の最上位に文書の一般規約の {ref, version} を 1 度だけ置く', async (t) => {
+  const run = makeRun(t);
+  run.docRules = RULES;
+  const p = callOf(run, '確認', [{ spec: reviewSpec() }, { spec: authorSpec(), check: () => ({ defects: [], value: null }) }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id };
+  const c1 = await workerCall('claim', { ...base, worker: 'w01' });
+  const c2 = await workerCall('claim', { ...base, worker: 'w02' });
+  assert.deepEqual(c1.document_rules, RULES);
+  assert.ok(!('document_rules' in c1.tasks[0]), 'task は規約を持たない');
+  const skill = join(CLI, '..', '..');
+  assert.deepEqual(c1.tasks[0].instructions, [join(skill, 'agents/extraction-reviewer.md'), join(skill, 'references/obligations/confirmer.md'), join(skill, 'references/types/extraction-reviewer.md')]);
+  assert.deepEqual(c2.tasks[0].instructions, [join(skill, 'agents/model-author.md'), join(skill, 'references/obligations/author.md'), join(skill, 'references/types/model-author.md')]);
+  for (const x of [...c1.tasks[0].instructions, ...c2.tasks[0].instructions]) assert.ok(existsSync(x), x);
+  closeWith(run, call.call_id, agentsOf(2));
+  await p;
+});
+
+test('SP-FORMALMETHOD-012 query: ファイルの資料は固定した指紋 hash を持ち、同じディレクトリの 2 つ以上の続いた資料は 1 つの ref と path と entries に畳む（ディレクトリの指紋は返さず、ファイルごとの指紋は materials に残す）', async (t) => {
+  const run = makeRun(t);
+  const dir = join(run.runDir, 'attempts', 't900-model-author', 'm1');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'model.json'), '{"m":1}');
+  writeFileSync(join(dir, 'q1.smt2'), '(check-sat)\n');
+  for (const id of ['c1', 'c2']) { mkdirSync(join(run.runDir, 'checks', id), { recursive: true }); writeFileSync(join(run.runDir, 'checks', id, 'stdout.txt'), id); }
+  // 続いた同じディレクトリの資料だけを畳む（間に別のディレクトリの資料が入る worklogs/ の 1 つは畳まない）
+  mkdirSync(join(run.runDir, 'worklogs'), { recursive: true });
+  writeFileSync(join(run.runDir, 'worklogs', 'cli-a.json'), '{}');
+  const spec = { ...reviewSpec(), input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'model-m1', ref: 'attempts/t900-model-author/m1/model.json' },
+    { name: 'query-q1', ref: 'attempts/t900-model-author/m1/q1.smt2' }, { name: 'checks-c1', ref: 'checks/c1' }, { name: 'checks-c2', ref: 'checks/c2' }, { name: 'worklog-a', ref: 'worklogs/cli-a.json' }] };
+  const p = callOf(run, '確認', [{ spec }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  const all = await workerCall('query', { ...base, task_id: c.tasks[0].task_id });
+  const h = (rel2) => sha256Bytes(readFileSync(join(run.runDir, rel2)));
+  assert.deepEqual(all.inputs, [
+    { name: 'request', ref: 'request.json', path: join(run.runDir, 'request.json'), hash: h('request.json') },
+    { ref: 'attempts/t900-model-author/m1/', path: `${dir}/`, entries: [{ name: 'model-m1', entry: 'model.json' }, { name: 'query-q1', entry: 'q1.smt2' }] },
+    { ref: 'checks/', path: `${join(run.runDir, 'checks')}/`, entries: [{ name: 'checks-c1', entry: 'c1' }, { name: 'checks-c2', entry: 'c2' }] },
+    { name: 'worklog-a', ref: 'worklogs/cli-a.json', path: join(run.runDir, 'worklogs', 'cli-a.json'), hash: h('worklogs/cli-a.json') },
+  ]);
+  // refs で引いた 1 つのファイルは、ref・path・hash で返す
+  const one = await workerCall('query', { ...base, task_id: c.tasks[0].task_id, refs: ['attempts/t900-model-author/m1/q1.smt2'] });
+  assert.deepEqual(one.inputs, [{ name: 'query-q1', ref: 'attempts/t900-model-author/m1/q1.smt2', path: join(dir, 'q1.smt2'), hash: h('attempts/t900-model-author/m1/q1.smt2') }]);
+  writeReview(c.tasks[0]);
+  await workerCall('submit', base);
+  closeWith(run, call.call_id, agentsOf(1));
+  const [r] = await p;
+  assert.deepEqual(r.materials.map((m) => m.ref), ['request.json', 'attempts/t900-model-author/m1/model.json', 'attempts/t900-model-author/m1/q1.smt2', 'checks/c1/stdout.txt', 'checks/c2/stdout.txt', 'worklogs/cli-a.json'], 'ファイルごとの指紋は materials（台帳の input_refs）に残る');
+});
+
+test('SP-FORMALMETHOD-012・014 submit: 作業記録の inputs の指紋と document_rules を担当が書かなければ、CLI が渡した資料の指紋と規約で補ってから照合する', async (t) => {
+  const run = makeRun(t);
+  run.docRules = RULES;
+  const p = callOf(run, '確認', [{ spec: reviewSpec() }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  const task = c.tasks[0];
+  await workerCall('query', { ...base, task_id: task.task_id });
+  writeReviewWith(task, worklogDraft(task, [{ ref: 'request.json' }, { ref: 'targets/T1/files/spec.md' }]));
+  const s = await workerCall('submit', base);
+  assert.deepEqual(s.results.map((r) => [r.ok, r.done]), [[true, true]], JSON.stringify(s));
+  const wl = JSON.parse(readFileSync(join(task.attempt_dir, 'worklog.json'), 'utf8'));
+  assert.deepEqual(wl.inputs, [{ ref: 'request.json', hash: sha256Bytes(Buffer.from('{"note":"request"}\n')) }, { ref: 'targets/T1/files/spec.md', hash: sha256Bytes(Buffer.from('# spec\n')) }]);
+  assert.deepEqual(wl.document_rules, RULES);
+  closeWith(run, call.call_id, agentsOf(1));
+  const [r] = await p;
+  assert.equal(r.ok, true, '補った後の attempt の領域で受理する（CLI の書き換えで受理を取り消さない）');
+});
+
+test('SP-FORMALMETHOD-012・014 submit: 作業記録に書いた指紋か document_rules が CLI の値と食い違えば、欠陥として差し戻す', async (t) => {
+  const run = makeRun(t);
+  run.docRules = RULES;
+  const p = callOf(run, '確認', [{ spec: reviewSpec() }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  const task = c.tasks[0];
+  await workerCall('query', { ...base, task_id: task.task_id });
+  const wrong = `sha256:${'0'.repeat(64)}`;
+  writeReviewWith(task, worklogDraft(task, [{ ref: 'request.json', hash: wrong }]));
+  const s1 = await workerCall('submit', base);
+  assert.deepEqual(s1.results.map((r) => [r.ok, r.done]), [[false, false]]);
+  assert.match(s1.results[0].problems.join(' '), /request\.json.*指紋/);
+  writeReviewWith(task, worklogDraft(task, [{ ref: 'request.json' }], { document_rules: { ...RULES, version: wrong } }));
+  const s2 = await workerCall('submit', base);
+  assert.deepEqual(s2.results.map((r) => [r.ok, r.done]), [[false, false]]);
+  assert.match(s2.results[0].problems.join(' '), /document_rules/);
+  writeReviewWith(task, worklogDraft(task, [{ ref: 'request.json', hash: sha256Bytes(Buffer.from('{"note":"request"}\n')) }], { document_rules: RULES }));
+  const s3 = await workerCall('submit', base);
+  assert.deepEqual(s3.results.map((r) => [r.ok, r.done]), [[true, true]], '書いた値が合えばそのまま受理する');
+  closeWith(run, call.call_id, agentsOf(1));
+  await p;
+});
 });
 
 // 期限の後に届いた依頼の分岐（deadline_passed）。Date.now を進めて、run-daemon が期限の後に依頼を処理する場面を確実に作る。
@@ -1177,3 +1285,38 @@ test('SP-FORMALMETHOD-015 AC-19 cli-contract 依頼と応答: 期限の後に処
   assert.equal(run.agentFailures.length, 1);
 });
 
+
+// 作業記録と inventory の補いの規則（agents.mjs の completeWorklog・completeQuoteHashes）。範囲の指紋は quote_hash と同じ求め方
+test('SP-FORMALMETHOD-012 作業記録の補い: 範囲だけを読んだ対象のファイルは、ファイル全体の指紋と範囲ごとの指紋を補い、渡した資料に無い範囲もその範囲の行で求める', async () => {
+  const { completeWorklog } = await import('./lib/agents.mjs');
+  const text = 'a\nb\nc\n';
+  const lines = fileLines(Buffer.from(text));
+  const sh = (s) => sha256Bytes(Buffer.from(s, 'utf8'));
+  const materials = [{ ref: 'target:T1/x.md', hash: sh(text), spans: [{ span: 'L1-L2', hash: sh(spanText(lines, 'L1-L2')) }] }];
+  const pathOf = () => { throw new Error('渡した資料の指紋で補うので読まない'); };
+  const ok = completeWorklog({ inputs: [{ ref: 'target:T1/x.md', spans: [{ span: 'L1-L2' }] }] }, { materials, pathOf, docRules: RULES });
+  assert.deepEqual(ok.problems, []);
+  assert.deepEqual(ok.worklog.inputs, [{ ref: 'target:T1/x.md', hash: sh(text), spans: [{ span: 'L1-L2', hash: sh('a\nb') }] }]);
+  assert.deepEqual(ok.worklog.document_rules, RULES);
+  assert.equal(ok.changed, true);
+  const file = join(makeWorkspace('fm-wl-'), 'x.md');
+  writeFileSync(file, text);
+  const sub = completeWorklog({ inputs: [{ ref: 'target:T1/x.md', spans: [{ span: 'L3-L3' }] }], document_rules: RULES }, { materials, pathOf: () => file, docRules: RULES });
+  assert.deepEqual(sub.worklog.inputs[0].spans, [{ span: 'L3-L3', hash: sh('c') }]);
+  const bad = completeWorklog({ inputs: [{ ref: 'target:T1/x.md', hash: sh(text), spans: [{ span: 'L1-L2', hash: sh('x') }] }], document_rules: RULES }, { materials, pathOf, docRules: RULES });
+  assert.equal(bad.problems.length, 1);
+  assert.match(bad.problems[0], /L1-L2/);
+  const same = completeWorklog({ inputs: [{ ref: 'target:T1/x.md', hash: sh(text) }], document_rules: RULES }, { materials, pathOf, docRules: RULES });
+  assert.deepEqual([same.problems, same.changed], [[], false], '全て書いてあって合えば書き換えない');
+});
+
+test('SP-FORMALMETHOD-001 inventory の補い: quote_hash の無い要素は出所の行から補い、書いてあれば補わない（照合は coverage の照合が持つ）', async () => {
+  const { completeQuoteHashes } = await import('./lib/agents.mjs');
+  const text = 'a\nb\nc\n';
+  const inv = { elements: [{ id: 'E1', source: { target_id: 'T1', file: 'x.md', span: 'L2-L3' } }, { id: 'E2', source: { target_id: 'T1', file: 'x.md', span: 'L1-L1', quote_hash: 'sha256:keep' } }] };
+  const out = completeQuoteHashes(inv, (tid, file) => (tid === 'T1' && file === 'x.md' ? text : null));
+  assert.equal(out.changed, true);
+  assert.deepEqual(out.inventory.elements.map((e) => e.source.quote_hash), [sha256Bytes(Buffer.from('b\nc', 'utf8')), 'sha256:keep']);
+  const none = completeQuoteHashes({ elements: [{ id: 'E3', source: { target_id: 'T1', file: 'y.md', span: 'L1-L1' } }] }, () => null);
+  assert.deepEqual([none.changed, none.inventory.elements[0].source.quote_hash], [false, undefined], '読めない出所は補わない（coverage の照合が欠陥にする）');
+});

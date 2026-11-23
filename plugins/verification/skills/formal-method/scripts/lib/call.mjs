@@ -7,10 +7,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { collectReturn, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
+import { collectReturn, completeQuoteHashes, completeWorklog, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
 import { ROLES } from './roles.mjs';
 import { CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
+import { parseTargetRef } from './target-refs.mjs';
 
 const CLI_PATH = fileURLToPath(new URL('../formal-method-cli.mjs', import.meta.url));
 const REQUEST_POLL_MS = 50;
@@ -265,11 +266,14 @@ function handle(ctx, req, name) {
       if (ctx.run.noteMaterials) ctx.run.noteMaterials(s.materials);
     }
     const pathOf = pathOfRun(ctx.run);
-    // 範囲を持つ資料は spans を返す（担当はその行だけを読む。agent-obligations.md）。refs で引いたディレクトリの下のファイルは範囲を持たない
+    // 範囲を持つ資料は spans を返す（担当はその行だけを読む。agent-obligations.md）。refs で引いたディレクトリの下のファイルは範囲を持たない。
+    // ファイルの資料は固定した指紋 hash を持つ（担当は指紋を求めない。作業記録の指紋は submit の照合で CLI が補う）。ディレクトリの資料は
+    // 指紋を返さない（その下のファイルごとの指紋は materials と台帳の input_refs に残る）
     const spansOf = (ref) => s.inputRefs.find((x) => normRef(x.ref) === ref)?.spans;
-    const one = (name, ref) => ({ name, ref, path: pathOf(ref), ...(spansOf(ref) ? { spans: [...spansOf(ref)] } : {}) });
+    const hashOf = new Map(s.materials.map((m) => [m.ref, m.hash]));
+    const one = (name, ref) => ({ name, ref, path: pathOf(ref), ...(hashOf.has(ref) ? { hash: hashOf.get(ref) } : {}), ...(spansOf(ref) ? { spans: [...spansOf(ref)] } : {}) });
     const inputs = req.refs ? refs.map(normRef).map((ref) => one((s.inputRefs.find((x) => normRef(x.ref) === ref) ?? { name: null }).name, ref))
-      : s.inputRefs.map((x) => one(x.name, x.ref));
+      : foldDirs(s.inputRefs.map((x) => one(x.name, x.ref)), pathOf);
     return { ok: true, task_id: s.task.task_id, inputs };
   }
   if (req.command === 'submit') {
@@ -295,6 +299,23 @@ function handle(ctx, req, name) {
     return response;
   }
   return { ok: false, code: 'E_INPUT', reason: `未知の依頼: ${req.command}`, detail: { reason: 'shape' } };
+}
+
+// query の応答を小さくする: run の領域の中の同じディレクトリの資料（範囲を持たない）が 2 つ以上続けば、そのディレクトリの 1 つの ref と path と
+// entries（[{name, entry}]。entry はディレクトリの中の名前）に畳む。続いた並びだけを畳むので、entries を順に戻すと input_refs の並びになる。
+// 畳んだ資料の指紋は返さない（materials と台帳の input_refs に残る）。対象のファイルの ref と、run の領域の根の資料は畳まない（cli-contract.md の query）
+function foldDirs(items, pathOf) {
+  const dirOf = (x) => { const n = normRef(x.ref); if (x.spans || n === null || parseTargetRef(x.ref)) return null; const d = posix.dirname(n); return d === '.' ? null : d; };
+  const out = [];
+  for (let i = 0; i < items.length;) {
+    const d = dirOf(items[i]);
+    let j = i + 1;
+    while (d && j < items.length && dirOf(items[j]) === d) j += 1;
+    if (j - i < 2) { out.push(items[i]); i += 1; continue; }
+    out.push({ ref: `${d}/`, path: `${pathOf(d)}/`, entries: items.slice(i, j).map((x) => ({ name: x.name, entry: posix.basename(normRef(x.ref)) })) });
+    i = j;
+  }
+  return out;
 }
 
 // 束の担当の資料のファイルごとのバイト数。item.files（refFiles）が無ければ、item.bytes をその担当だけのファイル 1 つとして数える
@@ -339,7 +360,8 @@ function batchOf(ctx, hs) {
 const scratchOf = (ctx, w) => join(ctx.run.runDir, 'attempts', `${ctx.callId}-${w.id}`);
 function workerFields(ctx, w) {
   const base = { run_dir: ctx.run.runDir, call_id: ctx.callId, worker: w.id };
-  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratchOf(ctx, w) };
+  // document_rules: 適用する文書の一般規約の {ref, version}（担当は写しを読まず、作業記録の document_rules は submit の照合で CLI が補う）
+  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratchOf(ctx, w), document_rules: docRulesOf(ctx.run) };
 }
 
 // 出し終えた後の claim と submit の next で、次に返す担当を作る。中断の理由があれば新しい担当を出さない。
@@ -385,13 +407,57 @@ function sharedInputs(ctx, hs) {
   return [...by].filter(([, ts]) => ts.length >= 2).map(([ref, ts]) => ({ ref, path: pathOf(ref), tasks: ts }));
 }
 
-// 1 つの担当の提出の照合: 返り値の形（collectReturn）と、確認役なら追加の照合（expect）、作成役なら段の照合（check）。
+// 適用する文書の一般規約（受付で写しを保存できなかったときは、適用した版）。run が持たなければ null
+const docRulesOf = (run) => run.docRules ?? run.docRulesIntended?.rules ?? null;
+
+// 担当の下書きを補う（agents.mjs の completeWorklog・completeQuoteHashes）。照合の前に attempt の領域のファイルを書き直すので、
+// 提出の指紋（evalSig）と受理の指紋（snapshot）は補った後の領域で取る。戻り値は補いで見つけた欠陥の文（無ければ []）。
+// 返り値を読めないか、参照が attempt の領域の外なら何もしない（collectReturn が形の違いにする）
+function completeDrafts(ctx, s) {
+  const { run } = ctx;
+  let ret;
+  try { ret = JSON.parse(readFileSync(s.task.result_path, 'utf8')); } catch { return []; }
+  const prefix = `${relative(run.runDir, s.task.attempt_dir)}/`;
+  const mine = (ref) => typeof ref === 'string' && ref.startsWith(prefix) && normRef(ref) === ref;
+  const problems = [];
+  const rewrite = (ref, value) => {
+    try { guardedWrite(run.runDir, ref, `${JSON.stringify(value, null, 2)}\n`); return true; } catch (e) {
+      if (e instanceof SalvagedError) throw e;
+      problems.push(`${ref} に CLI が補った値を書けない（${e.code ?? e.message}）`);
+      return false;
+    }
+  };
+  const readJson = (ref) => { try { return JSON.parse(readFileSync(join(run.runDir, ref), 'utf8')); } catch { return null; } };
+  if (ret && mine(ret.worklog_ref)) {
+    const wl = readJson(ret.worklog_ref);
+    const r = completeWorklog(wl, { materials: s.materials ?? [], pathOf: pathOfRun(run), docRules: docRulesOf(run) });
+    problems.push(...r.problems);
+    if (r.changed) rewrite(ret.worklog_ref, r.worklog);
+  }
+  if (s.task.role === 'extractor' && ret && Array.isArray(ret.outputs)) {
+    const textOf = (tid, file) => {
+      const f = (run.targets ?? []).find((t) => t.id === tid)?.files?.find((x) => x.path === file);
+      return f && f.text && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null;
+    };
+    for (const o of ret.outputs) {
+      if (!o || o.kind !== 'inventory' || !mine(o.ref)) continue;
+      const r = completeQuoteHashes(readJson(o.ref), textOf);
+      if (r.changed) rewrite(o.ref, r.inventory);
+    }
+  }
+  return problems;
+}
+
+// 1 つの担当の提出の照合: 下書きの補い（completeDrafts）、返り値の形（collectReturn）と、確認役なら追加の照合（expect）、作成役なら段の照合（check）。
 function submit(ctx, s) {
   const { run } = ctx;
   const item = s.entry.item;
   s.submits += 1;
+  const drafted = completeDrafts(ctx, s);
   s.evalSig = attemptHashes(run, s);
-  const c = collectReturn(s.task);
+  const c0 = collectReturn(s.task);
+  // 補いの欠陥（作業記録の指紋・document_rules の食い違い）は、返り値の形の違いと同じく同じ担当に直させる
+  const c = c0.ok && drafted.length ? { ok: false, cause: `作業記録の欠陥（${drafted.join('; ')}）` } : c0;
   const extra = c.ok && item.expect ? item.expect(c.ret) : null;
   if (!c.ok || extra) {
     const cause = c.ok ? `返り値の形が違う（${extra}）` : c.cause;

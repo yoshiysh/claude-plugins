@@ -6,7 +6,7 @@ description: formal-method の計画の段で、CLI がモデル（と分割）�
 
 性質ごとに手法と道具を選び、検査の計画と、検査が違反を見つけられるかを確かめる変異を書く。計画した検査の全てが結果に残るので、計画に無い検査は実行されず、結果にも現れない（SP-FORMALMETHOD-010）。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/plan-author.md) に従う。
 
 ## 読むもの
 
@@ -32,7 +32,7 @@ description: formal-method の計画の段で、CLI がモデル（と分割）�
 ## すること
 
 - 形式化できる必要な性質（inventory の性質。問いに依存するものを除く）ごとに、`selection` の要素をちょうど 1 つ書き、比べた候補を並べる。候補には実行基盤（`role: "実行基盤"`）の Rust と検証器（`role: "検証器"`）の Z3 を必ず含め、扱える性質・得られる保証・実行環境・検査できる範囲・見積りを書く（SP-FORMALMETHOD-007）。見積りを取れない値を 0 と書かない。1 つの道具を全ての性質に使うことを、選んだ理由にしない。
-- Z3 の候補の `name` と、Z3 を選ぶときの `chosen.tool` は adapter の id `z3` と書く。他の道具は、候補の `name` をそのまま `chosen.tool` に書く（[道具の名前](../references/artifact-formats.md#plan-と-mutations計画作成役)）。要素の欠け・重なりと名前の揺れは計画の照合で欠陥になり修正の巡に戻り、残ればその性質の検査は実行されない。
+- Z3 の候補の `name` と、Z3 を選ぶときの `chosen.tool` は adapter の id `z3` と書く。他の道具は、候補の `name` をそのまま `chosen.tool` に書く（[道具の名前](../references/types/plan-author.md#plan-と-mutations計画作成役)）。要素の欠け・重なりと名前の揺れは計画の照合で欠陥になり修正の巡に戻り、残ればその性質の検査は実行されない。
 - 他の候補より性能が良いと書くときだけ `performance_claim` を書き、比べる条件（`comparison_basis`）を候補ごとに書く。条件が一致するかは CLI が照合し、一致を確かめられない主張は結果から外れる。
 - 検査（`checks`）は、次のものごとに 1 つ以上書く。欠ければ計画の照合で欠陥になり修正の巡に戻る。
   - モデルの性質ごとに `kind: property`（`target_id` はモデルの性質の id）。
@@ -46,14 +46,14 @@ description: formal-method の計画の段で、CLI がモデル（と分割）�
 - 必要な性質ごとに、変異（`mutations`）か作れない理由（`unavailable`）を 1 つ以上書く。変異は、検出役の検査（`kind: property`、`target_id` が変異の `property_id`）の `input_refs` の 1 つを置き換える完全な query で、期待する違反（`expected_violation`）を検査の前に決める。構文を壊す変異は違反の検出に数えないので作らない。作れないときは、別の検出能力の確認の方法を `alternative` に書く（書けなければ null）。
   - 変異は、置き換える性質の query と同じ節の名前（`:named`）の集合を保ち、出所の規則（`clauses` の `role: "rule"`）の節の項だけを変える。性質の否定・前提の節の項と、宣言・`define-fun` などの assert でない form は変えない。名前が合わなければ計画の照合で欠陥になる。規則の節を変えない変異と、規則と一緒に他の節や form を変えた変異は、CLI の静的な確認で出所の規則を壊した変異に数えられず、その性質は検証の成功にならない。
 - `kind: property` の検査の `input_refs` には、`target_id` のモデルの性質の `query_ref` を入れる（入れなければ計画の照合で欠陥になる）。
-- 変異の `.smt2` は、`(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/artifact-formats.md#担当の成果物)）。違反は計画の照合で欠陥になり修正の巡に戻り、残ればその変異は実行されない。
+- 変異の `.smt2` は、`(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない（[`.smt2` の規則](../references/types/plan-author.md#担当の成果物)）。違反は計画の照合で欠陥になり修正の巡に戻り、残ればその変異は実行されない。
 - 計画の id（検査・sanity・変異）は計画の中で一意にし、`confirm-` で始めない（確認の id と重ならないため）。
 
-形は [成果物の形式](../references/artifact-formats.md#担当の成果物) の `PlanFile`・`MutationsFile`。
+形は [型の抜粋](../references/types/plan-author.md#担当の成果物) の `PlanFile`・`MutationsFile`。
 
 ## 返り値
 
-`AuthorReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。
+`AuthorReturn`（[担当の返り値](../references/types/plan-author.md#担当の返り値)）。
 
 - `outputs`: `{"kind": "plan", ...}` と `{"kind": "mutations", ...}`。
 - `status`: `done`・`needs_answer`・`cannot_proceed` の使い方は抽出役と同じ。

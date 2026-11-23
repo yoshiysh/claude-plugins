@@ -359,6 +359,11 @@ test('SP-FORMALMETHOD-005・012 担当に渡す資料: 忠実さの確認役の�
   assert.deepEqual(view.properties.map((p) => p.id), ['P1']);
   assert.ok([...view.bound_elements, ...view.unbound_elements].every((e) => !('text' in e) && e.source.span), '要素の一覧は id と範囲だけ');
   assert.deepEqual(view.bound_elements.map((e) => e.id), ['E-P1']);
+  // モデルの性質ごとに、節（rule・premise・goal）と保証の抜粋と、その性質の query のファイルの絶対パス（モデルの全体を切り出させない）
+  const model = JSON.parse(readFileSync(join(status.run_dir, refs.find((x) => x.name.startsWith('model-')).ref), 'utf8'));
+  assert.deepEqual(view.model_properties, model.properties.map((p) => ({ id: p.id, inventory_property_ids: p.inventory_property_ids, expected: p.expected, assurance: p.assurance,
+    clauses: p.clauses, query_path: join(status.run_dir, p.query_ref) })));
+  assert.ok(view.model_properties.every((p) => existsSync(p.query_path) && refs.some((x) => join(status.run_dir, x.ref) === p.query_path)), 'query は渡した資料のファイル');
   // 範囲ごとの指紋（quote_hash と同じ求め方）とファイル全体の指紋
   const conf = result.confirmations.meaning.find((c) => c.checker === task.task_id && c.kind === 'fidelity');
   const m = conf.materials.find((x) => x.ref === 'target:T1/spec.md');

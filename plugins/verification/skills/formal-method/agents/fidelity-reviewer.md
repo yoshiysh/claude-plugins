@@ -8,13 +8,14 @@ description: formal-method の確認の段で、CLI が観点 fidelity の unit�
 
 CLI の静的な確認は、性質の query の節を役ごとに切り取って道具に流すので、節の役が偽られていると誤った確認が成り立つ（前提にすべき制約を規則と書けば、前提だけで結論が出ていることが見えない）。節の役の付け方は機械では止められないので、この役が出所と照らす（SP-FORMALMETHOD-012）。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/fidelity-reviewer.md) に従う。
 
 ## 読むもの
 
 - `query` が渡す資料だけ: 対象のファイル（`spans` の行だけ）、`views/<unit_id>.json`、`context.model_id` のモデル、対応表、そのモデルの性質の query（`.smt2`）、CLI のモデル化の段の作業記録。対象のファイルの範囲は、対応表の行、そのモデルの性質が扱う inventory の性質・節・遷移・禁止・入出力の契約の出所、そのモデルの inventory の外部の依存の出所、view の `bound_elements`・`unbound_elements` の出所である。
-  - view は、そのモデルの性質の inventory の記述（`properties`）、このモデルの性質に結ばれた要素（`bound_elements`）、どの性質にも結ばれない要素（`unbound_elements`）、そのモデルの inventory の外部の依存（`external_dependencies`。文と出所）を持つ。他のモデルの性質にだけ結ばれた要素は入らない。
-  - モデルに無い出所の要求（`omission`）は、`bound_elements` と `unbound_elements` のうち、対応表の行にも節の出所にも無いものを、渡された範囲の本文を読んで漏れかを判断する。どれも本文が範囲にあるので、本文を読まずに `成り立つ` にも `確認できず` にもしない。判断に範囲の外の文脈が要るときだけ、`agent-obligations.md` の範囲の外の規則どおり `確認できず` にする。
+  - view は、そのモデルの性質の inventory の記述（`properties`）、このモデルの性質に結ばれた要素（`bound_elements`）、どの性質にも結ばれない要素（`unbound_elements`）、そのモデルの inventory の外部の依存（`external_dependencies`。文と出所）、モデルの性質ごとの節・保証の抜粋とその性質の query のファイルの絶対パス（`model_properties`: `{id, inventory_property_ids, expected, assurance, clauses, query_path}`）を持つ。他のモデルの性質にだけ結ばれた要素は入らない。
+  - 性質ごとの節の役（`clauses` の `name`・`role`・`source_ids`・`basis`・`external_dependency_id`）と保証は `model_properties` で読み、その性質の query は `query_path` のファイルを読む。モデルのファイルから性質を切り出さない（`model_properties` はモデルの `properties[]` の値のままで、同じ値を 2 度読むことになる）。モデルのファイルは、状態遷移（`state_machine`）・入出力の契約など、`model_properties` に無い欄を読むときに開く。
+  - モデルに無い出所の要求（`omission`）は、`bound_elements` と `unbound_elements` のうち、対応表の行にも節の出所にも無いものを、渡された範囲の本文を読んで漏れかを判断する。どれも本文が範囲にあるので、本文を読まずに `成り立つ` にも `確認できず` にもしない。判断に範囲の外の文脈が要るときだけ、共通の義務の範囲の外の規則どおり `確認できず` にする。
   - そのモデルに判断を要する項目があれば、その記録（`judgments/<model_id>.json`）と、項目の道具の実行の記録（`checks/<id>/`）。図・組合せ・経路はファイルとして渡されないので、モデルから読む。
 
 ## 読まないもの
@@ -65,7 +66,7 @@ CLI の静的な確認は、性質の query の節を役ごとに切り取って
 
 ## 返り値
 
-`ReviewReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。同じ claim で受け取った unit ごとに、別の返り値を書いて出す。
+`ReviewReturn`（[担当の返り値](../references/types/fidelity-reviewer.md#担当の返り値)）。同じ claim で受け取った unit ごとに、別の返り値を書いて出す。
 
 - `perspective`: `fidelity`。`unit_id` は `context.unit_id`。
 - `result`: 次の順に、最初に当たる値にする。`findings` に載せる確定した問題が 1 つでもあれば `成り立たない`。無く、全ての行と節を見て、[区別できないとき](#区別できないとき) に当たる行も無ければ `成り立つ`。それ以外（区別できない行がある、又は見終えられなかった行がある）は `確認できず`。

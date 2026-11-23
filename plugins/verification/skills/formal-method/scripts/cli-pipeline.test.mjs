@@ -92,6 +92,29 @@ test('SP-FORMALMETHOD-014 PR-BPDESIGNEDSKILL-028・040: 決定的な処理の作
   }
 });
 
+test('SP-FORMALMETHOD-012・014 PR-BPDESIGNEDSKILL-028: 担当が指紋と document_rules を書かない作業記録と quote_hash の無い inventory を出しても、CLI が submit の照合で補って登録する', async (t) => {
+  const { status, result } = await runScenario(t, { scenario: { omitQuoteHash: true } });
+  const dir = status.run_dir;
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+  const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
+  const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'));
+  const agentLogs = ledger.entries.filter((e) => e.kind === 'worklog' && e.producer !== 'cli');
+  assert.ok(agentLogs.length >= 4, JSON.stringify(agentLogs.map((e) => e.ref)));
+  for (const e of agentLogs) {
+    const w = JSON.parse(readFileSync(join(dir, e.ref), 'utf8'));
+    assert.equal(fileHash(join(dir, e.ref)), e.hash, '登録した指紋は補った後のファイル');
+    assert.deepEqual(w.document_rules, state.document_rules, e.ref);
+    assert.ok(w.inputs.length > 0, e.ref);
+    const fixed = new Map(e.input_refs.map((x) => [x.ref, x]));
+    // 補った指紋は、台帳の input_refs（最初の query の時点で固定した指紋）と同じ
+    for (const x of w.inputs) assert.deepEqual(x, fixed.get(x.ref), `${e.ref}: ${x.ref}`);
+  }
+  for (const e of ledger.entries.filter((x) => x.kind === 'inventory')) {
+    const inv = JSON.parse(readFileSync(join(dir, e.ref), 'utf8'));
+    assert.ok(inv.elements.length > 0 && inv.elements.every((x) => /^sha256:[0-9a-f]{64}$/.test(x.source.quote_hash)), '補った quote_hash');
+  }
+});
+
 test('SP-FORMALMETHOD-001 AC-01: 同じ依頼を 2 回渡すと、verified_scope の対象・版・範囲が一致し、指定していない目標が検証済みに現れない', async (t) => {
   const a = await runScenario(t, {});
   const b = await runScenario(t, {});

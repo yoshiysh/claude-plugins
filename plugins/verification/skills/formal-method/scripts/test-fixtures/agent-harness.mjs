@@ -30,7 +30,7 @@ export function linesOf(text) {
 const TASK_KEYS = ['attempt_dir', 'context', 'effort', 'instructions', 'model', 'result_path', 'role', 'task_id'];
 // claim の応答の最上位（done: false のとき）。返り値の形は役ごとに 1 度、命令と scratch_dir は worker で 1 つ
 // command は CLI の出力だけが持つ（client の関数で同じ process から流すと無い）ので、比べない
-const CLAIM_KEYS = ['done', 'ok', 'query_cmd', 'return_schemas', 'scratch_dir', 'shared_inputs', 'submit_cmd', 'tasks'];
+const CLAIM_KEYS = ['document_rules', 'done', 'ok', 'query_cmd', 'return_schemas', 'scratch_dir', 'shared_inputs', 'submit_cmd', 'tasks'];
 const NEXT_KEYS = ['done', 'return_schemas', 'shared_inputs', 'tasks'];
 // claim の応答（top）か submit の next（next）の、task の外の欄の検査。schemas はこの worker が受け取った返り値の形（役 → schema）
 export function claimViolations(res, { runDir, callId, worker, kind = 'claim', schemas = null }) {
@@ -66,7 +66,9 @@ export function taskViolations(task, runDir, memory = null, worker = null) {
   const CONTEXT_KEYS = ['candidates', 'model_id', 'perspective', 'property_ids', 'run_dir', 'stage', 'subject', 'target_id', 'unit_id'];
   if (Object.keys(c).sort().join() !== CONTEXT_KEYS.join()) v.push(`${task.task_id}: context の欄 ${Object.keys(c).sort().join()}（資料は query で引く）`);
   const ins = task.instructions ?? [];
-  if (ins.length !== 2 || !ins[0].endsWith(`/agents/${task.role}.md`) || !ins[1].endsWith('/references/agent-obligations.md') || !ins.every((x) => existsSync(x))) v.push(`${task.task_id}: instructions ${JSON.stringify(ins)}`);
+  // 役の指示・役の分の義務（作成役か確認役）・役の型の抜粋の 3 つ（artifact-formats.md「claim の Task」）
+  const cls = ['extractor', 'model-author', 'partition-author', 'plan-author'].includes(task.role) ? 'author' : 'confirmer';
+  if (ins.length !== 3 || !ins[0].endsWith(`/agents/${task.role}.md`) || !ins[1].endsWith(`/references/obligations/${cls}.md`) || !ins[2].endsWith(`/references/types/${task.role}.md`) || !ins.every((x) => existsSync(x))) v.push(`${task.task_id}: instructions ${JSON.stringify(ins)}`);
   if (task.attempt_dir !== join(runDir, 'attempts', task.task_id) || task.result_path !== join(task.attempt_dir, 'return.json')) v.push(`${task.task_id}: attempt_dir・result_path`);
   if (!existsSync(task.attempt_dir)) v.push(`${task.task_id}: attempt の領域が無い`);
   // workers の行の role は、その worker が持つ担当の役を出てくる順に + でつないだもの（分割と計画を 1 体が担うとき 2 つ）
@@ -165,15 +167,13 @@ export function namedClauses(text, mp, p, { mutate = false } = {}) {
   return { text: head + lines.join('\n'), clauses };
 }
 
+// 作業記録の下書き（agent-obligations.md「作業記録」）: 読んだファイルの ref だけを書き、指紋と document_rules は書かない（submit の照合で CLI が補う）
 function worklog(task) {
-  const run = task.context.run_dir;
-  const rulesDir = join(run, 'document-rules');
-  const rules = existsSync(rulesDir) ? readdirSync(rulesDir).filter((n) => n.endsWith('.md')).sort()[0] : null;
+  const inputs = (task.query_inputs ?? []).filter((x) => x.hash).map((x) => ({ ref: x.ref, ...(x.spans ? { spans: x.spans.map((span) => ({ span })) } : {}) }));
   return {
     schema: 'formal-method.worklog/1', role: task.role, task_id: task.task_id, stage: task.context.stage,
-    target: task.context.target_id ?? 'T1', inputs: [], actions: `${task.role} として与えられた資料を読んだ。`, results: '返り値を書いた。',
+    target: task.context.target_id ?? 'T1', inputs, actions: `${task.role} として与えられた資料を読んだ。`, results: '返り値を書いた。',
     grounds: 'テストの harness が決めた値である。', failures: [], unconfirmed: [], unreadable_inputs: [],
-    document_rules: rules ? { ref: relative(run, join(rulesDir, rules)), version: sha(readFileSync(join(rulesDir, rules))) } : { ref: 'document-rules/missing.md', version: `sha256:${'0'.repeat(64)}` },
   };
 }
 
@@ -239,7 +239,7 @@ const ROLE = {
     const properties = [];
     for (const p of s.properties) {
       const line = linesOf(readFileSync(snap(p.file), 'utf8'))[p.line - 1];
-      elements.push({ id: `E-${p.id}`, kind: 'requirement', source: { target_id: target.id, file: p.file, span: `L${p.line}-L${p.line}`, quote_hash: sha(line) }, text: line });
+      elements.push({ id: `E-${p.id}`, kind: 'requirement', source: { target_id: target.id, file: p.file, span: `L${p.line}-L${p.line}`, ...(s.omitQuoteHash ? {} : { quote_hash: sha(line) }) }, text: line });
       properties.push({ id: p.id, source_ids: [`E-${p.id}`], statement: p.statement, formalizable: p.formalizable !== false,
         nonformal_reason: p.formalizable === false ? '数で表せない' : null, nonformal_method: p.formalizable === false ? '文書の読み合わせ' : null,
         assumptions: [], scope: '対象の全体', blocked_by_question: [...(p.blocked_by_question ?? []), ...questionsOf(s, ['extractor'], p.id)] });
@@ -469,7 +469,9 @@ export function makeHarness(scenario, hooks = {}) {
           // 呼び出しが閉じた・期限を過ぎた（時間の上限のケース）なら、担当を終える
           if (!q.ok) { call.claims.push({ worker: w.id, query: q }); return { ...rec, ok: false }; }
           // query_inputs: query の応答の inputs をそのまま（path を見るテストのため）
-          task = { ...raw, query_inputs: q.inputs, context: { ...raw.context, input_refs: q.inputs.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })) } };
+          // 同じディレクトリに畳んだ資料（{ref, path, entries}）は、entries ごとの ref に戻す（cli-contract.md の query）
+          const flat = q.inputs.flatMap((x) => (x.entries ? x.entries.map((e) => ({ name: e.name, ref: `${x.ref}${e.entry}` })) : [x]));
+          task = { ...raw, query_inputs: q.inputs, context: { ...raw.context, input_refs: flat.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })) } };
           memory.tasks.push(task);
           call.tasks.push(task);
           memory.byRole[task.role] = task;

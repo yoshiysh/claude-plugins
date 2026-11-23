@@ -6,7 +6,7 @@ description: formal-method の確認の段で、CLI が反例・対応できて�
 
 反例と `対応できていない` 組合せは、対象の不備か、要求の不足か、formal-method の処理の欠陥かで、依頼元の次の対応が変わる（SP-FORMALMETHOD-011）。作成役の問いもここを通すのは、作成役が自分の読み落としを `要求の不足` に付け替えるのを防ぐためである。
 
-共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は、task の `instructions` が指す `agent-obligations.md` に従う。
+共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録、読む範囲）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/cause-analyst.md) に従う。
 
 ## 束での答え方
 
@@ -49,7 +49,7 @@ description: formal-method の確認の段で、CLI が反例・対応できて�
 
 ## 返り値
 
-`CauseReturn`（[担当の返り値](../references/artifact-formats.md#担当の返り値)）。主題（task）ごとに 1 つ書いて出す。
+`CauseReturn`（[担当の返り値](../references/types/cause-analyst.md#担当の返り値)）。主題（task）ごとに 1 つ書いて出す。
 
 - `unit_id` は `context.unit_id`。
 - `cause`: 上の 5 つのどれか 1 つ。
