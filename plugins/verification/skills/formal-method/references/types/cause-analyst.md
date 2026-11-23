@@ -2,7 +2,7 @@
 
 # 型の抜粋（cause-analyst）
 
-この役が書く型（`Worklog`・`CauseReturn`）の節と、読む型（`Task`・`Request`・`fixed`・`Cause`・`ModelFile`・`MappingFile`・`End`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
+この役が書く型（`Worklog`・`CauseReturn`）の節と、読む型（`Task`・`Request`・`fixed`・`Cause`・`ModelFile`・`MappingFile`・`End`・`Inventory`・`PartitionsFile`・`PlanFile`・`MutationsFile`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
 
 ## 共通の型
 
@@ -17,6 +17,9 @@ Span        = string                       // "L<開始>-L<終了>"。1 始ま�
 FilePath    = string                       // 対象の根からの相対 path。"/" 区切り、"." と ".." を含まない。単一のファイルの対象では、そのファイル名。除いたディレクトリを指すときだけ末尾に "/" を付ける
 SourceRef   = { target_id: Id, file: FilePath, span: Span }
 Stage       = "受付" | "洗い出し" | "モデル化" | "計画" | "実行" | "確認" | "集約"
+Measure     = { value: number, unit: "ms" | "bytes" | "count" | "tokens" }
+            | { status: "取得できず", reason: string }
+            | { status: "該当なし", reason: string }
 ```
 
 ## 依頼（Request）
@@ -45,10 +48,24 @@ fixed = { revision: string | null, content_hash: Sha256, root: string,          
 ## 性質ごとの結果（SP-003・004・005・007・011・012）
 
 ```text
+Verdict = "検証済み" | "別手段で確認済み" | "反例" | "未実行" | "unknown" | "時間切れ" | "実行失敗" | "未確認"
 Assurance =
     { kind: "範囲を限った検査", scope: string, bounds: [{ item: string, bound: string }]+, scope_variables: [string], fairness_assumptions: [string] }   // scope_variables は範囲として扱う変数（SP-005。query で宣言した記号の名前）
   | { kind: "無界の証明", proposition: string, open_obligations: [string], fairness_assumptions: [string] }
   | { kind: "形式検証でない確認", method: string }
+Candidate = {
+  role: "実行基盤" | "検証器",
+  name: string,
+  handles: string,                         // 扱える性質
+  assurance: string,                       // 得られる保証
+  environment: string,                     // 実行環境
+  checkable_scope: string,                 // 検査できる範囲
+  estimates: { setup: Measure, execution: Measure, resources: Measure },
+  available: boolean,
+  reason: string,
+  comparison_basis: { property_ids: [Id], assumptions: [string], scope: string, assurance: string, judgment_rules: string },   // 比べる実行の条件。property_ids は inventory の性質の id
+  performance_claim: { better_than: string, metric: "setup" | "execution" | "resources" } | null   // 他の候補より性能が良いという主張。無ければ null
+}
 ```
 
 ## 形式モデルと対応（SP-005・006）
@@ -91,6 +108,43 @@ Diagram = { derivable: false, reason: string }
       extra: [string], missing: [string], omitted_conditions: [string] }
 ```
 
+## 分割と合成（SP-008・009）
+
+```text
+Decomposition = {
+  graph: { nodes: [{ id: string, kind: "variable" | "transition" | "property" | "smt_declaration" | "smt_definition" | "smt_assertion", location: Location }],
+           edges: [{ id: string, from: string, to: string, kind: "write" | "read" | "reference" | "property", location: Location }],   // id は "<kind>:<from>-><to>"
+           unconfirmed: [{ relation: string, reason: string }] },
+  criteria: { algorithm: "writer-merge-scc/1" },   // 当て直しの手順は下の「候補の導出の手順」
+  candidates: [{ id: Id, nodes: [string]+, strength_to: [{ candidate_id: Id, edges: int≥1 }] }],
+  decisions: [{ candidate_id: Id, adopted: boolean, reason: string }],
+  adopted: boolean,
+  reason: string,                          // 分割した、又はしなかった理由
+  parts: [{ id: Id, model_id: Id, owns_variables: [string], transitions: [string] }],   // 名前は graph の要素の id（var:<model_id>/<id>・tr:<model_id>/<id>）。1 つの部分の要素は全て model_id のモデルのもの
+  boundaries: [Boundary],
+  contracts: [Contract],
+  composition_conditions: [{ id: Id, model_id: Id, derived_from: Id, statement: string, check_ids: [Id], depends_on: [Id] }],   // model_id は親の性質のモデル、derived_from は親の性質（モデルの性質の id）。check_ids が空になりうる場合は plan と mutations の「検査の欠け」
+  correspondence: { matched: [{ element: string, to: [string]+ }], unmatched: [string], excluded: [{ element: string, reason: string }] }
+}
+Location = { file: Ref, pointer: string }  // file は、状態遷移と性質の要素なら models[].ref と同じ path（モデルのファイル）、SMT の要素なら query の Ref。pointer は JSON Pointer（モデルのファイル）か "form:<番号>:<開始>-<終了>"（.smt2）
+Boundary = {
+  edge_id: string,                         // 部分を跨ぐ graph.edges の要素の id（"read:tr:<model_id>/<id>->var:<model_id>/<id>" など）。境界の契約は跨ぐ辺ごとに 1 つ
+  producer: Id, consumer: Id, shared_symbols: [string]+,
+  assumption: string, guarantee: string,
+  assumption_basis: { kind: "他の部分の保証", contract_id: Id }
+                  | { kind: "依頼の要求・制約", known_requirement_id: Id }
+                  | { kind: "共同不変条件", check_ids: [Id]+ }    // 今の版では分割の照合の欠陥（分割の照合の境界）
+                  | { kind: "確認できない前提", reason: string },
+  responsible: [Id]+                       // 保証を確かめる契約の id。同じ分割の contracts[].id に実在する
+}
+Contract = {
+  id: Id, model_id: Id,                    // 部分の model_id と同じ
+  derived_from: Id,                        // 親の性質（モデルの性質の id）
+  part_id: Id, statement: string,
+  verdict: [Verdict]+, check_ids: [Id], reason: string     // 判定は下の「契約の判定」
+}
+```
+
 ## 反例と原因（SP-011）
 
 ```text
@@ -114,6 +168,27 @@ End = {
   unreadable_output: boolean,
   stopped_by: "時間" | "その他" | null,    // formal-method が止めた理由。止めていなければ null
   time_limit_hit: "依頼元" | "道具" | null // 実行中に達した時間の上限
+}
+```
+
+## inventory（抽出役。対象 1 つにつき 1 つ）
+
+```text
+Inventory = {
+  schema: "formal-method.inventory/1",
+  target_id: Id, content_hash: Sha256,      // 集まりの指紋
+  scanned: [{ file: FilePath, span: Span | null, status: "read" | "unread", reason: string | null }]+,
+           // 依頼の範囲を覆う。scope.include がその対象を target で挙げたか、その対象を指す location が無ければ全てのファイルの全体。
+           // それ以外は location が指すファイル（span があればその行、無ければ全体）だけ。範囲の外のファイル・行は求めず、unread にもしない。
+           // unread は reason 非 null。span が null ならファイルの全体
+  elements: [{ id: Id, kind: "requirement" | "goal" | "state" | "input" | "output" | "constraint" | "event" | "result",
+               source: { target_id: Id, file: FilePath, span: Span, quote_hash: Sha256 },  // quote_hash は span の行を "\n" でつないだ文字列の SHA-256。
+                                                                                              // 抽出役は省いてよく、submit の照合で CLI が補う（書けば照らす）
+               text: string }],
+  properties: [{ id: Id, source_ids: [Id]+, statement: string, formalizable: boolean,
+                 nonformal_reason: string | null, nonformal_method: string | null,
+                 assumptions: [string], scope: string, blocked_by_question: [Id] }],
+  external_dependencies: [{ id: Id, text: string, source: SourceRef | null }]
 }
 ```
 
@@ -163,6 +238,31 @@ MappingFile = { schema: "formal-method.mapping/1",
   model_id: Id,                            // 対応付けるモデル。モデルごとに 1 つの MappingFile
   rows: [{ source: Pointer, property_id: Id, model_element: string,
            relation: "形式化" | "形式検証でない確認" | "範囲外" | "対応なし", reason: string | null }] }
+```
+
+## partitions（分割作成役。候補が 2 つ以上のときだけ）
+
+```text
+PartitionsFile = { schema: "formal-method.partitions/1",
+  decisions: [{ candidate_id: Id, adopted: boolean, reason: string }]+,
+  adopted: boolean, reason: string,
+  parts: [<Decomposition.parts の要素>], boundaries: [<Boundary から responsible を除いたもの + responsible>],
+  contracts: [{ id: Id, model_id: Id, derived_from: Id, part_id: Id, statement: string, query_ref: Ref }],
+  composition_conditions: [{ id: Id, model_id: Id, derived_from: Id, statement: string, query_ref: Ref, depends_on: [Id] }] }
+```
+
+## plan と mutations（計画作成役）
+
+```text
+PlanFile = { schema: "formal-method.plan/1",
+  selection: [{ property_id: Id, candidates: [Candidate]+, chosen: { technique: string, tool: string }, reason: string }],   // chosen.tool は下の「道具の名前」
+  checks: [{ id: Id, kind: "property" | "composition" | "contract", target_id: Id,   // property_id / condition_id / contract_id
+             model_id: Id, input_refs: [Ref]+, expected: "unsat" | "sat",
+             assumptions: [string], scope: string, tool_time_limit_seconds: int≥1, depends_on: [Id] }],
+  sanity: [{ id: Id, model_property_id: Id, input_refs: [Ref]+, tool_time_limit_seconds: int≥1 }] }
+MutationsFile = { schema: "formal-method.mutations/1",
+  mutations: [{ id: Id, property_id: Id, mutation_ref: Ref, expected_violation: "sat" | "unsat", detector_check_id: Id }],   // mutation_ref は計画作成役自身の attempts/<task_id>/ の中
+  unavailable: [{ property_id: Id, reason: string, alternative: string | null }] }
 ```
 
 ## 担当の返り値

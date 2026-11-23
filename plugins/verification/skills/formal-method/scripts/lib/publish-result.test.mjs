@@ -376,3 +376,19 @@ test('cli-contract publishResult: 一時ファイルの unlink の失敗は outc
   assert.ok(fs.log.some((x) => x[0] === 'unlink'), '一時ファイルを消そうとする');
   assert.deepEqual(fs.violations, []);
 });
+
+test('cli-contract status.json resultForStatus: 6 つの outcome のうち、published と lost だけが result.json の参照、result_failed・ledger_failed・published_unverified は本文、lost_unreadable は本文も参照も持たない（呼ぶ側が先に E_RESULT_UNREADABLE で返す）', async () => {
+  const { resultForStatus } = await import('./publish.mjs');
+  const body = completedR();
+  const ref = { ref: 'result.json', path: join(RUN, 'result.json') };
+  const cases = [
+    ['published', ref], ['lost', ref],
+    ['published_unverified', body], ['result_failed', body], ['ledger_failed', body],
+    ['lost_unreadable', null],
+  ];
+  assert.deepEqual(cases.map(([o]) => o).sort(), ['ledger_failed', 'lost', 'lost_unreadable', 'published', 'published_unverified', 'result_failed']);
+  for (const [outcome, want] of cases) {
+    const out = { outcome, result: outcome === 'lost_unreadable' ? null : body, fault: null };
+    assert.deepEqual(resultForStatus(RUN, out), want, outcome);
+  }
+});

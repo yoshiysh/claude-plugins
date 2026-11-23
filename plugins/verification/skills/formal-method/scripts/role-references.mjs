@@ -19,6 +19,9 @@ const TYPES_SOURCE = 'references/artifact-formats.md';
 //       定義だけを、その定義のある節の見出しの下に入れる。全て入れた節の上位の節（文書の題を除く）で、見出しの直下に型の定義を持たないもの
 //       （担当の成果物の前置き）は、下の節の前置きとして入れる。
 //   作業記録は全ての役が書くので書く型、claim の Task と受け付けた依頼（request.json）は全ての役が読むので読む型に入れる。
+// 資料の形から型に辿れないもの（CLI が写した views/<unit_id>.json の中身、主題によって変わる作成役の outputs）は、その中身の型を
+// 読む型に明示して足す: fidelity-reviewer は view の inventory の性質と要素（Inventory）、cause-analyst は主題が問いのときに読む
+// 問いを返した作成役の outputs（Inventory・PartitionsFile・PlanFile・MutationsFile）。
 // 入口の型の名前が正本に無ければ生成を止める（正本の改名を見落とさない）。
 const COMMON_ENTRY = { writes: ['Worklog'], reads: ['Task', 'Request', 'fixed'] };
 export const ROLE_ENTRY_TYPES = Object.freeze({
@@ -27,10 +30,10 @@ export const ROLE_ENTRY_TYPES = Object.freeze({
   'partition-author': { writes: ['AuthorReturn', 'PartitionsFile', 'Decomposition'], reads: ['ModelFile', 'MappingFile'] },
   'plan-author': { writes: ['AuthorReturn', 'PlanFile', 'MutationsFile'], reads: ['ModelFile', 'MappingFile', 'PartitionsFile', 'Inventory'] },
   'extraction-reviewer': { writes: ['ReviewReturn'], reads: ['Inventory', 'Manifest'] },
-  'fidelity-reviewer': { writes: ['ReviewReturn'], reads: ['ModelFile', 'MappingFile', 'Judgment', 'End'] },
+  'fidelity-reviewer': { writes: ['ReviewReturn'], reads: ['ModelFile', 'MappingFile', 'Judgment', 'End', 'Inventory'] },
   'assurance-reviewer': { writes: ['ReviewReturn'], reads: ['Inventory'] },
   'composition-reviewer': { writes: ['ReviewReturn'], reads: ['PartitionsFile', 'Decomposition', 'ModelFile', 'End'] },
-  'cause-analyst': { writes: ['CauseReturn'], reads: ['Cause', 'ModelFile', 'MappingFile', 'End'] },
+  'cause-analyst': { writes: ['CauseReturn'], reads: ['Cause', 'ModelFile', 'MappingFile', 'End', 'Inventory', 'PartitionsFile', 'PlanFile', 'MutationsFile'] },
 });
 export const entryTypesOf = (role) => {
   const r = ROLE_ENTRY_TYPES[role];

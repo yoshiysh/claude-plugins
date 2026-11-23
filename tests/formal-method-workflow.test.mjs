@@ -38,7 +38,7 @@ test('SP-FORMALMETHOD-013 Workflow の返り値: workers の行ごとに 1 体�
     assert.ok(p.includes(JSON.stringify({ run_dir: ARGS.state, call_id: ARGS.callId, worker: w.id })), p)
     for (const step of ['query_cmd', 'submit_cmd', 'result_path', 'instructions']) assert.ok(p.includes(step), `${step} の手順`)
     // 資料の読み方は義務と同じ 1 つの規則: instructions の 4 つのファイル、畳んだ資料は entries のものだけ（/ で終わる entry はディレクトリ）
-    for (const rule of ['instructions の 4 つのファイル', 'entries を持つ要素', '/ で終わる entry はディレクトリ', 'そのディレクトリの他のファイルを読まない']) assert.ok(p.includes(rule), rule)
+    for (const rule of ['instructions の 4 つのファイル', 'entries を持つ要素', '/ で終わる entry はディレクトリ', 'そのディレクトリの他のファイルを読まない', 'attempts/ の下のディレクトリは読まない']) assert.ok(p.includes(rule), rule)
   }
 })
 

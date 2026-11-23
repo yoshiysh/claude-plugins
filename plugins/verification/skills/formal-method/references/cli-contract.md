@@ -155,7 +155,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 - 次に、依頼 `{"req_id", "command", "worker", ...}` を `requests/<call_id>/.tmp-<nonce>` に書いて fsync し、`requests/<call_id>/<req_id>.json` へ link で公開する。`req_id` は、ミリ秒の時刻（15 桁に 0 で詰める）と乱数を `-` でつないだもので、名前の順が届いた順になる。
 - client は `responses/<call_id>/<req_id>.json` を待ち、現れたらその中身を出力にする。待つ上限は `WORKER_CALL_MAX_MS` で、上限に当たれば `E_CALL`（`no_response`。同じ命令を流し直してよい）を返す。待つ間に保持者が終わったら `E_STALE`、呼び出しが閉じたら `E_CALL`（`call_closed`）を返す（その前に応答をもう 1 度読む）。
 - `run-daemon` は、呼び出しが開いている間、依頼を名前の順に 1 つずつ処理し、応答を `guardedWrite`（`salvage.mark` があれば書かない）で rename して書く。処理した依頼を 2 度処理しない。
-- 閉じた呼び出しの `requests/<call_id>/`・`responses/<call_id>/` は、`run-daemon` が次の呼び出しを開くときか集約の段の初めに消す（`removeClosedCall`）。閉じた直後には消さない。理由: 閉じる前の最後の処理で書いた応答を、client は閉じたと知る前にもう 1 度読む（上の項目）。消した後に応答を読みに来た client は `E_CALL`（`call_closed`）を受ける（呼び出しは閉じているので、担当がすることは変わらない）。salvage も再開も依頼と応答を読まない（[salvage の手順](#salvage-の手順)。止まった run は続けない）。閉じた後に client が出した依頼のファイルは残りうる。
+- 閉じた呼び出しの `requests/<call_id>/`・`responses/<call_id>/` は、`run-daemon` が次の呼び出しを開くときか集約の段の初めに消す（`removeClosedCall`）。閉じた直後には消さない。理由: 閉じる前の最後の処理で書いた応答を、client は閉じたと知る前にもう 1 度読む（上の項目）。これは読み直せる見込みを残すだけで、読み直しを保証しない（次の呼び出しがすぐ開けば、client が読み直す前に消えうる）。消えた後に応答を読みに来た client は `E_CALL`（`call_closed`）を受ける。呼び出しは閉じているので担当がすることは変わらず、受理した提出は台帳と attempt の領域にあるので、応答が消えても記録は失われない。salvage も再開も依頼と応答を読まない（[salvage の手順](#salvage-の手順)。止まった run は続けない）。閉じた後に client が出した依頼のファイルは残りうる。
   - 依頼の `worker` が開いている呼び出しの `workers` に無ければ `E_CALL`（`unknown_worker`）。
   - `claim`: その worker の出し終えていない task を全て `tasks` で返す。出し終えていない task が無ければ、次に出せる task を作って返す（依存する task が閉じた後の task、束の worker なら次の束）。出せる task も無ければ `done: true`。期限の後は `E_CALL`（`deadline_passed`）。中断の理由があれば新しい task を作らない。担当が `claim` を流すのは、最初と、応答を失ったときの取り直しだけである（次の task は `submit` の `next` で受け取る）。
     - 応答の最上位に、worker で 1 つの値を 1 度だけ置く。task はこれらを持たない（[claim の Task](artifact-formats.md#claim-の-task)）。
@@ -171,7 +171,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
     - 畳んだ `entries` は資料ごとの `hash` を返さない（ファイルの資料の `hash` は畳まない要素だけが持つ）。理由: 担当は指紋を使わず（作業記録の指紋は `submit` の照合で CLI が `materials` から補う）、`entries` に指紋を足すと、畳んで小さくした応答が再び資料の数に比例して大きくなる。ファイルごとの指紋の正本は `materials` と台帳の `input_refs` で、`hash` を返す要素でも同じ値である。
   - `submit`: その worker が取った出し終えていない task のうち、`result_path` の返り値があり、前の照合から attempt の領域が変わったものを照合する（無ければ出し終えていない全ての task を照合する）。照合の前に、返り値の `worklog_ref` の作業記録の省いた指紋と `document_rules`、抽出役なら inventory の省いた `quote_hash` を補い、そのファイルを書き直す（[作業記録](artifact-formats.md#作業記録)。指紋を補うのは、その task の `materials` にある ref と範囲だけ。提出の指紋は補った後の attempt の領域で取る）。照合は [担当の返り値](artifact-formats.md#担当の返り値)の「成功に数えない」場合と、作業記録に書いた指紋か `document_rules` が CLI の値と違う場合、作業記録の `inputs` が `materials` に無い ref か範囲を持つ場合（どちらも作業記録の欠陥。形の違いと同じく差し戻す）と、作成役なら段の照合。照合した task ごとに `{task_id, ok, problems, done}` を返す。出し終えていない task が無ければ、取った全ての task の結果を返す。
     - 返り値の形が合わなければ `ok: false` と原因を返す。`cannot_proceed` か、その task の提出が `REVISE_ROUNDS_MAX` + 1 回に達したら、その task を失敗として閉じる（`done: true`）。提出の回数は task ごとに数える。
-    - 作成役の段の照合に欠陥があり、提出が `REVISE_ROUNDS_MAX` + 1 回に達しておらず、欠陥が前の提出より減っていれば、`ok: false` と欠陥を返し（`done: false`）、欠陥を台帳（`ledger.json`）の `revisions` に記録する（[記録台帳](artifact-formats.md#記録台帳)。応答の `problems` と同じ中身で、応答は呼び出しを閉じた後に消すので、台帳が正本）。同じ担当が直して同じ `submit` を流し直す。
+    - 作成役の段の照合に欠陥があり、提出が `REVISE_ROUNDS_MAX` + 1 回に達しておらず、欠陥が前の提出より減っていれば、`ok: false` と欠陥を返し（`done: false`）、欠陥を台帳（`ledger.json`）の `revisions` に記録する（[記録台帳](artifact-formats.md#記録台帳)。応答の `problems` と同じ中身で、応答は呼び出しを閉じた後に消すので、台帳が正本）。台帳に入れる前に欠陥ごとに[秘密値の走査](#run-の領域の配置)の型で走査し、当たった欠陥の `key`・`text` だけを「（伏せた: 秘密値の型 <型> に当たった）」に置く（値も行の番号も残さない）。理由: 1 つの欠陥の文のために段の台帳の全体を書けなくしない。同じ担当が直して同じ `submit` を流し直す。
     - それ以外は受理する（`ok: true`、`done: true`。残った欠陥は `remaining`）。受理した後の `submit` は同じ結果を返す。
     - 流し直し: その worker の前の `submit` の応答を担当が見ていない（依頼の `req_id` の時刻から `WORKER_CALL_MAX_MS` − 1000 ms 以上の後に書いたか、書けなかった）とき、取った全ての task の attempt の領域が前の `submit` の後から変わっていなければ、照合せず前の応答をそのまま返す。提出の回数は増えない。期限の後でも返す。前の応答を返した後も、その流し直しの依頼の時刻で見たかを決め直す。見ていない印は、書けなかった応答がその submit の応答のときだけ付け、拒否の応答を書けなかったときは付けない。前の応答を見た後の同じ提出は、新しい提出として照合する。理由は [architecture.md「担当の起動」](architecture.md#担当の起動)。
     - 期限の後は `E_CALL`（`deadline_passed`）。閉じた後は応答を書かないので、client が `E_CALL`（`call_closed`）を返す。
@@ -209,6 +209,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
    2. rename まで終えた記録（rename を終えた台帳 `ledger.json` の `entries` が数える範囲で、再読込の指紋が一致するもの）だけから、状態 `停止` の結果を作る。停止の理由は `処理の中断`、`stop_report.stage` は台帳の `stage_confirmed`（最後に確定した段）。台帳が無いか読めなければ、保存済みの範囲は空で、段は `受付` とする。
       - 結果には、時刻・pid・nonce など、作った者や作った時で変わる値を入れない。キーの順は辞書順に固定する。そのため、勝者でも、勝者が死んだ後に続けた salvage でも、同じ入力から同じ内容の結果ができる。
       - `performance` の salvage の所要時間と run 全体の所要時間は `取得できず` とし、理由を「salvage の結果は作った者と時刻によらない内容にするため、時刻を記録しない」とする。
+      - 台帳 `ledger.json` が読めて形に合えば、`records.ledger_refs` を `["ledger.json", "salvage-ledger.json"]` とし、`records.saved` に `{kind: "ledger", ref: "ledger.json", hash}`（salvage が読んだ時点の指紋）を入れる。無いか形に合わなければ `["salvage-ledger.json"]` だけとする。理由: 作成役の出し直しに返した欠陥（`revisions`）と適用した文書規約はその台帳にしか無いので、salvage の結果から辿れないと SP-014 の記録への参照が欠ける。公開しない R'（4 の I/O の誤りと秘密値の走査）でも同じく辿れるようにする。
    3. 作業記録 `salvage-worklog.json` と追補台帳 `salvage-ledger.json` を同じく決定的に作り、[公開の手順](#結果と台帳の保存の失敗)で公開する。
       - **秘密値の走査**: 公開の前に、作業記録・追補台帳・結果の 3 つを[秘密値の走査](#run-の領域の配置)の型で走査する。どれか 1 つに当たれば、3 つとも公開せず（3 と 4 を行わない）、次の R' を標準出力で返す。
         - `status: "停止"`・`provisional: true`。`stop_report.reasons` は、`処理の中断`（2 のとおり）の後に `保存の失敗`（段 `集約`）と `記録の未保存`（段 `集約`）。
@@ -276,7 +277,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `<run_id>/status.json` | `run-daemon`（rename） | `Status` |
 | `<run_id>/request.json` | `run-daemon` | 受け付けた依頼の正規形（[依頼](artifact-formats.md#依頼request)） |
 | `<run_id>/targets/<target_id>/manifest.json` | `run-daemon` | 対象の集まりの一覧（ファイルごとの元の絶対パス・作業ツリーからの相対パス・指紋。[成果物の形式の Manifest](artifact-formats.md#依頼request)）。対象の写しは作らない |
-| `<run_id>/views/<unit_id>.json` | `run-daemon` | 確認役に渡す資料の写し（`fidelity`・`nonformal` の unit の分の inventory。[成果物の形式の担当に渡す資料](artifact-formats.md#claim-の-task)） |
+| `<run_id>/views/<unit_id>.json` | `run-daemon` | 確認役・原因の分類役に渡す資料の写し（`fidelity`・`nonformal` の unit の分の inventory と、主題が問いの原因の分類役の問いの本文。[成果物の形式の担当に渡す資料](artifact-formats.md#claim-の-task)） |
 | `<run_id>/document-rules/<指紋>.md` | `run-daemon` | 適用した文書の一般規約の不変の写し |
 | `<run_id>/inbox/<call_id>.json` | client（`close`。link） | [受け箱](#受け箱) |
 | `<run_id>/requests/<call_id>/<req_id>.json` | client（`claim`・`query`・`submit`。link） | [依頼と応答](#依頼と応答)の依頼。受け渡しの口で、記録（`RecordKind`）に数えない。呼び出しを閉じた後、次の呼び出しを開くときか集約で、`run-daemon` が `requests/<call_id>/` ごと消す |
@@ -300,7 +301,11 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 | `.tmp-<run_id>-<nonce>/request.input.json` | `start` | `start` が受け取った `request` の値そのまま。`run-daemon` だけが読む |
 
 - 記録は全て、一時ファイル・fsync・rename（又は link）・ディレクトリの fsync で書く。同じ path を別の内容で上書きしない（`ledger.json`・`status.json`・`formal-method-cli.mjs` と、`calls/<call_id>/tasks.json` の閉じた後の書き直しを除く）。
-- run の領域で消すのは、閉じた呼び出しの `requests/<call_id>/`・`responses/<call_id>/` と、終わった道具の `children/<pgid>.json` だけである。どれも受け渡しの口か process の制御の記録で、記録（`RecordKind`）・台帳・結果の `records` に入らない（SP-FORMALMETHOD-014 と PR-BPDESIGNEDSKILL-034 が保持を求める作業記録・証拠・記録台帳ではない）。
+- run の領域で消すのは次の 4 つだけである。どれも受け渡しの口・process の制御・排他の記録か書きかけの一時ファイルで、記録（`RecordKind`）・台帳・結果の `records` に入らない（SP-FORMALMETHOD-014 と PR-BPDESIGNEDSKILL-034 が保持を求める作業記録・証拠・記録台帳ではない）。
+  - 閉じた呼び出しの `requests/<call_id>/`・`responses/<call_id>/`（`run-daemon` の `removeClosedCall`）。
+  - 終わった道具の `children/<pgid>.json`（`run-daemon`）。
+  - `run.lock`（`run-daemon` が終わるときに、`nonce` を照らしてから `releaseOwnLock` で外す）。
+  - 公開と書込みの一時ファイル（`<最終の名前>.tmp-<nonce>`、依頼・受け箱の `.tmp-<nonce>`）。link か rename の後と、その失敗の後に unlink する（rename の前に止まった一時ファイルは残りうる。後始末の失敗は結果を変えない）。
 - **秘密値の走査**（依頼者の決定）: formal-method が書く記録（依頼の写し、担当の返り値・成果物（担当が書いた `.smt2` を含む）・作業記録、確認の記録、道具に渡す query（全ての実行の `checks/<execution_id>/input.smt2`。CLI が証人から作る replay の query（[証人](#証人)）を含む）、道具の標準出力・標準エラー、作業記録、台帳、結果、表示）は、書く直前に下の型で走査する。見つかれば書かずに、その記録を保存できなかったもの（`records.unsaved`、停止の理由 `保存の失敗`）として扱い、値は診断にも残さない（型と行の番号だけ）。
   - 型は誤検知の少ないものだけに絞り、次の閉じた集合とする。この集合に無い形は検出しない。
 

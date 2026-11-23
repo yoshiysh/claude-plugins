@@ -407,11 +407,18 @@ test('SP-FORMALMETHOD-011・012 担当に渡す資料: 原因の分類役には�
     question: { properties: [defaultScenario().properties[0], { ...defaultScenario().properties[0], id: 'P2', line: 3 }], questionsBy: { extractor: [q] }, cause: { cause: '要求の不足', grounds: 'R2 は等しい場合を定めない', questions: [q] } },
   };
   for (const [kind, scenario] of Object.entries(scenarios)) {
-    const { harness } = await runScenario(t, { request, scenario });
+    const { harness, status } = await runScenario(t, { request, scenario });
     const task = harness.memory.tasks.find((x) => x.role === 'cause-analyst' && x.context.subject?.kind === kind);
     assert.ok(task, `${kind} の原因の分類役が出る`);
     const tr = task.context.input_refs.find((x) => x.ref === 'target:T1/spec.md');
     assert.deepEqual(tr?.spans, ['L1-L4'], `${kind}: 依頼の範囲の全体（主題の出所はその中）: ${JSON.stringify(task.context.input_refs)}`);
+    if (kind !== 'question') continue;
+    // 問いの本文は作成役の返り値にしか無く、原因の分類役はそれを読まないので、CLI が views/<unit_id>.json に写して渡す
+    const ref = `views/${task.context.unit_id}.json`;
+    assert.ok(task.context.input_refs.some((x) => x.ref === ref), `問いの本文の写し ${ref} を渡す: ${JSON.stringify(task.context.input_refs)}`);
+    assert.deepEqual(JSON.parse(readFileSync(join(status.run_dir, ref), 'utf8')), { unit_id: task.context.unit_id, question: q });
+    const ledger = JSON.parse(readFileSync(join(status.run_dir, 'ledger.json'), 'utf8'));
+    assert.ok(ledger.entries.some((e) => e.ref === ref && e.kind === 'material_view'), '台帳に material_view で登録する');
   }
 });
 

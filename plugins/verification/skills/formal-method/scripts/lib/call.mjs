@@ -12,6 +12,7 @@ import { ROLES } from './roles.mjs';
 import { CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
 import { parseTargetRef } from './target-refs.mjs';
+import { redactSecretText } from './secrets.mjs';
 
 const CLI_PATH = fileURLToPath(new URL('../formal-method-cli.mjs', import.meta.url));
 const REQUEST_POLL_MS = 50;
@@ -491,8 +492,10 @@ function submit(ctx, s) {
   s.snapshot = attemptHashes(run, s);
   const remaining = r.defects.map((d) => d.text);
   if (r.defects.length === 0 || s.submits >= SUBMITS_MAX || r.defects.length >= s.prev || run.halted()) return accept(ctx, s, s.last, remaining);
-  // 出し直しに返した欠陥は台帳の revisions に持つ（submit の応答の problems と同じ中身で、応答は呼び出しを閉じると消す）
-  run.revisions.push({ task_id: s.task.task_id, submit: s.submits, stage: s.task.context.stage, defects: r.defects.map((d) => ({ key: d.key, text: d.text })) });
+  // 出し直しに返した欠陥は台帳の revisions に持つ（submit の応答の problems と同じ中身で、応答は呼び出しを閉じると消す）。
+  // 台帳に入れる前に欠陥ごとに秘密値の型で走査し、当たった欠陥の文（と key）だけを伏せた印に置く（台帳の全体を書けなくしない）
+  run.revisions.push({ task_id: s.task.task_id, submit: s.submits, stage: s.task.context.stage, defects: r.defects.map((d) => ({ key: redactSecretText(d.key), text: redactSecretText(d.text) })) });
+  // 欠陥は段の終わりの台帳の rename までは run-daemon の記憶の中にしか無い（architecture.md「未検証と限界」）
   run.log(s.task.context.stage).actions.push(`${s.task.role} の提出 ${s.submits} 回目に欠陥 ${r.defects.length} 件を見つけたので、同じ担当に出し直させた（台帳の revisions）。`);
   s.prev = r.defects.length;
   s.lastCause = `欠陥 ${r.defects.length} 件の出し直しを求めた後、書き換えた成果物が提出されなかった`;

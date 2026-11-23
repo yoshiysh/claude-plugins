@@ -53,7 +53,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | `role`・`task_id` | task の `role` と `task_id` |
 | `stage` | `context.stage` |
 | `target` | 対象（`context.target_id`、`model_id`、`unit_id` など、この task が扱うもの） |
-| `inputs` | `query` の資料のうち、読んだファイルごとの `{ref}`。`instructions` のファイルは書かない。`ref` は、ファイルの資料ならその `ref`、ディレクトリの資料の下のファイルなら `<ディレクトリの ref>/<ディレクトリからの相対 path>`、畳んだ資料なら `<ref><entry>`（`entry` がディレクトリなら `<ref><entry><ディレクトリからの相対 path>`）。範囲（`spans`）で渡された対象のファイルは `{ref, spans: [{span}]}` で、渡された範囲のうち読んだものだけを書く。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
+| `inputs` | `query` の資料のうち、読んだファイルごとの `{ref}`。`instructions` のファイルは書かない。`ref` は、ファイルの資料ならその `ref`、ディレクトリの資料の下のファイルなら `<ディレクトリの ref>/<ディレクトリからの相対 path>`、畳んだ資料なら `<ref><entry>`（`entry` がディレクトリなら `<ref><entry><ディレクトリからの相対 path>`）。範囲（`spans`）で渡された対象のファイルは `{ref, spans: [{span}]}` で、渡された範囲のうち読んだものだけを書く。`span` は渡された `spans` の値のまま書く（範囲の一部だけを読んでも、行を切り詰めた範囲にしない。指紋は渡した範囲ごとにしか固定していないので、一部の範囲は渡していない範囲として差し戻される）。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
 | `actions`・`results`・`grounds` | したこと、得たこと、その根拠 |
 | `failures`・`unconfirmed` | できなかったこととその理由、確かめられなかったこと |
 | `unreadable_inputs` | 読めなかった資料と理由 |

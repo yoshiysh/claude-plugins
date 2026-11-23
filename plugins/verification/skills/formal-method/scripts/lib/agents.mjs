@@ -118,7 +118,16 @@ export function completeWorklog(worklog, { materials = [], docRules = null }) {
       out.spans = x.spans.map((sp) => {
         if (!sp || typeof sp !== 'object' || !parseSpan(sp.span)) { problems.push(`作業記録の inputs の ${x.ref} の範囲 ${JSON.stringify(sp?.span ?? sp)} を読めない`); return sp; }
         const own = m.spans?.find((y) => y.span === sp.span);
-        if (!own) { problems.push(`作業記録の inputs の ${x.ref} の ${sp.span} は渡していない範囲（query の spans に無い）`); return sp; }
+        if (!own) {
+          // 渡した範囲の一部だけを書いた範囲も、指紋は渡した範囲の単位でしか固定していないので補わない（今のファイルで求めない）。
+          // 直し方が分かるよう、含む渡した範囲を示す（agent-obligations.md「作業記録」: 範囲は query の spans の値のまま書く）
+          const p = parseSpan(sp.span);
+          const outer = (m.spans ?? []).find((y) => { const q = parseSpan(y.span); return q && q.from <= p.from && p.to <= q.to; });
+          problems.push(outer
+            ? `作業記録の inputs の ${x.ref} の ${sp.span} は渡された範囲 ${outer.span} の一部。範囲は query の spans の値のまま書く`
+            : `作業記録の inputs の ${x.ref} の ${sp.span} は渡していない範囲（query の spans に無い）`);
+          return sp;
+        }
         const o = { ...sp };
         fill(o, 'hash', own.hash, `${x.ref} の ${sp.span}`);
         return o;

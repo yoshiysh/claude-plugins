@@ -2,7 +2,7 @@
 
 # 型の抜粋（fidelity-reviewer）
 
-この役が書く型（`Worklog`・`ReviewReturn`）の節と、読む型（`Task`・`Request`・`fixed`・`ModelFile`・`MappingFile`・`Judgment`・`End`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
+この役が書く型（`Worklog`・`ReviewReturn`）の節と、読む型（`Task`・`Request`・`fixed`・`ModelFile`・`MappingFile`・`Judgment`・`End`・`Inventory`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
 
 ## 共通の型
 
@@ -120,6 +120,27 @@ End = {
   unreadable_output: boolean,
   stopped_by: "時間" | "その他" | null,    // formal-method が止めた理由。止めていなければ null
   time_limit_hit: "依頼元" | "道具" | null // 実行中に達した時間の上限
+}
+```
+
+## inventory（抽出役。対象 1 つにつき 1 つ）
+
+```text
+Inventory = {
+  schema: "formal-method.inventory/1",
+  target_id: Id, content_hash: Sha256,      // 集まりの指紋
+  scanned: [{ file: FilePath, span: Span | null, status: "read" | "unread", reason: string | null }]+,
+           // 依頼の範囲を覆う。scope.include がその対象を target で挙げたか、その対象を指す location が無ければ全てのファイルの全体。
+           // それ以外は location が指すファイル（span があればその行、無ければ全体）だけ。範囲の外のファイル・行は求めず、unread にもしない。
+           // unread は reason 非 null。span が null ならファイルの全体
+  elements: [{ id: Id, kind: "requirement" | "goal" | "state" | "input" | "output" | "constraint" | "event" | "result",
+               source: { target_id: Id, file: FilePath, span: Span, quote_hash: Sha256 },  // quote_hash は span の行を "\n" でつないだ文字列の SHA-256。
+                                                                                              // 抽出役は省いてよく、submit の照合で CLI が補う（書けば照らす）
+               text: string }],
+  properties: [{ id: Id, source_ids: [Id]+, statement: string, formalizable: boolean,
+                 nonformal_reason: string | null, nonformal_method: string | null,
+                 assumptions: [string], scope: string, blocked_by_question: [Id] }],
+  external_dependencies: [{ id: Id, text: string, source: SourceRef | null }]
 }
 ```
 

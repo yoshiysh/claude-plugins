@@ -3,6 +3,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resultInvariants, refInvariants } from './test-fixtures/result-schema.mjs';
 import { sampleResult } from './test-fixtures/fabricate.mjs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const end = { started: true, tool_result: '満たす', abnormal_exit: false, unreadable_output: false, stopped_by: null, time_limit_hit: null };
 function richResult() {
@@ -288,3 +293,25 @@ for (const [name, opts, breakIt, expected] of PLAN_BROKEN) {
     assert.ok(errs.some((e) => e.includes(expected)), `${expected}: ${errs.join(' | ')}`);
   });
 }
+
+test('SKILL.md 結果の提示: 参照から結果を読む例は、提示の順の全ての欄（provisional・status・stop_report・verified_scope・性質の判定・models の範囲・unverified・反例・原因・問い・records.unsaved）を取り出す', (t) => {
+  const skill = readFileSync(fileURLToPath(new URL('../SKILL.md', import.meta.url)), 'utf8');
+  const m = /`node -e '([^']+)' <path>`/.exec(skill);
+  assert.ok(m, 'SKILL.md に参照から結果を読む例がある');
+  const r = richResult();
+  r.unverified = [{ item: 'x', reason: 'y' }];
+  r.questions = [{ id: 'Q1', missing_decision: 'd', affected: ['P1'], options: ['a', 'b'] }];
+  r.records.unsaved = [{ kind: 'report', ref: 'report.md', reason: 'z' }];
+  const dir = mkdtempSync(join(tmpdir(), 'fm-skill-example-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'result.json');
+  writeFileSync(path, JSON.stringify(r));
+  const out = JSON.parse(execFileSync(process.execPath, ['-e', m[1], path], { encoding: 'utf8' }));
+  assert.deepEqual(Object.keys(out), ['provisional', 'status', 'stop_report', 'verified_scope', 'properties', 'models', 'unverified', 'counterexamples', 'causes', 'questions', 'records'], '提示の順');
+  assert.deepEqual(out, {
+    provisional: r.provisional, status: r.status, stop_report: r.stop_report, verified_scope: r.verified_scope,
+    properties: r.properties.map((p) => ({ id: p.id, verdict: p.verdict, assurance: p.assurance, detection: p.detection })),
+    models: r.models.map((x) => ({ id: x.id, covers: x.covers })),
+    unverified: r.unverified, counterexamples: r.counterexamples, causes: r.causes, questions: r.questions, records: { unsaved: r.records.unsaved },
+  });
+});

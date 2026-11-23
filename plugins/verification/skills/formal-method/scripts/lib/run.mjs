@@ -1161,10 +1161,14 @@ export class Run {
         const sel = m ? (ids.length ? this.elementScopeOf(ids) : this.mappingScopeOf(m.mapping.data.rows)) : new Map();
         return [...causeTargets(sel), ...(m ? modelRefs(m) : []), worklog('モデル化')];
       }
-      // 問い → 影響する性質の出所
+      // 問い → 問いの本文の写し・影響する性質の出所。問いの本文は作成役の返り値にしか無く、原因の分類役は返り値を読まないので、
+      // CLI が views/<unit_id>.json（{ unit_id, question }）に写して渡す（artifact-formats.md「担当の資料の写し」）
       const q = this.authorQuestions.find((x) => x.q.id === s.id);
       const affected = this.inventoryProperties().filter((p) => (q?.q.affected ?? []).includes(p.id)).flatMap((p) => p.source_ids);
-      return [...causeTargets(this.elementScopeOf(affected)), ...(q?.outputRefs ?? []).map((ref, i) => R(`output-${i + 1}`, ref))];
+      const unitId = causeUnitId(s, this.combinations ?? []);
+      const viewRef = join('views', `${unitId}.json`);
+      const view = q && this.writeRecordFile(viewRef, JSON.stringify({ unit_id: unitId, question: q.q }, null, 2), { kind: 'material_view' }) ? [R('view', viewRef)] : [];
+      return [...view, ...causeTargets(this.elementScopeOf(affected)), ...(q?.outputRefs ?? []).map((ref, i) => R(`output-${i + 1}`, ref))];
     };
     // 1 体に詰める量は、その体の単位の資料の和集合のバイト数（共有の資料は 1 度だけ数える。call.mjs の packByUnion）
     // 範囲を持つ対象の ref は spans ごと渡し、範囲の行だけを数える

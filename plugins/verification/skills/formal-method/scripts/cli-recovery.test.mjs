@@ -75,6 +75,10 @@ test('cli-contract salvage 4・5 SP-FORMALMETHOD-015 AC-19: 保持者が死ん�
   assert.equal(ledger.kind, 'salvage');
   assert.equal(ledger.registered_result_hash, fileHash(join(dir, 'result.json')), '公開した結果の指紋が追補台帳に載る');
   assert.ok(r.records.ledger_refs.includes('salvage-ledger.json'));
+  // run-daemon の台帳（出し直しの欠陥 revisions の正本）が保存済みなら、結果から辿れる（SP-FORMALMETHOD-014）
+  assert.ok(existsSync(join(dir, 'ledger.json')), '担当を待っていた run には段の台帳がある');
+  assert.deepEqual(r.records.ledger_refs, ['ledger.json', 'salvage-ledger.json']);
+  assert.deepEqual(r.records.saved.find((x) => x.ref === 'ledger.json'), { kind: 'ledger', ref: 'ledger.json', hash: fileHash(join(dir, 'ledger.json')) });
   // 台帳の entry の欄（artifact-formats「記録台帳」）: salvage の追補台帳と、あれば run-daemon の台帳
   const tasks = tasksById(dir);
   assert.ok(tasks.size >= 1, '担当を待っていた run には tasks.json がある');
@@ -90,6 +94,27 @@ test('cli-contract salvage 4・5 SP-FORMALMETHOD-015 AC-19: 保持者が死ん�
   assert.deepEqual(snapshotTree(dir), before, '2 回目は何も書かない');
   // salvage の後、run-daemon は書かない: status.json は terminal でない古いままでよいが、2 つ目の結果は現れない
   assert.deepEqual(readdirSync(dir).filter((n) => /result\.json$/.test(n)), ['result.json'], '結果のファイルは result.json 1 つだけ');
+});
+
+test('cli-contract salvage 5 SP-FORMALMETHOD-014: salvage の結果は、読める run-daemon の台帳 ledger.json があるときだけ ledger_refs と saved にそれを持ち、無いか形に合わなければ追補台帳だけを指す', async (t) => {
+  const { buildSalvageResult } = await import('./lib/result.mjs');
+  const ws = makeWorkspace('fm-salvage-refs-');
+  t.after(() => removeTree(ws));
+  const { dir, runId } = makeRunDir(ws);
+  const none = buildSalvageResult(dir, { location: 'ローカル', worklog: { hash: `sha256:${'0'.repeat(64)}` } }).result;
+  assert.deepEqual(none.records.ledger_refs, ['salvage-ledger.json'], '台帳が無ければ追補台帳だけ');
+  assert.equal(none.records.saved.some((x) => x.ref === 'ledger.json'), false);
+  writeFileSync(join(dir, 'ledger.json'), '{"schema":"other"}');
+  assert.deepEqual(buildSalvageResult(dir, { location: 'ローカル' }).result.records.ledger_refs, ['salvage-ledger.json'], '形に合わない台帳は指さない');
+  const ledger = { schema: 'formal-method.ledger/2', run_id: runId, kind: 'main', stage_confirmed: 'モデル化', location: 'ローカル', document_rules: null,
+    revisions: [{ task_id: 't-1', submit: 1, stage: 'モデル化', defects: [{ key: 'd0', text: '欠陥 0' }] }], entries: [], registered_result_hash: null };
+  writeFileSync(join(dir, 'ledger.json'), JSON.stringify(ledger));
+  const { result: r } = buildSalvageResult(dir, { location: 'ローカル', worklog: { hash: `sha256:${'0'.repeat(64)}` } });
+  assert.deepEqual(resultInvariants(r), []);
+  assert.deepEqual(r.records.ledger_refs, ['ledger.json', 'salvage-ledger.json']);
+  assert.deepEqual(r.records.saved.find((x) => x.ref === 'ledger.json'), { kind: 'ledger', ref: 'ledger.json', hash: fileHash(join(dir, 'ledger.json')) });
+  const unpublished = buildSalvageResult(dir, { location: 'ローカル', unpublished: true }).result;
+  assert.deepEqual(unpublished.records.ledger_refs, ['ledger.json', 'salvage-ledger.json'], '公開しない R\' でも、保存済みの台帳は辿れる');
 });
 
 test('cli-contract 結果と台帳の保存の失敗 公開の負け: 並行に 4 つの salvage を呼ぶと、どれも E_BUSY（salvage）か、result.json に公開された 1 つの結果を返す（負けた側は既にある結果を読んで返す）', async (t) => {

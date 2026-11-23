@@ -61,10 +61,12 @@ test('SP-FORMALMETHOD-013 型の抜粋: 抜粋の型の定義は artifact-format
     'partition-author': ['PartitionsFile', 'ModelFile', 'Worklog'],
     'plan-author': ['PlanFile', 'MutationsFile', 'ModelFile', 'Worklog'],
     'extraction-reviewer': ['Inventory', 'Worklog'],
-    'fidelity-reviewer': ['ModelFile', 'Clause', 'MappingFile', 'Judgment', 'Worklog'],
+    // views/<unit_id>.json は資料の形から型に辿れないので、中身の inventory の性質と要素の型（Inventory）を入口に明示する
+    'fidelity-reviewer': ['ModelFile', 'Clause', 'MappingFile', 'Judgment', 'Worklog', 'Inventory'],
     'assurance-reviewer': ['Inventory', 'Worklog'],
     'composition-reviewer': ['PartitionsFile', 'ModelFile', 'Worklog'],
-    'cause-analyst': ['ModelFile', 'Cause', 'Subject', 'Question', 'Worklog'],
+    // 主題が問いなら、問いを返した作成役の outputs（inventory・分割・計画・変異）を読む
+    'cause-analyst': ['ModelFile', 'Cause', 'Subject', 'Question', 'Worklog', 'Inventory', 'PartitionsFile', 'PlanFile', 'MutationsFile'],
   };
   for (const [role, names] of Object.entries(want)) {
     const text = read(`${TYPES_DIR}/${role}.md`);

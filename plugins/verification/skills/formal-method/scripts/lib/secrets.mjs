@@ -23,3 +23,12 @@ export function scanSecrets(input) {
 }
 
 export const describeHits = (hits) => hits.map((h) => `${h.type}（${h.line} 行目）`).join('・');
+
+// 文が秘密値の型に当たれば、型の名前だけを持つ伏せた印の文に置く（値も行の番号も残さない）。当たらなければそのまま返す。
+// 台帳に入れる欠陥の文（revisions）に使う: 1 つの欠陥の文のために台帳の全体を書けなくしない（cli-contract.md「秘密値の走査」）。
+export const REDACTED_MARK = '伏せた';
+export function redactSecretText(text) {
+  const hits = scanSecrets(String(text));
+  if (!hits.length) return text;
+  return `（${REDACTED_MARK}: 秘密値の型 ${[...new Set(hits.map((h) => h.type))].join('・')} に当たった）`;
+}

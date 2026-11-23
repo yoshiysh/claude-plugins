@@ -512,7 +512,7 @@ Judgment = {                               // 判断を要する項目（SP-012�
 
 ```text
 Records = {
-  ledger_refs: [Ref]+,                     // ledger.json。salvage の結果なら salvage-ledger.json も
+  ledger_refs: [Ref]+,                     // ledger.json。salvage の結果なら salvage-ledger.json と、読める ledger.json があればそれ（ledger.json が先）
   saved: [{ kind: RecordKind, ref: Ref, hash: Sha256 | null }],
   unsaved: [{ kind: RecordKind, ref: Ref | null, reason: string }]
 }
@@ -962,7 +962,7 @@ InputRef = { name: string, ref: Ref, spans?: [Span] }   // spans は対象のフ
 - 範囲（`spans`）は Span の行の規則で数える。`materials` と台帳の `input_refs` の `RefHash` は、範囲を持つ対象のファイルについて、ファイル全体の指紋（`hash`）と、範囲ごとの指紋（範囲の行を `"\n"` でつないだ文字列の SHA-256。`quote_hash` と同じ求め方）を持つ。
 - 範囲の決め方: 依頼の範囲は、`scope.include` がその対象を挙げるか、その対象を指す `location` が無ければファイルの全体、`location` が `span` を持てばその範囲（`span` の無い `location` はそのファイルの全体）。要素の範囲は inventory の `elements[].source.span`。対応表の範囲は `rows[].source` が `location` の行の `span`（無ければファイルの全体）。
 - 抽出役とモデル作成役: `request.json`、対象の `manifest.json`、依頼の範囲の対象のファイル（モデル作成役は全ての inventory も）。
-- **担当の資料の写し（`views/<unit_id>.json`、台帳の `kind: "material_view"`）**: CLI が確認の段の始めに、`fidelity` と `nonformal` の unit ごとに書く。`fidelity` は `{ unit_id, model_id, properties: [そのモデルの inventory_property_ids の inventory の性質], bound_elements: [それらの性質の source_ids の要素], unbound_elements: [その性質を持つ inventory の、どの性質の source_ids にも無い要素], external_dependencies: [その inventory の { id, text, source }], model_properties: [そのモデルの性質ごとの { id, inventory_property_ids, expected, assurance, clauses, query_path }] }`（`clauses`・`assurance` は `ModelFile.properties[]` の値のまま、`query_path` はその性質の `query_ref` の絶対パス。担当がモデルのファイルから性質ごとの節を切り出さなくてよくする。要素は `{ id, kind, source: { target_id, file, span } }` で本文を持たない。本文は渡す範囲の対象のファイルで読む。他のモデルの性質にだけ結ばれた要素は入れない）、`nonformal` は `{ unit_id, properties: [その性質], elements: [その性質の source_ids の inventory の要素（本文を含む）] }`。理由: inventory の全体を渡さず、その担当が判断に要る分だけを渡す。
+- **担当の資料の写し（`views/<unit_id>.json`、台帳の `kind: "material_view"`）**: CLI が確認の段の始めに、`fidelity` と `nonformal` の unit と、主題が問いの原因の分類役（`cause-question-<id>`）ごとに書く。`fidelity` は `{ unit_id, model_id, properties: [そのモデルの inventory_property_ids の inventory の性質], bound_elements: [それらの性質の source_ids の要素], unbound_elements: [その性質を持つ inventory の、どの性質の source_ids にも無い要素], external_dependencies: [その inventory の { id, text, source }], model_properties: [そのモデルの性質ごとの { id, inventory_property_ids, expected, assurance, clauses, query_path }] }`（`clauses`・`assurance` は `ModelFile.properties[]` の値のまま、`query_path` はその性質の `query_ref` の絶対パス。担当がモデルのファイルから性質ごとの節を切り出さなくてよくする。要素は `{ id, kind, source: { target_id, file, span } }` で本文を持たない。本文は渡す範囲の対象のファイルで読む。他のモデルの性質にだけ結ばれた要素は入れない）、`nonformal` は `{ unit_id, properties: [その性質], elements: [その性質の source_ids の inventory の要素（本文を含む）] }`、問いの原因の分類役は `{ unit_id, question: Question }`（作成役が返した問いの本文のまま）。理由: inventory の全体を渡さず、その担当が判断に要る分だけを渡す。問いの本文は作成役の返り値（`return.json`）にしか無く、原因の分類役は返り値を読まないので写して渡す。
 
 **独立検証者と原因の分類役の `input_refs`**（CLI が作り、`query` が返す正本。担当の読む範囲は `agent-obligations.md` の独立検証者の節）
 
@@ -975,7 +975,7 @@ InputRef = { name: string, ref: Ref, spans?: [Span] }   // spans は対象のフ
 | `fidelity` | `views/<unit_id>.json`、そのモデルの性質を支える出所の範囲（`run.mjs` の `modelScope`: その `model_id` の対応表の行、そのモデルの性質の `inventory_property_ids` の inventory の性質・節・遷移・禁止・入出力の契約の `source_ids` の要素、節の外部の依存の `source`）に、view の `unbound_elements` の要素とその inventory の全ての外部の依存の `source` を足した範囲の対象のファイル、その `model_id` のモデルと対応表、そのモデルの全ての性質の `query_ref`、そのモデルの判断を要する項目の記録 `judgments/<model_id>.json` とその項目の検査の記録（あれば）、`worklogs/cli-モデル化.json`。図はモデルから CLI が導く値でファイルが無いので、モデルで代える |
 | `nonformal` | `views/<unit_id>.json`、その性質の `source_ids` の要素の範囲の対象のファイル |
 | `composition` | `PartitionsFile`、全てのモデル、`contracts[]`・`composition_conditions[]` の `query_ref`、`kind` が `contract`・`composition` の検査の記録、`worklogs/cli-計画.json`。依存グラフと候補は CLI が導く値でファイルが無いので、モデルと分割で代える |
-| 原因の分類（`cause-analyst`、`perspective` は null） | 主題から辿れる範囲に、全ての対象の依頼の範囲（`extraction` と同じ）を足した範囲の対象のファイル（`要求の不足`・`形式モデルの欠陥` は出所に無いことで決まるので）。`subject` が反例なら、その検査と replay の検査の記録、そのモデルと対応表と、反例のモデルの性質を支える出所の範囲（`modelScope` をその性質に限ったもの）。組合せなら、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json` と、その状態か出来事の遷移・禁止の `source_ids` の要素の範囲（無ければそのモデルの対応表の行の範囲）。問いなら、問いを返した作成役の `outputs` のファイルと、問いの `affected` の性質の `source_ids` の要素の範囲 |
+| 原因の分類（`cause-analyst`、`perspective` は null） | 主題から辿れる範囲に、全ての対象の依頼の範囲（`extraction` と同じ）を足した範囲の対象のファイル（`要求の不足`・`形式モデルの欠陥` は出所に無いことで決まるので）。`subject` が反例なら、その検査と replay の検査の記録、そのモデルと対応表と、反例のモデルの性質を支える出所の範囲（`modelScope` をその性質に限ったもの）。組合せなら、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json` と、その状態か出来事の遷移・禁止の `source_ids` の要素の範囲（無ければそのモデルの対応表の行の範囲）。問いなら、問いの本文の写し `views/<unit_id>.json`、問いを返した作成役の `outputs` のファイルと、問いの `affected` の性質の `source_ids` の要素の範囲 |
 
 - 実行していない検査（記録のディレクトリが無いもの）は入れない。`attempts/` のディレクトリは入れない（その中のファイルは入れてよい）。`query` の応答も、`attempts/` の下のファイルをディレクトリに畳まない（[CLI 契約の依頼と応答](cli-contract.md#依頼と応答)の `query`）。理由: `attempts/<task_id>/` には作成役の作業記録と返り値もあり、ディレクトリとして渡すと独立検証者の読まない資料が入る。
 - **ディレクトリの ref の指紋**: `materials` と台帳の `input_refs`（どちらも `[RefHash]`）では、ディレクトリを指す `input_refs` の要素を、その下の全てのファイル（再帰的に、ディレクトリ自身は除く）の `RefHash` に展開する。並びは `input_refs` の要素の順で、1 つのディレクトリから展開したものの中だけを `ref` の UTF-8 のバイト列の辞書順に並べる。ファイルを指す要素はそのまま 1 つの `RefHash` にする。指紋を取る時点は意味の確認の作り方と同じ（担当の最初の `query`）。理由: `RefHash` はファイル 1 つの指紋なので、ディレクトリの中身を渡した資料として再現できる形にする。
@@ -1029,7 +1029,7 @@ Ledger = {
   location: "ローカル" | "CI",            // run-daemon の実行場所（salvage の performance.location）
   document_rules: { ref: Ref, version: Sha256 } | null,   // 適用した文書規約の写し。保存できなかったら null
   revisions: [{ task_id: Id, submit: integer ≥ 1, stage: Stage,
-                defects: [{ key: string, text: string }]+ }],   // 作成役の出し直しに返した欠陥（submit の応答の problems の正本）
+                defects: [{ key: string, text: string }]+ }],   // 作成役の出し直しに返した欠陥（submit の応答の problems の正本）。秘密値の型に当たった key・text は「（伏せた: 秘密値の型 <型> に当たった）」に置く
   entries: [{ kind: RecordKind, ref: Ref, hash: Sha256, stage: Stage,
               producer: string,           // "cli"、担当の task_id、又は "salvage"
               model: string | null, effort: string | null, permissions: [string],

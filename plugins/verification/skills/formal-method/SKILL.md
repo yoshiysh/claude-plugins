@@ -187,7 +187,7 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 
 `status.action` が `terminal` のとき、結果の正本は次のどちらかである（[CLI 契約の status.json](references/cli-contract.md#statusjson)）。提示は結果の欄の値を並べて引用するだけで、本文を作らない。結果の構造に無い成功を足さない（SP-FORMALMETHOD-003）。
 
-- `status.result` が `{"ref": "result.json", "path": ...}`（参照）なら、`path` のファイルが結果の正本である。提示に要る欄だけを取り出して読む。ファイルは 1 行の JSON で数 MB になりうるので、全体を Read しない。例: `node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify({status:r.status,provisional:r.provisional,stop_report:r.stop_report,unverified:r.unverified}))' <path>`。出力の JSON に結果の本文は無い（本文を文脈に入れないため）。
+- `status.result` が `{"ref": "result.json", "path": ...}`（参照）なら、`path` のファイルが結果の正本である。提示に要る欄だけを取り出して読む。ファイルは 1 行の JSON で数 MB になりうるので、全体を Read しない。例（下の「人に示すとき」の順の全ての欄を取り出す）: `node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify({provisional:r.provisional,status:r.status,stop_report:r.stop_report,verified_scope:r.verified_scope,properties:r.properties.map(p=>({id:p.id,verdict:p.verdict,assurance:p.assurance,detection:p.detection})),models:r.models.map(m=>({id:m.id,covers:m.covers})),unverified:r.unverified,counterexamples:r.counterexamples,causes:r.causes,questions:r.questions,records:{unsaved:r.records.unsaved}}))' <path>`。出力の JSON は提示に要る欄だけで、検査・確認・分割・性能などの本文を持たない（本文を文脈に入れないため）。
 - `status.result` が結果の本文（`schema` を持つ）なら、それが正本である。仮の結果（`provisional: true`）か、保存を確かめられなかった結果である。
 
 **呼び出し元がスキルのとき**: `status.result` を書き換えずにそのまま返し、`status.run_dir` を添える（参照なら参照のまま返す。呼び出し元が `path` を読む）。仮の結果であることは本文の `provisional` の欄で伝わる。

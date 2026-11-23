@@ -10,6 +10,7 @@ import { readLedger } from './store.mjs';
 import { hashFile } from './storage.mjs';
 import { ledgerEntry, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
 import { reason, orderReasons, stopReport } from './stop-report.mjs';
+import { LEDGER_REF as LEDGER_NAME } from './publish.mjs';
 
 // 欠陥の残った分割を採らなかったときの decomposition.reason と decisions[].reason（artifact-formats.md「欠陥の残った分割」）
 export const PARTITION_REJECTED = '分割の欠陥が残った';
@@ -66,7 +67,8 @@ export function secretStopResult(result, { location, why, ledgerName = 'ledger.j
       verified_scope: emptyScope(why), properties: [], checks: [], models: [], decomposition: emptyDecomposition(why),
       counterexamples: [], causes: [], confirmations: { deterministic: [], meaning: [], judgments: [] },
       unverified: [{ item: '結果の内容', reason: why }], questions: [],
-      records: { ledger_refs: [ledgerName], saved, unsaved },
+      // salvage の R' でも、保存済みの run-daemon の台帳（ledger.json）は辿れるようにする
+      records: { ledger_refs: [...(ledgerName !== LEDGER_NAME && saved.some((x) => x.ref === LEDGER_NAME) ? [LEDGER_NAME] : []), ledgerName], saved, unsaved },
       stop_report: stopReport({ reasons, created: saved.map((s) => ({ kind: s.kind, ref: s.ref })), unsaved }),
       performance: emptyPerformance(location, why),
     };
@@ -118,6 +120,9 @@ export function salvageWorklog(runDir) {
 }
 
 const savedRecord = (e) => ({ kind: e.kind, ref: e.ref, hash: e.hash });
+function mainLedgerRecord(runDir) {
+  try { return { kind: 'ledger', ref: LEDGER_NAME, hash: hashFile(join(runDir, LEDGER_NAME)) }; } catch { return null; }
+}
 
 // 保存済みの範囲だけから 処理の中断 の結果を作る。unpublished なら公開しない R'（規則 4 の I/O の誤り）。
 // 戻り値: { result, ledgerEntries }（ledgerEntries は追補台帳の entry。unpublished なら null）
@@ -128,7 +133,10 @@ export function buildSalvageResult(runDir, { location, unpublished = false, work
   const { saved, lost } = verifiedEntries(runDir, state);
   const unsaved = [...lost];
   const reasons = [reason('処理の中断', stage, 'run-daemon が結果を公開する前に終わったので、salvage が保存済みの範囲から結果を作った')];
-  const records = { ledger_refs: ['salvage-ledger.json'], saved: saved.map(savedRecord), unsaved };
+  // run-daemon の台帳（ledger.json）が読めて形に合えば、それも結果から辿れるようにする。出し直しの欠陥（revisions）と文書規約は
+  // その台帳にしか無い（SP-FORMALMETHOD-014。artifact-formats.md「結果」の ledger_refs）。指紋は salvage が読んだ時点の値
+  const mainLedger = state ? mainLedgerRecord(runDir) : null;
+  const records = { ledger_refs: [...(mainLedger ? [LEDGER_NAME] : []), 'salvage-ledger.json'], saved: [...(mainLedger ? [mainLedger] : []), ...saved.map(savedRecord)], unsaved };
   const ledgerEntries = [...saved];
   if (unpublished) {
     const why = 'salvage.mark を書けない（I/O の誤り）ので、salvage の記録を公開しない';

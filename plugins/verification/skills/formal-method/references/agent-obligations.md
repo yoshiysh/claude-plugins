@@ -61,7 +61,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | `role`・`task_id` | task の `role` と `task_id` |
 | `stage` | `context.stage` |
 | `target` | 対象（`context.target_id`、`model_id`、`unit_id` など、この task が扱うもの） |
-| `inputs` | `query` の資料のうち、読んだファイルごとの `{ref}`。`instructions` のファイルは書かない。`ref` は、ファイルの資料ならその `ref`、ディレクトリの資料の下のファイルなら `<ディレクトリの ref>/<ディレクトリからの相対 path>`、畳んだ資料なら `<ref><entry>`（`entry` がディレクトリなら `<ref><entry><ディレクトリからの相対 path>`）。範囲（`spans`）で渡された対象のファイルは `{ref, spans: [{span}]}` で、渡された範囲のうち読んだものだけを書く。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
+| `inputs` | `query` の資料のうち、読んだファイルごとの `{ref}`。`instructions` のファイルは書かない。`ref` は、ファイルの資料ならその `ref`、ディレクトリの資料の下のファイルなら `<ディレクトリの ref>/<ディレクトリからの相対 path>`、畳んだ資料なら `<ref><entry>`（`entry` がディレクトリなら `<ref><entry><ディレクトリからの相対 path>`）。範囲（`spans`）で渡された対象のファイルは `{ref, spans: [{span}]}` で、渡された範囲のうち読んだものだけを書く。`span` は渡された `spans` の値のまま書く（範囲の一部だけを読んでも、行を切り詰めた範囲にしない。指紋は渡した範囲ごとにしか固定していないので、一部の範囲は渡していない範囲として差し戻される）。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
 | `actions`・`results`・`grounds` | したこと、得たこと、その根拠 |
 | `failures`・`unconfirmed` | できなかったこととその理由、確かめられなかったこと |
 | `unreadable_inputs` | 読めなかった資料と理由 |
@@ -94,7 +94,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | `fidelity` | 対応表の行と、そのモデルの性質が扱う inventory の性質・節・遷移の出所の範囲の対象のファイル、そのモデルの性質の inventory の記述とその inventory の要素の一覧と、モデルの性質ごとの節・保証の抜粋と query のファイルの path（`views/<unit_id>.json`）、モデル、対応表、性質の query、CLI のモデル化の段の作業記録、そのモデルの判断を要する項目の記録とその実行の記録（あれば）。図・組合せ・経路はモデルから導けるので、モデルで読む |
 | `nonformal` | その性質の出所の範囲の対象のファイルと、その性質と出所の要素の記述（`views/<unit_id>.json`。`nonformal_method` を含む）。モデルは使わない |
 | `composition` | 分割、全てのモデル、契約と合成の条件、それらの検査の記録、CLI の照合の記録 |
-| 原因の分類（`cause-analyst`、`perspective` は null） | `context.subject` が指す反例・組合せ・問いと、その出所・モデル・検査の記録 |
+| 原因の分類（`cause-analyst`、`perspective` は null） | `context.subject` が指す反例・組合せ・問い（問いの本文は `views/<unit_id>.json`）と、その出所・モデル・検査の記録 |
 
 どの観点でも読まないもの:
 

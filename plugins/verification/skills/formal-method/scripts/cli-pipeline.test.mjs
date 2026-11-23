@@ -74,8 +74,8 @@ test('cli-contract run の領域の配置: 閉じた呼び出しの依頼と応�
   const { status } = await canonicalRun();
   const dir = status.run_dir;
   const entries = (d) => (existsSync(join(dir, d)) ? readdirSync(join(dir, d)) : []);
-  assert.deepEqual(entries('requests'), [], '閉じた呼び出しの requests/<call_id>/ は close のときに消す');
-  assert.deepEqual(entries('responses'), [], '閉じた呼び出しの responses/<call_id>/ は close のときに消す');
+  assert.deepEqual(entries('requests'), [], '閉じた呼び出しの requests/<call_id>/ は、次の呼び出しを開くときか集約の段の初めに消す');
+  assert.deepEqual(entries('responses'), [], '閉じた呼び出しの responses/<call_id>/ は、次の呼び出しを開くときか集約の段の初めに消す');
   assert.deepEqual(entries('children').filter((n) => n.endsWith('.json')), [], '終わった process group の children/<pgid>.json は消す');
   assert.equal(existsSync(join(dir, 'revisions')), false, '出し直しの欠陥は台帳の revisions に持つ');
 });

@@ -243,6 +243,33 @@ test('architecture 修正の巡: 作成役が 1 回目の提出で欠陥を返�
   assert.equal(run.taskNo, 1, 'task は 1 つだけ');
 });
 
+test('cli-contract 秘密値の走査 記録台帳 revisions: 出し直しの欠陥の文が秘密値の型に当たれば、その欠陥の文だけを伏せた印で記録し、段の台帳の全体は書ける', async (t) => {
+  const run = makeRun(t);
+  const secret = `AKIA${'A'.repeat(16)}`;
+  let n = 0;
+  const check = () => { n += 1; return { defects: n === 1 ? [{ kind: 'other', key: 'd0', text: `鍵 ${secret} が書かれている` }, { kind: 'other', key: 'd1', text: '欠陥 1' }] : [], value: { n } }; };
+  const p = callOf(run, 'モデル化', [{ spec: authorSpec(), check }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  writeAuthor(c.tasks[0], 1);
+  assert.equal((await workerCall('submit', base)).results[0].ok, false);
+  const [rev] = run.revisions;
+  assert.equal(rev.defects[0].key, 'd0');
+  assert.ok(!rev.defects[0].text.includes(secret), '秘密値を台帳に持たない');
+  assert.match(rev.defects[0].text, /^（伏せた: 秘密値の型 aws_access_key_id に当たった）$/, '伏せたことが分かる印');
+  assert.deepEqual(rev.defects[1], { key: 'd1', text: '欠陥 1' }, '当たらない欠陥の文はそのまま');
+  writeAuthor(c.tasks[0], 2);
+  assert.equal((await workerCall('submit', base)).results[0].ok, true);
+  closeWith(run, call.call_id, agentsOf(1));
+  await p;
+  run.stageConfirmed = 'モデル化';
+  run.writeLedger();
+  assert.deepEqual(run.unsaved.filter((u) => u.kind === 'ledger'), [], '段の台帳は書ける');
+  const ledger = JSON.parse(readFileSync(join(run.runDir, 'ledger.json'), 'utf8'));
+  assert.deepEqual(ledger.revisions, run.revisions);
+});
+
 test('architecture 修正の巡: 欠陥が前の提出より減らない 2 回目は、残った欠陥ごと受理して打ち切る。提出は REVISE_ROUNDS_MAX + 1 回まで', async (t) => {
   assert.equal(SUBMITS_MAX, REVISE_ROUNDS_MAX + 1);
   for (const [name, counts, accepted] of [['減らない', [2, 2], 2], ['減り続けても上限で打ち切る', [3, 2, 1], SUBMITS_MAX]]) {
@@ -1375,6 +1402,10 @@ test('SP-FORMALMETHOD-012 作業記録の補い: 範囲だけを読んだ対象�
   assert.equal(sub.problems.length, 1);
   assert.match(sub.problems[0], /L3-L3.*渡していない/);
   assert.deepEqual(sub.worklog.inputs[0].spans, [{ span: 'L3-L3' }], '補わない');
+  // 渡した範囲の一部（L2-L2）は、渡した範囲の単位でしか指紋を固定していないので差し戻し、渡された span の値のまま書くよう示す
+  const part = completeWorklog({ inputs: [{ ref: 'target:T1/x.md', spans: [{ span: 'L2-L2' }] }], document_rules: RULES }, { materials, docRules: RULES });
+  assert.equal(part.problems.length, 1);
+  assert.match(part.problems[0], /L2-L2 は渡された範囲 L1-L2 の一部.*query の spans の値のまま書く/);
   // 渡していない資料（materials に無い ref）と、materials が無い（query を流さなかった）担当の資料
   // 指紋を書いていても（CLI が求められない値なので照らせない）欠陥にする
   const other = completeWorklog({ inputs: [{ ref: 'target:T1/y.md' }, { ref: '../x.md', hash: sh(text) }], document_rules: RULES }, { materials, docRules: RULES });
