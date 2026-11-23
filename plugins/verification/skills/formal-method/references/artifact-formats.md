@@ -468,7 +468,7 @@ Judgment = {                               // 判断を要する項目（SP-012�
 - **静的な確認の作り方**（SP-012 の表。手順と理由の正本は [architecture.md「静的な確認」](architecture.md#静的な確認)）: 実行の段の終わりに CLI が作る。`checker: "cli"`。
   - `goal_trivial`・`premise_only`・`premise_load`: `kind: property` の欠陥の残らない検査ごと。道具を実行したものは `id` がその実行の `execution_id`（`checks/<id>/input.smt2` が節を切り取った query）で、`end`・`materials` はその実行のもの。`goal_trivial` は否定だけが sat で `成り立つ`・unsat で `成り立たない`。`premise_only` は前提と否定だけが sat で `成り立つ`・unsat で `成り立たない`（前提が無ければ否定だけの答えを使い、`end: null`）。前提に外部の依存があって unsat なら、外部の依存の前提を外した実行（自分の `id`・`end` を持つ `premise_only`。外部の依存でない前提が無ければ否定だけの答え）が unsat のとき `成り立たない`、sat のとき前提と否定だけの実行を `Judgment`（`外部の依存`）にする。`premise_load` は断定できたとき常に `成り立つ` で、効いている前提（と、前提を 1 つずつ外して全て unsat のときの前提の組）は `Judgment` にする。節を役ごとに切り取れない検査（[architecture.md「静的な確認」](architecture.md#静的な確認)）は、3 つの kind を `確認できず`・`end: null` の確認にし、`Judgment` にしない。
   - `plan_coverage`: モデルの性質ごと（その `inventory_property_ids` の全てが問いに依存するか `no_suitable_tool` なら作らない）。欠陥の残らない計画に `kind: property` の検査・sanity・変異（又はその性質の `unavailable`）があれば `成り立つ`。
-  - `scope_variables`: `assurance.kind` が `範囲を限った検査` の性質の検査ごと。`scope_variables` の全てが検査の入力で宣言され、`rule` か `goal` の節の項に現れれば `成り立つ`。
+  - `scope_variables`: `assurance.kind` が `範囲を限った検査` の性質の検査ごと。`scope_variables` の全てが検査の入力で宣言され、`rule` か `goal` の節の項か、それらの項から（他の `define-fun` を通して）届く `define-fun` の本体に現れれば `成り立つ`。
   - `mutation_scope`: 欠陥の残らない変異ごと。変異の `rule` の節の項が、検出役の検査の最後の入力の同じ名前の項と 1 つ以上違い、`goal`・`premise` の節の項と assert でない form（宣言・`define-fun` など）が全て同じなら `成り立つ`。
   - `成り立たない` 静的な確認を持つモデルの性質は `deterministic_confirmed` が false（[aggregateProperty](#aggregatepropertyfacts--verdict)）。
   - `Judgment` そのものは `confirmations_unresolved` にも判定の入力にも数えない。項目ごとの意味の確認（`kind: judgment`。下の意味の確認の作り方）が数える。`Judgment.id` は実行と確認の id の名前空間に入る（`Performance.executions[].id`・`StopReport.checks_*[].id` が指してよい）。
@@ -791,7 +791,7 @@ StateMachine = {
 - `goals[].property_id` は、同じ `ModelFile` の `properties[].id` に実在する参照である。モデル化の照合で確かめ、無ければ `reference` の区分の欠陥（修正の巡の対象）とする。対象外として飛ばさない。理由: 目標への経路は、その性質の検査で確かめる（`Paths.targets[].property_id`）。指す性質が無い目標を飛ばすと、確かめていない目標が結果から消える。修正の巡の後も残れば、その目標は `Paths.targets` に載せず、`Paths.unverified` に理由「目標の性質が無い」で載せる。
 - query のファイル（`.smt2`）は、[担当の成果物](#担当の成果物)の `.smt2` の規則と節の名前の規則に従う。性質の query は「出所の規則と前提と性質の否定」で `expected: "unsat"`、sanity の query は `sat` を期待する。SMT の記号の名前は `variables[].id` と同じにする。
 - **節の照合**（モデル化の照合）: `clauses` の名前の重なりと `goal` の無い性質は `other`、出所の無い `rule`・`basis` の無い `premise`・`basis` と `external_dependency_id` の食い違いは `syntax`、inventory の要素に無い `source_ids`・inventory の `external_dependencies` に無い `external_dependency_id`・query で宣言されていない `assurance.scope_variables` は `reference` の欠陥とする。
-  - 確認の段で見つかる型の前倒し（[architecture.md「静的な確認」](architecture.md#静的な確認)の作成役の照合への前倒し）として、`rule` にも `goal` の項にも現れない `assurance.scope_variables`、`goal` の項にだけ現れる記号、`basis: "作成役の仮定"` で `source_ids` の空の `premise`、モデルの性質が扱う inventory の性質の出所の要素でそのモデルのどの `source_ids` にも対応表の行にも無いものは `other` の欠陥とする。
+  - 確認の段で見つかる型の前倒し（[architecture.md「静的な確認」](architecture.md#静的な確認)の作成役の照合への前倒し）として、`rule` にも `goal` の項にも、それらの項から届く `define-fun` の本体にも現れない `assurance.scope_variables`、`basis: "作成役の仮定"` で `source_ids` の空の `premise`、モデルの性質が扱う inventory の性質の出所の要素でそのモデルのどの `source_ids` にも対応表の行にも無いものは `other` の欠陥とする。
 - 古い形（`formal-method.model/1`、`clauses` の無い性質）は形の違い（`syntax`）として拒む（後方互換性を持たない。`docs/guidelines/agent-work.md`「最小の成果を同じファイルで育てる」）。
 
 ### mapping（モデル作成役）

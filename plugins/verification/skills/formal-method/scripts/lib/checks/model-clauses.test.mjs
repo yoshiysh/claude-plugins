@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { modelCheck } from './model.mjs';
-import { ablate, clauseShapeProblem, namedTerms, sharedDefinitions } from './ablation.mjs';
+import { ablate, clauseShapeProblem, namedTerms, scopeVariableGaps, sharedDefinitions } from './ablation.mjs';
 
 const PREFIX = 'attempts/t1/';
 const QUERY = '(declare-const x Int)\n(declare-const y Int)\n(assert (! (>= x 0) :named R1))\n(assert (! (>= y 0) :named A1))\n(assert (! (not (>= (+ x y) 0)) :named G1))\n(check-sat)\n';
@@ -161,20 +161,32 @@ test('SP-FORMALMETHOD-012: 作成役の仮定の前提に source_ids が無け�
   assert.deepEqual(keys(check(t, { clauses: external })), []);
 });
 
-test('SP-FORMALMETHOD-005・012: 性質の否定にしか現れない変数（規則・前提・define-fun の本体のどこにも無い）は、モデル化の照合の欠陥（other）', (t) => {
-  const q = QUERY.replace('(declare-const y Int)', '(declare-const y Int)\n(declare-const z Int)').replace('(not (>= (+ x y) 0))', '(not (>= (+ x y z) 0))');
-  has(check(t, { query: q }), 'other', 'goal-only-variable:z');
+test('SP-FORMALMETHOD-005・012 偽の陽性: 性質の否定にだけ現れる変数は欠陥にしない（否定の中の自由な記号は性質を全称で強めるだけで、空虚にしない）', (t) => {
+  const q = QUERY.replace('(declare-const y Int)', '(declare-const y Int)\n(declare-const z Int)').replace('(not (>= (+ x y) 0))', '(not (>= (+ x y (* z z)) 0))');
+  assert.deepEqual(keys(check(t, { query: q })), []);
 });
 
-test('SP-FORMALMETHOD-005・012 偽の陽性: 任意の添字の定数（関数・配列の引数としてだけ否定に現れる）、define-fun の本体に現れる変数、束縛の変数は欠陥にしない', (t) => {
-  const fn = '(declare-fun a (Int) Int)\n(declare-const k Int)\n(declare-const x Int)\n(assert (! (forall ((j Int)) (>= (a j) 0)) :named R1))\n(assert (! (>= x 0) :named A1))\n(assert (! (not (>= (a k) 0)) :named G1))\n(check-sat)\n';
-  without(check(t, { query: fn, scopeVariables: [] }), 'goal-only-variable');
-  const arr = '(declare-const m (Array Int Int))\n(declare-const k Int)\n(declare-const x Int)\n(assert (! (forall ((j Int)) (>= (select m j) 0)) :named R1))\n(assert (! (>= x 0) :named A1))\n(assert (! (not (>= (select m k) 0)) :named G1))\n(check-sat)\n';
-  without(check(t, { query: arr, scopeVariables: [] }), 'goal-only-variable');
-  const def = '(declare-const x Int)\n(declare-const y Int)\n(define-fun big () Bool (> y 9))\n(assert (! (>= x 0) :named R1))\n(assert (! (=> big (>= x 1)) :named A1))\n(assert (! (not (>= (+ x y) 0)) :named G1))\n(check-sat)\n';
-  without(check(t, { query: def }), 'goal-only-variable');
-  const bound = '(declare-const x Int)\n(assert (! (>= x 0) :named R1))\n(assert (! (<= x 8) :named A1))\n(assert (! (not (forall ((y Int)) (>= (+ x (* y y)) 0))) :named G1))\n(check-sat)\n';
-  without(check(t, { query: bound }), 'goal-only-variable');
+// 範囲として扱う変数が規則・否定の項に現れる形（let の束縛の項・define-fun の適用の引数・store・Bool・declare-datatypes の列挙の sort・define-fun の本体）
+const SCOPED = [
+  ['let の束縛の項', '(declare-const x Int)\n(declare-const z Int)', '(let ((w z)) (>= w 0))'],
+  ['define-fun の適用の引数 (f z)', '(declare-const x Int)\n(declare-const z Int)\n(define-fun f ((a Int)) Bool (>= a 0))', '(f z)'],
+  ['store', '(declare-const x Int)\n(declare-const z Int)\n(declare-const m (Array Int Int))', '(= (select (store m 0 z) 0) z)'],
+  ['Bool の変数', '(declare-const x Int)\n(declare-const z Bool)', '(or z (not z))'],
+  ['declare-datatypes の列挙の sort の変数', '(declare-datatypes ((Color 0)) (((red) (green))))\n(declare-const x Int)\n(declare-const z Color)', '(or (= z red) (= z green))'],
+  ['引数の無い define-fun の本体', '(declare-const x Int)\n(declare-const z Int)\n(define-fun inRange () Bool (and (>= z 0) (<= z 8)))', 'inRange'],
+];
+for (const [name, decls, rule] of SCOPED) {
+  test(`SP-FORMALMETHOD-005・012 偽の陽性: 範囲として扱う変数が規則の項に現れる形（${name}）は、範囲の変数の欠陥にしない`, (t) => {
+    const q = `${decls}\n(assert (! ${rule} :named R1))\n(assert (! (>= x 0) :named A1))\n(assert (! (not (>= (* x x) 0)) :named G1))\n(check-sat)\n`;
+    without(check(t, { query: q, scopeVariables: ['x', 'z'] }), 'scope-variable');
+  });
+}
+
+test('SP-FORMALMETHOD-005・012: scopeVariableGaps は引数の無い define-fun の本体を（他の define-fun を通しても）辿る。確認の段の scope_variables も同じ判定', () => {
+  const q = '(declare-const x Int)\n(declare-const z Int)\n(declare-const u Int)\n(define-fun inRange () Bool (and (>= z 0) (<= z 8)))\n(define-fun ok () Bool inRange)\n(define-fun spare () Bool (> u 0))\n'
+    + '(assert (! ok :named R1))\n(assert (! (not (>= (* x x) 0)) :named G1))\n(check-sat)\n';
+  const clauses = CLAUSES.filter((c) => c.name !== 'A1');
+  assert.deepEqual(scopeVariableGaps(q, clauses, ['x', 'z', 'u']), { notDeclared: [], notUsed: ['u'] }, 'どの節からも届かない define-fun の本体は数えない');
 });
 
 // 性質の出所の要素が、どの節の source_ids にも、対応表の行にも無い（omission の一部）

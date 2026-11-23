@@ -2,14 +2,17 @@
 // 作成役の照合への前倒し）。作成役が検査の前に直す機会を足すだけで、確認の段の判定は残す。正しい成果物は差し戻さない（偽の陽性の場面）。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { runScenario } from './test-fixtures/pipeline.mjs';
+import { canonicalRequest, runScenario } from './test-fixtures/pipeline.mjs';
 import { P, prop } from './test-fixtures/pipeline-cases.mjs';
 import { SM2, SM2_PROPS } from './test-fixtures/partition.mjs';
 
 const PREMISE_SMT = '(declare-const x Int)\n(assert (>= x 0))\n(assert (<= x 8))\n(assert (not (>= (* x x) 0)))';
 const withPremise = (over = {}) => P('P1', 2, { smt: PREMISE_SMT, roles: ['premise', 'rule', 'goal'], scopeVariables: ['x'], ...over });
-// ID を定義する対象（見出しの SP-DEMO-001）が、外の要求 PR-DEMO-002 を本文で参照する
-const ID_SPEC = '#### SP-DEMO-001 受付\nR1: x の 2 乗は常に 0 以上である（PR-DEMO-002）。\nR2: y は x より大きい。\n';
+// ID を定義する対象（見出しの SP-DEMO-001）が、別の仕様書の SP-BASE-002 を本文で参照する
+const ID_SPEC = '#### SP-DEMO-001 受付\nR1: x の 2 乗は常に 0 以上である（SP-BASE-002）。\nR2: y は x より大きい。\n';
+
+// 否定の中の自由な記号 z は性質を全称で強めるだけ（∀x∈[-8,8]. ∀z. x²+z² ≥ 0）で、空虚にしない
+const GOAL_ONLY_SMT = '(declare-const x Int)\n(declare-const z Int)\n(assert (and (>= x (- 8)) (<= x 8)))\n(assert (not (>= (+ (* x x) (* z z)) 0)))';
 
 const submitsOf = (harness, role) => harness.memory.submits.filter((x) => x.role === role && x.result);
 const firstProblems = (harness, role) => submitsOf(harness, role)[0]?.result.problems ?? [];
@@ -24,15 +27,9 @@ describe('cli-pipeline-author-checks', { concurrency: 4 }, () => {
 test('SP-FORMALMETHOD-005・012 AC-22: 範囲として扱う変数が出所の規則にも性質の否定にも現れなければ、モデル作成役の照合が差し戻し、確認の段の scope_variables も成り立たない', async (t) => {
   const smt = '(declare-const x Int)\n(declare-const y Int)\n(assert (and (>= x (- 8)) (<= x 8)))\n(assert (not (>= (* x x) 0)))';
   const { harness, result } = await runScenario(t, { scenario: { properties: [P('P1', 2, { smt, scopeVariables: ['x', 'y'] })] } });
-  assertSentBack(harness, 'model-author', /範囲として扱う変数 y が .*出所の規則にも性質の否定にも現れない/);
+  assertSentBack(harness, 'model-author', /範囲として扱う変数 y が .*出所の規則にも性質の否定にも、それらが参照する define-fun の本体にも現れない/);
   const c = result.confirmations.deterministic.find((x) => x.kind === 'scope_variables');
   assert.equal(c?.result, '成り立たない', '確認の段の静的な確認は残す');
-});
-
-test('SP-FORMALMETHOD-005・012: 性質の否定にしか現れない変数は、モデル作成役の照合が差し戻す', async (t) => {
-  const smt = '(declare-const x Int)\n(declare-const z Int)\n(assert (and (>= x (- 8)) (<= x 8)))\n(assert (not (>= (+ (* x x) (* z z)) 0)))';
-  const { harness } = await runScenario(t, { scenario: { properties: [P('P1', 2, { smt })] } });
-  assertSentBack(harness, 'model-author', /記号 z が性質の否定にだけ現れ/);
 });
 
 test('SP-FORMALMETHOD-012: 作成役の仮定の前提に source_ids が無ければ、モデル作成役の照合が差し戻す', async (t) => {
@@ -53,7 +50,7 @@ test('SP-FORMALMETHOD-004: どの性質の source_ids にも出てこない要�
 
 test('SP-FORMALMETHOD-004: 本文の別の ID の参照が external_dependencies に無ければ、抽出役の照合が差し戻す', async (t) => {
   const { harness } = await runScenario(t, { files: { 'target/spec.md': ID_SPEC } });
-  assertSentBack(harness, 'extractor', /spec\.md:L2 の ID の参照 PR-DEMO-002 が/);
+  assertSentBack(harness, 'extractor', /spec\.md:L2 の ID の参照 SP-BASE-002 が/);
 });
 
 // 偽の陽性: 既存の正しい場面（test-fixtures の場面）で、抽出役とモデル作成役の最初の提出に欠陥を返さない
@@ -63,7 +60,9 @@ const CORRECT = [
   ['外部の依存の前提を持つ性質', { scenario: { properties: [withPremise({ premiseBasis: { 'P1-p1': '外部の依存' } })], externalDependencies: [{ id: 'X1', text: 'x は外部の API が 0 以上に保つ', source: null }] } }],
   ['性質が 2 つと形式化できない性質', { scenario: { properties: [P('P1', 2), P('P2', 3), P('P3', 4, { formalizable: false })] } }],
   ['状態遷移を持つモデル', { scenario: { stateMachine: SM2, properties: SM2_PROPS } }],
-  ['外の ID の参照を external_dependencies に書いた対象', { files: { 'target/spec.md': ID_SPEC }, scenario: { externalDependencies: [{ id: 'X1', text: 'PR-DEMO-002（要求文書）', source: null }] } }],
+  ['性質の否定にだけ現れる変数を持つ性質', { scenario: { properties: [P('P1', 2, { smt: GOAL_ONLY_SMT })] } }],
+  ['依頼元が除外した行だけで外の ID を参照する対象', { files: { 'target/spec.md': ID_SPEC }, request: canonicalRequest({ scope: { include: [{ kind: 'target', id: 'T1' }, { kind: 'goal', id: 'G1' }], exclude: [{ item: { kind: 'location', target_id: 'T1', file: 'spec.md', span: 'L2-L2' }, reason: '外の要求の写し' }] } }) }],
+  ['外の ID の参照を external_dependencies に書いた対象', { files: { 'target/spec.md': ID_SPEC }, scenario: { externalDependencies: [{ id: 'X1', text: 'SP-BASE-002（別の仕様書）', source: null }] } }],
 ];
 for (const [name, opts] of CORRECT) {
   test(`SP-FORMALMETHOD-004・005・012 偽の陽性: ${name}では、抽出役とモデル作成役の最初の提出を差し戻さない`, async (t) => {

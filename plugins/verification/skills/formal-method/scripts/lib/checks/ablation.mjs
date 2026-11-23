@@ -88,57 +88,17 @@ function reachDefinitions(defs, syms, out = new Set()) {
   return out;
 }
 
-// 範囲として扱う変数のうち、query で宣言されないもの（notDeclared）と、宣言されたが出所の規則（rule）にも性質の否定（goal）の項にも
-// 現れないもの（notUsed）。確認の段の scope_variables（検査の入力をつないだもの）と、モデル化の照合（性質の query）が同じこの判定を使う。
-// S 式として読めなければ投げる。
+// 範囲として扱う変数のうち、query で宣言されないもの（notDeclared）と、宣言されたが出所の規則（rule）にも性質の否定（goal）の項にも、
+// それらの項から（他の define-fun を通して）届く define-fun の本体にも現れないもの（notUsed）。確認の段の scope_variables（検査の入力を
+// つないだもの）と、モデル化の照合（性質の query）が同じこの判定を使う。S 式として読めなければ投げる。
 export function scopeVariableGaps(queryText, clauses, vars) {
   const declared = new Set(declaredSymbols(queryText).map((d) => d.name));
+  const defs = definitionsOf(parseForms(queryText).map((f) => f.node).filter(Array.isArray));
   const terms = namedTerms(queryText);
   const names = clauses.filter((x) => x.role === 'rule' || x.role === 'goal').map((x) => x.name);
   const used = new Set(names.flatMap((n) => (terms.has(n) ? symbolsOf(terms.get(n)) : [])));
+  for (const d of reachDefinitions(defs, [...used])) for (const s of defs.get(d)) used.add(s);
   return { notDeclared: vars.filter((v) => !declared.has(v)), notUsed: vars.filter((v) => declared.has(v) && !used.has(v)) };
-}
-
-// 性質の否定（goal）の項にだけ現れる、引数の無い宣言の記号（規則・前提の項にも、それらが届く define-fun の本体にも無い）。どの制約も縛らないので、
-// 否定はその記号を自由に選べる（空虚な性質か、規則・前提の書き漏らし）。偽の陽性を避けるため、次は数えない（狭くとる）:
-// どれかの define-fun の本体に現れる記号（定義を通した使い方は節の項だけでは読めない）と、否定の項で、宣言した関数か select・store の
-// 引数として（その中の項を含めて）現れる記号（任意の添字・引数の定数。(not (P (a k))) の k は、a を縛る規則を通して性質に効く）。define-fun の適用の引数も同じに扱う。S 式として読めなければ投げる。
-export function goalOnlyVariables(queryText, clauses) {
-  const forms = parseForms(queryText).map((f) => f.node).filter(Array.isArray);
-  const decls = declaredSymbols(queryText);
-  const consts = new Set(decls.filter((d) => !d.args).map((d) => d.name));
-  const funcs = new Set(decls.filter((d) => d.args).map((d) => d.name));
-  const defs = definitionsOf(forms);
-  const inDefs = new Set([...defs.values()].flat());
-  const terms = namedTerms(queryText);
-  const constrained = new Set();
-  for (const c of clauses.filter((x) => x.role !== 'goal')) {
-    if (!terms.has(c.name)) continue;
-    const syms = symbolsOf(terms.get(c.name));
-    for (const s of syms) constrained.add(s);
-    for (const d of reachDefinitions(defs, syms)) for (const s of defs.get(d)) constrained.add(s);
-  }
-  const candidates = new Map(); // 記号 → 関数・配列の引数として現れたか
-  const visit = (node, scope, asArgument) => {
-    if (typeof node === 'string') {
-      if (consts.has(node) && !scope.has(node) && !constrained.has(node) && !inDefs.has(node)) candidates.set(node, (candidates.get(node) ?? false) || asArgument);
-      return;
-    }
-    if (!Array.isArray(node) || node.length === 0) return;
-    const head = node[0];
-    if ((head === 'let' || head === 'forall' || head === 'exists') && Array.isArray(node[1])) {
-      const pairs = node[1].filter(Array.isArray);
-      if (head === 'let') for (const pair of pairs) visit(pair[1], scope, asArgument);
-      const inner = new Set(scope);
-      for (const pair of pairs) inner.add(pair[0]);
-      node.slice(2).forEach((x) => visit(x, inner, asArgument));
-      return;
-    }
-    const applies = typeof head === 'string' && (funcs.has(head) || defs.has(head) || head === 'select' || head === 'store');
-    node.forEach((x, i) => visit(x, scope, asArgument || (applies && i > 0)));
-  };
-  for (const c of clauses.filter((x) => x.role === 'goal')) if (terms.has(c.name)) visit(terms.get(c.name), new Set(), false);
-  return [...candidates].filter(([, asArgument]) => !asArgument).map(([name]) => name);
 }
 
 // 静的な確認の道具の実行を組み立てられるか（節を役ごとに切り取れるか）。組み立てられなければ理由の文、組み立てられれば null。

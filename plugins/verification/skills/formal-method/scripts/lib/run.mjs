@@ -136,6 +136,21 @@ export class Run {
     }
     return new Map([[tid, files]]);
   }
+  // 依頼元が除外した（scope.exclude）、その対象のファイルと行の範囲（Map<FilePath, Span[] | null>。null はファイルの全体）。
+  // 対象を除外したら全てのファイルの全体。location の file が / で終わればそのディレクトリの下のファイル
+  requestExcludeOf(tid) {
+    const t = this.targets.find((x) => x.id === tid);
+    const out = new Map();
+    if (!t) return out;
+    const items = (this.request?.scope?.exclude ?? []).map((x) => x.item)
+      .filter((p) => (p?.kind === 'location' && p.target_id === tid && typeof p.file === 'string') || (p?.kind === 'target' && p.id === tid));
+    for (const f of t.files) {
+      const mine = items.filter((p) => p.kind === 'target' || p.file === f.path || (p.file.endsWith('/') && f.path.startsWith(p.file)));
+      if (!mine.length) continue;
+      out.set(f.path, mine.some((p) => p.kind === 'target' || !p.span) ? null : mine.map((p) => p.span));
+    }
+    return out;
+  }
   // inventory の要素の id の出所の範囲（見つからない id は無視する）
   elementScopeOf(ids, into = new Map()) {
     for (const id of ids) {
@@ -517,7 +532,7 @@ export class Run {
         const inv = readInventory(ret);
         if (!inv) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
         const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: otherIds(t.id, 'properties'), otherElementIds: otherIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id),
-          requestIds, otherDefinedIds: new Set(this.targets.filter((x) => x.id !== t.id).flatMap((x) => [...definedIdsOf(x)])) });
+          excluded: this.requestExcludeOf(t.id), requestIds, otherDefinedIds: new Set(this.targets.filter((x) => x.id !== t.id).flatMap((x) => [...definedIdsOf(x)])) });
         return { defects, value: inv };
       },
       accept: (last) => {
@@ -1052,9 +1067,9 @@ export class Run {
       let gaps;
       try { gaps = scopeVariableGaps(text, info.p.clauses, vars); } catch (e) { det({ ...base, result: '成り立たない', reason: `検査の入力を S 式として読めない（${e.message}）` }); continue; }
       const { notDeclared, notUsed } = gaps;
-      const bad = [...(notDeclared.length ? [`宣言されていない: ${notDeclared.join(', ')}`] : []), ...(notUsed.length ? [`出所の規則にも性質の否定にも現れない: ${notUsed.join(', ')}`] : [])];
+      const bad = [...(notDeclared.length ? [`宣言されていない: ${notDeclared.join(', ')}`] : []), ...(notUsed.length ? [`出所の規則にも性質の否定にも（参照する define-fun を含め）現れない: ${notUsed.join(', ')}`] : [])];
       det({ ...base, result: bad.length ? '成り立たない' : '成り立つ',
-        reason: bad.length ? `範囲として扱う変数のうち、${bad.join('。')}（保証が範囲を超えている）` : vars.length ? `範囲として扱う変数 ${vars.join(', ')} は全て宣言され、出所の規則か性質の否定に現れる` : '範囲として扱う変数が無い' });
+        reason: bad.length ? `範囲として扱う変数のうち、${bad.join('。')}（保証が範囲を超えている）` : vars.length ? `範囲として扱う変数 ${vars.join(', ')} は全て宣言され、出所の規則か性質の否定（参照する define-fun を含む）に現れる` : '範囲として扱う変数が無い' });
     }
   }
 

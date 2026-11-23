@@ -1,9 +1,8 @@
 // モデル化の照合（architecture.md「段と処理の順序」のモデル化）: 形・対応表・query の構文の検査（shapeCheck・mappingCheck）、
 // 状態×出来事の組合せの分類（matrixGen）、経路（pathsCheck）、図の導出と突き合わせ（deriveDiagram・diagramDiff）。
-import { MappingFile, ModelFile, validate } from '../schemas.mjs';
+import { MappingFile, ModelFile, parseSpan, validate } from '../schemas.mjs';
 import { smtViolations } from '../adapters/z3.mjs';
-import { goalOnlyVariables, scopeVariableGaps, sharedDefinitions, topAsserts } from './ablation.mjs';
-import { parseSpan } from '../schemas.mjs';
+import { scopeVariableGaps, sharedDefinitions, topAsserts } from './ablation.mjs';
 import { defect, readRunJson, readRunText } from './common.mjs';
 
 // モデル作成役の返り値の outputs を照らす。prefix は attempt の領域の Ref の接頭辞、eligible は対象にした inventory の性質の id。
@@ -96,13 +95,12 @@ function clauseDefects(p, text, refs) {
   }
   for (const name of seen) if (!named.has(name)) add('reference', `clause-assert:${name}`, `節 ${name} の assert が query ${p.query_ref} に無い`);
   for (const d of sharedDefinitions(text, p.clauses)) add('other', `clause-shared-definition:${d.name}`, `query ${p.query_ref} の define-fun ${d.name} は本体に宣言した記号を含み、役の違う節（${d.roles.join('・')}）が参照する（節を役ごとに切り取れない。本体を節に書くか、役ごとに定義を分ける）`);
-  // 確認の段の静的な確認（scope_variables）と忠実さの確認（vacuity）で見つかる型を、作成役が検査の前に直せるよう照合でも返す（確認の段の判定は残す）
+  // 確認の段の静的な確認（scope_variables）で見つかる型を、作成役が検査の前に直せるよう照合でも返す（確認の段の判定は残す）
   if (p.assurance.kind === '範囲を限った検査') {
     const { notDeclared, notUsed } = scopeVariableGaps(text, p.clauses, p.assurance.scope_variables);
     for (const v of notDeclared) add('reference', `scope-variable:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} で宣言されていない`);
-    for (const v of notUsed) add('other', `scope-variable-unused:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} の出所の規則にも性質の否定にも現れない（保証が範囲を超える）`);
+    for (const v of notUsed) add('other', `scope-variable-unused:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} の出所の規則にも性質の否定にも、それらが参照する define-fun の本体にも現れない（保証が範囲を超える）`);
   }
-  for (const v of goalOnlyVariables(text, p.clauses)) add('other', `goal-only-variable:${v}`, `query ${p.query_ref} の記号 ${v} が性質の否定にだけ現れ、規則・前提のどれにも縛られない（性質が空虚か、規則・前提の書き漏らし）`);
   return out;
 }
 
@@ -175,7 +173,7 @@ function omissionDefects(id, model, rows, refs) {
     seen.add(e);
     const src = refs.elementSources.get(e);
     if (!src || touches(src)) continue;
-    out.push(defect('other', `omission:${id}:${e}`, `モデル ${id} が扱う inventory の性質 ${ip} の出所 ${e} が、そのモデルのどの節・遷移・入出力の契約の source_ids にも対応表の行にも無い（落とすなら対応表に 範囲外 か 対応なし の行を書く）`));
+    out.push(defect('other', `omission:${id}:${e}`, `モデル ${id} が扱う inventory の性質 ${ip} の出所 ${e} が、そのモデルのどの節・遷移・禁止・入出力の契約の source_ids にも対応表の行にも無い（落とすなら対応表に 範囲外 か 対応なし の行を書く）`));
   }
   return out;
 }
