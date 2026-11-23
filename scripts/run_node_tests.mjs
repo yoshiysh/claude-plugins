@@ -15,21 +15,21 @@ import { loadConfig } from './traceability/specs.mjs';
 // 値は make test の並列実行での実測（2026-11）。キーは normalizeRepoPath の結果（realpath の repo 相対）で、
 // .agents/skills の symlink 経由で渡されたファイルも実体の path で引く。正確さは要らず、重いものが先に起動すれば足りる。
 export const KNOWN_WEIGHTS = new Map([
-  ['.agents/skills/formal-method/scripts/cli-pipeline.test.mjs', 70],
-  ['.agents/skills/formal-method/scripts/cli-pipeline-returns.test.mjs', 55],
-  ['.agents/skills/formal-method/scripts/cli-pipeline-models.test.mjs', 45],
-  ['.agents/skills/formal-method/scripts/cli-pipeline-plan-defects.test.mjs', 30],
+  ['plugins/verification/skills/formal-method/scripts/cli-pipeline.test.mjs', 70],
+  ['plugins/verification/skills/formal-method/scripts/cli-pipeline-returns.test.mjs', 55],
+  ['plugins/verification/skills/formal-method/scripts/cli-pipeline-models.test.mjs', 45],
+  ['plugins/verification/skills/formal-method/scripts/cli-pipeline-plan-defects.test.mjs', 30],
   ['plugins/workflow/skills/dynamic-workflow-runner/scripts/workflow-control.test.mjs', 8],
   ['plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/run-workspace.test.mjs', 64],
   ['tests/repo-review-workflow.test.mjs', 52],
   ['.agents/skills/repo-review/scripts/review-cli.test.mjs', 35],
-  ['.agents/skills/formal-method/scripts/cli-recovery.test.mjs', 14],
-  ['.agents/skills/formal-method/scripts/cli-client.test.mjs', 12],
-  ['.agents/skills/formal-method/scripts/cli-scope.test.mjs', 11],
-  ['.agents/skills/formal-method/scripts/cli-intake.test.mjs', 8],
+  ['plugins/verification/skills/formal-method/scripts/cli-recovery.test.mjs', 14],
+  ['plugins/verification/skills/formal-method/scripts/cli-client.test.mjs', 12],
+  ['plugins/verification/skills/formal-method/scripts/cli-scope.test.mjs', 11],
+  ['plugins/verification/skills/formal-method/scripts/cli-intake.test.mjs', 8],
   ['plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/resume.test.mjs', 7],
   ['tests/traceability.test.mjs', 6],
-  ['.agents/skills/formal-method/scripts/fake-z3.test.mjs', 5],
+  ['plugins/verification/skills/formal-method/scripts/fake-z3.test.mjs', 5],
   ['tests/formal/bp-prd/check.test.mjs', 5],
 ]);
 

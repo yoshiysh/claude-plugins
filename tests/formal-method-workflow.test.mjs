@@ -1,4 +1,4 @@
-// formal-method の Workflow script（scripts/formal-method-agents.js）を、native と同じ注入（agent・parallel・pipeline・phase・log・args・budget）で流す。
+// formal-method の Workflow script（plugins/verification/workflows/formal-method-agents.js）を、native と同じ注入（agent・parallel・pipeline・phase・log・args・budget）で流す。
 // 契約: artifact-formats.md「Workflow の返り値」（{agents, tokens} だけ）、SKILL.md「担当の起動」（args は call.args_path の JSON のまま）。
 // 役は偽物で、prompt に書かれた claim の命令（run の領域の入口）を読むだけで、CLI は流さない。
 import test from 'node:test'
@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-const WF = path.resolve(import.meta.dirname, '../.agents/skills/formal-method/scripts/formal-method-agents.js')
+const WF = path.resolve(import.meta.dirname, '../plugins/verification/workflows/formal-method-agents.js')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const BODY = readFileSync(WF, 'utf8').replace(/^export const meta = /, 'const meta = ')
 const runBody = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', BODY)
@@ -37,6 +37,8 @@ test('SP-FORMALMETHOD-013 Workflow の返り値: workers の行ごとに 1 体�
     assert.ok(p.includes(`'${ARGS.state}/formal-method-cli.mjs' claim`), p)
     assert.ok(p.includes(JSON.stringify({ run_dir: ARGS.state, call_id: ARGS.callId, worker: w.id })), p)
     for (const step of ['query_cmd', 'submit_cmd', 'result_path', 'instructions']) assert.ok(p.includes(step), `${step} の手順`)
+    // 資料の読み方は義務と同じ 1 つの規則: instructions の 4 つのファイル、畳んだ資料は entries のものだけ（/ で終わる entry はディレクトリ）
+    for (const rule of ['instructions の 4 つのファイル', 'entries を持つ要素', '/ で終わる entry はディレクトリ', 'そのディレクトリの他のファイルを読まない', 'attempts/ の下のディレクトリは読まない']) assert.ok(p.includes(rule), rule)
   }
 })
 
@@ -56,5 +58,15 @@ test('SP-FORMALMETHOD-013 Workflow の args: 壊れた args では起動せず�
     assert.equal(n, 0)
     assert.deepEqual(res, { agents: [], tokens: null })
     assert.ok(logs.some((m) => m.includes('args の検査に落ちた')))
+  }
+})
+
+test('SP-FORMALMETHOD-013 Workflow の prompt: 担当は submit の next で続けて next の done: true で終え（終わりの claim を流さない）、query は <query_cmd> <task_id>、生成物は scratch_dir に Write か >| で書く', async () => {
+  const seen = []
+  await runScript(ARGS, async (prompt) => { seen.push(prompt); return { notes: [] } })
+  for (const p of seen) {
+    for (const s of ['next', 'done: true', 'claim を流し直さない', '<query_cmd> <task_id>', 'return_schemas', 'scratch_dir', '>|', 'Write']) assert.ok(p.includes(s), `prompt に ${s} が無い`)
+    assert.ok(!p.includes('claim が done を返すまで'), '終わりの claim を求めない')
+    assert.ok(!p.includes('return_schema が'), 'task ごとの return_schema を前提にしない')
   }
 })

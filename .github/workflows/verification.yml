@@ -33,13 +33,13 @@ jobs:
             run_bp_prd=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
               tests/formal/bp-prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
 
-            if grep -E '^(tests/formal/formal-method-skill/|\.agents/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
+            if grep -E '^(tests/formal/formal-method-skill/|\.agents/skills/formal-method/|plugins/verification/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
               run_formal_skill=true
             else
               run_formal_skill=false
             fi
 
-            if grep -E '^(tests/formal/formal-method-requirements/|tests/formal/formal-method-skill/z3_streams\.py|docs/requirements/formal-method\.md|docs/specifications/formal-method\.md|\.agents/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
+            if grep -E '^(tests/formal/formal-method-requirements/|tests/formal/formal-method-skill/z3_streams\.py|docs/requirements/formal-method\.md|docs/specifications/formal-method\.md|\.agents/skills/formal-method/|plugins/verification/skills/formal-method/|plugins/formal-method/|\.github/workflows/verification\.yml)' "$RUNNER_TEMP/changed-files" > /dev/null; then
               run_formal_z3=true
             else
               run_formal_z3=false

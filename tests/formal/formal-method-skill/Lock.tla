@@ -10,7 +10,7 @@ EXTENDS Naturals, FiniteSets
 CONSTANTS
   Mutation,    \* "none" 又は変異の名前（README の表）
   Misjudge,    \* TRUE なら、生死の判定が生きている process を死んだと誤ることがある（計画の非決定の出来事）
-  MaxRange,    \* run-daemon が rename で確定する state.json の範囲の最大（保存済みの範囲）
+  MaxRange,    \* run-daemon が段の確定ごとに rename で置き換える ledger.json の範囲の最大（保存済みの範囲）
   Salvagers,   \* salvage を呼ぶ process の枠
   Clients,     \* submit を呼ぶ process の枠
   Corrupt_,    \* 起こしてよい「読めない」の集合: "result"（result.json が読めないか形に合わない）、"status"（status.json が読めない）
@@ -23,12 +23,13 @@ SV == Salvagers \cup {S}               \* S は、起動した process の終了
 Procs == {D, S} \cup Salvagers \cup Clients
 None == "none"
 NoBody == <<>>                         \* 結果のファイルが無い
+Ref == <<"ref">>                       \* status.json の result が本文の代わりに持つ result.json の参照（ResultRef）
 
 VARIABLES
   alive, crashD, crashO, reuse, psOK, unk, gaveUp,    \* 環境と司令塔: 生死、crash の回数、pid の再利用、ps の可否、判定できない応答の数、諦めた
   dphase, dk, fstep, dchecked, dchk, dsaved, dcomp, dout,   \* run-daemon（dcomp は集約で決めた状態、dout は status.json に入れる結果）
   spc, runDirKnown,                                    \* start と、run_dir を呼出し元が知ったか
-  tmp, lockAt, runDir, st, statusAct, statusBody, statusSaved, ledger, result,   \* run の領域
+  tmp, lockAt, runDir, statusAct, statusBody, statusSaved, ledger, result,   \* run の領域
   mark, sledger, sresult, vpc, vbody, vsaved,          \* salvage（sresult は変異 two_names の 2 つ目の名前だけに使う）
   cpc, inbox, inboxPubs, dRead,                        \* 受け箱
   returned, seen, ghost,                               \* 呼出し元に返った結果、到達の印、検査用の印
@@ -36,28 +37,38 @@ VARIABLES
 
 envV == <<alive, crashD, crashO, reuse, psOK, unk, gaveUp>>
 dV == <<dphase, dk, fstep, dchecked, dchk, dsaved, dcomp, dout>>
-fileV == <<tmp, lockAt, runDir, st, statusAct, statusBody, statusSaved, ledger, result>>
+fileV == <<tmp, lockAt, runDir, statusAct, statusBody, statusSaved, ledger, result>>
 salvV == <<mark, sledger, sresult, vpc, vbody, vsaved>>
 inV == <<cpc, inbox, inboxPubs, dRead>>
 vars == <<envV, dV, spc, runDirKnown, fileV, salvV, inV, returned, seen, ghost, env2>>
 
+\* 台帳 ledger.json は run に 1 つ。run-daemon が段の確定ごとに <<"L", 範囲>> を rename で置き換え、集約で結果を登録した版（DR）で
+\* 最後に置き換える。保存済みの範囲は、rename を終えた ledger.json だけで決まる（旧 state.json の写しを持たない）。
+St == IF ledger = NoBody THEN 0 ELSE ledger[2]
+\* salvage が ledger.json を読めたか（結果の records が ledger.json も指す）。
+LSav == IF ledger # NoBody THEN {"ledger"} ELSE {}
 \* 結果の内容 <<作った者, 保存済みの範囲, 状態, provisional>>。状態は "C"（完了）、"S"（停止）、"X"（保存の失敗で作り直した停止 R'）。
 \* provisional は、公開されずに返る R'（仮の結果）にだけ付ける。変異 no_provisional は付け忘れる。records（saved）は内容と別に持つ。
+\* salvage の結果は 5 つ目に ledger.json を読めたか（records.ledger_refs と saved に ledger.json を持つか）を持つ。
 Prov == Mutation # "no_provisional"
-DR == <<"D", st, dcomp, FALSE>>
-DRp == <<"D", st, "X", Prov>>
-VB(v) == IF Mutation = "creator_in_result" THEN <<"V", st, "S", FALSE, v>> ELSE <<"V", st, "S", FALSE>>
-VBp == <<"V", st, "X", Prov>>
+DR == <<"D", St, dcomp, FALSE>>
+DRp == <<"D", St, "X", Prov>>
+VB(v) == IF Mutation = "creator_in_result" THEN <<"V", St, "S", FALSE, ledger # NoBody, v>> ELSE <<"V", St, "S", FALSE, ledger # NoBody>>
+VBp == <<"V", St, "X", Prov>>
 FBody == <<"F", 0, "S", FALSE>>        \* start が run の領域の無いまま返す受付の停止
 FileSaved == {"ledger", "result"}      \* run-daemon の result.json が自分の中に持つ saved
-SFileSaved == {"sledger", "result"}    \* salvage の result.json が自分の中に持つ saved
-ResSaved(r) == IF r[1] = "D" THEN FileSaved ELSE SFileSaved   \* 公開された result.json が自分の中に持つ saved
+SFileSaved(r) == {"sledger", "result"} \cup (IF r[5] THEN {"ledger"} ELSE {})   \* salvage の result.json が自分の中に持つ saved
+ResSaved(r) == IF r[1] = "D" THEN FileSaved ELSE SFileSaved(r)   \* 公開された result.json が自分の中に持つ saved
+\* status.json の result が指す結果: 参照なら result.json の中身、本文ならその本文。
+StatusRes == IF statusBody = Ref THEN result ELSE statusBody
+\* 参照を読めるか（result.json があり、読めて形に合う）。
+RefReadable == result # NoBody /\ ~env2.rbad
 
 Init ==
   /\ alive = [p \in Procs |-> p # D] /\ crashD = 0 /\ crashO = 0 /\ reuse = None /\ psOK = TRUE /\ unk = 0 /\ gaveUp = FALSE
   /\ dphase = "unspawned" /\ dk = 0 /\ fstep = None /\ dchecked = FALSE /\ dchk = None /\ dsaved = {} /\ dcomp = "S" /\ dout = NoBody
   /\ spc = "cap" /\ runDirKnown = FALSE
-  /\ tmp = "absent" /\ lockAt = None /\ runDir = FALSE /\ st = 0 /\ statusAct = None /\ statusBody = NoBody /\ statusSaved = {}
+  /\ tmp = "absent" /\ lockAt = None /\ runDir = FALSE /\ statusAct = None /\ statusBody = NoBody /\ statusSaved = {}
   /\ ledger = NoBody /\ result = NoBody
   /\ mark = None /\ sledger = NoBody /\ sresult = NoBody /\ vpc = [v \in SV |-> "idle"] /\ vbody = [v \in SV |-> NoBody] /\ vsaved = [v \in SV |-> {}]
   /\ cpc = [c \in Clients |-> "idle"] /\ inbox = None /\ inboxPubs = 0 /\ dRead = None
@@ -98,14 +109,14 @@ LiveD == alive[D] /\ dphase \in {"pre0", "pre1", "pre2", "loop", "final"}
 DUnch == <<dk, fstep, dchecked, dchk, dsaved, dcomp, dout>>
 \* 一時の領域に run.lock を排他作成し、最終の名前へ rename する。変異 dir_before_lock は rename を先にする。
 DLock == /\ alive[D] /\ dphase = "pre0" /\ Mutation # "dir_before_lock" /\ lockAt' = "tmp" /\ dphase' = "pre1"
-         /\ UNCHANGED <<envV, DUnch, spc, runDirKnown, tmp, runDir, st, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, ghost, env2>>
+         /\ UNCHANGED <<envV, DUnch, spc, runDirKnown, tmp, runDir, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, ghost, env2>>
 DRename == /\ alive[D] /\ ((dphase = "pre1") \/ (dphase = "pre0" /\ Mutation = "dir_before_lock"))
            /\ runDir' = TRUE /\ tmp' = "renamed" /\ lockAt' = IF lockAt = "tmp" THEN "run" ELSE lockAt
            /\ ghost' = [ghost EXCEPT !.dirNoLock = ghost.dirNoLock \/ lockAt' # "run"]
            /\ dphase' = (IF dphase = "pre1" THEN "loop" ELSE "pre2") /\ dk' = 0
-           /\ UNCHANGED <<envV, fstep, dchecked, dchk, dsaved, dcomp, dout, spc, runDirKnown, st, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, env2>>
+           /\ UNCHANGED <<envV, fstep, dchecked, dchk, dsaved, dcomp, dout, spc, runDirKnown, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, env2>>
 DLockLate == /\ alive[D] /\ dphase = "pre2" /\ lockAt' = "run" /\ dphase' = "loop"
-             /\ UNCHANGED <<envV, DUnch, spc, runDirKnown, tmp, runDir, st, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, ghost, env2>>
+             /\ UNCHANGED <<envV, DUnch, spc, runDirKnown, tmp, runDir, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, ghost, env2>>
 
 \* 書く直前に毎回 salvage.mark を確かめ、あれば何も書かずに終わる（lock も消さない）。変異 no_mark_check は確かめない。
 NeedsCheck == ~dchecked /\ (dphase = "loop" \/ (dphase = "final" /\ fstep \in {"ledger", "result", "statusTerm"}))
@@ -118,15 +129,15 @@ WriteGhost == ghost' = [ghost EXCEPT !.wroteAfterMark = ghost.wroteAfterMark \/ 
                                      !.checkViol = ghost.checkViol \/ dchk # None,
                                      !.badWrite = ghost.badWrite \/ lockAt # "run"]
 FirstFinal == IF Mutation = "result_before_ledger" THEN "result" ELSE "ledger"
-\* 段の進行の書込み（最初の status.json と、state.json の範囲の確定）。失敗したら集約へ進む。
+\* 段の進行の書込み（最初の status.json と、段の確定ごとの ledger.json の rename による置き換え）。失敗したら集約へ進む。
 \* 集約は、公開が成功すると仮定して完了の条件を評価し、結果 R の状態（完了か停止）を決める。
 DWriteLoop == /\ alive[D] /\ dphase = "loop" /\ dchecked /\ dchecked' = FALSE /\ dchk' = None /\ WriteGhost
-              /\ \/ /\ IF dk = 0 THEN statusAct' = "working" /\ UNCHANGED st ELSE st' = dk /\ UNCHANGED statusAct
+              /\ \/ /\ IF dk = 0 THEN statusAct' = "working" /\ UNCHANGED ledger ELSE ledger' = <<"L", dk>> /\ UNCHANGED statusAct
                     /\ IF dk = MaxRange THEN dphase' = "final" /\ fstep' = FirstFinal /\ UNCHANGED dk /\ dcomp' \in {"C", "S"}
                                         ELSE dk' = dk + 1 /\ UNCHANGED <<dphase, fstep, dcomp, env2>>
                     /\ UNCHANGED seen
-                 \/ /\ dphase' = "final" /\ fstep' = FirstFinal /\ dcomp' = "S" /\ UNCHANGED <<dk, st, statusAct, env2>> /\ Seen("d_save_fail_loop")
-              /\ UNCHANGED <<envV, dsaved, dout, spc, runDirKnown, tmp, lockAt, runDir, statusBody, statusSaved, ledger, result, salvV, inV, returned, env2>>
+                 \/ /\ dphase' = "final" /\ fstep' = FirstFinal /\ dcomp' = "S" /\ UNCHANGED <<dk, ledger, statusAct, env2>> /\ Seen("d_save_fail_loop")
+              /\ UNCHANGED <<envV, dsaved, dout, spc, runDirKnown, tmp, lockAt, runDir, statusBody, statusSaved, result, salvV, inV, returned, env2>>
 \* 台帳 → 結果（result.json への link）→ status.json の terminal → lock の解放。
 \* 台帳か結果の公開に I/O で失敗したら、R を捨てて停止の R' を作り、status.json で返す（公開しない）。
 \* 結果の link に負けたら、自分の結果を捨てて既にある結果を status.json に入れる。
@@ -138,37 +149,40 @@ NextAfterResult == IF Mutation = "result_before_ledger" THEN "ledger" ELSE "stat
 DWriteFinal ==
   /\ alive[D] /\ dphase = "final" /\ dchecked /\ dchecked' = FALSE /\ dchk' = None
   /\ \/ /\ fstep = "ledger"
-        /\ \/ /\ ledger = NoBody /\ ledger' = DR /\ dsaved' = dsaved \cup {"ledger"} /\ fstep' = NextAfterLedger(TRUE) /\ UNCHANGED <<seen, dout, env2>>
+        \* 段ごとの版を、結果を登録した版 DR で rename により置き換える。失敗すれば直前の段の版が残る。
+        /\ \/ /\ ledger' = DR /\ dsaved' = dsaved \cup {"ledger"} /\ fstep' = NextAfterLedger(TRUE) /\ UNCHANGED <<seen, dout, env2>>
+              /\ WriteGhost
            \/ /\ ledger' = ledger /\ dsaved' = dsaved /\ fstep' = NextAfterLedger(FALSE) /\ Seen("d_ledger_fail")
               /\ dout' = IF Mutation = "result_despite_ledger_fail" THEN dout ELSE DRp
+              /\ ghost' = [ghost EXCEPT !.wroteAfterMark = ghost.wroteAfterMark \/ mark # None,
+                                        !.checkViol = ghost.checkViol \/ dchk # None, !.badWrite = ghost.badWrite \/ lockAt # "run",
+                                        !.ioFail = TRUE]
         /\ UNCHANGED <<result, statusAct, statusBody, statusSaved, env2>>
-        /\ ghost' = [ghost EXCEPT !.wroteAfterMark = ghost.wroteAfterMark \/ mark # None,
-                                  !.checkViol = ghost.checkViol \/ dchk # None, !.badWrite = ghost.badWrite \/ lockAt # "run",
-                                  !.ioFail = ghost.ioFail \/ ledger' = NoBody]
      \* 負けて既にある result.json を読めなければ、status.json を書かずに終わる（E_RESULT_UNREADABLE と同じ扱い）。
      \/ /\ fstep = "result" /\ UNCHANGED <<ledger, statusAct, statusBody, statusSaved, env2>>
         /\ fstep' = IF result # NoBody /\ env2.rbad /\ Mutation # "loser_returns_own" THEN "release" ELSE NextAfterResult
         /\ IF result = NoBody
-           THEN \/ /\ result' = DR /\ dsaved' = dsaved \cup {"result"} /\ dout' = DR /\ UNCHANGED seen /\ WriteGhost
+           \* link に成功し、再読込で確かめたら参照を、fsync か再読込が I/O の誤りなら本文を status.json に入れる。
+           THEN \/ /\ result' = DR /\ dsaved' = dsaved \cup {"result"} /\ dout' \in {Ref, DR} /\ UNCHANGED seen /\ WriteGhost
                 \/ /\ result' = result /\ Seen("d_result_fail")
                    /\ dsaved' = IF Mutation = "saved_without_reload" THEN dsaved \cup {"result"} ELSE dsaved
-                   /\ dout' = IF Mutation = "complete_before_publish" THEN DR ELSE DRp
+                   /\ dout' = CASE Mutation = "complete_before_publish" -> DR [] Mutation = "ref_without_publish" -> Ref [] OTHER -> DRp
                    /\ ghost' = [ghost EXCEPT !.ioFail = TRUE, !.wroteAfterMark = ghost.wroteAfterMark \/ mark # None,
                                              !.checkViol = ghost.checkViol \/ dchk # None, !.badWrite = ghost.badWrite \/ lockAt # "run"]
            ELSE /\ UNCHANGED result /\ Seen("d_result_lost") /\ WriteGhost
-                /\ dout' = IF Mutation = "loser_returns_own" THEN DR ELSE result
+                /\ dout' = IF Mutation = "loser_returns_own" THEN DR ELSE Ref   \* 既にある結果を読んで形を確かめたので参照
                 /\ dsaved' = IF Mutation = "loser_returns_own" THEN dsaved ELSE ResSaved(result)
      \/ /\ fstep = "statusTerm" /\ fstep' = "release" /\ WriteGhost
         /\ LET out == IF dout = NoBody THEN DRp ELSE dout
-           IN \/ statusAct' = "terminal" /\ statusBody' = out /\ statusSaved' = dsaved /\ UNCHANGED seen
+           IN \/ statusAct' = "terminal" /\ statusBody' = out /\ statusSaved' = dsaved /\ IF out = Ref THEN Seen("d_status_ref") ELSE UNCHANGED seen
               \/ UNCHANGED <<statusAct, statusBody, statusSaved, env2>> /\ Seen("d_status_fail")
         /\ UNCHANGED <<ledger, result, dsaved, dout, env2>>
-  /\ UNCHANGED <<envV, dphase, dk, dcomp, spc, runDirKnown, tmp, lockAt, runDir, st, salvV, inV, returned, env2>>
+  /\ UNCHANGED <<envV, dphase, dk, dcomp, spc, runDirKnown, tmp, lockAt, runDir, salvV, inV, returned, env2>>
 \* releaseOwnLock: 自分の nonce を確かめてから消す。
 DRelease == /\ alive[D] /\ dphase = "final" /\ fstep = "release"
             /\ lockAt' = IF lockAt = "run" THEN None ELSE lockAt
             /\ dphase' = "exited" /\ alive' = [alive EXCEPT ![D] = FALSE]
-            /\ UNCHANGED <<crashD, crashO, reuse, psOK, unk, gaveUp, DUnch, spc, runDirKnown, tmp, runDir, st, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, ghost, env2>>
+            /\ UNCHANGED <<crashD, crashO, reuse, psOK, unk, gaveUp, DUnch, spc, runDirKnown, tmp, runDir, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, returned, seen, ghost, env2>>
 \* 開いている batch の受け箱だけを読む（1 batch に 1 つ）。
 DReadInbox == /\ alive[D] /\ dphase = "loop" /\ dRead = None /\ inbox # None /\ dRead' = inbox
               /\ UNCHANGED <<envV, dV, spc, runDirKnown, fileV, salvV, cpc, inbox, inboxPubs, returned, seen, ghost, env2>>
@@ -187,19 +201,20 @@ SCap == /\ spc = "cap"
 SSpawn == /\ spc = "spawn"
           /\ \/ /\ tmp' = "created" /\ dphase' = "pre0" /\ alive' = [alive EXCEPT ![D] = TRUE] /\ spc' = "wait" /\ UNCHANGED <<returned, seen, env2>>
              \/ /\ spc' = "done" /\ SRet(FBody, "s_spawn_fail") /\ alive' = [alive EXCEPT ![S] = FALSE] /\ UNCHANGED <<tmp, dphase, env2>>
-          /\ UNCHANGED <<SKeep, DUnch, runDirKnown, lockAt, runDir, st, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, ghost, env2>>
+          /\ UNCHANGED <<SKeep, DUnch, runDirKnown, lockAt, runDir, statusAct, statusBody, statusSaved, ledger, result, salvV, inV, ghost, env2>>
 \* 5-1: 起動した process の終了を親として観測した（正確）。run の領域があれば salvage と同じ規則、無ければ起動の失敗。
 SExit == /\ spc \in {"wait", "rewait"} /\ ~alive[D]
          /\ IF runDir
             THEN spc' = "salv" /\ vpc' = [vpc EXCEPT ![S] = "r1"] /\ Seen("s_salvage_path") /\ UNCHANGED <<returned, tmp, alive, env2>>
             ELSE /\ spc' = "done" /\ SRet(FBody, "s_start_fail") /\ alive' = [alive EXCEPT ![S] = FALSE]
                  /\ tmp' = (IF tmp = "created" THEN "removed" ELSE tmp) /\ UNCHANGED vpc
-         /\ UNCHANGED <<SKeep, dV, runDirKnown, lockAt, runDir, st, statusAct, statusBody, statusSaved, ledger, result, mark, sledger, sresult, vbody, vsaved, inV, ghost, env2>>
+         /\ UNCHANGED <<SKeep, dV, runDirKnown, lockAt, runDir, statusAct, statusBody, statusSaved, ledger, result, mark, sledger, sresult, vbody, vsaved, inV, ghost, env2>>
 \* 5-2: 最終の名前の run の領域と status.json が現れたら、その Status を返す。
 SStatus == /\ spc = "wait" /\ runDir /\ statusAct # None
            /\ spc' = "done" /\ runDirKnown' = TRUE /\ alive' = [alive EXCEPT ![S] = FALSE]
-           /\ IF statusAct = "terminal"
-              THEN returned' = returned \cup {[who |-> S, body |-> statusBody, saved |-> statusSaved]} /\ Seen("s_status_terminal")
+           \* 参照なら result.json を読んで受け取る。読めなければ受け取らない（Done は status.json の terminal で数える）。
+           /\ IF statusAct = "terminal" /\ (statusBody = Ref => RefReadable)
+              THEN returned' = returned \cup {[who |-> S, body |-> StatusRes, saved |-> statusSaved]} /\ Seen("s_status_terminal")
               ELSE UNCHANGED returned /\ Seen("s_status")
            /\ UNCHANGED <<SKeep, dV, fileV, salvV, inV, ghost, env2>>
 \* 5-3: START_WAIT_MS に達した。確認と停止は別の動作（間に rename が入りうる）。
@@ -259,8 +274,8 @@ VR2(v) == /\ vpc[v] = "r2" /\ alive[v]
                   ELSE vpc' = [vpc EXCEPT ![v] = "r3"] /\ UNCHANGED <<returned, seen, alive, spc, env2, runDirKnown>>
           /\ UNCHANGED <<crashD, crashO, reuse, psOK, unk, gaveUp, dV, fileV, mark, sledger, sresult, vbody, vsaved, inV, ghost>>
 VR3(v) == /\ vpc[v] = "r3" /\ alive[v]
-          /\ IF Mutation # "no_saved_check" /\ statusAct = "terminal" /\ ~env2.sbad
-             THEN Ret(v, statusBody, statusSaved, "rule3")
+          /\ IF Mutation # "no_saved_check" /\ statusAct = "terminal" /\ ~env2.sbad /\ (statusBody = Ref => RefReadable)
+             THEN Ret(v, StatusRes, statusSaved, "rule3")
              ELSE vpc' = [vpc EXCEPT ![v] = "r4"] /\ UNCHANGED <<returned, seen, alive, spc, env2>>
           /\ UNCHANGED <<crashD, crashO, reuse, psOK, unk, gaveUp, dV, runDirKnown, fileV, mark, sledger, sresult, vbody, vsaved, inV, ghost, env2>>
 \* 規則 4: 識別を一時ファイルに書いて link で公開（勝者を決める。一意は守らず、重なりを減らす）。
@@ -273,7 +288,7 @@ VR4(v) == /\ vpc[v] = "r4" /\ alive[v]
                      /\ UNCHANGED <<seen, spc, runDirKnown, alive, unk, gaveUp, ghost, returned, env2>>
                   \* 印を I/O の誤りで書けない: 公開しない停止の R' を標準出力で返す（決定的に作る）。
                   \/ /\ UNCHANGED <<mark, unk, gaveUp, runDirKnown, env2>> /\ ghost' = [ghost EXCEPT !.ioFail = TRUE]
-                     /\ Ret(v, VBp, {}, "s_mark_io")
+                     /\ Ret(v, VBp, LSav, "s_mark_io")
              ELSE /\ UNCHANGED mark
                   /\ \E j \in (IF mark = "empty" THEN {"unknown"} ELSE Judge(mark)) :
                        /\ (IF mark = "empty" THEN UNCHANGED ghost ELSE MisGhost(mark, j))
@@ -286,7 +301,7 @@ VR4w(v) == /\ vpc[v] = "r4w" /\ alive[v] /\ mark' = v /\ vpc' = [vpc EXCEPT ![v]
 \* 規則 5-1・5-2: 子の process group を回収し、保存済みの範囲だけから停止の結果を決定的に作る。
 \* 変異 foreign_unlock は残った run.lock を消す（旧 release-lock）。変異 salvage_writes_state は status.json を書く。
 VR5a(v) == /\ vpc[v] = "r5a" /\ alive[v]
-           /\ vbody' = [vbody EXCEPT ![v] = VB(v)]
+           /\ vbody' = [vbody EXCEPT ![v] = VB(v)] /\ vsaved' = [vsaved EXCEPT ![v] = LSav]
            /\ vpc' = [vpc EXCEPT ![v] = IF Mutation = "result_before_ledger" THEN "r5r" ELSE "r5l"]
            /\ IF Mutation = "foreign_unlock" /\ lockAt # None
               THEN lockAt' = None /\ ghost' = [ghost EXCEPT !.foreignUnlock = TRUE] /\ UNCHANGED <<statusAct, statusBody, statusSaved, env2>>
@@ -294,7 +309,7 @@ VR5a(v) == /\ vpc[v] = "r5a" /\ alive[v]
                    THEN statusAct' = "terminal" /\ statusBody' = VB(v) /\ statusSaved' = {} /\ UNCHANGED lockAt
                         /\ ghost' = [ghost EXCEPT !.salvWrote = TRUE, !.badWrite = TRUE]
                    ELSE UNCHANGED <<lockAt, statusAct, statusBody, statusSaved, ghost, env2>>
-           /\ UNCHANGED <<envV, dV, spc, runDirKnown, tmp, runDir, st, ledger, result, mark, sledger, sresult, vsaved, inV, returned, seen, env2>>
+           /\ UNCHANGED <<envV, dV, spc, runDirKnown, tmp, runDir, ledger, result, mark, sledger, sresult, inV, returned, seen, env2>>
 \* 規則 5-3: 追補台帳を公開する。既にあって指紋が同じなら成功、違えば公開の失敗（result.json があればそれを返す）。
 \* 台帳の公開に I/O で失敗したら、停止の R' を標準出力で返し、結果を公開しない。
 VR5l(v) == /\ vpc[v] = "r5l" /\ alive[v]
@@ -333,7 +348,7 @@ VR5r(v) == /\ vpc[v] = "r5r" /\ alive[v]
                     /\ IF Mutation = "loser_returns_own" THEN Ret(v, b, vsaved[v], "s_result_lost") /\ UNCHANGED <<env2, runDirKnown>>
                        ELSE IF env2.rbad /\ ~two THEN Err(v)
                        ELSE Ret(v, cur, IF two THEN {"sledger", "sresult"} ELSE ResSaved(cur), "s_result_lost") /\ UNCHANGED <<env2, runDirKnown>>
-           /\ UNCHANGED <<crashD, crashO, reuse, psOK, unk, gaveUp, dV, tmp, lockAt, runDir, st, statusAct, statusBody, statusSaved, ledger, mark, sledger, vbody, inV>>
+           /\ UNCHANGED <<crashD, crashO, reuse, psOK, unk, gaveUp, dV, tmp, lockAt, runDir, statusAct, statusBody, statusSaved, ledger, mark, sledger, vbody, inV>>
 \* start 自身の crash は扱わない（計画の出来事に無い。README の未検証）。
 CrashO(p) == /\ crashO = 0 /\ alive[p]
              /\ \/ p \in Salvagers /\ vpc[p] \in {"r1", "r2", "r3", "r4", "r4w", "r5a", "r5l", "r5r"}
@@ -376,19 +391,21 @@ FairSpec == Spec /\ Fairness
 
 \* ---- 性質 ----
 \* 呼出し元が受け取る結果: 呼出しに返った結果と、wait が返す status.json の terminal。
-Received == {r.body : r \in returned} \cup (IF statusAct = "terminal" /\ ~env2.sbad THEN {statusBody} ELSE {})
+\* status.json の参照は result.json の中身として受け取る（読めなければ受け取らない）。
+Received == {r.body : r \in returned}
+            \cup (IF statusAct = "terminal" /\ ~env2.sbad /\ (statusBody = Ref => RefReadable) THEN {StatusRes} ELSE {})
 PubFiles == {b \in {result, sresult} : b # NoBody}
 PubNames == {n \in {"ledger", "result", "sledger", "sresult"} :
                CASE n = "ledger" -> ledger # NoBody [] n = "result" -> result # NoBody
                  [] n = "sledger" -> sledger # NoBody [] n = "sresult" -> sresult # NoBody}
 R5 == {"r5a", "r5l", "r5r"}
-\* (1) state.json・status.json・ledger.json を書くのは lock を持つ run-daemon だけ。
+\* (1) status.json・ledger.json を書くのは lock を持つ run-daemon だけ。
 WritersOnlyDaemon == ~ghost.badWrite
 \* (2) run の領域は lock を持った状態でだけ現れる。
 RunDirAppearsWithLock == ~ghost.dirNoLock
 \* lock を消すのは作った者だけ（releaseOwnLock）。
 LockRemovedOnlyByOwner == ~ghost.foreignUnlock
-\* (3) salvage は state.json・status.json・ledger.json を書かない。
+\* (3) salvage は status.json・ledger.json を書かない。
 SalvageWritesNoState == ~ghost.salvWrote
 \* (4) 公開される結果のファイルは 1 つだけ（生死の誤判定を含めて）。
 OneResultPublished == Cardinality(PubFiles) <= 1
@@ -397,7 +414,7 @@ OneResultPublished == Cardinality(PubFiles) <= 1
 ReceivedNonProvisionalMatches == \A b \in Received : (~b[4] /\ result # NoBody) => b = result
 \* (4c) 仮の結果は records.unsaved に result を持ち（saved に result が無い）、状態は停止である。公開された結果は仮でない。
 ProvisionalShape == /\ \A r \in returned : r.body[4] => (r.body[3] = "X" /\ "result" \notin r.saved)
-                    /\ (statusAct = "terminal" /\ statusBody[4]) => (statusBody[3] = "X" /\ "result" \notin statusSaved)
+                    /\ (statusAct = "terminal" /\ statusBody # Ref /\ statusBody[4]) => (statusBody[3] = "X" /\ "result" \notin statusSaved)
                     /\ (result # NoBody => ~result[4])
 \* (4) 勝者が生きている間（生死を正しく判定する限り）、他の salvage は規則 5 に入らない。
 \* 勝者（salvage.mark の識別）が生きている間は、勝者でない salvage は規則 5 に居ない（勝者が死んだ後は何体でも続けてよい）。
@@ -408,6 +425,8 @@ DeterministicSalvageResult == ~ghost.misjudged => \A v, w \in SV : (vbody[v] # N
 ResultInLedger == result # NoBody => result \in {ledger, sledger}
 \* (6) 完了が status.json か標準出力に出るのは、result.json に公開できた結果だけ。
 CompleteOnlyIfPublished == \A b \in Received : b[3] = "C" => b = result
+\* (11) status.json の参照は、公開された result.json だけを指す（参照の先が無い terminal を返さない）。
+RefOnlyIfPublished == (statusAct = "terminal" /\ statusBody = Ref) => result # NoBody
 \* (6 旧) 印を確かめた時点で印が見えていた書込みが無い。
 NoWriteAfterMarkSeen == ~ghost.checkViol
 \* (8) 受け箱は書き終えた内容でだけ見え、1 batch に 1 つだけ公開される。
@@ -424,7 +443,7 @@ Termination == <>(Done \/ gaveUp)
 \* (1) E_RESULT_UNREADABLE は、結果を 2 つにしない誤りの終わり方: 公開済みの result.json がある時だけ返り、
 \* それを返した呼出しは結果を作らない（公開された結果は 1 つのまま）。
 UnreadableOnlyWithPublished == env2.errs # {} => (result # NoBody /\ env2.rbad)
-TypeOK == /\ st \in 0..MaxRange /\ lockAt \in {None, "tmp", "run"} /\ inbox \in {None, "partial", "full"}
+TypeOK == /\ St \in 0..MaxRange /\ lockAt \in {None, "tmp", "run"} /\ inbox \in {None, "partial", "full"}
           /\ mark \in {None, "empty"} \cup SV /\ crashD \in 0..1 /\ crashO \in 0..1 /\ unk \in 0..UMax
 
 \* ---- 到達の証人（成り立たない＝その状態に届く） ----

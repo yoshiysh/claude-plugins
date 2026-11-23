@@ -114,7 +114,7 @@ cd "$work"
 # 到達の証人の印は、性質の名前として拡張のモジュールに置く（TLC の cfg は引数を取れないため）。
 lock_tags='s_cap_fail s_spawn_fail s_start_fail s_status s_status_terminal s_working0 s_salvage_path s_kill_after_rename
 busy_daemon busy_salvage busy_unknown rule2 rule3 r4_winner_dead r1_reuse_dead r1_misjudged s_both_ok s_ledger_fail s_result_fail s_result_lost
-d_ledger_fail d_result_fail d_result_lost d_status_fail d_save_fail_loop d_crash_after_result winner_crash_after_ledger duplicate accepted d_quit_on_mark result_unreadable s_mark_io'
+d_ledger_fail d_result_fail d_result_lost d_status_fail d_status_ref d_save_fail_loop d_crash_after_result winner_crash_after_ledger duplicate accepted d_quit_on_mark result_unreadable s_mark_io'
 {
   echo '---- MODULE LockW ----'
   echo 'EXTENDS Lock'
@@ -183,7 +183,7 @@ lc() {  # lc mutation misjudge clients [track] [corrupt]
 cr='{"result"}' crs='{"result", "status"}'
 
 c0='{}' c2='{"c1", "c2"}'
-lock_inv='TypeOK WritersOnlyDaemon RunDirAppearsWithLock LockRemovedOnlyByOwner SalvageWritesNoState OneResultPublished ReceivedNonProvisionalMatches ProvisionalShape ExclusiveSalvageWork DeterministicSalvageResult ResultInLedger CompleteOnlyIfPublished NoWriteAfterMarkSeen InboxComplete MarkHasIdentity SavedOnlyPublished UnreadableOnlyWithPublished'
+lock_inv='TypeOK WritersOnlyDaemon RunDirAppearsWithLock LockRemovedOnlyByOwner SalvageWritesNoState OneResultPublished ReceivedNonProvisionalMatches ProvisionalShape ExclusiveSalvageWork DeterministicSalvageResult ResultInLedger CompleteOnlyIfPublished NoWriteAfterMarkSeen InboxComplete MarkHasIdentity SavedOnlyPublished UnreadableOnlyWithPublished RefOnlyIfPublished'
 # 生死の誤判定を非決定で起こす（計画の範囲）。性質 (4b) は仮の結果を除いて、公開された結果との一致を見る（除外は置かない）。
 run_case lock-baseline Lock baseline "$lock_inv" pass "$(lc none TRUE "$c2")"
 # status.json が読めない出来事を加えた版（client 0）。
@@ -226,6 +226,7 @@ lmut saved_without_reload SavedOnlyPublished
 run_case lock-mut-saved_without_reload-provisional Lock mutation ProvisionalShape violation "$(lc saved_without_reload TRUE "$c0")"
 lmut unreadable_returns_new ReceivedNonProvisionalMatches
 lmut no_provisional ReceivedNonProvisionalMatches
+lmut ref_without_publish RefOnlyIfPublished
 
 # ---------------- Run.tla ----------------
 

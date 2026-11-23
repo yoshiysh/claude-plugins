@@ -15,6 +15,7 @@ Claude Code / Codex 向けの汎用スキル集。marketplace plugin として�
 | `claim-gate` | 不在・網羅型の断定に裏付けか手段スコープが無ければ排出前に差し戻す Stop hook（opt-in・既定 off） |
 | `shunt` | 大きなファイルの読み込みとボイラープレート生成を Gemini worker へ委譲してトークンを節約する（`CLAUDE_PLUGINS_GEMINI_API_KEY` が必要） |
 | `strata` | 高速ローカル推論エンジン Strata へ生成（code/test/doc）と敵対的レビューを MCP 経由で委譲 |
+| `verification` | 要求・仕様・コードを形式手法などで機械的に検証する（formal-method） |
 
 各 plugin の詳細は `plugins/<plugin>/README.md`。
 
