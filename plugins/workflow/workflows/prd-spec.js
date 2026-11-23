@@ -55,9 +55,12 @@ const MAX_AUDIT_PASSES = 1
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
 // 依頼者を止める回数の上限。内訳は、初稿の監査の後の段 6 で開く最初のゲート（collecting。そこまでに出た問いをまとめて聞く）、回答の反映
-// （3a・3b）から出る続きの問いのゲート、改稿のパスの段 6 のゲート（MAX_AUDIT_PASSES 回）、2 巡目の後の延長のゲート（延長を入れるまでは続きの問いの余り）。問いを持ち越さない run では
+// （3a・3b）から出る続きの問いのゲート、改稿のパスの段 6 のゲート（MAX_AUDIT_PASSES 回）、最後の監査の後の延長のゲート（段 8 が延長に入ったときだけ）。問いを持ち越さない run では
 // 最初のゲートが改稿のパスの段 6 を兼ねるので 1 回余る。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖はここで必ず終わる。
 const MAX_GATES = 3 + MAX_AUDIT_PASSES
+// NEXT_ARGS_MAX_CHARS: 司令塔が next_args を打ち直せる字数の上限（tests の NextArgsBudget と同じ値。tests が照合する）。収まるのはこれ未満で、
+// 延長のパスは、そのゲートの next_args がこれ以上なら入らない（段 8・延長の段 6・延長の 3a'）。超える next_args を返すと、回答を当てて再開できない。
+const NEXT_ARGS_MAX_CHARS = 8000
 
 const ENTRIES = ['new', 'existing', 'expand']
 const STAGES = ['1', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
@@ -374,6 +377,26 @@ function pendingView(p) {
 }
 
 // canonicalText・fnv: この script は sha256 を計算できないので、next_args が打ち直しで変わっていないかをこの 2 つで照合する。
+// jsonChars: 区切りに空白を入れた JSON（`, ` と `: `。Python の json.dumps の既定と同じ）の字数。文字列は作らずに数える（プロンプトに JSON を
+// 埋め込まないため）。非 ASCII は写したままの字数で、制御文字は \u00XX の 6 字で数える。
+const jsonStrChars = (t) => 2 + t.length + (t.match(/["\\\n\r\t\b\f]/g) || []).length + 5 * (t.match(/[\u0000-\u0007\u000b\u000e-\u001f]/g) || []).length
+function jsonChars(v) {
+  if (Array.isArray(v)) return 2 + 2 * Math.max(v.length - 1, 0) + v.reduce((n, x) => n + jsonChars(x === undefined || typeof x === 'function' ? null : x), 0)
+  if (v && typeof v === 'object') {
+    const ks = Object.keys(v).filter((k) => v[k] !== undefined && typeof v[k] !== 'function')
+    return 2 + 2 * Math.max(ks.length - 1, 0) + ks.reduce((n, k) => n + jsonStrChars(k) + 2 + jsonChars(v[k]), 0)
+  }
+  if (typeof v === 'string') return jsonStrChars(v)
+  return v === null || (typeof v === 'number' && !Number.isFinite(v)) ? 4 : String(v).length
+}
+// worstNextArgsChars: next_args を、その段（from）の再実行の最悪の形にした字数（tests の NextArgsBudget._chars と同じ測り方。tests が照合する）。
+// 再実行を重ねると tx の try と restore が伸び、flow を書く段（段 8 のほか）では tx.flow（flow の digest）が付く。
+function worstNextArgsChars(a) {
+  const tx = (a.state && a.state.tx) || {}
+  const worst = { ...tx, stage: a.from, try: 9, restore: `t${tx.seq}r8`, ...(a.from === '8' ? {} : { flow: 'f'.repeat(64) }) }
+  return jsonChars({ ...a, state: { ...a.state, tx: worst } })
+}
+
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -527,7 +550,7 @@ function planCheckOf(text) {
 const unitsOf = (pc) => pc.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
 
 // rulingRows: doc_check flow --rulings の resolutions（ruling・has_answer・verdict・fail_kind の組ごとに束ねたもの。束ね方は doc_check の rulingsCompact）を
-// resolution ごとの行 {id, about, ruling, has_answer, verdict}（不合格は fail_kind も）に戻す。形の外の組が 1 つでもあれば null。並びは ID の番号順にする
+// resolution ごとの行 {id, about, ruling, has_answer, verdict}（不合格は fail_kind も、仕様の論点の問いは spec_layer: true も）に戻す。形の外の組が 1 つでもあれば null。並びは ID の番号順にする
 // （束ねた順のままだと、合否が変わっただけで行の並びが変わり、state の holds・questions の並びと next_args が揺れる）。
 const VERDICTS = ['pass', 'fail', null]
 const isMap = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x)
@@ -540,9 +563,10 @@ function rulingRows(groups) {
   const rows = []
   for (const g of groups) {
     if (!isMap(g) || typeof g.has_answer !== 'boolean' || !VERDICTS.includes(g.verdict) || Object.hasOwn(g, 'fail_kind') !== (g.verdict === 'fail') || !isMap(g.about)) return null
+    if (Object.hasOwn(g, 'spec_layer') && g.spec_layer !== true) return null
     for (const [id, about] of Object.entries(g.about)) {
       if (about !== null && !isMap(about)) return null
-      rows.push({ id, about, ruling: g.ruling ?? null, has_answer: g.has_answer, verdict: g.verdict, ...(g.verdict === 'fail' ? { fail_kind: g.fail_kind } : {}) })
+      rows.push({ id, about, ruling: g.ruling ?? null, has_answer: g.has_answer, verdict: g.verdict, ...(g.verdict === 'fail' ? { fail_kind: g.fail_kind } : {}), ...(g.spec_layer ? { spec_layer: true } : {}) })
     }
   }
   if (new Set(rows.map((x) => x.id)).size !== rows.length) return null
@@ -755,7 +779,7 @@ const RESOLVER_SCHEMA = {
 }
 
 // FAIL_KINDS: verifier の不合格の種類（意味は契約「## 決定の台帳」の verifications.json）。decidable だけが決める出典（source）を持つ。
-const FAIL_KINDS = ['value_as_method', 'not_reproduced', 'insufficient_grounds', 'mapping', 'decidable']
+const FAIL_KINDS = ['value_as_method', 'not_reproduced', 'insufficient_grounds', 'mapping', 'decidable', 'layer']
 const VERIFIER_SCHEMA = {
   type: 'object',
   properties: {
@@ -895,6 +919,13 @@ const argsFrom = (from, st) => {
   return { ...out, state_hash: nextArgsHash(out) }
 }
 const nextArgs = (from) => argsFrom(from, state)
+// extensionOver: 延長のゲート（from 3a'、ゲートを 1 つ開いた state）で返すことになる next_args が上限を超えるか。st は延長の段 6 の入口の state。
+// 段の token（tx）は、ゲートを開く段 6 の seq（段 8 から測るときは次の段の分）を 1 つ先に見積もる（桁が増える向き。延長しない側に倒す）。
+const extensionOver = (st) => {
+  const seq = ((st.tx || {}).seq || 0) + 1
+  return worstNextArgsChars(argsFrom("3a'", { ...st, tx: { ...(st.tx || {}), seq }, gates: (st.gates || 0) + 1, gate: `g${(st.gates || 0) + 1}` })) >= NEXT_ARGS_MAX_CHARS
+}
+const OVER_WHY = `延長すると next_args が打ち直しの上限（NEXT_ARGS_MAX_CHARS = ${NEXT_ARGS_MAX_CHARS}）を超えるので延長しない`
 
 let running = null
 let entryState = null
@@ -1229,7 +1260,9 @@ const orderHolds = (ids, abouts = []) => {
   for (const id of ids) holdOrders.ids.add(id)
   for (const k of abouts) holdOrders.abouts.add(k)
 }
-const asksNow = () => Object.hasOwn(ASKS, running) && ASKS[running]()
+// closing: finalHold に入った（輪を出て、残った論点を保持規則にする）。その後は依頼者に聞かない。
+let closing = false
+const asksNow = () => !closing && Object.hasOwn(ASKS, running) && ASKS[running]()
 // designatedHold: 聞ける段で resolver が新しく hold にしてよい ID。script の指定（holdOrders）と、依頼者のその問いへの回答を根拠にした hold
 // （doc_check flow の answer_holds）。後者を問いに書き換えると、保留と答えた依頼者に聞き直す。unorderedHolds に渡す fc は resolver 自身の stdout なので
 // 早い書き換え直しは申告で飛びうる。台帳で決めるのは、独立な stdout を渡す adopt と段の出口の newHoldsInW である。
@@ -1445,6 +1478,7 @@ function verifierPrompt(label, stage, ids, extra) {
     `根拠にしてよい resolution（合格・回答済み。decidable の source に挙げてよい）: ${list(usableResolutions(state))}`,
     `decidable の source の形（例）: ${DECIDING_EXAMPLE}`,
     VERIFY_ALL,
+    specOnly() ? '仕様書だけを書く run である。問いの `layer` を確かめる（plan-reviewer.md）。' : '',
     extra || '',
     `検証の最後に \`${RULINGS_FLOW}\` を実行し、stdout を加工せずに flow_check に入れる。`,
   ]
@@ -1620,8 +1654,12 @@ async function ruleAndVerify(stage, opt) {
 const reworkLines = (fails) => fails.map((f) => `- ${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}${f.kind === 'decidable' ? `（決める出典: ${f.source}）` : ''}`).join('\n')
 const askNote = (allowQuestions) =>
   allowQuestions
-    ? 'この段では依頼者に聞けるので、script が指定しない hold を作らない（根拠を補えない価値の判断は question にする）。'
-    : 'この段では依頼者に聞けないので、根拠を補えない価値の判断は question ではなく hold にする。'
+    ? `この段では依頼者に聞けるので、script が指定しない hold を作らない（根拠を補えない価値の判断は question にする）。${specOnly() ? `\n${SPEC_LAYER_NOTE}` : ''}`
+    : `この段では依頼者に聞けないので、根拠を補えない価値の判断は question ではなく hold にする。${specOnly() ? `\n${SPEC_REQ_NOTE}` : ''}`
+// SPEC_LAYER_NOTE: 仕様書だけを書く run の問いの layer。手段の問いだけを依頼者に聞き、ほかは要求文書の抜け（upstream_gap）にする（needsAnswers）。
+const SPEC_LAYER_NOTE = '仕様書だけを書く run: 問いには `layer` を付ける（契約 §resolver）。'
+// SPEC_REQ_NOTE: 聞けない段でも、仕様書だけを書く run の要求の論点は question のまま返させる（script が upstream_gap にする。requirementGap）。
+const SPEC_REQ_NOTE = '仕様書だけを書く run: `layer: 要求` の問いは hold にせず question のまま返す（契約 §resolver）。'
 const DECIDABLE_NOTE = 'decidable の項目は、その出典で値を決める。'
 
 // convertible: 差し戻しの後も落ちた裁定のうち、変換に回すもの。hold のまま落ちた保持規則は書き直し（reholdFailed）に回すが、decidable で
@@ -1641,7 +1679,7 @@ async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
     RESOLVER_SCHEMA,
     phaseTitle
   )
-  const bad = onlyAsked(`${owner}-fix`, r, ids, ['ruled', ...answerKinds(allowQuestions)])
+  const bad = onlyAsked(`${owner}-fix`, r, ids, ['ruled', ...takenKinds(allowQuestions)])
   if (bad) return { error: bad }
   absorbResolver(r)
   const kept = flowKept(`${owner}-fix`, r)
@@ -1721,6 +1759,9 @@ function onlyAsked(stage, r, asked, kinds) {
 // answerKinds: 値を決めずに返す種類。聞けない段の question は、聞くゲートにも保持規則への変換（holdLeft は段の最後に 1 回）にも
 // 届かないまま回答待ちで残るので、聞けない段の settle の中の resolver からは受け取らない。
 const answerKinds = (allowQuestions) => (allowQuestions ? ['questions', 'holds'] : ['holds'])
+// takenKinds: 裁定の呼び出し（段の本体・settle・差し戻し）から受け取る種類。仕様書だけを書く run では、聞けない段でも question を受け取る
+// （要求の論点を段の出口で upstream_gap にするため。仕様の論点の問いは段の最後の holdLeft が保持規則にする）。変換は指定どおりの種類だけ。
+const takenKinds = (allowQuestions) => answerKinds(allowQuestions || specOnly())
 
 function outsideKinds(stage, r, kinds) {
   const extra = uniq(['ruled', 'questions', 'holds'].filter((k) => !kinds.includes(k)).flatMap((k) => idsOf(r, k)))
@@ -1839,7 +1880,7 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
     .filter(Boolean)
     .join('\n')
   const r = await once(label, 'resolver', resolverPrompt(label, `${owner}（未裁定の論点）`, keepFlow(task, '組と未決の裁定は flow を変えない')), RESOLVER_SCHEMA, phaseTitle)
-  const outside = outsideKinds(`${owner}-${tag}`, r, ['ruled', ...answerKinds(allowQuestions)])
+  const outside = outsideKinds(`${owner}-${tag}`, r, ['ruled', ...takenKinds(allowQuestions)])
   if (outside) return { error: outside }
   const ids = absorbResolver(r)
   state.missed = uniq([...(state.missed || []), ...missedTargets([...opens, ...pairs], r)])
@@ -1963,7 +2004,7 @@ async function takeRulings(stage, owner, r, phaseTitle, { allowQuestions, rechec
     const stop = () => Object.assign(new Error(`${l}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(unordered)} を planner が hold で返しました（聞ける段の価値の判断は question にする。planner.md「### 裁定の種類」）`), { rerunStage: true })
     got = await holdsToQuestions(l, r, unordered, phaseTitle, stop, minus(recheck, [...idsOf(r, 'ruled'), ...idsOf(r, 'holds'), ...idsOf(r, 'free_text')]))
   }
-  const outside = outsideKinds(owner, got, ['ruled', ...answerKinds(allowQuestions)])
+  const outside = outsideKinds(owner, got, ['ruled', ...takenKinds(allowQuestions)])
   if (outside) return { error: outside }
   const ruledNothing = [...Object.keys(KIND_WORDS), 'supersedes'].every((k) => !(got[k] || []).length)
   const ids = ruledNothing ? [] : absorbResolver(got, reRuled)
@@ -2265,12 +2306,13 @@ let gatePassed = null
 
 // collecting: 最初のゲートを開く前の、段 6 より前の段。問いを見つけた段ごとに止めると、後の段（初稿・監査）でしか見えない論点が次のゲートか
 // 次の run に回り、依頼者を止める回数と要求文書の改訂が、論点の見つかった段の数だけ増える（実測: 仕様書だけの run が初稿の前の 3 問で止まり、
-// 要求文書を改訂して起こし直した run が初稿の監査で 4 問目に止まった）。初稿の監査は全文書を読むので、最初のゲート（仕様書だけを書く run では
-// upstream_gap）は、その裁定の段 6 で開く。
-const collecting = () => running !== '6' && (specOnly() || gatesOpened() === 0)
-// carrying: 持ち越した問いを持って、最初のゲート（仕様書だけを書く run では upstream_gap）までの段を通っている。聞くゲートを通ったのと同じく、
-// 回答待ちの問いを持って段を出てよい（exitViolation）。
-const carrying = () => specOnly() || Boolean(state.deferred)
+// 要求文書を改訂して起こし直した run が初稿の監査で 4 問目に止まった）。初稿の監査は全文書を読むので、最初のゲート（仕様書だけを書く run で
+// 要求の論点があれば upstream_gap）は、その裁定の段 6 で開く。
+const collecting = () => running !== '6' && gatesOpened() === 0
+// carrying: 持ち越した問いを持って、最初のゲートまでの段を通っている。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい
+// （exitViolation）。仕様書だけを書く run の項は最初のゲートの前に限る: ゲートの後も真のままだと、3b の続きの問いが持ち越しになって
+// 初稿の書き直しと段 5 の監査が繰り返され、回答待ちの検査も外れる。
+const carrying = () => (specOnly() && gatesOpened() === 0) || Boolean(state.deferred)
 
 // needsAnswers: 開いた順に g1, g2, … と名乗る。resume も next_args の再開も同じ段を同じ順に通るので、同じ名前になる。
 // gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
@@ -2279,10 +2321,11 @@ const carrying = () => specOnly() || Boolean(state.deferred)
 // 知らないので、最初のゲートの後は 3a から入り、組み直した flow で書き直す（state.deferred）。
 async function needsAnswers(from, onward) {
   if (onward && collecting()) {
-    if (!specOnly()) state.deferred = true
+    state.deferred = true
     return onward
   }
-  if (specOnly()) return upstreamGap()
+  const gap = requirementGap()
+  if (gap) return gap
   if (state.deferred) {
     from = '3a'
     delete state.deferred
@@ -2306,18 +2349,34 @@ async function needsAnswers(from, onward) {
 // よいのは価値の判断だけなので、この run で出る問いは要求文書の抜けである。聞いて仕様書に書くと、要求文書に無い判断が仕様書にだけ入り、
 // 仕様項目が要求に辿れなくなる。covers を見ないと、INDEX のために並べただけの無関係な固定の文書で、聞けば済む run まで止まる。
 const fixedRequirements = () => new Set(EXISTING.filter((d) => d.fixed && String(d.key).startsWith('requirements/')).map((d) => d.key))
+// plan の前（planner:1 のプロンプトを作る時点）は run の種類が分からないので偽にする（planner.md が問いの layer の付け方を静的に持つ）。
 const specOnly = () => {
+  if (!state.units) return false
   const docs = auditDocs()
   const fixed = fixedRequirements()
   return docs.length > 0 && docs.every((k) => k.startsWith('specifications/') && ((state.covers || {})[k] || []).some((r) => fixed.has(r)))
 }
 
-// upstreamGap: 仕様書だけを書く run が、初稿の監査の裁定（段 6）までに出た価値の問いをまとめて返す。要求文書を直すと固定の文書の sha が変わり、
+// specQuestion: 仕様の論点の問い。最後に受け取った独立な flow --rulings の stdout（seen）の行が spec_layer（ruling が question、layer が
+// 手段、upstream_revision が無い。doc_check の wsFlow）を持ち、verifier が合格にしたもの。seen か行が無ければ要求の論点に倒す。
+const specQuestion = (id) => Boolean(seen && seen.resolutions && seen.resolutions.some((x) => x.id === id && x.spec_layer === true && x.verdict === 'pass'))
+
+// requirementGap: 仕様書だけを書く run の回答待ちの問いに要求の論点（specQuestion でないもの）があれば、upstream_gap の結果を返す。
+// ゲートを開くか保持規則にするかの判定（next_args の字数・聞ける回数）より先に当てる: 要求の論点を保持規則にすると、要求文書に無い判断が
+// 仕様書の本文にだけ入る。upstream_gap は next_args を付けないので、字数の上限とは関わらない。
+function requirementGap() {
+  if (!specOnly()) return null
+  const up = pendingQuestions(state).filter((id) => !specQuestion(id))
+  return up.length ? upstreamGap(up) : null
+}
+
+// upstreamGap: 仕様書だけを書く run が、要求の論点 ids をまとめて返す（question_ids は要求の論点だけ）。要求文書を直すと固定の文書の sha が変わり、
 // この run は再開できないので next_args を付けない。
-function upstreamGap() {
-  const ids = pendingQuestions(state)
+function upstreamGap(ids) {
+  const spec = minus(pendingQuestions(state), ids)
+  const deferredSpec = spec.length ? `。仕様書の範囲の問い ${spec.length} 件（${list(spec)}）は、要求文書を改訂した後の run で聞く` : ''
   return finish('blocked', {
-    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が ${ids.length} 件出ました（${list(ids)}）。仕様書では決めずに、初稿と監査を終えるまでに出た論点をまとめて返します。要求文書を改訂してから仕様書を起こし直してください`,
+    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が ${ids.length} 件出ました（${list(ids)}）。仕様書では決めずに、初稿と監査を終えるまでに出た論点をまとめて返します。要求文書を改訂してから仕様書を起こし直してください${deferredSpec}`,
     stop_reason: 'upstream_gap',
     questions_path: `${W}/questions.md`,
     questions_json_path: `${W}/questions.json`,
@@ -2573,7 +2632,7 @@ async function stageApply(stageId) {
       answerExcerpt(gate, pending),
       `同じ回答で、初期 plan.domain の verdict / categories を変える具体的な signal があれば about.domain の effective assessment を作成または更新する。初期 verdict は該当・非該当・未評価のいずれでもよい。signal が無ければ変更しない。`,
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
-      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（planner.md の「8'」）。`,
+      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（planner.md の「8'」）。${specOnly() ? SPEC_REQ_NOTE : ''}`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2586,8 +2645,12 @@ async function stageApply(stageId) {
   if (nextStage) return nextStage
   const left = pendingQuestions(state)
   if (left.length) {
-    if (allowQuestions) return needsAnswers(stageId)
-    const he = await holdLeft(stageId, left, 'Answers', LIMIT_WHY)
+    const gap = requirementGap()
+    if (gap) return gap
+    // 延長の 3a' から出た続きの問いのゲートも、延長のゲートと同じく next_args の字数を測る。
+    const over = stageId === "3a'" && state.pass > MAX_AUDIT_PASSES && extensionOver(state)
+    if (allowQuestions && !over) return needsAnswers(stageId)
+    const he = await holdLeft(stageId, left, 'Answers', over ? OVER_WHY : LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : stageId)
   }
   if (stageId === "3a'") return '7'
@@ -2963,8 +3026,11 @@ function setPending(findings, docCheck, carried, opt = {}) {
 // 裁定に回すのは、どの resolution の about にも無い指摘と TBD だけにする（unruled）。前のパスで裁定した指摘が pending に残っていて
 // 渡し直すと、同じ論点に 2 つ目の裁定を put させることになり、doc_check が拒んで段が止まる。回答待ちの問いは、裁定に回すものが無くても
 // 聞くか保持規則にする。
+// 延長のパス（state.pass > MAX_AUDIT_PASSES。最後の監査の後に聞く 1 回）では、blocking の decision だけを渡す。blocking でない decision は
+// 裁定せずに report.md の節に残す（段 5 の lowOnly と同じ扱い）。
 async function stage6() {
-  const decision = unruled(pendingView(state.pending).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
+  const extended = state.pass > MAX_AUDIT_PASSES
+  const decision = extended ? blockingDecision(pendingView(state.pending)) : unruled(pendingView(state.pending).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
   const tbd = unruled((state.new_tbd || []).map((id) => `tbd:${id}`), 'tbd').map((k) => k.slice(4))
   const allowQuestions = ASKS[6]()
   const reasked = new Set(answeredRecurrences(decision).map((id) => `finding:${id}`))
@@ -2972,18 +3038,39 @@ async function stage6() {
     const res = await decide(decision, tbd, allowQuestions, reasked)
     if (res.error) return blocked(res.error, res.rerun === false ? null : '6')
   }
+  const left = extended ? remainingBlocking() : null
   state.new_tbd = []
   const again = pendingQuestions(state).filter((id) => reasked.has((state.about || {})[id]))
   if (again.length) {
     const he = await holdLeft('6', again, 'Decide', '前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない')
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
+  // 仕様書だけを書く run の要求の論点は、字数・聞ける回数の判定より先に upstream_gap にする（requirementGap）。
+  const gap = pendingQuestions(state).length ? requirementGap() : null
+  if (gap) return gap
+  // 延長の段 6 の裁定で state が増えるので、ゲートの next_args をここでも測る。超えるなら問いを保持規則にして輪を出る。
+  const over = extended && pendingQuestions(state).length > 0 && extensionOver(state)
   if (pendingQuestions(state).length) {
-    if (allowQuestions) return needsAnswers("3a'", '7')
-    const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)
+    if (allowQuestions && !over) return needsAnswers("3a'", '7')
+    const he = await holdLeft('6', pendingQuestions(state), 'Decide', over ? OVER_WHY : LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
+  // 延長で問いが無ければ 7 へ進まない。上限を越えて改稿と監査を延ばすのは、依頼者の回答を当てる 1 回だけである。
+  // 延長の段 6 が入口の論点（新しい TBD など）をすべて値で決めると、残りの数は 0 になる。そのときは延長に入った論点の数で書く。
+  if (extended) return finalHold(left.blocking || decision.length + tbd.length, left.newTbd, 'pass_limit', over ? `最後の監査の後の延長のパスで、${OVER_WHY}` : '最後の監査の後の延長のパスで、段 6 が依頼者への問いを出さなかった', '6')
   return '7'
+}
+
+// blockingDecision: まだ裁定の無い、blocking で route が decision の指摘。延長のパスの段 6・延長するかの判定（段 8）・resolver:final に渡す。
+// 裁定済みのものを渡し直すと、同じ論点に 2 つ目の裁定を put させることになり、doc_check が拒む。
+const blockingDecision = (p) => unruled(p.findings.filter((f) => f.blocking && f.route === 'decision').map((f) => `finding:${f.id}`), 'finding').map((k) => k.slice(8))
+
+// remainingBlocking: 監査の後に残った blocking の数（新しい TBD を含む）と、まだ閉じていない新しい TBD。段 8 と延長の段 6 の出口で同じ式を使う。
+// 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になるので、blocking と同じく数える。
+function remainingBlocking() {
+  const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
+  const now = pendingView(state.pending)
+  return { newTbd, blocking: now.blocking.length + now.doc_blocking + newTbd.length }
 }
 
 const rulingsOfFindings = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
@@ -3010,7 +3097,7 @@ function decide(decision, tbd, allowQuestions, reasked) {
       reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
       pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),
       waitingNote('resolver'),
-      allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（planner.md の「8'」）。`,
+      allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（planner.md の「8'」）。${specOnly() ? SPEC_REQ_NOTE : ''}`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -3137,24 +3224,38 @@ async function stage8() {
   for (const k of recurring) recurPrev[k] = uniq(prev.findings.filter((f) => itemKey(f) === k).map((f) => f.id))
   // 既裁定の再出も直前のパスの指摘なので、逆向きの判定には入れる（外すと、裁定に逆らう向きの指摘が writer に届く）。
   setPending(findings, docCheck, carried, { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
-  // 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になる。blocking と同じく
-  // もう 1 パスの理由にする。
-  const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
-  const now = pendingView(state.pending)
-  const blocking = now.blocking.length + now.doc_blocking + newTbd.length
+  const { newTbd, blocking } = remainingBlocking()
   if (!blocking) return '9'
-  if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit', `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した`, '8')
-  // ここから下は MAX_AUDIT_PASSES = 1 では通らない（上の行で必ず輪を出る）。定数を戻せるように残す。
-  state.pass += 1
-  log(`blocking が ${blocking} 件残った（新しい TBD ${newTbd.length} 件を含む。経路を変えた項目 ${list(recurring)}）。段 6 → 7 → 8 をもう 1 パス回します（${state.pass}/${MAX_AUDIT_PASSES}）`)
-  return '6'
+  // MAX_AUDIT_PASSES = 1 ではこの分岐を通らない。定数を戻せるように残す。
+  if (state.pass < MAX_AUDIT_PASSES) {
+    state.pass += 1
+    log(`blocking が ${blocking} 件残った（新しい TBD ${newTbd.length} 件を含む。経路を変えた項目 ${list(recurring)}）。段 6 → 7 → 8 をもう 1 パス回します（${state.pass}/${MAX_AUDIT_PASSES}）`)
+    return '6'
+  }
+  // 延長: 最後の監査の後に、まだ裁定の無い blocking の decision か新しい TBD が残り、聞ける回数があれば、延長のパスで依頼者に聞く
+  // （段 6 → ゲート → 3a' → 7 → 8）。延長は 1 回きりで、その後に残れば下の finalHold で止まる。
+  const asking = blockingDecision(pendingView(state.pending)).length + newTbd.length
+  const over = state.pass === MAX_AUDIT_PASSES && asking > 0 && canAsk() && extensionOver({ ...state, pass: state.pass + 1 })
+  if (state.pass === MAX_AUDIT_PASSES && asking && canAsk() && !over) {
+    state.pass += 1
+    log(`監査 r${round} の後に決定が要る論点が ${asking} 件残った（新しい TBD ${newTbd.length} 件を含む）。延長のパスで段 6 に渡し、問いがあれば回答を当てて改稿と監査を 1 回だけ延ばします`)
+    return '6'
+  }
+  const why =
+    state.pass > MAX_AUDIT_PASSES
+      ? `回答を反映した後の監査 r${round} でも blocking が残った（延長は 1 回きり）`
+      : `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した${over ? `（${OVER_WHY}）` : asking ? `（${LIMIT_WHY}ので延長しない）` : ''}`
+  return finalHold(blocking, newTbd, 'pass_limit', why, '8')
 }
 
 // finalHold: 改稿と監査の輪を出たので文書に反映せず、決定が要るものを保持規則と Issue の文案に変える。
+// 渡す decision は blocking でまだ裁定の無いものだけで（blockingDecision）、blocking でない decision は report.md の節に残す。
+// 延長の段 6 から呼ぶと聞ける段の中で走るが、輪を出た後は聞かないので、resolver:final の hold を問いに書き換え直させない（closing）。
 async function finalHold(blocking, newTbd, stopReason, why, stage) {
   phase('Report')
+  closing = true
   const p = pendingView(state.pending)
-  const decision = p.decision
+  const decision = blockingDecision(p)
   const routes = state.item_routes || {}
   const label = 'resolver:final'
   // 輪を出た後の blocked は同じ段をやり直しても同じ所で止まるので、返り値が無くても段を止め直さず、文案が無いことを理由に載せる。

@@ -545,6 +545,20 @@ class ContractEnums(unittest.TestCase):
         plain = value(f"flowCheckOf({json.dumps(self._rulings_stdout(groups))})")
         self.assertEqual(plain["resolutions"], got, "--rulings を付けて実行した生成者の stdout も行に戻す")
 
+    def test_rulingRowsはspec_layerを真だけ受け取り行に写す(self):
+        # 仕様書だけを書く run の仕様の論点（doc_check flow --rulings の spec_layer）。無いか true だけを受け取り、無い行には欄を足さない。
+        spec_q = {"id": "RS-11", "about": {"open": "O-011"}, "ruling": "question", "has_answer": False, "verdict": "pass", "spec_layer": True}
+        rows = [*self.RULING_ROWS, spec_q]
+        groups = _exported(f"m.rulingsCompact({json.dumps(rows)})")
+        self.assertEqual([g for g in groups if g.get("spec_layer")], [{"ruling": "question", "has_answer": False, "verdict": "pass", "spec_layer": True, "about": {"RS-11": {"open": "O-011"}}}],
+                         "doc_check は spec_layer のある行を別の組に束ね、組の頭に spec_layer を入れる")
+        got = value(f"rulingRows({json.dumps(groups)})")
+        self.assertEqual(got, sorted(rows, key=lambda x: int(x["id"][3:])), "spec_layer の無い行に欄を足さない")
+        head = {"ruling": "question", "has_answer": False, "verdict": "pass", "about": {"RS-1": {"open": "O-001"}}}
+        for bad in (False, None, "true", 1):
+            with self.subTest(spec_layer=bad):
+                self.assertIsNone(value(f"rulingRows({json.dumps([{**head, 'spec_layer': bad}])})"))
+
     def test_束ねたresolutionsは行の形より短い(self):
         rows = [{"id": f"RS-{i:03d}", "about": {"open": f"O-{i:03d}"}, "ruling": ["internal", "question", "hold"][i % 3], "has_answer": i % 3 == 1, "verdict": "pass"} for i in range(1, 57)]
         compact = _exported(f"m.rulingsCompact({json.dumps(rows)})")

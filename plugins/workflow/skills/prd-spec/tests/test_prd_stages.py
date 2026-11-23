@@ -239,10 +239,13 @@ const rsVerdict = (id) => {
 // answer_holds: 依頼者のその問いへの回答を根拠にした hold として doc_check が数える ID（evidence がその ID の回答の節を引く）。台帳で hold のときだけ出す。
 // 節は answers/g1.md の 1 行目（answerSection）。
 const answerSection = (id) => ({ id, file: 'answers/g1.md', from: 1, to: 1 })
+// spec_layer_ids: 台帳で layer が「手段」で upstream_revision の無い resolution（仕様書だけを書く run の仕様の論点）。doc_check flow --rulings と
+// 同じく、ruling が question の行にだけ spec_layer: true を付ける（question でない行に付けると、script の取り違えを stub が隠す）。
+const specLayer = (id) => ((spec.spec_layer_ids || []).includes(id) && disk.rs[id].ruling === 'question' ? { spec_layer: true } : {})
 const rulingRowsOnDisk = () =>
   Object.keys(disk.rs).sort().map((id) => {
     const v = rsVerdict(id)
-    return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, has_answer: Boolean(disk.rs[id].has_answer), verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
+    return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, has_answer: Boolean(disk.rs[id].has_answer), verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}), ...specLayer(id) }
   })
 // cites: 要素が出典に引く裁定（{ 要素: RS- }）。planner の流れの仕事が cites_at[流れの鍵] で書き、uncites_at[流れの鍵] で外す。
 // unsettled_refs は doc_check の wsFlow と同じく W から出す: 引いた裁定の今の版が合格していない・hold・answer の無い question なら挙げる（設計 3.10）。
@@ -359,7 +362,9 @@ const resolve = (prompt, stage, { keys = [stage], only = null, drop = [], planne
   const kept = (xs) => xs.filter(keep)
   // 変換（-convert）と書き換え直し（-convert-kind・-toquestion）は、その段の ruled_at・questions_at・holds_at が無ければ求められたとおりの種類で ID を返す（契約どおりの resolver）。
   const convert = /-(convert|convert-kind|toquestion)$/.test(stage) && ['ruled_at', 'questions_at', 'holds_at'].every((k) => atL(k) === undefined) ? [...prompt.matchAll(/- (RS-\d+) → (question|hold)/g)] : []
-  const q = [...(atL('questions_at') || []), ...convert.filter((m) => m[2] === 'question').map((m) => m[1])].filter(keep).map(as)
+  // questions_seq_at: 同じ label の呼び出しごとに違う問いを返す（r1 の後の段 6 は裁定し、延長の段 6 は問いを返す、など）。尽きたら questions_at。
+  const qseq = (spec.questions_seq_at || {})[stage]
+  const q = [...((qseq && qseq.length ? qseq.shift() : atL('questions_at')) || []), ...convert.filter((m) => m[2] === 'question').map((m) => m[1])].filter(keep).map(as)
   // ruled_seq_at: 同じ label の呼び出しごとに違う裁定を返す（パスごとの段 6 など）。
   const seq = (spec.ruled_seq_at || {})[stage]
   // 差し戻し（-fix）は、その段の ruled_at・questions_at・holds_at・free_text_at が無ければ落ちた RS- を値の裁定で返す（根拠を補えた、契約どおりの resolver）。
@@ -1515,7 +1520,7 @@ class Stages(unittest.TestCase):
         stopped = run({"args": args(), "findings": findings, "unapplied_seq": [["r1-wr-all-002"]], "null_labels": [auditor]})["result"]
         self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "8"), stopped.get("reason"))
         self.assertEqual(stopped["next_args"]["state"]["revised"]["unapplied"], ["r1-wr-all-002"])
-        # 持ち越した指摘は r2 の後も blocking なので、改稿のパスが 1 回で尽きて輪を出る。段 8 が作った pending を返り値で見る。
+        # 持ち越した指摘は r2 の後も blocking なので再発して decision に回り、延長の段 6 が問いを出さないので輪を出る。段 8 が作った pending を返り値で見る。
         again = run({"args": stopped["next_args"]})
         self.assertIsNone(again["error"], again["error"])
         self.assertEqual(again["labels"][:2], ["flow-check:8-entry", auditor])
@@ -4303,11 +4308,15 @@ class DecidedNotHeld(unittest.TestCase):
             ("段 3", {"args": args(), "flow_open": 1, "holds_at": {"3": ["RS-001"]}}, "3", "3", "planner:1", "1-toquestion"),
             ("1 パス目の段 6", {"args": args(), "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]},
                                "about": {"RS-010": {"finding": "r1-wh-all-001"}}, "holds_at": {"6": ["RS-010"]}}, "6", "6", "resolver:6", "6-toquestion"),
+            # r2 の blocking の decision を裁定する延長の段 6（聞ける回数が残っている）。
+            ("2 パス目の段 6", {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}]},
+                               "about": {"RS-020": {"finding": "r2-wr-all-001"}}, "holds_at": {"6": ["RS-020"]}}, "6", "6", "resolver:6", "6-toquestion"),
         ):
             with self.subTest(name):
                 held = spec["holds_at"][gate][0]
                 r = run(spec)
                 labels = r["labels"]
+                self.assertIn(gen, labels, r["result"].get("reason"))
                 self.assertEqual(labels[labels.index(gen) + 1], f"resolver:{toq}")
                 self.assertIn(f"- {held} → question", self._prompt(r, f"resolver:{toq}"))
                 self.assertIn("script が指定しない hold を作らない", self._prompt(r, gen))
@@ -4522,15 +4531,15 @@ class FindingRoutes(unittest.TestCase):
 
     LAST = MAX_AUDIT_PASSES + 1
 
-    def _reversal(self, last_direction):
-        # PR-X-001 への指摘は non-blocking にして再発（両パスで blocking）と分け、パスは毎回別の項目の blocking で進める。
-        # 最後の監査 r<LAST> だけが向きを last_direction にする。
-        findings = {f"writerReviewer:r{k}": [{"id": f"r{k}-wr-all-001", "direction": "tighten" if k < self.LAST else last_direction, "blocking": False},
+    def _reversal(self, last_direction, last_blocking=True):
+        # PR-X-001 への指摘は r1 では blocking にせず再発（両パスで blocking）と分け、パスは毎回別の項目の blocking で進める。
+        # 最後の監査 r<LAST> だけが向きを last_direction にし、blocking を last_blocking にする。
+        findings = {f"writerReviewer:r{k}": [{"id": f"r{k}-wr-all-001", "direction": "tighten" if k < self.LAST else last_direction, "blocking": k == self.LAST and last_blocking},
                                              {"id": f"r{k}-wr-all-{k + 1:03d}", "item_id": f"PR-X-{k + 1:03d}"}] for k in range(1, self.LAST + 1)}
         return run({"args": args(), "findings": findings})
 
     def test_前のパスと逆向きの指摘はdecisionになり裁定に届く(self):
-        # 最後の監査の後に段 6 は無いので、逆向きの指摘は輪を出た後の resolver に届く。
+        # 最後の監査の後の逆向きの blocking の指摘は、延長の段 6 が裁定しなければ、輪を出た後の resolver に届く。
         last = f"r{self.LAST}-wr-all-001"
         r = self._reversal("relax")
         self.assertIn(f"route が decision の指摘 {last}", self._prompt(r, "resolver:final"))
@@ -4538,9 +4547,23 @@ class FindingRoutes(unittest.TestCase):
         self.assertFalse(has(same["labels"], "resolver:6"))
         self.assertNotIn(last, self._prompt(same, "resolver:final"))
 
+    def test_2パス目の段6に前のパスと逆向きの指摘が届く(self):
+        # r1 に向きのある指摘、r2 に逆向きの blocking の指摘を置くと、2 パス目（延長）の段 6 に decision として届く。
+        last = f"r{self.LAST}-wr-all-001"
+        relax = self._reversal("relax")
+        self.assertTrue(has(relax["labels"], "resolver:6"), relax["result"].get("reason"))
+        self.assertIn(f"route が decision の指摘 {last}", self._prompt(relax, "resolver:6"))
+        self.assertFalse(has(self._reversal("tighten")["labels"], "resolver:6"))
+        # blocking でない逆向きの指摘は、延長の段 6 にも輪を出た後の resolver にも渡らず、本文に反映していない指摘に残る。
+        low = self._reversal("relax", last_blocking=False)
+        self.assertFalse(has(low["labels"], "resolver:6"))
+        self.assertNotIn(last, self._prompt(low, "resolver:final"))
+        self.assertIn(last, low["result"]["unreflected"])
+
     def test_改稿で当て損ねた指摘は持ち越して上限で輪を出たらcarried_blockingに載る(self):
         findings = new_item_each_round(MAX_AUDIT_PASSES + 1)
-        # 最後のパスの改稿が r<MAX_AUDIT_PASSES> の指摘を当て損ねると、その後に段 7 が無いので、持ち越したまま輪を出る。
+        # 最後のパスの改稿が r<MAX_AUDIT_PASSES> の指摘を当て損ねると、持ち越した指摘は再発して decision に回る。延長の段 6 が問いを出さないので
+        # 段 7 へ進まず、持ち越したまま輪を出る。
         missed = findings[f"writerReviewer:r{MAX_AUDIT_PASSES}"][0]["id"]
         res = run({"args": args(), "findings": findings, "unapplied_seq": [[]] * (MAX_AUDIT_PASSES - 1) + [[missed]]})["result"]
         self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
@@ -5097,6 +5120,71 @@ class Gates(unittest.TestCase):
         res = after["result"]
         self.assertEqual((res["status"], res["gate"], res["question_ids"], res["next_args"]["from"]), ("needs_answers", "g2", ["RS-002"], "3a"), res.get("reason"))
 
+    # 再発の筋書き: パス 1 の段 6 の問い RS-010（r1 の指摘への裁定）を g1 で聞き、回答の後の改稿の監査 r2 が同じ項目に指摘を出し直す（再発）。
+    # r2 は最後の監査なので、再発した指摘は延長の段 6（2 パス目の段 6）に渡る。
+    RECUR_ABOUT = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
+    RECUR = {**CROSS, "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
+    REASKED = "前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: r2-wr-all-001"
+
+    def _recur_g1(self):
+        g1 = run({"args": args(), "findings": self.RECUR, "about": self.RECUR_ABOUT, "questions_at": {"6": ["RS-010"]}})["result"]
+        self.assertEqual((g1["gate"], g1["question_ids"]), ("g1", ["RS-010"]))
+        return g1
+
+    def test_回答済みの論点が次のパスで再発したら聞き直さず保持規則にする(self):
+        # 延長の段 6 の resolver がそれでも問い RS-011 を返す。同じ論点を二度聞かないので、ゲートを開かずに hold にする（聞ける回数は残っている）。
+        # 問いが残らないので、延長の段 6 は 7 へ進まずに finalHold（pass_limit）にし、本文に入らない hold は文案（hold_drafts）で返す。
+        spec = {"args": self._recur_g1()["next_args"], "findings": self.RECUR, "about": self.RECUR_ABOUT, "ruled_at": {"3a'": ["RS-010"]}, "questions_at": {"6": ["RS-011"]}}
+        r = run(spec)
+        res = r["result"]
+        self.assertNotEqual(res["status"], "needs_answers", "回答済みの論点の再発でゲートを開かない")
+        self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", MAX_AUDIT_PASSES + 1), res.get("reason"))
+        second = nth_prompt(r, "resolver:6", 0)
+        self.assertIn(self.REASKED, second)
+        self.assertIn("resolver:6-hold", r["labels"])
+        self.assertIn("次の問いは依頼者に聞かない（前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない）", nth_prompt(r, "resolver:6-hold", 0))
+        self.assertIn("RS-011", res["hold_drafts"], "延長の段 6 の hold は本文に入らないので文案で返す")
+        self.assertNotIn("RS-011", res["holds"])
+        self.assertNotIn(LIMIT_WHY, second, "聞ける回数は残っている")
+        self.assertEqual(sum(1 for l in r["labels"] if l.startswith("writer:U-1:revise")), 1, "回答を当てた改稿だけで、延長の改稿はしない")
+        self.assertFalse(has(r["labels"], "writerReviewer:r3"))
+        self.assertNotIn("r2-wr-all-001", nth_prompt(r, "resolver:final", 0), "保持規則にした指摘を resolver:final に渡し直さない")
+
+    def test_保持規則にした論点が次のパスで再発しても聞き直さない(self):
+        # g1 で RS-010 に「保留」と答え、3a' の resolver が回答の節を引く hold にした（answer_holds。回答の無い保持規則なので state.answered には入らない）。
+        # 延長の段 6 は聞ける段だが、保持規則にした論点の再発は聞き直さない。
+        spec = {"findings": self.RECUR, "about": self.RECUR_ABOUT, "holds_at": {"3a'": ["RS-010"], "6": ["RS-011"]}, "answer_holds": ["RS-010"]}
+        start = self._recur_g1()["next_args"]
+        r = run({"args": start, **spec})
+        res = r["result"]
+        self.assertIn("RS-010", res["holds"], res.get("reason"))
+        self.assertTrue(has(r["labels"], "resolver:6"), "延長の段 6 を開く")
+        self.assertIn(self.REASKED, nth_prompt(r, "resolver:6", 0))
+        self.assertNotIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0), "聞ける段で確かめる")
+        # 対照: 回答のある裁定だけを見ると、保持規則にした論点の再発を聞き直しうる。
+        only_answered = ("  const settled = new Set([...(state.answered || []), ...(state.holds || [])])\n", "  const settled = new Set(state.answered || [])\n")
+        self.assertNotIn(self.REASKED, nth_prompt(run({"args": start, **spec}, patch=[only_answered]), "resolver:6", 0))
+
+    def test_聞ける段のholdLeftはnewHoldsInWで止まらない(self):
+        # 聞ける段（canAsk 真）の holdLeft が作った hold は、holdLeft 自身の orderHolds(ids) で script の指定になり、段の出口の newHoldsInW を通る。
+        # 上の再発の経路では段 6 も再発の指摘の about を指定する（decide）ので、その指定を外した本文で holdLeft の指定だけが効くことを確かめる。
+        g1 = self._recur_g1()
+        self.assertLess(g1["next_args"]["state"]["gates"], MAX_GATES, "延長の段 6 は聞ける段")
+        spec = {"args": g1["next_args"], "findings": self.RECUR, "about": self.RECUR_ABOUT, "ruled_at": {"3a'": ["RS-010"]}, "questions_at": {"6": ["RS-011"]}}
+        by_about = ("  orderHolds([], [...reasked])\n", "  orderHolds([], [])\n")
+        by_hold_left = ("  orderHolds(ids)\n  const label = `resolver:${stage}-hold`\n", "  const label = `resolver:${stage}-hold`\n")
+        r = run(spec, patch=[by_about])
+        res = r["result"]
+        self.assertTrue(has(r["labels"], "resolver:6"), "延長の段 6 を開く")
+        self.assertNotIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0))
+        self.assertTrue(has(r["labels"], "resolver:6-hold"))
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        self.assertIn("RS-011", res["hold_drafts"])
+        broken = run(spec, patch=[by_about, by_hold_left])["result"]
+        # 対照: holdLeft が指定を入れないと、聞ける段の resolver の hold は script の指定の外として問いに書き換え直させられ、holdLeft が止まる。
+        self.assertEqual((broken["status"], broken["stop_reason"]), ("blocked", None), broken.get("reason"))
+        self.assertIn("RS-011 を resolver が hold に返しませんでした", broken["reason"])
+
 
 def docs_units(n):
     """文書 requirements/d1〜d<n> を 1 つずつ持つ単位 U-1〜U-<n>。"""
@@ -5211,28 +5299,49 @@ class Convergence(unittest.TestCase):
 
     DIRECTIONS = ["remove", "make_measurable", "choose_one", "align_terms", "add_trace"]
 
-    def _recurring(self, rounds, extra=None, **kw):
+    def _recurring(self, rounds, **kw):
         # r1 の決定が要る指摘を段 6 が RS-010 で裁定し、同じ項目に r2 以降も毎回違う向きの blocking が出続ける（裁定の再出ではない）。
+        # r2 の再発は延長の段 6 に渡り、延長の段 6 が問い RS-011 にして g1 で聞く。返すのは g1 の run と、回答を当てて 3a' から続けた run。
         findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": self.DIRECTIONS[0]}]}
         for k in range(2, rounds + 1):
-            findings[f"writerReviewer:r{k}"] = [{"id": f"r{k}-wr-all-001", "direction": self.DIRECTIONS[k - 1]}] + (extra or {}).get(k, [])
-        rulings = {f"RS-01{k}": {"finding": f"r{k + 1}-wr-all-001" if k else "r1-wh-all-001"} for k in range(rounds)}
-        return run({"args": args(), "findings": findings, "ruled_seq_at": {"6": [[rs] for rs in rulings]}, "about": rulings, **kw})
+            findings[f"writerReviewer:r{k}"] = [{"id": f"r{k}-wr-all-001", "direction": self.DIRECTIONS[k - 1]}]
+        about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
+        spec = {"args": args(), "findings": findings, "about": about, "ruled_seq_at": {"6": [["RS-010"]]}, "questions_seq_at": {"6": [[], ["RS-011"]]}, **kw}
+        g1 = run(spec)
+        res = g1["result"]
+        self.assertEqual((res["status"], res.get("gate"), res.get("question_ids")), ("needs_answers", "g1", ["RS-011"]), res.get("reason"))
+        self.assertEqual((res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("3a'", MAX_AUDIT_PASSES + 1))
+        return g1, run({**spec, "args": res["next_args"], "ruled_at": {"3a'": ["RS-011"]}})
+
+    def test_再発した項目は段6に前の指摘と裁定が渡りwriterに回らない(self):
+        # r2 は最後の監査なので、再発した項目は延長の段 6（2 パス目の段 6）に渡る。
+        g1, after = self._recurring(2)
+        self.assertEqual(g1["result"]["item_routes"], {self.KEY: "decision"})
+        second = nth_prompt(g1, "resolver:6", 1)
+        self.assertIn(f"再発した項目（項目: 前のパスの指摘 ← その裁定）: {self.KEY}: r1-wh-all-001 ← RS-010", second)
+        self.assertIn("route が decision の指摘 r2-wr-all-001", second)
+        res = after["result"]
+        self.assertEqual((res["status"], res["passes"], res["item_routes"]), ("done", MAX_AUDIT_PASSES + 1, {self.KEY: "decision"}), res.get("reason"))
+        self.assertNotIn("r2-wr-all-001", nth_prompt(after, "writer:U-1:revise", 0))
 
     def test_裁定の後の再発は上限で輪を出て残りの裁定に回る(self):
-        # 改稿は 1 回（MAX_AUDIT_PASSES）なので、r1 の裁定の後に r2 で再発した項目は decision に回り、段 6 に戻らず輪を出て resolver:final に渡る。
-        last = f"r{MAX_AUDIT_PASSES + 1}-wr-all-001"
-        stuck = self._recurring(MAX_AUDIT_PASSES + 1)
+        # r1 の裁定の後に r2 で再発した項目は延長の段 6 で聞き、回答を当てた後の r3 でまた再発すると、延長は 1 回きりなので段 6 に戻らず
+        # 輪を出て resolver:final に渡る。
+        last = "r3-wr-all-001"
+        g1, stuck = self._recurring(3)
         res = stuck["result"]
-        self.assertEqual((res["status"], res["stop_reason"], res["item_routes"], res["passes"]), ("blocked", "pass_limit", {self.KEY: "decision"}, MAX_AUDIT_PASSES))
+        self.assertEqual((res["status"], res["stop_reason"], res["item_routes"], res["passes"]), ("blocked", "pass_limit", {self.KEY: "decision"}, MAX_AUDIT_PASSES + 1), res.get("reason"))
         self.assertIn("resolver:final", stuck["labels"])
+        self.assertFalse(has(stuck["labels"], "resolver:6"), "延長の後に段 6 を開かない")
+        self.assertFalse(has(stuck["labels"], "writerReviewer:r4"))
         self.assertEqual(res["remaining_blocking"], [last])
         # 残った指摘の全件は理由ではなく report.md の節に載せる（ID の集合は返り値の unreflected）。
         self.assertEqual(sorted(res["unreflected"]), [last])
         self.assertIn("全件は report.md の「本文に反映していない指摘」", res["reason"])
         self.assertNotIn(last, res["reason"], "理由に残った指摘の ID を並べない")
         self.assertIn(f"route が decision の指摘 {last}", nth_prompt(stuck, "resolver:final", 0))
-        self.assertFalse(any(last in x["prompt"] for x in stuck["prompts"] if x["label"].startswith("writer:")), "再発した項目の指摘は writer に回らない")
+        self.assertFalse(any(x in p["prompt"] for r in (g1, stuck) for p in r["prompts"] if p["label"].startswith("writer:") for x in ("r2-wr-all-001", last)),
+                         "再発した項目の指摘は writer に回らない")
         self.assertIsNone(res["next_args"])
 
     def test_改稿に回すものが無いままblockingが残ればdoneにせずno_progressで止まる(self):
@@ -5280,6 +5389,64 @@ class Convergence(unittest.TestCase):
         same = self._reraise([{"id": "r2-wr-all-001", "direction": "tighten"}], doc_blocking_at={"r1": 1})["result"]
         self.assertIn("監査 r2: 既裁定の再出（再発に数えない）: r2-wr-all-001 ← RS-010", same["notices"],
                       "裁定を渡したパスの変更は、doc_check の直しと混ざっていても裁定を当てたのと見分けられないので再出にする")
+
+    # 延長: r2 の blocking の decision（r2-wr-all-003）を延長の段 6 が問い RS-012 にし、回答を当てた後の改稿と監査 r3 で 2 パス目を回す。
+    EXTEND = {"id": "r2-wr-all-003", "item_id": "PR-X-003", "route": "decision"}
+
+    def _extended(self, spec, first_seq, then_seq):
+        # spec の run を延長のゲート（g1、RS-012）で止め、回答を当てて 3a' から続ける。writer_changed_seq は run ごとに頭から取るので分けて渡す。
+        g1 = run({**spec, "writer_changed_seq": first_seq})["result"]
+        self.assertEqual((g1["status"], g1.get("question_ids")), ("needs_answers", ["RS-012"]), g1.get("reason"))
+        self.assertEqual((g1["next_args"]["from"], g1["next_args"]["state"]["pass"]), ("3a'", MAX_AUDIT_PASSES + 1))
+        return g1, run({**spec, "args": g1["next_args"], "writer_changed_seq": then_seq, "ruled_at": {"3a'": ["RS-012"]}})
+
+    def test_前のパスの再出だけが持つ裁定の項目が変わった後の同じ向きの指摘はblockingにする(self):
+        # RS-010 は 1 パス目に渡し終えた。延長のパスの改稿が PR-X-001 を変える（doc_check の直し・申告に無い変更・別の項目の指摘の改稿）。
+        spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "questions_seq_at": {"6": [[], ["RS-012"]]},
+                "about": {"RS-010": {"finding": "r1-wh-all-001"}, "RS-012": {"finding": self.EXTEND["id"]}},
+                "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "tighten"}],
+                             "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "tighten"}, {"id": "r2-wr-all-002", "item_id": "PR-X-002"}, self.EXTEND],
+                             "writerReviewer:r3": [{"id": "r3-wr-all-001", "direction": "tighten"}]}}
+        declared = [["PR-X-001"], ["PR-X-001", "PR-X-002"]]
+        found = "r3-wr-all-001"
+        for name, seq, extra in (
+            ("doc_check の直し", declared, {"diff": {"r2": declared[0], "r3": declared[1]}, "doc_blocking_at": {"r2": 1}}),
+            # 申告に無い PR-X-001 の変更は、whole reviewer の diff の by_doc から照合の範囲（reRaised の changed）に入る。
+            ("申告に無い変更", [["PR-X-001"], ["PR-X-002"]], {"diff": {"r2": ["PR-X-001"], "r3": ["PR-X-001", "PR-X-002"]}, "doc_blocking_at": {"r2": 1}}),
+            ("別の項目の指摘の改稿", declared, {"diff": {"r2": declared[0], "r3": declared[1]}}),
+        ):
+            with self.subTest(name):
+                g1, after = self._extended({**spec, **extra}, seq[:1], seq[1:])
+                self.assertIn("監査 r2: 既裁定の再出（再発に数えない）: r2-wr-all-001 ← RS-010", g1["notices"])
+                res = after["result"]
+                # r3 は延長の後の監査なので、blocking に数えた指摘は改稿に回らず、残った blocking として輪を出る。
+                self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", MAX_AUDIT_PASSES + 1), res.get("reason"))
+                self.assertFalse(any(found in n for n in res["notices"]), res["notices"])
+                self.assertIn(found, res["remaining_blocking"])
+
+    def test_当て損ねて持ち越した指摘を段6が裁定して当てた後の同じ向きの指摘は再出にする(self):
+        # r1 の writer の指摘を 1 パス目の改稿が当て損ね、r2 で再発して decision に回り、延長の段 6 が問い RS-010 にして g1 で聞き、
+        # 回答を当てた延長の改稿が当てる。その後の r3 の同じ向きの指摘は、裁定の再出にする。
+        spec = {"args": args(), "questions_at": {"6": ["RS-010"]}, "about": {"RS-010": {"finding": "r1-wr-all-001"}},
+                "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "direction": "tighten"}],
+                             "writerReviewer:r3": [{"id": "r3-wr-all-001", "direction": "tighten"}]},
+                "writer_changed_seq": [["PR-X-001"]]}
+        g1 = run({**spec, "unapplied_seq": [["r1-wr-all-001"]]})["result"]
+        self.assertEqual((g1["status"], g1.get("question_ids")), ("needs_answers", ["RS-010"]), g1.get("reason"))
+        self.assertEqual(g1["item_routes"], {self.KEY: "decision"}, "持ち越した指摘の再発は decision に回る")
+        res = run({**spec, "args": g1["next_args"], "ruled_at": {"3a'": ["RS-010"]}})["result"]
+        self.assertEqual((res["status"], res["passes"]), ("done", MAX_AUDIT_PASSES + 1), res.get("reason"))
+        self.assertIn("監査 r3: 既裁定の再出（再発に数えない）: r3-wr-all-001 ← RS-010", res["notices"])
+
+    def test_再出した項目を後で監査する監査役に前の裁定のIDを渡す(self):
+        # r2 の再出（r2-wr-all-001 ← RS-010）の項目を、延長の改稿の後の監査 r3 が見る。
+        spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "questions_seq_at": {"6": [[], ["RS-012"]]},
+                "about": {"RS-010": {"finding": "r1-wh-all-001"}, "RS-012": {"finding": self.EXTEND["id"]}},
+                "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "tighten"}],
+                             "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "tighten"}, self.EXTEND]},
+                "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-001"]}}
+        _, after = self._extended(spec, [["PR-X-001"]], [["PR-X-001"]])
+        self.assertIn("この文書への前のパスの指摘を裁定した resolution: RS-010", nth_prompt(after, "writerReviewer:r3:all", 0))
 
     def test_planner_1のdoc_checkの差し戻しは1回で直れば通り直らなければ止まる(self):
         # 設計 3.3a: 上限は MAX_CHECK_REWORK でなく 1 回。減り続けても 2 回目の差し戻しは無い。
@@ -5361,6 +5528,31 @@ class Convergence(unittest.TestCase):
         self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "6"), stopped.get("reason"))
         resumed = self._settle_at_6(args=stopped["next_args"])
         self.assertEqual(resumed["result"]["status"], "done", resumed["result"].get("reason"))
+        self.assertEqual(settles(resumed), ["planner:6-settle", "verifier:6v-settle"])
+
+    def _settle_each_pass(self, **kw):
+        # 1 パス目の段 6 と延長の段 6 が、それぞれ O- を閉じ、その O- を引く要素を settle が直す。r2 の指摘は同じ項目の再発で decision に回り、
+        # 延長の段 6 が値で決める（問いが無いので、延長の段 6 の後は finalHold で止まる）。
+        about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
+        findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "remove"}],
+                    "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
+        spec = {"args": args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010", "RS-090"], ["RS-011", "RS-091"]]}, "about": about,
+                "open_only_at": {"6v": [{"el": "F-091", "open": "O-RS-090"}, {"el": "F-092", "open": "O-RS-091"}]},
+                "writer_changed_seq": [["PR-X-001"]], "diff": {"r2": ["PR-X-001"]}}
+        spec.update(kw)
+        return run(spec)
+
+    def test_settleのlabelは延長のパスでも再開でも変わらない(self):
+        # 延長で 1 run に段 6 が 2 回走っても、settle の label はパスによらず同じ（resume が保存された結果を label で引くため）。
+        whole = self._settle_each_pass()
+        settles = lambda r: [l for l in r["labels"] if "settle" in l]
+        self.assertTrue(has(whole["labels"], "resolver:final"), whole["result"].get("reason"))
+        self.assertEqual((whole["result"]["status"], whole["result"]["passes"]), ("blocked", MAX_AUDIT_PASSES + 1), whole["result"].get("reason"))
+        self.assertEqual(settles(whole), ["planner:6-settle", "verifier:6v-settle"] * 2)
+        stopped = self._settle_each_pass(null_labels=["writerReviewer:r2:all"])["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "8"), stopped.get("reason"))
+        resumed = self._settle_each_pass(args=stopped["next_args"], ruled_seq_at={"6": [["RS-011", "RS-091"]]}, open_only_at={"6v": [{"el": "F-092", "open": "O-RS-091"}]})
+        self.assertEqual((resumed["result"]["status"], resumed["result"]["stop_reason"]), ("blocked", "pass_limit"), resumed["result"].get("reason"))
         self.assertEqual(settles(resumed), ["planner:6-settle", "verifier:6v-settle"])
 
     def test_settleの中の差し戻しの出口ではsettleを入れ子にしない(self):
@@ -5477,7 +5669,8 @@ class LowOnly(unittest.TestCase):
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class AuditTwice(unittest.TestCase):
-    """監査は網羅の r1 と範囲の再監査の r2 の 2 回、改稿は 1 回（MAX_AUDIT_PASSES = 1）。r2 の後に blocking が残れば finalHold（pass_limit）。"""
+    """監査は網羅の r1 と範囲の再監査の r2 の 2 回、改稿は 1 回（MAX_AUDIT_PASSES = 1）。r2 の後に writer で直せる blocking が残れば finalHold（pass_limit）。
+    r2 の後に blocking の decision の論点が残ったときの延長は Extension が見る。"""
 
     def test_改稿は1回で監査はr2までにしr2の後に残ればpass_limitで止まる(self):
         self.assertEqual(MAX_AUDIT_PASSES, 1)
@@ -5499,15 +5692,6 @@ class AuditTwice(unittest.TestCase):
         self.assertEqual(res["unreflected"], ["r2-wr-all-002"])
         self.assertFalse(any(s["fact"] == "low_only" for s in res["skipped"]), "low_only は r1 の後だけに効く")
 
-    def test_r2でblockingのdecisionが残れば段6に戻らずresolver_finalに渡す(self):
-        findings = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-002", "item_id": "PR-X-002", "route": "decision"}]}
-        r = run({"args": args(), "findings": findings})
-        res = r["result"]
-        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
-        self.assertFalse(has(r["labels"], "resolver:6"), "改稿のパスは尽きたので段 6 で聞かない")
-        self.assertIn("route が decision の指摘 r2-wr-all-002", nth_prompt(r, "resolver:final", 0))
-        self.assertEqual(res["unreflected"], ["r2-wr-all-002"])
-
     def test_finalHoldのどの経路の返り値にもunreflectedが載る(self):
         base = {"args": args(), "findings": new_item_each_round(2)}
         for name, extra, frm in (
@@ -5520,6 +5704,277 @@ class AuditTwice(unittest.TestCase):
                 self.assertEqual(res["status"], "blocked", res.get("reason"))
                 self.assertEqual((res["next_args"] or {}).get("from"), frm, res.get("reason"))
                 self.assertEqual((res["report_path"], res["unreflected"], res["remaining_blocking"]), ("/tmp/prd-w/report.md", ["r2-wr-all-002"], ["r2-wr-all-002"]))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class Extension(unittest.TestCase):
+    """最後の監査 r2 の後に、まだ裁定の無い blocking の decision の指摘か新しい TBD が残り、聞ける回数があれば、延長のパス
+    （段 6 → ゲート → 3a' → 7 → 8、監査 r3）で依頼者に聞く（設計 §1D）。延長は回答を当てた後の 1 回きりで、延長の段 6 が問いを出さなければ
+    7 へ進まずに finalHold（pass_limit）にする。延長と resolver:final に渡すのは blocking の decision だけ。"""
+
+    R1 = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}
+    DEC = {"id": "r2-wr-all-002", "item_id": "PR-X-002", "route": "decision"}
+    DEC2 = {"id": "r2-wr-all-003", "item_id": "PR-X-003", "route": "decision"}
+
+    def _findings(self, *r2, r3=None):
+        fs = {**self.R1, "writerReviewer:r2": list(r2)}
+        if r3 is not None:
+            fs["writerReviewer:r3"] = r3
+        return fs
+
+    def _revises(self, r):
+        return sum(1 for l in r["labels"] if l.startswith("writer:U-1:revise"))
+
+    def _asked(self, res, ids):
+        self.assertEqual((res["status"], res.get("gate"), res.get("question_ids")), ("needs_answers", "g1", ids), res.get("reason"))
+        self.assertEqual((res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("3a'", MAX_AUDIT_PASSES + 1), "延長のパスは pass 2")
+
+    def test_r2のblockingのdecisionは延長の段6で聞き回答の後に改稿とr3の監査を1回だけ回す(self):
+        spec = {"args": args(), "findings": self._findings(self.DEC), "about": {"RS-020": {"finding": self.DEC["id"]}}, "questions_at": {"6": ["RS-020"]}}
+        r = run(spec)
+        self._asked(r["result"], ["RS-020"])
+        self.assertEqual([l for l in r["labels"] if l.startswith("resolver:6")], ["resolver:6"], "r1 の後の段 6 は decision が無く起動しない。起動したのは延長の段 6")
+        self.assertIn(f"route が decision の指摘 {self.DEC['id']}", nth_prompt(r, "resolver:6", 0))
+        self.assertNotIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0))
+        self.assertNotIn("resolver:final", r["labels"], "聞ける論点は保持規則にしない")
+        self.assertEqual(self._revises(r), 1)
+        self.assertFalse(has(r["labels"], "writerReviewer:r3"))
+        r3_dec = {"id": "r3-wr-all-004", "item_id": "PR-X-004", "route": "decision"}
+        for name, r3, want in (
+            ("r3 で 0 件", [], ("done", None)),
+            ("r3 に writer の blocking が残る", [{"id": "r3-wr-all-004", "item_id": "PR-X-004"}], ("blocked", "pass_limit")),
+            ("r3 に blocking の decision が残る（延長は 1 回きり）", [r3_dec], ("blocked", "pass_limit")),
+        ):
+            with self.subTest(name):
+                after = run({**spec, "args": r["result"]["next_args"], "findings": self._findings(self.DEC, r3=r3), "ruled_at": {"3a'": ["RS-020"]}})
+                res = after["result"]
+                self.assertEqual(after["labels"][:2], ["flow-check:3a'-entry", "resolver:3a'"])
+                assert_entry_answers(self, after, "3a'", "g1", ["RS-020"])
+                self.assertEqual(self._revises(after), 1, "回答を当てた後に 1 回だけ改稿する")
+                self.assertTrue(has(after["labels"], "writerReviewer:r3"), "延長の改稿の後に監査 r3 を当てる")
+                self.assertFalse(has(after["labels"], "writerReviewer:r4"))
+                self.assertFalse(has(after["labels"], "resolver:6"), "延長は 1 回きりで、r3 の後に段 6 を開かない")
+                self.assertEqual((res["status"], res["stop_reason"], res["passes"]), (*want, 2), res.get("reason"))
+                if res["status"] == "blocked":
+                    self.assertIn("resolver:final", after["labels"])
+                    self.assertEqual(res["remaining_blocking"], [r3[0]["id"]])
+                    self.assertIsNone(res["next_args"])
+                if r3 and r3[0].get("route") == "decision":
+                    self.assertIn(f"route が decision の指摘 {r3_dec['id']}", nth_prompt(after, "resolver:final", 0), "延長の後に残った decision は保持規則にする")
+
+    def test_延長の段6が問いを出さなければ改稿もr3の監査もせずにpass_limitで止まり裁定した指摘はresolver_finalに渡さない(self):
+        spec = {"args": args(), "findings": self._findings(self.DEC, self.DEC2), "about": {"RS-021": {"finding": self.DEC["id"]}}, "ruled_at": {"6": ["RS-021"]}}
+        r = run(spec)
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", 2), res.get("reason"))
+        self.assertEqual([l for l in r["labels"] if l.startswith("resolver:6")], ["resolver:6"], "延長の段 6 は起動する")
+        self.assertEqual(self._revises(r), 1, "回答の無いまま改稿を増やさない")
+        self.assertFalse(has(r["labels"], "writerReviewer:r3"), "回答の無いまま監査を増やさない")
+        final = nth_prompt(r, "resolver:final", 0)
+        self.assertIn(f"route が decision の指摘 {self.DEC2['id']}", final, "延長の段 6 が裁定しなかった blocking の decision は保持規則にする")
+        self.assertNotIn(self.DEC["id"], final, "延長の段 6 が裁定した指摘を渡し直すと、同じ論点に 2 つ目の裁定を put させる")
+        self.assertEqual(sorted(res["unreflected"]), [self.DEC["id"], self.DEC2["id"]], "ruled で決めた値も本文には入っていない")
+        self.assertIsNone(res["next_args"])
+
+    def test_延長の段6の問いとruledが混ざれば回答の後の改稿に両方の裁定を渡す(self):
+        about = {"RS-020": {"finding": self.DEC["id"]}, "RS-021": {"finding": self.DEC2["id"]}}
+        spec = {"args": args(), "findings": self._findings(self.DEC, self.DEC2), "about": about, "questions_at": {"6": ["RS-020"]}, "ruled_at": {"6": ["RS-021"]}}
+        g = run(spec)
+        self._asked(g["result"], ["RS-020"])
+        self.assertEqual(self._revises(g), 1, "ruled があっても回答の前に改稿しない")
+        after = run({**spec, "args": g["result"]["next_args"], "ruled_at": {"3a'": ["RS-020"]}})
+        res = after["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        revise = nth_prompt(after, "writer:U-1:revise", 0)
+        self.assertIn("RS-020", revise, "回答を当てた裁定")
+        self.assertIn("RS-021", revise, "延長の段 6 が ruled で決めた裁定")
+        self.assertTrue(has(after["labels"], "writerReviewer:r3"))
+
+    def test_r2にwriterのblockingとblockingでないdecisionだけなら延長せずresolver_finalにも渡さない(self):
+        low = {**self.DEC2, "blocking": False}
+        r = run({"args": args(), "findings": self._findings({"id": "r2-wr-all-002", "item_id": "PR-X-002"}, low)})
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", 1), res.get("reason"))
+        self.assertFalse(has(r["labels"], "resolver:6"), "writer で直せる blocking だけでは延長しない")
+        self.assertNotIn(low["id"], nth_prompt(r, "resolver:final", 0), "blocking でない decision は保持規則にしない")
+        self.assertEqual(sorted(res["unreflected"]), ["r2-wr-all-002", low["id"]])
+
+    def test_改稿で出た新しいTBDも延長の段6に渡す(self):
+        r = run({"args": args(), "findings": self.R1, "new_tbd_revise": ["TBD-RX-001"]})
+        res = r["result"]
+        self.assertEqual([l for l in r["labels"] if l.startswith("resolver:6")], ["resolver:6"])
+        self.assertIn("TBD-RX-001", nth_prompt(r, "resolver:6", 0))
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        self.assertFalse(has(r["labels"], "writerReviewer:r3"))
+
+    def test_延長の段6から入ったfinalHoldはresolver_finalのholdを問いに書き換え直させない(self):
+        # 延長の段 6 は聞ける段なので、そこから入った finalHold の resolver:final の hold は、聞ける段の「script が指定しない hold」の検査に
+        # 掛かりうる。輪を出た後は聞かない（closing）ので、書き換え直させずに文案（hold_drafts）で返す。
+        about = {"RS-021": {"finding": self.DEC["id"]}, "RS-030": {"finding": self.DEC2["id"]}}
+        spec = {"args": args(), "findings": self._findings(self.DEC, self.DEC2), "about": about, "ruled_at": {"6": ["RS-021"]}, "holds_at": {"final": ["RS-030"]}}
+        r = run(spec)
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        self.assertTrue(has(r["labels"], "resolver:6"), "延長の段 6 から finalHold に入る")
+        self.assertIn("resolver:final", r["labels"])
+        self.assertNotIn("resolver:final-toquestion", r["labels"])
+        self.assertIn("RS-030", res["hold_drafts"])
+        # 対照: closing を外すと、resolver:final の hold が問いに書き換え直させられ、文案が残らない。
+        broken = run(spec, patch=[("  closing = true\n", "")])
+        self.assertIn("resolver:final-toquestion", broken["labels"])
+        self.assertNotIn("RS-030", broken["result"]["hold_drafts"])
+
+    def test_聞ける回数が尽きていれば延長せずblockingのdecisionをresolver_finalで保持規則にする(self):
+        spec = {"args": args(), "findings": self._findings(self.DEC)}
+        stopped = run({**spec, "null_labels": ["writerReviewer:r2:all"]})["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "8"), stopped.get("reason"))
+        limit = run({**spec, "args": at_limit(stopped["next_args"])})
+        res = limit["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", 1), res.get("reason"))
+        self.assertFalse(has(limit["labels"], "resolver:6"), "聞けないので延長しない")
+        self.assertIn(f"route が decision の指摘 {self.DEC['id']}", nth_prompt(limit, "resolver:final", 0))
+        # 対照: 同じ段 8 から聞ける回数を残して始めると延長の段 6 を開く。
+        self.assertTrue(has(run({**spec, "args": stopped["next_args"]})["labels"], "resolver:6"))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class SpecOnlyQuestions(unittest.TestCase):
+    """仕様書だけを書く run でも、仕様の論点（ruling が question・layer が「手段」・upstream_revision が無く、plan reviewer が合格にした問い。
+    doc_check flow --rulings の行の spec_layer）は依頼者に聞き、要求の論点が 1 件でもあれば upstream_gap で止める（設計 §2）。
+    stub では spec_layer_ids の ID が、台帳で layer が「手段」で upstream_revision の無い resolution である。"""
+
+    SPEC = {"id": "r1-wh-all-001", "doc": "specifications/x", "item_id": "SP-X-001", "route": "decision"}
+    ASK_LAYER = "仕様書だけを書く run: 問いには `layer` を付ける"
+    CHECK_LAYER = "問いの `layer` を確かめる（plan-reviewer.md）"
+
+    def _expand(self, **kw):
+        a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "specifications/x", "fixed": False}])
+        return {"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}], **kw}
+
+    def test_段3の仕様の論点は初稿の監査の後のg1で聞き回答の後の続きの問いは持ち越さずに聞く(self):
+        spec = self._expand(flow_open=1, questions_at={"3": ["RS-001"]}, spec_layer_ids=["RS-001", "RS-002"])
+        # 最初のゲートの前は、今と同じく問いを持ち越して初稿と監査で出る論点も集める。持ち越すので state.deferred が立つ。
+        stopped = run({**spec, "null_labels": ["writerReviewer:r1:all"]})["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "5"), stopped.get("reason"))
+        self.assertIs(stopped["next_args"]["state"].get("deferred"), True, "仕様書だけの run も持ち越しを記録し、ゲートの後に 3a から初稿を書き直す")
+        r = run(spec)
+        res = r["result"]
+        self.assertEqual((res["status"], res.get("gate"), res.get("question_ids")), ("needs_answers", "g1", ["RS-001"]), res.get("reason"))
+        self.assertEqual(res["next_args"]["from"], "3a")
+        self.assertTrue(has(r["labels"], "writer:U-1:draft") and has(r["labels"], "writerReviewer:r1"), "初稿と監査で出る論点も集めてから聞く")
+        self.assertFalse(has(r["labels"], "writer:U-1:revise"))
+        # 回答の反映から出た続きの問い（仕様の論点。3a が出して組み直しの 3b へ渡す）は、最初のゲートの後なので持ち越さずにすぐ聞く
+        # （初稿を書き直す前に止まる）。
+        cont = {**spec, "args": res["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}}
+        g2 = run(cont)
+        res2 = g2["result"]
+        self.assertEqual((res2["status"], res2.get("gate"), res2.get("question_ids")), ("needs_answers", "g2", ["RS-002"]), res2.get("reason"))
+        self.assertEqual(res2["next_args"]["from"], "3a")
+        self.assertFalse(has(g2["labels"], "writer"), "回答待ちの問いを持って初稿へ進まない")
+        self.assertFalse(has(g2["labels"], "writerReviewer"))
+        done = run({**spec, "args": res2["next_args"], "ruled_at": {"3a": ["RS-002"]}})
+        self.assertEqual(done["result"]["status"], "done", done["result"].get("reason"))
+        self.assertTrue(has(done["labels"], "writer:U-1:draft"), "回答の後に初稿を書き直す")
+        self.assertEqual([l for l in done["labels"] if l.startswith("writerReviewer:")], ["writerReviewer:r2:all"], "書き直した初稿の監査は 1 回だけ")
+
+    def test_要求の論点が1件でもあれば要求の論点だけをupstream_gapで返す(self):
+        r = run(self._expand(flow_open=2, questions_at={"3": ["RS-001", "RS-002"]}, spec_layer_ids=["RS-001"]))
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["question_ids"], res["next_args"]), ("blocked", "upstream_gap", ["RS-002"], None), res.get("reason"))
+        self.assertIn("仕様書の範囲の問い 1 件", res["reason"])
+        self.assertIn("要求文書を改訂した後の run で聞く", res["reason"])
+        self.assertNotIn("gate", res)
+        # 対照: 全部が仕様の論点ならゲートで聞く。
+        both = run(self._expand(flow_open=2, questions_at={"3": ["RS-001", "RS-002"]}, spec_layer_ids=["RS-001", "RS-002"]))["result"]
+        self.assertEqual((both["status"], both.get("question_ids")), ("needs_answers", ["RS-001", "RS-002"]), both.get("reason"))
+
+    def test_延長の段6でも仕様の論点だけなら聞き要求の論点ならupstream_gapにする(self):
+        findings = {"writerReviewer:r1": [{"id": "r1-wr-all-001", "doc": "specifications/x", "item_id": "SP-X-001"}],
+                    "writerReviewer:r2": [{"id": "r2-wr-all-002", "doc": "specifications/x", "item_id": "SP-X-002", "route": "decision"}]}
+        base = self._expand(findings=findings, writer_changed=["SP-X-001"], diff={"r2": ["SP-X-001"]}, about={"RS-020": {"finding": "r2-wr-all-002"}}, questions_at={"6": ["RS-020"]})
+        up = run(base)["result"]
+        self.assertEqual((up["status"], up["stop_reason"], up.get("question_ids"), up["next_args"]), ("blocked", "upstream_gap", ["RS-020"], None), up.get("reason"))
+        asked = run({**base, "spec_layer_ids": ["RS-020"]})["result"]
+        self.assertEqual((asked["status"], asked.get("gate"), asked.get("question_ids")), ("needs_answers", "g1", ["RS-020"]), asked.get("reason"))
+        self.assertEqual((asked["next_args"]["from"], asked["next_args"]["state"]["pass"]), ("3a'", MAX_AUDIT_PASSES + 1))
+
+    def test_延長の段6で字数の上限を超えても要求の論点はupstream_gapにする(self):
+        # 要求の論点は字数の上限より先に upstream_gap にする（保持規則にすると、要求文書に無い判断が仕様書の本文にだけ入る）。延長の段 6 の
+        # 字数の判定だけを真にする patch で、上限を超えた形を作る。
+        findings = {"writerReviewer:r1": [{"id": "r1-wr-all-001", "doc": "specifications/x", "item_id": "SP-X-001"}],
+                    "writerReviewer:r2": [{"id": "r2-wr-all-002", "doc": "specifications/x", "item_id": "SP-X-002", "route": "decision"}]}
+        base = self._expand(findings=findings, writer_changed=["SP-X-001"], diff={"r2": ["SP-X-001"]}, about={"RS-020": {"finding": "r2-wr-all-002"}}, questions_at={"6": ["RS-020"]})
+        over = ("const over = extended && pendingQuestions(state).length > 0 && extensionOver(state)", "const over = extended && pendingQuestions(state).length > 0")
+        up = run(base, patch=[over])
+        res = up["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res.get("question_ids"), res["next_args"]), ("blocked", "upstream_gap", ["RS-020"], None), res.get("reason"))
+        self.assertFalse(has(up["labels"], "resolver:6-hold"), "要求の論点を保持規則にしない")
+        # 対照: 仕様の論点なら、上限を超えるので聞かずに保持規則にして輪を出る。
+        spec_q = run({**base, "spec_layer_ids": ["RS-020"]}, patch=[over])
+        res2 = spec_q["result"]
+        self.assertEqual((res2["status"], res2["stop_reason"]), ("blocked", "pass_limit"), res2.get("reason"))
+        self.assertIn("resolver:6-hold", spec_q["labels"])
+        self.assertIn("延長すると next_args が打ち直しの上限", nth_prompt(spec_q, "resolver:6-hold", 0))
+
+    def test_聞ける回数を使い切った後も要求の論点はupstream_gapにする(self):
+        # 聞けない段でも、仕様書だけを書く run の要求の論点は question のまま受け取り、保持規則にせずに upstream_gap にする（C-b の前と同じ扱い）。
+        spec = self._expand(findings={"wholeReviewer:r1": [self.SPEC]}, about={"RS-010": {"finding": self.SPEC["id"]}}, questions_at={"6": ["RS-010"]})
+        start = stage6_at_limit(spec)
+        r = run({**spec, "args": start})
+        res = r["result"]
+        self.assertIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0), "聞けない段で確かめる")
+        self.assertIn("仕様書だけを書く run: `layer: 要求` の問いは hold にせず question のまま返す", nth_prompt(r, "resolver:6", 0))
+        self.assertEqual((res["status"], res["stop_reason"], res.get("question_ids"), res["next_args"]), ("blocked", "upstream_gap", ["RS-010"], None), res.get("reason"))
+        self.assertFalse(has(r["labels"], "resolver:6-hold"))
+        self.assertFalse(has(r["labels"], "writer:U-1:revise"), "要求の論点を本文に入れない")
+        # 対照: 仕様の論点なら、聞けないので保持規則にして改稿へ進む。
+        held = run({**spec, "args": start, "spec_layer_ids": ["RS-010"]})
+        self.assertIn("resolver:6-hold", held["labels"], held["result"].get("reason"))
+        self.assertNotEqual(held["result"].get("stop_reason"), "upstream_gap")
+        # 対照: 仕様書だけの run でなければ、聞けない段の問いは今どおり受け取らない。
+        other = {"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "about": {"RS-010": {"finding": "r1-wh-all-001"}}, "questions_at": {"6": ["RS-010"]}}
+        plain = run({"args": stage6_at_limit({"args": args(), **other}), **other})
+        self.assertNotIn("仕様書だけを書く run", nth_prompt(plain, "resolver:6", 0))
+        self.assertNotEqual(plain["result"].get("stop_reason"), "upstream_gap")
+
+    def test_最初のゲートの後は回答待ちの問いを持って段を出ればexitViolationが止める(self):
+        # 持ち越し（carrying）を最初のゲートの前に限る。ゲートを開いた後の仕様書だけの run が、聞くゲートを通らずに問いを持って段を出たら止める。
+        spec = self._expand(findings={"wholeReviewer:r1": [self.SPEC]}, about={"RS-010": {"finding": self.SPEC["id"]}}, questions_at={"6": ["RS-010"]}, spec_layer_ids=["RS-010"])
+        stopped = run({**spec, "null_labels": ["resolver:6"]})["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "6"), stopped.get("reason"))
+        leak = ("needsAnswers(\"3a'\", '7')", "'7'")
+        res = run({**spec, "args": with_state(stopped["next_args"], gates=1)}, patch=[leak])["result"]
+        self.assertEqual(res["status"], "blocked", res.get("reason"))
+        self.assertIn("回答待ちの問い RS-010 を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました", res["reason"])
+
+    def test_layerの不合格を受け取り差し戻しに載せる(self):
+        kinds = re.search(r"^const FAIL_KINDS = \[(.*)\]$", PRD.read_text(encoding="utf-8"), re.M).group(1)
+        self.assertIn("'layer'", kinds, "verifier の schema の enum（FAIL_KINDS）に layer がある")
+        contract = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
+        lines = contract.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith("- `fail_kind`: "))
+        # 項目は折り返して次の行へ続くので、次の項目か空行の手前までを 1 つの定義として読む。
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("- ") or not lines[i].strip()), len(lines))
+        definition = "\n".join(lines[start:end])
+        self.assertIn("`layer` = ", definition, "契約の fail_kind の定義に layer の意味がある")
+        fail = {"id": "RS-001", "kind": "layer", "reason": "どの候補でも固定の要求文書の文が変わる"}
+        r = run(self._expand(flow_open=1, questions_at={"3": ["RS-001"], "3-fix": ["RS-001"]}, spec_layer_ids=["RS-001"], verifier_fail={"3v": [fail]}))
+        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:3", "verifier:3"))][:3], ["verifier:3v", "resolver:3-fix", "verifier:3-fixv"], "一般の差し戻しの経路を通る")
+        self.assertIn("- RS-001: layer（どの候補でも固定の要求文書の文が変わる）", nth_prompt(r, "resolver:3-fix", 0))
+        res = r["result"]
+        self.assertEqual((res["status"], res.get("question_ids")), ("needs_answers", ["RS-001"]), res.get("reason"))
+
+    def test_仕様書だけのrunだけ裁定と検証のプロンプトで問いのlayerを求める(self):
+        spec = {"findings": {"wholeReviewer:r1": [self.SPEC]}, "about": {"RS-010": {"finding": self.SPEC["id"]}}, "questions_at": {"6": ["RS-010"]}}
+        only = run(self._expand(**spec, spec_layer_ids=["RS-010"]))
+        self.assertIn(self.ASK_LAYER, nth_prompt(only, "resolver:6", 0))
+        for label in ("verifier:3v", "verifier:6v"):
+            self.assertIn(self.CHECK_LAYER, nth_prompt(only, label, 0), label)
+        other = run({"args": args(), **spec, "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}})
+        self.assertEqual(other["result"]["status"], "needs_answers", other["result"].get("reason"))
+        self.assertNotIn(self.ASK_LAYER, nth_prompt(other, "resolver:6", 0))
+        for label in ("verifier:3v", "verifier:6v"):
+            self.assertNotIn(self.CHECK_LAYER, nth_prompt(other, label, 0), "仕様書だけの run でなければ layer の fail を出させない")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
@@ -5844,7 +6299,7 @@ NEXT_ARGS_MAX_CHARS = 8_000
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class NextArgsBudget(unittest.TestCase):
     """試走の G1 の規模（問い 13・resolution 28・D- の合格 55・単位 1）で項目を ITEMS_N まで増やし、stray 100 件と
-    SIZE_OVER のある snapshot を通ってから、g1・g2・g3（段 6）と段 8 で止まった next_args が上限に収まる。"""
+    SIZE_OVER のある snapshot を通ってから、g1・g2・g3（段 6）と段 8、延長のゲート（g4）と延長の段 8 で止まった next_args が上限に収まる。"""
 
     DOC = "requirements/cleanup-branches"
     # SKILL_DIR: next_args の skillDir は install 先のパスで、字数に入る。checkout の場所で測ると、置き場所ごとに境界が動く。
@@ -5976,11 +6431,79 @@ class NextArgsBudget(unittest.TestCase):
         self._assert_lean(res["next_args"]["state"])
         return self._chars(res["next_args"])
 
-    def test_段8が境界を決める最悪の段である(self):
-        # 境界（ITEMS_N + 1 で超える）は段 8 でだけ測る。tx.flow を持つ段 6 の再実行が段 8 より大きければ、境界は段 6 が決める。
+    def _extension(self, entry, n):
+        # 延長の経路（設計 §1D）: g3 の回答を当てた改稿の後の監査 r<R+1> が、先頭 3 項目に blocking の decision を出す（改稿が当て損ねた
+        # UNAPPLIED 件も持ち越す）。延長の段 6 が問い RS-029〜031 を返して g4 で止まり（from 3a'、pass 2）、その回答を当てた延長の改稿の後の
+        # 監査 r<R+2> の監査役が応答しない。返すのは、延長のゲートと延長の段 8 の next_args の字数。
+        a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
+        g1 = self._gates(a, n)[2]
+        common = self._common(n)
+        decision = [{"id": f"r{self.R + 1}-wr-all-{k:03d}", "doc": self.DOC, "item_id": self._item(k), "route": "decision"} for k in (1, 2, 3)]
+        # 延長の段 6 も、パス 1 の段 6 と同じく routes を 3 件返す（ID は新しく振る）。
+        ext = {**common, "findings": {**common["findings"], f"writerReviewer:r{self.R + 1}": decision},
+               "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(4, 7)]}}
+        ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:self.UNAPPLIED]
+        gate = run({"args": g1["next_args"], **ext, "ruled_at": {"3a'": self._rs(23, 25)}, "questions_at": {"6": self._rs(29, 31)}, "unapplied_seq": [ids]})["result"]
+        self.assertEqual((gate["status"], gate.get("gate")), ("needs_answers", "g4"), gate.get("reason"))
+        self.assertEqual((gate["next_args"]["from"], gate["next_args"]["state"]["pass"]), ("3a'", 2))
+        self._assert_lean(gate["next_args"]["state"])
+        auditor = f"writerReviewer:r{self.R + 2}:all"
+        s8 = run({"args": gate["next_args"], **ext, "ruled_at": {"3a'": self._rs(29, 31)}, "null_labels": [auditor], "unapplied_seq": [ids]})["result"]
+        self.assertEqual((s8["status"], s8["next_args"]["from"], s8["next_args"]["state"]["pass"]), ("blocked", "8", 2), s8.get("reason"))
+        self._assert_lean(s8["next_args"]["state"])
+        return self._chars(gate["next_args"]), self._chars(s8["next_args"])
+
+    def test_延長のゲートと延長の段8のnext_argsも上限に収まる(self):
         for entry in ("new", "existing"):
             with self.subTest(entry=entry):
-                self.assertLessEqual(self._stage6(entry, self.ITEMS_N + 1), self._stage8(entry, self.ITEMS_N + 1, self.UNAPPLIED))
+                gate, s8 = self._extension(entry, self.ITEMS_N)
+                self.assertLess(gate, NEXT_ARGS_MAX_CHARS)
+                self.assertLess(s8, NEXT_ARGS_MAX_CHARS)
+
+    def test_段8が境界を決める最悪の段である(self):
+        # 境界（ITEMS_N + 1 で超える）は段 8 でだけ測る。tx.flow を持つ段 6 の再実行か延長の経路（延長のゲート・延長の段 8）が段 8 より大きければ、
+        # 境界はその形が決める。
+        for entry in ("new", "existing"):
+            with self.subTest(entry=entry):
+                worst = self._stage8(entry, self.ITEMS_N + 1, self.UNAPPLIED)
+                self.assertLessEqual(self._stage6(entry, self.ITEMS_N + 1), worst)
+                for name, size in zip(("延長のゲート", "延長の段 8"), self._extension(entry, self.ITEMS_N + 1)):
+                    self.assertLessEqual(size, worst, name)
+
+    def test_打ち直しの上限はprd_specのNEXT_ARGS_MAX_CHARSと同じ(self):
+        # 延長に入るかを prd-spec.js が同じ上限で決める（測り直したら両方を変える）。
+        src = PRD.read_text(encoding="utf-8")
+        self.assertEqual(int(re.search(r"^const NEXT_ARGS_MAX_CHARS = (\d+)$", src, re.M).group(1)), NEXT_ARGS_MAX_CHARS)
+
+    def test_scriptの最悪の形の字数は_charsと同じ(self):
+        # prd-spec.js が延長に入るかを測る worstNextArgsChars は、ここの _chars と同じ値を返す（境界の近くでも、script が延長に入れば
+        # このテストの測り方でも上限に収まる）。実際のゲート・段 8 の next_args と、エスケープの要る文字列を持つ形で照らす。
+        g0, g02, g1 = self._gates(self._args(), 4)
+        s8 = run({"args": g1["next_args"], **self._common(4), "ruled_at": {"3a'": self._rs(23, 25)}, "null_labels": [f"writerReviewer:r{self.R + 1}:all"]})["result"]
+        self.assertEqual((s8["status"], s8["next_args"]["from"]), ("blocked", "8"), "tx.flow の付かない段 8 の形も照らす")
+        tricky = {**g1["next_args"], "state": {**g1["next_args"]["state"], "notices": ['引用 "a\\b"\n\t改行', "\u0001\u001f\b\f\r", "日本語・F-001"], "x": [[], {}, None, True, 0.5, -3]}}
+        for name, na in (("g1", g0["next_args"]), ("g2", g02["next_args"]), ("g3", g1["next_args"]), ("段 8", s8["next_args"]), ("エスケープ", tricky)):
+            with self.subTest(name):
+                self.assertEqual(value(f"worstNextArgsChars({json.dumps(na, ensure_ascii=False)})"), self._chars(na))
+
+    def test_延長のゲートのnext_argsが上限を超えるなら延長せずにfinalHoldで止まる(self):
+        # 最悪の延長の形: g3 の回答を当てた改稿の後の監査 r<R+1> が、先頭 3 項目の blocking の decision に加えて、全項目に writer の blocking を
+        # 出す。全項目が再発して decision に回り、延長のゲートの next_args は上限を大きく超える（実測で約 15000 字）。超える next_args は
+        # 打ち直せないので、延長せずに finalHold（pass_limit）で止まり、next_args を付けない。
+        for entry in ("new", "existing"):
+            with self.subTest(entry=entry):
+                a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
+                g1 = self._gates(a, self.ITEMS_N)[2]
+                common = {k: v for k, v in self._common(self.ITEMS_N).items() if k not in ("stray_at", "size_over_at", "routes_at")}
+                decision = [{"id": f"r{self.R + 1}-wr-all-{k:03d}", "doc": self.DOC, "item_id": self._item(k), "route": "decision"} for k in (1, 2, 3)]
+                writers = [{"id": f"r{self.R + 1}-wr-all-{k + 4:03d}", "doc": self.DOC, "item_id": it, "route": "writer"} for k, it in enumerate(self._writer_items(self.ITEMS_N))]
+                r = run({"args": g1["next_args"], **common, "findings": {**common["findings"], f"writerReviewer:r{self.R + 1}": decision + writers}, "ruled_at": {"3a'": self._rs(23, 25)}})
+                res = r["result"]
+                self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", 1), res.get("reason"))
+                self.assertIn("延長すると next_args が打ち直しの上限（NEXT_ARGS_MAX_CHARS", res["reason"])
+                self.assertIsNone(res["next_args"])
+                self.assertFalse(has(r["labels"], "resolver:6"), "延長の段 6 を開かない")
+                self.assertIn("resolver:final", r["labels"])
 
     def test_項目がITEMS_Nを超えると段8の最悪の形は上限を超える(self):
         self.assertGreaterEqual(self._stage8("existing", self.ITEMS_N + 1, self.UNAPPLIED), NEXT_ARGS_MAX_CHARS)

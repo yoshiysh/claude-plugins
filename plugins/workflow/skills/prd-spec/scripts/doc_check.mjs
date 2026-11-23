@@ -3910,19 +3910,23 @@ function carriesVerdict(judged, r) {
   return chosen && judged.digest === digestOf(asked)
 }
 
-// rulingsCompact: resolution の行を ruling・has_answer・verdict・fail_kind の組ごとに束ね、組の中は ID から about への表にする。verifier と
+// rulingsCompact: resolution の行を ruling・has_answer・verdict・fail_kind（と、あれば spec_layer）の組ごとに束ね、組の中は ID から about への表にする。verifier と
 // flow-check はこの stdout を逐語で写すので、行ごとに欄名と同じ値を繰り返すと写す字数が台帳の件数に比例して膨らむ。
 // 行への戻し方の正本は prd-spec.js の rulingRows。
 function rulingsCompact(rows) {
   const groups = new Map()
   for (const r of rows) {
-    const head = { ruling: r.ruling, has_answer: r.has_answer, verdict: r.verdict, ...(Object.hasOwn(r, 'fail_kind') ? { fail_kind: r.fail_kind } : {}) }
+    const head = { ruling: r.ruling, has_answer: r.has_answer, verdict: r.verdict, ...(Object.hasOwn(r, 'fail_kind') ? { fail_kind: r.fail_kind } : {}), ...(r.spec_layer ? { spec_layer: true } : {}) }
     const key = canonicalJson(head)
     if (!groups.has(key)) groups.set(key, { ...head, about: {} })
     groups.get(key).about[r.id] = r.about
   }
   return [...groups.values()]
 }
+
+// specLayer: 仕様の論点の問い（答えが仕様書だけに入る。prd-and-spec.md §11.6 の手段の変更）。仕様書だけを書く run の prd-spec.js は、この行の問いだけを
+// 依頼者に聞き、ほかの問いは要求文書の抜け（upstream_gap）にする。当たらない行には欄を付けない。
+const specLayer = (r) => r.ruling === 'question' && r.layer === '手段' && r.upstream_revision == null
 
 function wsFlow(ws, opts) {
   requireInput(ws)
@@ -3953,7 +3957,7 @@ function wsFlow(ws, opts) {
     .map((r) => {
       const judged = verdicts.get(String(r.id))
       const v = judged && carriesVerdict(judged, r) ? judged : null
-      return { id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null, has_answer: r.answer != null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.fail_kind ?? null } : {}) }
+      return { id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null, has_answer: r.answer != null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.fail_kind ?? null } : {}), ...(specLayer(r) ? { spec_layer: true } : {}) }
     })
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
   const opensOnly = (source) => {

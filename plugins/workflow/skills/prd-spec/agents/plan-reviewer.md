@@ -37,6 +37,8 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
 - **domain assessment**（`about.domain`）: `agent-contracts.md`「決定の台帳」の規則に従う。`value` は `domain_assessment.verdict` と一致する。`required_categories` は `value` と比較せず、
   後段の回答信号から必要カテゴリを独立して評価し、`domain_assessment.required_categories` の中身と照合する。
 - `supersedes` があるときは、覆す理由が `why` と `evidence` から言えるか。
+- **問いの `layer`**（プロンプトが「仕様書だけを書く run である」と告げるときだけ）: `layer: 手段` の問いは、どの候補を選んでも固定の要求文書の文が
+  変わらないか → 変わるなら `layer`。このとき以外は `layer` の不合格を出さない。
 
 **decisions（intake の `source: default` と `precedent`、`kind: invariant`）**: 既定と先例は、方法論の範囲に収まっているか（案件の要求そのもの・
 外部に波及する値・依頼者が保留した事項を既定にしていないか）。先例は実在し合格済みか。`kind: invariant` は、規範の文が振る舞いを縛るか（観点の該当判定や事実の記述なら不合格）。規範の文は、決定なら `quote`、

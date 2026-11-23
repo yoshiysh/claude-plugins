@@ -51,7 +51,7 @@ workspace を用意し、保存することだけである。** 決定・問い�
 | 3a・3b | 最初のゲートの回答を当てて flow を組み直し、初稿を書き直す（最初の初稿は回答待ちの論点を決めずに書いたもの）。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
 | 4〜5 | 初稿を書き（writer）、writer reviewer と whole reviewer で 1 回監査する（網羅の r1）。指摘が blocking を含まず改稿の理由も無ければ 6〜8 を飛ばして 9 へ |
 | 6・3a' | 決定が要る指摘を裁定する。価値の問いはどのパスでも聞き、回答を当ててから改稿する。答えたか保持規則にした論点の再発は聞き直さない |
-| 7〜8 | 改稿と範囲の再監査は `MAX_AUDIT_PASSES` 回。最後の監査の後に blocking が残れば blocked |
+| 7〜8 | 改稿と範囲の再監査は `MAX_AUDIT_PASSES` 回。最後の監査の後に決定が要る論点が残り聞ける回数があれば、段 6 で聞き、回答を当てて改稿と監査を 1 回だけ延ばす。それでも blocking が残れば blocked |
 | 9 | 事後報告（resolver）→ 司令塔が照合して保存する |
 
 段ごとの入出力、返り値の読み方、再実行は `references/workflow-io.md` を正とする。
@@ -116,7 +116,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>" --findings "<返り値の unreflected をカンマで>"` で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
-  `stop_reason` が `upstream_gap` なら、固定の要求文書に答えが見つからなかった価値の論点が出ている（初稿の監査の裁定までに出た論点がまとめて載る）。問いとして聞かずに、
+  `stop_reason` が `upstream_gap` なら、仕様書だけを書く run で固定の要求文書の抜け（要求の論点）が出ている（最初のゲートの前に出た論点は、初稿の監査の裁定でまとめて載る。最初のゲートの後は、要求の論点が出た段で止まる。仕様の論点だけなら needs_answers で聞く）。問いとして聞かずに、
   `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>` で導出した `questions_path` の本文をそのまま見せ、
   要求文書の改訂（`entry: existing`）を先に走らせてから仕様書を起こし直すことを伝える。
   ここで答えをもらって仕様書の run に渡すと、要求文書に無い判断が仕様書にだけ入る。

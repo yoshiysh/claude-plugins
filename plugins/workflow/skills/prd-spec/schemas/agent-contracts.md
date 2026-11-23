@@ -265,7 +265,8 @@
   「## 現物と既存実装の扱い」が許す範囲の外で価値の判断に使ったものも含む。`not_reproduced` =
   実測を再実行しても同じ証拠が出ない。`insufficient_grounds` = 出典が実在しない・支えていない。`mapping` =
   自由記述の回答の問いへの対応づけか、`answered_by` の回答の当てはめが回答の文面から言えない。`decidable` = 回答待ちの問いか保持規則なのに、
-  入力・回答・合格した裁定で値が決まる（前の 4 つは決めすぎ、これは決めなさすぎを落とす）。
+  入力・回答・合格した裁定で値が決まる（前の 4 つは決めすぎ、これは決めなさすぎを落とす）。`layer` = 問いの `layer` が
+  `references/prd-and-spec.md` §11.6 の変更の層と合わない（仕様書だけを書く run だけで当てる。plan-reviewer.md）。
 
 ## 不変条件の kind
 
@@ -300,8 +301,8 @@
   - 今は無いが、今後させたいことはあるか
   - 実装がそうなっているだけで、要求として決めたわけではない箇所はあるか
 - ただし、仕様書だけを書く run（書く文書がすべて仕様書で、どれも plan の `covers` で固定の要求文書を実現する）では、この 3 つを置かない。3 つとも何を作るかの問いで、
-  答えは固定の要求文書が持つ。この run で価値の問いが出たら、それは固定の要求文書の抜けで、script は聞かずに止まる（prd-spec.js の
-  `specOnly`、references/workflow-io.md §3 の `upstream_gap`）。
+  答えは固定の要求文書が持つ。この run で `layer: 要求` の問い（固定の要求文書の抜け）が出たら script は聞かずに止まり、`layer: 手段` の問いは聞く
+  （prd-spec.js の `specOnly`、references/workflow-io.md §4 のゲートの行）。
 
 ## §intake
 
@@ -447,7 +448,8 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
 - `flow --rulings` の stdout の `resolutions` は、resolution ごとの `{id, about, ruling, has_answer, verdict}`（不合格は `fail_kind` も。`has_answer` は `answer` の有無）を
   `ruling`・`has_answer`・`verdict`・`fail_kind` の組ごとに束ね、組の中を ID から `about` への表にしたものである（束ね方の正本は doc_check の `rulingsCompact`、
-  行への戻し方は prd-spec.js の `rulingRows`。`--rulings` の無い `flow` は出さない）。`verdict` は verifications.json の合否で、
+  行への戻し方は prd-spec.js の `rulingRows`。`--rulings` の無い `flow` は出さない）。仕様の論点の問い（`ruling: question`・`layer: 手段`・`upstream_revision` が無い）の行だけが
+  `spec_layer: true` を持つ（組の頭に入る）。`verdict` は verifications.json の合否で、
   検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に書き換えた裁定は合否を失う。例外として持ち越す
   書き換えの正本は doc_check の `carriesVerdict` である。script は、resolver が書いたのに返り値に載せなかった裁定をここから受け取り、
   合否が無いか script の持つ合否と違う resolution を verifier に検証させる（script はファイルを読めない）。
@@ -543,6 +545,10 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   （prd-spec.js の `designatedHold`。書き換えると、保留と答えた依頼者に聞き直す）。ただし verifier がその回答の節を出典に `decidable` で落とした
   hold は、回答が実際の選択なので、変換では問いにする（`answerChosen`）。
   聞けば答えの出る論点が、依頼者に届かないまま保持規則になるからである。変換が指定と違う種類で返したときも 1 回だけ書き換え直させる（`<段>-convert-kind`）。
+- 仕様書だけを書く run（「## 現物と既存実装の扱い」）では、問いに `layer` を付ける。どの候補を選んでも固定の要求文書の文が変わらず、答えが仕様書だけに入る
+  （`references/prd-and-spec.md` §11.6 の手段の変更）なら `手段`、固定の要求文書の抜けなら `要求`。script は `flow --rulings` の `spec_layer` の問いだけを聞き、
+  `layer` の無い問いは要求の論点に数える。聞けない段（聞ける回数の上限の後）でも、`要求` の問いは hold にせず question のまま返す（script が
+  聞ける回数によらず `upstream_gap` で止める。保持規則にすると、要求文書に無い判断が仕様書の本文にだけ入る）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
@@ -577,6 +583,8 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 聞き直し（`<label>-source`）、それでも受け取れなければ段を止める。
 
 `about.domain` の検証項目と value / required_categories の区別は「決定の台帳」の domain assessment 規則を正とする。カテゴリ名だけで抽象的なリスクを網羅したとみなさない。
+
+プロンプトが仕様書だけを書く run だと告げるときだけ、問いの `layer` を確かめる（付け違いは `layer`。検証の項目は agents/plan-reviewer.md）。
 
 検証の最初に `doc_check flow` を実行し、その `unverified` のうち `failed_current` に無い要素すべての出典も検証して、その F- も `pass`・`fail` に入れる
 （script の渡す ID の一覧は、返り値に載せずに書いた役や所有表の外が書いた要素を知らない）。最後はプロンプトのとおり `doc_check flow --rulings` を実行する。

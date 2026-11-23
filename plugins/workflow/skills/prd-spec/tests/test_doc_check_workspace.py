@@ -721,6 +721,25 @@ class FlowAndConflicts(_Workspace):
             stub = stages.run({"args": stages.args(**{"from": "9", "state": state}), "world": str(world)})
         self.assertEqual(stub["disk"]["resolutions"], rewritten)
 
+    def test_仕様の論点の問いの行にだけspec_layerを付ける(self):
+        # 仕様の論点: ruling が question で、layer が「手段」で、upstream_revision が無い（prd-spec.js は仕様書だけを書く run でそれだけを聞く）。
+        options = [{"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
+                   {"label": "メール", "description": "メールで送る", "flow_effect": "F-003 がメール送信になる", "decision_text": "結果はメールで送る"}]
+        q = lambda id_, about, **kw: {"id": id_, "about": about, "ruling": "question", "options": options,
+                                      "question": {"header": "h", "text": "t", "searched": "s"}, **kw}
+        _put(self.ws, "resolutions", {"resolutions": [
+            q("RS-001", {"open": "O-001"}, layer="手段"),
+            q("RS-002", {"tbd": "TBD-X-001"}, layer="要求"),
+            q("RS-003", {"finding": "r1-wh-all-001"}),
+            q("RS-004", {"finding": "r1-wh-all-002"}, layer="手段", upstream_revision="要求文書の PR-X-001 に上限を足す"),
+            {"id": "RS-005", "about": {"finding": "r1-wh-all-003"}, "ruling": "internal", "value": "v", "why": "w", "layer": "手段"},
+        ]})
+        groups = _ok(self.ws, "flow", "--rulings")["resolutions"]
+        marked = [g for g in groups if "spec_layer" in g]
+        self.assertEqual([(g["spec_layer"], sorted(g["about"])) for g in marked], [(True, ["RS-001"])], "当たる行の組だけが spec_layer: true を持つ")
+        self.assertEqual([x["id"] for x in _rulings(self.ws) if x.get("spec_layer")], ["RS-001"], "prd-spec.js が読む行にも写る")
+        self.assertFalse(any("spec_layer" in x for x in _rulings(self.ws) if x["id"] != "RS-001"), "当たらない行は今の形のまま")
+
     def _verdict(self, rs_id):
         return next(x for x in _rulings(self.ws) if x["id"] == rs_id)["verdict"]
 
