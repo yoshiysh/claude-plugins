@@ -91,7 +91,9 @@ PROMPT_CLUES = [
 
 # SKIPPED_CLUES: 事実の条件で外した手順（返り値の skipped）。fact ごとに外した step の label の形。
 # low_only の step は、飛ばした 2 巡目の監査の最初の writer reviewer の label（段 5 の監査の次の回）。
-SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v", "low_only": r"writerReviewer:r\d+:(?:all|p\d+)"}
+# no_formal_target の step は依頼の rid（f<回><a|b>）、formal_unavailable は formal-method を使えない run の全体（workflow-io.md と agent-contracts.md「## 形式検証の事実」）。
+SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v", "low_only": r"writerReviewer:r\d+:(?:all|p\d+)",
+                 "no_formal_target": r"formal-method:f\d+[ab]", "formal_unavailable": "formal-method"}
 
 # COVERING_TESTS: 全形と全行を起動する既存の段のテスト（段のテスト全体の run を捕まえて貪欲に選んだ被覆。全部を走らせ直すと
 # 段のテストの時間が倍になる）。足りない 1 行は recurring_ledger_spec で足す。
@@ -247,6 +249,9 @@ class Launched(unittest.TestCase):
         got = test_prd_stages.run(recurring_ledger_spec())
         cls.recurring = got
         cls.runs.append({"prompts": got["prompts"], "skipped": got["result"].get("skipped") or []})
+        # formal-method を使えない run（args.formal = false）だけが formal_unavailable を残す。
+        off = test_prd_stages.run({"args": test_prd_stages.args(formal=False)})
+        cls.runs.append({"prompts": off["prompts"], "skipped": off["result"].get("skipped") or []})
 
     def test_流用した段のテストが通る(self):
         self.assertTrue(self.outcome.wasSuccessful(), [str(t) for t, _ in self.outcome.failures + self.outcome.errors])

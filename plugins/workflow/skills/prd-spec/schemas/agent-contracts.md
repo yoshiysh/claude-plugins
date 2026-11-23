@@ -125,6 +125,9 @@
 | `findings/r<n>-<役>-<組>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
 | `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer が最初のコマンドの `backup` で文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
+| `fm/<rid>/request.json`、`fm/<rid>/units.json`、`fm/<rid>/target/*` | doc_check `formal-request`（段 5・8 の本体の最初に flow-check が実行する。outcome の無い rid は上書きし、取り込み済みの rid は作り直さない） | formal-method の依頼（artifact-formats.md の Request）と、単位・目標・送らなかった単位の対応表（[形式検証の事実](#形式検証の事実)）。`target/` は単位と依存を持つ文書の逐語の写し | 再開の入口の `formal-status` が `units.json` の `request_digest` と `request.json` のバイト列を照らす |
+| `fm/<rid>/outcome.json`、`fm/facts.json` | doc_check `formal-import`（司令塔が formal-method の手順の後に実行する）。`fm/facts.json` は `formal-request` も書く（送る単位が 0 のとき、送らなかった単位を `unverified` に残す） | [形式検証の事実](#形式検証の事実) | 同じ rid の 2 回目の取り込みは何も変えない。段 1 の入口の `reset` が `fm/off.json` のほかを消す |
+| `fm/off.json` | doc_check `formal-off`（司令塔が `formal: false` で呼ぶ前に実行する） | `{ "off": true, "reason": "skill_missing \| host_unsupported" }` | — |
 | `tmp/<label>/` | その label の呼び出しの agent だけ。片付けは doc_check が持つ（put の `--input` は書けたら消え、監査の `snapshot --sweep` が `--live` に無い label のディレクトリを、run の後の `report` が残りのすべてを消して `swept` に出す）ので、agent は消さない（自分で消すと、消し忘れと、消した後に要る中身を W の外へ写す動きが出た）。他の label の tmp は読まない | 作業用の script・一時ファイル | 消えるまでは `snapshot`（`--sweep` なし）と `tree-digest` の `stray` に出る。消したものは `swept` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や詰め合わせの writer reviewer が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
 
 見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`（`report` を導出しない止まり方の run では、最後の監査の snapshot の後に動いた label のものが残る）、`plan.json` に載った文書の中身（中身は snapshot と
@@ -614,10 +617,11 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 プロンプトが名指しした欄に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` か `answers` も、単独のゲートの前は `answers` だけ、`-recopy` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
+段 5・8 の本体の最初は `flow-check:<段>-formal-<rid>` で `formal-request` を実行し、段 5・8 から始める run の入口は flow の後に `formal-status` も実行する（扱いは references/workflow-io.md §3・§4）。
+入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` か `answers` か `formal-status` も、段 5・8 の本体の最初は `formal-request` だけ、単独のゲートの前は `answers` だけ、`-recopy` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えと `W/fm/<rid>/` は doc_check が書く）。
 
 ```json
-{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）" }
+{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）", "formal_check": "プロンプトが formal-request を挙げたときだけ。その stdout（加工しない）", "formal_status": "プロンプトが formal-status を挙げたときだけ。その stdout（加工しない）" }
 ```
 
 resolver はどの呼び出しでも台帳を書く。台帳の `kind`・`supersedes`・`hold` は flow.json を変えずに指摘と `stale_refs` を変えるので、
@@ -636,6 +640,7 @@ digest と、次の 2 つ。
   中身は `W/findings/` の指摘のファイルで読む（読み方は「### 指摘の形」）。段 6 が起動しなくても渡る。
 - `W/routes.json` のうち自分の担当の ID（段 6 で resolver が起動したときだけ）。
 
+段 5・8 の形式検証の差し戻し（`writer:<unit>:formal-<回>`）も改稿と同じ入力で起動し、doc の `ST-FORMAL-CEX-` の指摘だけを直す（「## 形式検証の事実」）。
 最初のコマンドはプロンプトの `backup`（Write・Edit・put より前。控えを取る前に書いた本文はこの段の再実行で戻せず、script が控えの digest で照らす）。
 書くもの: `W/<kind>-<topic>.md`（初稿は Write、改稿は Edit）と `W/<kind>-<topic>.meta.json`（put。`--ledger meta --doc <キー>`）。
 自分の単位の文書だけを書く。
@@ -690,6 +695,40 @@ digest と、次の 2 つ。
   直した項目がすべて「申告に無い変更」になり、監査が余分に起動する。初稿では空配列でよい。
 
 有効な必須カテゴリの集合と supersession は「決定の台帳」の後段 domain assessment 規則を正とする。writer は各有効カテゴリを、置き場を `references/prd-and-spec.md` §11.1 に従って決めた項目の中身として実現し、その `trace` は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
+
+## 形式検証の事実
+
+段 5・8 の本体の最初に、script は doc_check `formal-request` で formal-method への依頼を作り、司令塔が formal-method を回して `formal-import` で結果を W に置く（流れは references/workflow-io.md §4 の段 5・8）。
+単位（形式検証に回すもの）は、固定でない文書の ID を持つ区間の次の 4 種である（書式は references/document-structure.md §2.9・§6）。単位の 4 種の定義はここにだけ置く。
+
+- `domain`: 比較の式を値に持つ「> 条件の値:」の宣言。依存は、その宣言を参照する区間。
+- `bounds`: 制約の文型の式（`` `式` でなければならない ``）。量（名前の組）ごとに 1 つの単位で、同じ項目の別の量の制約は別の単位になる。依存は、同じ量の制約を持つほかの区間（固定の文書の区間を含む）。
+- `guard`: 条件の文型の式（`` `式` のとき ``）。依存は、式の名前が参照で解いた宣言の区間。
+- `state`: 矢印にガード（`[式]`）を持つ状態遷移図。依存は、ガードの名前が参照で解いた宣言の区間。
+
+ID を持たない節のガード付きの図、名前を解けない式、制約か条件か決まらない式、区間か依存に静的な指摘（`ST-DT-`・`ST-STATE-`・`ST-ENUM-SET-MISMATCH-`）が残る単位は、送らずに理由を付けて開示する（`unsent`。facts の `unverified` と report.md の「形式検証」の節）。
+
+`W/fm/facts.json`（`formal-import` と、送る単位が 0 のときの `formal-request` が書く）:
+
+```text
+{ schema: "prd-spec.formal-facts/1",
+  requests: [{ rid, stage, phase, outcome: "result"|"rejected"|"provisional"|"no_result", reason, run_dir, request_digest, result_digest,
+               status, stop_reasons, coverage_complete, decomposition_adopted, counts, cex_docs }],
+  units: [{ rid, doc, item_id, kind, unit_digest, deps, retry,
+            goals: [{ goal_id, blocking, verdict: "検証済み"|"反例"|"重なり"|"未検証", detection, reason, witness, location: { doc, item_id, line }|null,
+                      assurance, property_ids, cex_ids }] }],     // 単位ごとに最新の依頼の 1 要素
+  unverified: [{ rid, item, reason }] }                          // formal-method の unverified[]・目標に結び付かない性質・送らなかった単位
+```
+
+- `反例` は、原因が「対象が性質を満たさない」反例の目標で、blocking の目標だけがなる。doc は単位の digest が今の版と同じ間だけ、`ST-FORMAL-CEX-<goal_id>` を blocking の指摘として出す（`location` は反例が帰属する文書と項目と行で、指摘はその文書に、その行を quote にして出す）。
+- `重なり` は、blocking でない目標（散文の条件どうしの重なり）の反例。矛盾かどうかは意味の判断なので、指摘にしない。
+- `検証済み` の `detection` が `検出能力未確認` なら、変異で検出能力を確かめていない。
+- `未検証` の `reason` は、結果が無い（outcome）、目標に対応する性質が無い、反例の原因が対象の欠陥でない、formal-method の問い（`missing_decision`）などである。未検証を検証済みと述べない。
+
+役ごとの扱い:
+
+- writer: 形式検証の差し戻し（label `writer:<unit>:formal-<回>`）では、doc の `ST-FORMAL-CEX-` の指摘だけを直す。ほかの指摘には当てない。
+- 監査役: `検証済み`（`detection` が `検出能力未確認` のものを除く）と `反例`（`ST-FORMAL-CEX-` として writer に返してある）は、意味で判定し直さない。`検出能力未確認`・`重なり`・`未検証` は、ふだんどおり判定する。formal-method の問いがあれば、決定が要る指摘（route `decision`）にしてよい。
 
 ## 監査役の共通節
 
@@ -901,6 +940,7 @@ writer reviewer の指摘を確かめて退けるものは、自分の指摘の�
 | `ST-ENUM-SET-MISMATCH-` | 「> 条件の値: 名前 = <ID>」の参照が解けない、参照される名前を別の値の集合で書き直している、または同じ名前の参照先どうしの値の集合が違う（同 §2.9） |
 | `ST-STATE-` | 状態 × イベント表の欠け・非決定・図との食い違い・到達不能・出口なし・終端不能トラップ・複数初期状態・軸の外の値（書式は `references/document-structure.md` §6） |
 | `ST-DT-` | 判定表の組み合わせの欠け・重なり・宣言外の値（書式は同 §2.8） |
+| `ST-FORMAL-CEX-` | formal-method が blocking の目標に反例を見つけた（`W/fm/facts.json` の verdict `反例`。「## 形式検証の事実」）。既存の指摘にしない |
 | `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典（case の出典を含む）、判断の判定表の欠け・重なり・宣言外の値（`ST-FLOW-DT-`）と表の欠落・枝との食い違い、全枝が同じ行き先で下流が値を使わない判断（`ST-FLOW-SAME-NEXT-`）、経緯の印（`ST-FLOW-HISTORY-`）、項目が当たっていない要素、実在しない要素への当て。裁定で閉じた未決だけを出典に持つ要素は指摘ではなく stdout の `open_only` に出し、script が settle で直させる |
 
 宣言とつながる指摘（`ST-ROLE-INPUT-COVERAGE-`・`ST-ENUM-SET-MISMATCH-`）は `related` に宣言の区間の key を持ち、使う区間と `related` のどれも変わっておらず消えてもいなければ既存の指摘になる。`ST-ROLE-INPUT-COVERAGE-` は、入口（`checks/entry.json` の `§roles`）でその役と印の文に現れる役を宣言していた区間も変わっておらず消えてもいないときだけ、既存の指摘になる。

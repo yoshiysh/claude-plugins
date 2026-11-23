@@ -1,0 +1,236 @@
+{
+ "properties": [
+  {
+   "id": "P3",
+   "statement": "P3 の性質",
+   "sources": [
+    {
+     "kind": "location",
+     "id": null,
+     "source": {
+      "target_id": "prd-spec",
+      "file": "@file:SP-AUTH-012",
+      "span": "@span:SP-AUTH-012"
+     }
+    }
+   ],
+   "formalizable": true,
+   "nonformal_reason": null,
+   "verdict": [
+    "反例"
+   ],
+   "assurance": null,
+   "detection": {
+    "status": "検出を確認",
+    "mutations": [],
+    "reason": "変異を検出した"
+   },
+   "method": null,
+   "check_ids": [
+    "C3"
+   ],
+   "confirmation_ids": [],
+   "evidence_refs": [],
+   "reason": "P3 の判定の理由",
+   "depends_on_questions": []
+  },
+  {
+   "id": "P4",
+   "statement": "P4 の性質",
+   "sources": [
+    {
+     "kind": "location",
+     "id": null,
+     "source": {
+      "target_id": "prd-spec",
+      "file": "@file:SP-AUTH-013",
+      "span": "@span:SP-AUTH-013"
+     }
+    }
+   ],
+   "formalizable": true,
+   "nonformal_reason": null,
+   "verdict": [
+    "反例"
+   ],
+   "assurance": null,
+   "detection": {
+    "status": "検出を確認",
+    "mutations": [],
+    "reason": "変異を検出した"
+   },
+   "method": null,
+   "check_ids": [
+    "C4"
+   ],
+   "confirmation_ids": [],
+   "evidence_refs": [],
+   "reason": "P4 の判定の理由",
+   "depends_on_questions": []
+  }
+ ],
+ "checks": [
+  {
+   "id": "C3",
+   "kind": "property",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 C3.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "反例",
+   "end": {
+    "started": true,
+    "tool_result": "反する",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が sat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  },
+  {
+   "id": "C4",
+   "kind": "property",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 C4.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "反例",
+   "end": {
+    "started": true,
+    "tool_result": "反する",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が sat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  }
+ ],
+ "counterexamples": [
+  {
+   "id": "X3",
+   "property_id": "P3",
+   "sources": [
+    {
+     "kind": "location",
+     "target_id": "prd-spec",
+     "file": "@file:SP-AUTH-012",
+     "span": "@span:SP-AUTH-012"
+    }
+   ],
+   "check_id": "C3",
+   "input_and_trace": "入力 3 の値と経路",
+   "violated_condition": "違反した条件 3",
+   "replay": {
+    "confirmation_id": "confirm-replay-3",
+    "steps_ref": "checks/C3/steps.json"
+   }
+  },
+  {
+   "id": "X4",
+   "property_id": "P4",
+   "sources": [
+    {
+     "kind": "location",
+     "target_id": "prd-spec",
+     "file": "@file:SP-AUTH-013",
+     "span": "@span:SP-AUTH-013"
+    }
+   ],
+   "check_id": "C4",
+   "input_and_trace": "入力 4 の値と経路",
+   "violated_condition": "違反した条件 4",
+   "replay": {
+    "confirmation_id": "confirm-replay-4",
+    "steps_ref": "checks/C4/steps.json"
+   }
+  }
+ ],
+ "causes": [
+  {
+   "subject": {
+    "kind": "counterexample",
+    "id": "X3"
+   },
+   "cause": "対象が性質を満たさない",
+   "grounds": "原因の根拠 3",
+   "classified_by": "task-classify-1"
+  },
+  {
+   "subject": {
+    "kind": "counterexample",
+    "id": "X4"
+   },
+   "cause": "対象が性質を満たさない",
+   "grounds": "原因の根拠 4",
+   "classified_by": "task-classify-1"
+  }
+ ],
+ "confirmations": {
+  "deterministic": [
+   {
+    "id": "confirm-replay-3",
+    "kind": "replay",
+    "property_ids": [
+     "P3"
+    ],
+    "model_property_id": null,
+    "plan_id": null,
+    "item": "反例 X3 の再生",
+    "result": "成り立つ",
+    "checker": "cli",
+    "materials": [],
+    "end": {
+     "started": true,
+     "tool_result": "反する",
+     "abnormal_exit": false,
+     "unreadable_output": false,
+     "stopped_by": null,
+     "time_limit_hit": null
+    },
+    "reason": "再生で同じ違反"
+   },
+   {
+    "id": "confirm-replay-4",
+    "kind": "replay",
+    "property_ids": [
+     "P4"
+    ],
+    "model_property_id": null,
+    "plan_id": null,
+    "item": "反例 X4 の再生",
+    "result": "成り立つ",
+    "checker": "cli",
+    "materials": [],
+    "end": {
+     "started": true,
+     "tool_result": "反する",
+     "abnormal_exit": false,
+     "unreadable_output": false,
+     "stopped_by": null,
+     "time_limit_hit": null
+    },
+    "reason": "再生で同じ違反"
+   }
+  ],
+  "meaning": [],
+  "judgments": []
+ }
+}

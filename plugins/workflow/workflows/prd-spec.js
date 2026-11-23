@@ -61,6 +61,10 @@ const MAX_GATES = 3 + MAX_AUDIT_PASSES
 // NEXT_ARGS_MAX_CHARS: 司令塔が next_args を打ち直せる字数の上限（tests の NextArgsBudget と同じ値。tests が照合する）。収まるのはこれ未満で、
 // 延長のパスは、そのゲートの next_args がこれ以上なら入らない（段 8・延長の段 6・延長の 3a'）。超える next_args を返すと、回答を当てて再開できない。
 const NEXT_ARGS_MAX_CHARS = 8000
+// FORMAL_LIMIT: 段の種類（5・8）ごとに、formal-method への依頼 a（と、反例の差し戻しの後の依頼 b）の組を何回行うかの上限。数えた値は state.formal_by。
+// new・expand は formal-method を最大 4 回、existing（段 5 で送る単位が 0）は最大 2 回呼ぶ（利用者の決定）。全体で数えると、書き直しの経路で
+// 最後の改稿の後の段 8 が上限で消える。延長のパスの 2 回目の段 8 は上限で依頼せず、そこで変わった単位は report.md が未検証として載せる。
+const FORMAL_LIMIT = { 5: 1, 8: 1 }
 
 const ENTRIES = ['new', 'existing', 'expand']
 const STAGES = ['1', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
@@ -389,12 +393,28 @@ function jsonChars(v) {
   if (typeof v === 'string') return jsonStrChars(v)
   return v === null || (typeof v === 'number' && !Number.isFinite(v)) ? 4 : String(v).length
 }
+const FORMAL_OUTCOMES = ['result', 'rejected', 'provisional', 'no_result']
+// formalEntryNotice: 入口の取り込み（formalEntry）が notices に足す 1 行。W の絶対パスも件数も入れず（件数は fm/facts.json と report.md にある）、
+// outcome を最も長い語の幅に詰めて、rid が同じ桁なら長さが変わらない形にする（next_args の字数を見積もれるようにする）。
+const FORMAL_OUTCOME_WIDTH = Math.max(...FORMAL_OUTCOMES.map((o) => o.length))
+const formalEntryNotice = (rid, outcome) => `形式検証 ${rid} の取り込み: ${String(outcome).padEnd(FORMAL_OUTCOME_WIDTH)}`
+// FORMAL_OFF_NOTICE: args.formal が false の run が notices に足す 1 行（noteFormalOff）。
+const FORMAL_OFF_NOTICE = '形式検証を行わない run（args.formal が false）。report.md の「形式検証」の節に開示する'
+// FORMAL_WORST: next_args の state に載る形式検証の欄の最悪の形（取り込む前の rid と fnv の 8 字、段 5・8 の両方で依頼した回数）と、notices に
+// 足しうる行の最悪の形（依頼の数の上限 f1a・f1b・f2a・f2b の取り込みの行と、FORMAL_OFF_NOTICE の 1 行の長い方）。worstNextArgsChars が足す。
+// この足し分で、tests の NextArgsBudget.ITEMS_N は 32 から 30 に下がった（実測: 31 項目の段 8（existing・当て損ね 7 件）の最悪の形が 8059 字で
+// 上限を超え、30 項目で 7932 字に収まる）。測った値で決まる境界なので、欄か行の形を変えたら測り直す。
+const FORMAL_WORST = { formal: { rid: 'f9b', fnv: 'x'.repeat(8) }, formal_by: { 5: 1, 8: 1 } }
+const FORMAL_WORST_NOTICES = (() => {
+  const entry = ['f1a', 'f1b', 'f2a', 'f2b'].map((rid) => formalEntryNotice(rid, 'result'))
+  return jsonChars(entry) >= jsonChars([FORMAL_OFF_NOTICE]) ? entry : [FORMAL_OFF_NOTICE]
+})()
 // worstNextArgsChars: next_args を、その段（from）の再実行の最悪の形にした字数（tests の NextArgsBudget._chars と同じ測り方。tests が照合する）。
-// 再実行を重ねると tx の try と restore が伸び、flow を書く段（段 8 のほか）では tx.flow（flow の digest）が付く。
+// 再実行を重ねると tx の try と restore が伸び、flow を書く段（段 8 のほか）では tx.flow（flow の digest）が付く。形式検証の欄は FORMAL_WORST の形で足す。
 function worstNextArgsChars(a) {
   const tx = (a.state && a.state.tx) || {}
   const worst = { ...tx, stage: a.from, try: 9, restore: `t${tx.seq}r8`, ...(a.from === '8' ? {} : { flow: 'f'.repeat(64) }) }
-  return jsonChars({ ...a, state: { ...a.state, tx: worst } })
+  return jsonChars({ ...a, state: { ...a.state, tx: worst, ...FORMAL_WORST, notices: [...((a.state && a.state.notices) || []), ...FORMAL_WORST_NOTICES] } })
 }
 
 function canonicalText(v) {
@@ -412,6 +432,7 @@ function fnv(text) {
 // ENV_ARGS: 司令塔が next_args で変えてよい欄（run のデータではない環境。どれを変えてよいかは references/workflow-io.md §3）。
 // nextArgsHash はこれと state_hash の外をすべて覆う。state だけを覆うと workspace・existing_docs・from の写し間違いが通る。
 // 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（この script がそう読むので、打ち直しで [] を落としても意味は変わらない）。
+// formal（args.formal）は最初の呼び出しで決め、途中で変えない（SKILL.md「## 中継」）。ここに入れず state_hash に数えるので、変えた next_args は止まる。
 const ENV_ARGS = ['skillDir', 'role_opts']
 // RESUME_ARGS: resumeFromRunId で呼び直すときに元の run の args へ足す欄。next_args には載らないので hash の外に置く（入れると、next_args から
 // 始めた run の resume が state_hash で止まる）。
@@ -666,7 +687,8 @@ const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
-const SKIP = { unchanged: 'unchanged', low_only: 'low_only' }
+// no_formal_target: 段 5・8 の formal-request の送る単位が 0（step は formal-method:<rid>）。formal_unavailable: args.formal が false（step は formal-method）。
+const SKIP = { unchanged: 'unchanged', low_only: 'low_only', no_formal_target: 'no_formal_target', formal_unavailable: 'formal_unavailable' }
 const SKIP_FACTS = Object.values(SKIP)
 const skipped = []
 
@@ -734,12 +756,14 @@ const ABOUT = {
 }
 const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, about: ABOUT }, required: ['id', 'about'] } }
 
-const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR, answers_check: STR }, required: ['flow_check'] }
+const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR, answers_check: STR, formal_status: STR }, required: ['flow_check'] }
+// FORMAL_CHECK_SCHEMA: 段 5・8 の本体の最初に flow-check が実行する doc_check formal-request の stdout。
+const FORMAL_CHECK_SCHEMA = { type: 'object', properties: { formal_check: STR }, required: ['formal_check'] }
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const RECOPY_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR, quotes: STR },
+  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR, quotes: STR, formal_check: STR, formal_status: STR },
 }
 
 // PLANNER_SCHEMA: 流れと裁定を同じ起動で行う planner の返り値（流れの stdout と §resolver の裁定の欄。routes は持たない）。flow_check・conflicts_check は
@@ -882,7 +906,7 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { FLOW_CHECK_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, RECOPY_SCHEMA, PLANNER_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { FLOW_CHECK_SCHEMA, FORMAL_CHECK_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, RECOPY_SCHEMA, PLANNER_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
@@ -913,7 +937,8 @@ if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canoni
   throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256）が existing_docs と合いません。返った next_args を変えずに渡すか、段 1 から始めてください`)
 }
 
-const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
+if (input.formal !== undefined && input.formal !== false) throw new Error(`args.formal は false だけを受け付けます（formal-method を使わないとき。使うときは欄を付けない）: ${canonicalText(input.formal)}`)
+const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {}, ...(input.formal === false ? { formal: false } : {}) }
 const argsFrom = (from, st) => {
   const out = { ...BASE_ARGS, from, state: JSON.parse(JSON.stringify(st)) }
   return { ...out, state_hash: nextArgsHash(out) }
@@ -966,6 +991,8 @@ function finish(status, extra) {
     passes: state.pass || 0,
     item_routes: state.item_routes || {},
     skipped,
+    // formal_off: formal: false の run が report に渡す値（司令塔が doc_check report --formal-off に渡す。SKILL.md「## 保存と事後報告」）。
+    ...(input.formal === false ? { formal_off: true } : {}),
     ...extra,
   }
   const retry = Boolean(out.next_args) && (failedCalls > 0 || out.stop_reason === 'budget')
@@ -2732,7 +2759,7 @@ function waitingNote(role) {
 function writerPrompt(unit, mode, extra) {
   const deps = state.units.filter((u) => (unit.depends_on || []).includes(u.id)).flatMap((u) => u.docs)
   return [
-    header('writer', mode === 'draft' ? '4（初稿）' : '7（改稿）', writerLabel(unit, mode)),
+    header('writer', mode === 'draft' ? '4（初稿）' : mode.startsWith('formal-') ? `${running}（形式検証の反例の差し戻し）` : '7（改稿）', writerLabel(unit, mode)),
     groundsBlock(),
     `最初のコマンド（Write・Edit・put より前）: \`${backupCmd()}\`。stdout を加工せずに backup_check に入れる。控えを取る前に書いた本文は、この段の再実行で戻せない。`,
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
@@ -2779,20 +2806,21 @@ function docsMoved(stage, o) {
 }
 // noteBackup: writer の返した backup の stdout（自己申告）を照らす。違えば integrity に 1 行足して段は進める（控えが要るのはこの段を同じ段から
 // 再実行するときだけで、その正否は再実行の入口で別の体が写す restore の stdout で決まる）。
-function noteBackup(stage, label, text) {
+// moved: 照らす先（既定は段の入口の本文。形式検証の差し戻しでは formal-status の tree_digest_request）。
+function noteBackup(stage, label, text, moved = docsMoved) {
   const keys = uniq(auditDocs()).sort()
   const bc = parseStdout(text)
   const shaped = bc && bc.backup === true && bc.token === txToken() && canonicalText(bc.docs) === canonicalText(keys) && docsShaped(bc, keys)
-  const m = shaped && docsMoved(stage, bc)
+  const m = shaped && moved(stage, bc)
   // 控えの版は、その文書に最初に控えを取った writer の時点で決まる（並列なら別の writer のことがある）ので、誰が書いたかは断定しない。
   const d = !shaped ? `token ${txToken()} で文書 ${list(keys)} の控えを取った stdout ではない` : m ? `この token の控えの版が${m.text}` : null
   if (d) noteIntegrity(`${label} の doc_check backup（token ${txToken()}）: ${d}（この段が止まって同じ段から再実行すると、入口の照合で止まりうる）`)
 }
 // writerBackups: writer の backup_check の写しが checksum に合わなければ取り直し（recopy）、照らす。
-async function writerBackups(stage, labels, results, phaseTitle) {
+async function writerBackups(stage, labels, results, phaseTitle, moved) {
   for (let i = 0; i < results.length; i++) {
     results[i] = await recopy(labels[i], results[i], { backup_check: backupCmd() }, phaseTitle)
-    noteBackup(stage, labels[i], results[i].backup_check)
+    noteBackup(stage, labels[i], results[i].backup_check, moved)
   }
 }
 
@@ -2862,6 +2890,7 @@ function auditorPrompt(p, round, opt) {
       ? `同じ回の writer reviewer の指摘: ${list(opt.reviewed.ids)}（${opt.reviewed.files.map((f) => `${W}/findings/${f}.json`).join('、')}）。確かめて、退けるものを rejected に返す（agents/whole-reviewer.md「writer reviewer の指摘を確かめる」）。`
       : '',
     `指摘は ${W}/findings/${findingsName(p, round)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
+    formalAuditNote(),
   ]
   if (opt.designated) lines.push(`あなたは指名された監査役である。${opt.designated}`)
   return lines.filter(Boolean).join('\n\n')
@@ -2942,12 +2971,138 @@ function auditFindings(packs, results, whole, round, unquoted = []) {
   return [...fromWriter.filter((f) => !out.has(f.id)), ...((whole && whole.findings) || [])]
 }
 
+// ---------------------------------------------------------------- 形式検証（formal-method）への依頼と取り込み
+// 段 5・8 の本体の最初（writer の後・監査役の前）で、doc_check formal-request が送る単位を静的に決め、送る単位があれば needs_formal で返る。
+// 司令塔が formal-method を回して formal-import で結果を W に置き、next_args で呼び直す（resume は使わない。入口の flow-check が取り込みを照らす）。
+// 取り込んだ結果に反例があれば、監査役の前に、その文書の writer へ 1 回だけ差し戻し（formalRework）、変わった単位だけをもう 1 回依頼する（依頼 b）。
+// 依頼 b の後に残る反例は、doc_check の ST-FORMAL-CEX- として blocking のまま監査と輪の止め方に進む。正本は references/workflow-io.md §4 の段 5・8。
+const formalRid = (round, phase) => `f${round}${phase}`
+const formalRound = (rid) => Number(String(rid).slice(1, -1))
+const formalPhase = (rid) => String(rid).slice(-1)
+// entryFormal: 入口の flow-check が返した formal-status の stdout を照らした値（state に載せない。entryAnswers と同じ扱い）。
+let entryFormal = null
+let formalOffNoted = false
+const FORMAL_COUNTS = ['verified', 'counterexample', 'overlap', 'unverified', 'undetected']
+
+// formalCheckOf: formal-request の stdout。rid が違うか、送る単位があるのに依頼の digest・fnv・cwd が無ければ受け取らない。
+function formalCheckOf(text, rid) {
+  const o = parseStdout(text)
+  if (!o || o.rid !== rid || !Number.isInteger(o.goals) || !Number.isInteger(o.units) || typeof o.tree_digest !== 'string') return null
+  if (o.goals > 0 && !(typeof o.request_fnv === 'string' && /^[0-9a-f]{8}$/.test(o.request_fnv) && typeof o.request_digest === 'string' && o.request_digest && typeof o.cwd === 'string' && o.cwd)) return null
+  return o
+}
+// formalStatusOf: formal-status の stdout。取り込んだ後（outcome が null でない）は counts を持つ。
+function formalStatusOf(text) {
+  const o = parseStdout(text)
+  if (!o || typeof o.rid !== 'string' || typeof o.fnv !== 'string' || typeof o.units_digest_ok !== 'boolean' || !Array.isArray(o.cex_docs)) return null
+  if (typeof o.tree_digest_request !== 'string' || typeof o.tree_digest_now !== 'string') return null
+  if (o.outcome !== null && (!FORMAL_OUTCOMES.includes(o.outcome) || !isMap(o.counts) || !FORMAL_COUNTS.every((k) => Number.isInteger(o.counts[k])))) return null
+  return o
+}
+// formalEntryRid: next_args で段 5・8 から始めた run の入口で照らす依頼。取り込む前の依頼と、取り込んだ後でも同じ回の依頼（差し戻しの後に止まった
+// 再実行は、入口で照らし直して差し戻しからやり直す）。
+function formalEntryRid(from) {
+  const f = state.formal
+  if (input.formal === false || !['5', '8'].includes(from) || !f || !f.rid) return null
+  const round = state.audit ? state.audit.n + 1 : 1
+  return !f.ok || formalRound(f.rid) === round ? f.rid : null
+}
+
+function noteFormalOff() {
+  if (formalOffNoted) return
+  formalOffNoted = true
+  skipped.push({ step: 'formal-method', fact: SKIP.formal_unavailable, ids: [] })
+  if (!(state.notices || []).includes(FORMAL_OFF_NOTICE)) state.notices = [...(state.notices || []), FORMAL_OFF_NOTICE]
+}
+
+// formalGate: 段 5・8 の本体の最初。返り値は段の返り値（needs_formal か blocked）か null（監査役へ進む）。
+// 持ち越した問いのまま書いた段 5（state.deferred。最初のゲートの後に書き直す初稿）は依頼せず、上限にも数えない。
+async function formalGate(stage, round) {
+  if (input.formal === false) {
+    noteFormalOff()
+    return null
+  }
+  if (stage === '5' && state.deferred) return null
+  const f = state.formal
+  const phase = f && f.ok && formalRound(f.rid) === round ? formalPhase(f.rid) : null
+  if (phase === 'b') return null
+  if (phase === 'a') {
+    // 依頼 a を取り込んだ直後（入口で ok にした）。反例が無ければ監査役へ。差し戻しの後の依頼 b は上限に数えない。
+    if (!entryFormal || entryFormal.rid !== f.rid || !entryFormal.counts.counterexample) return null
+    await formalRework(stage, round, entryFormal)
+    return formalRequest(stage, round, 'b')
+  }
+  if (((state.formal_by || {})[stage] || 0) >= FORMAL_LIMIT[stage]) return null
+  return formalRequest(stage, round, 'a')
+}
+
+// formalRequest: flow-check に doc_check formal-request を実行させる。送る単位が無ければ戻らない（skipped に no_formal_target）。
+// 送る単位を決めるのは doc_check（差し戻しの writer が何も変えなかったかも、依頼 b の送る単位の数で決まる。writer の申告では決めない）。
+async function formalRequest(stage, round, phase) {
+  const rid = formalRid(round, phase)
+  const label = `flow-check:${stage}-formal-${rid}`
+  const cmd = cli('formal-request', `--rid ${rid} --stage ${stage} --phase ${phase}`)
+  const r = await once(label, 'flowCheck', [header('flowCheck', stage, label), `実行する: \`${cmd}\`。stdout を加工せずに formal_check に入れて返す。`].join('\n\n'), FORMAL_CHECK_SCHEMA, PHASE_OF[stage], { formal_check: cmd })
+  const fr = formalCheckOf(r.formal_check, rid)
+  if (!fr) return blocked(`flow-check（段 ${stage}）が ${rid} の doc_check formal-request の stdout を返しませんでした`, stage)
+  if (!fr.goals) {
+    skipped.push({ step: `formal-method:${rid}`, fact: SKIP.no_formal_target, ids: [] })
+    state.formal = { rid, ok: 1 }
+    return null
+  }
+  state.formal = { rid, fnv: fr.request_fnv }
+  if (phase === 'a') state.formal_by = { ...(state.formal_by || {}), [stage]: ((state.formal_by || {})[stage] || 0) + 1 }
+  return finish('needs_formal', {
+    formal_request: { rid, request_path: `${W}/fm/${rid}/request.json`, request_digest: fr.request_digest, cwd: fr.cwd, units: fr.units, goals: fr.goals },
+    next_args: nextArgs(stage),
+    resumable: false,
+  })
+}
+
+// formalRework: 依頼 a の反例のある文書（cex_docs）を持つ単位の writer を、段 7 と同じ改稿のプロンプトで 1 回だけ起動する（label writer:<unit>:formal-<回>）。
+// 控えの照らす先は依頼の木（段 5 には state.audit が無いことがある）。段 8 では申告を state.revised.changes に足す（足さないと段 8 の diff で
+// 申告に無い変更に数えられる）。
+async function formalRework(stage, round, st) {
+  const cex = new Set(st.cex_docs)
+  const targets = state.units.filter((u) => u.docs.some((k) => cex.has(k)))
+  if (!targets.length) return
+  const mode = `formal-${round}`
+  const labelOf = (u) => writerLabel(u, mode)
+  const extra = [
+    `形式検証の反例の差し戻し（${st.rid}）: doc_check の \`ST-FORMAL-CEX-\` の指摘を直す（事実は ${W}/fm/facts.json。指摘は内部ループの doc の findings に出る）。他の指摘には当てない（契約「## 形式検証の事実」）。`,
+    '直した項目を changed_items に入れる。',
+  ].join('\n\n')
+  const results = await runEach(targets, (u) => call(writerPrompt(u, mode, extra), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: PHASE_OF[stage], label: labelOf(u) }))
+  const missing = targets.filter((_, i) => !results[i]).map(labelOf)
+  if (missing.length) throw notRun(missing.join(', '))
+  const moved = (_, o) => (o.tree_digest === st.tree_digest_request ? null : { text: `木 ${o.tree_digest} が ${st.rid} の依頼の木（${st.tree_digest_request}）と違う`, bornOnly: false })
+  await writerBackups(stage, targets.map(labelOf), results, PHASE_OF[stage], moved)
+  targets.forEach((u, i) => {
+    const r = results[i]
+    absorbWriter(r)
+    if (stage !== '8' || !(r.changed_items && r.changed_items.length)) return
+    const changes = { ...state.revised.changes }
+    for (const k of u.docs) changes[k] = uniq([...(changes[k] || []), ...r.changed_items])
+    state.revised = { ...state.revised, changes, docs: uniq([...(state.revised.docs || []), ...u.docs]) }
+  })
+}
+
+// formalAuditNote: 形式検証の事実を監査役に渡す 1 行（依頼した run だけ）。判定し直さないものと、ふだんどおり判定するものを分ける。
+function formalAuditNote() {
+  if (!state.formal_by || !Object.keys(state.formal_by).length) return ''
+  return `形式検証の事実: ${W}/fm/facts.json（どの判定を意味で判定し直さないかは契約「## 形式検証の事実」の監査役の項）。`
+}
+
 async function stage5() {
-  state.pass = 1
   // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路を引き継がない（項目は書き直しで別物になる）。
   // 回の番号は前の監査の続きにする。同じ回の番号で監査すると指摘の ID が前の監査の指摘と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことに
   // なって（unruled）、新しい指摘が段 6 に届かない。
   const round = state.audit ? state.audit.n + 1 : 1
+  // 形式検証は writer の後・監査役の前（formalGate）。needs_formal の next_args の state を、段の入口の state と形式検証の欄だけの違いにするため、
+  // state を書き換える行（pass・item_routes・reframed）より前に置く。
+  const formal = await formalGate('5', round)
+  if (formal) return formal
+  state.pass = 1
   const base = `audited-${round}`
   delete state.item_routes
   // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
@@ -3166,6 +3321,8 @@ async function stage7() {
 async function stage8() {
   const n = state.audit.n
   const round = n + 1
+  const formal = await formalGate('8', round)
+  if (formal) return formal
   const { changes } = state.revised
   const packs = reviewPacks(auditDocs())
   const whole = wholePlan()
@@ -3364,6 +3521,27 @@ function restored(from, x) {
 // 止まった run が段を出たときの W のまま（answers だけが増える）。違うのは所有表の外の書き込みだけで、flow.json の版が違えば integrity に 1 行足して
 // W の版を使い、今の版に合否の無い要素と resolution を段の本体と同じ verifyLeft で検証させる。それでも不合格の要素が残れば、直す役が
 // 段の本体に来るとは限らないので止める。
+// formalEntry: 入口の formal-status を state.formal と照らす。版の食い違い（rid・fnv・依頼のファイル・文書の木）は同じ next_args で直らないので
+// next_args を付けずに止め、取り込みの前（outcome が null）だけ同じ段の next_args を付ける。通れば state.formal を取り込んだ印にする。
+function formalEntry(from, text) {
+  const f = state.formal
+  const st = formalStatusOf(text)
+  if (!st) return blocked(`flow-check（段 ${from} の入口）が ${f.rid} の doc_check formal-status の stdout を返しませんでした`, from)
+  if (st.rid !== f.rid || (f.fnv !== undefined && st.fnv !== f.fnv) || !st.units_digest_ok) {
+    return blocked(`段 ${from} の入口: 形式検証の依頼 ${f.rid} が next_args の版と違います（formal-status の rid ${st.rid}・fnv ${st.fnv}・units_digest_ok ${st.units_digest_ok}）。依頼を作り直すため、返った next_args を変えずに渡すか、S0 からやり直してください`, null)
+  }
+  if (st.outcome === null) return blocked(`段 ${from} の入口: 形式検証の依頼 ${f.rid} の結果が W にありません。doc_check formal-import を実行してから、同じ next_args で呼び直す（SKILL.md「## 中継」）`, from)
+  if (st.tree_digest_now !== st.tree_digest_request) {
+    return blocked(`段 ${from} の入口: 文書の木（${st.tree_digest_now}）が、形式検証の依頼 ${f.rid} を作ったときの木（${st.tree_digest_request}）と違います（依頼の後に所有表の外で文書が書き換わった）。S0 からやり直してください`, null)
+  }
+  entryFormal = st
+  state.formal = { rid: f.rid, ok: 1 }
+  // 段に入った時点の state にも入れる（この段の再実行は、同じ rid を入口で照らし直して差し戻しからやり直す）。
+  entryState.formal = state.formal
+  state.notices = [...(state.notices || []), formalEntryNotice(f.rid, st.outcome)]
+  return null
+}
+
 async function enterFromDisk(from) {
   const label = `flow-check:${from}-entry`
   const restoring = restorePending ? RESUME_TX.restore : null
@@ -3371,10 +3549,16 @@ async function enterFromDisk(from) {
   // 回答を当てる段（3a・3a'）の入口は、flow の後に回答のファイルも確かめる（answersUnchecked がこの stdout を使い、単独の answers を起動しない）。
   const answering = ['3a', "3a'"].includes(from) && pendingQuestions(state).length > 0
   const answersCmd = answering ? cli('answers', `--file ${gateAnswers(state.gate)} --ids ${pendingQuestions(state).join(',')}`) : null
+  // 段 5・8 の入口は、形式検証の依頼の取り込みも照らす（formalEntryRid。照らした値は entryFormal）。
+  const formalRidAt = formalEntryRid(from)
+  const statusCmd = formalRidAt ? cli('formal-status', `--rid ${formalRidAt}`) : null
   const flowLine = answering
     ? `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れる。続けて実行する: \`${answersCmd}\`。stdout を加工せずに answers_check に入れる。すべて返す。`
-    : `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), flowLine].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from], answering ? { answers_check: answersCmd } : undefined)
+    : statusCmd
+      ? `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れる。続けて実行する: \`${statusCmd}\`。stdout を加工せずに formal_status に入れる。すべて返す。`
+      : `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`
+  const entryCmds = { ...(answering ? { answers_check: answersCmd } : {}), ...(statusCmd ? { formal_status: statusCmd } : {}) }
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), flowLine].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from], Object.keys(entryCmds).length ? entryCmds : undefined)
   if (restoring) {
     const re = restored(from, x)
     if (re) return re
@@ -3386,6 +3570,10 @@ async function enterFromDisk(from) {
     const m = docsMoved(from, rc)
     if (m && m.bornOnly) return blocked(`段 4 の入口: restore の後の文書が${m.text}。止まった run の writer が控えの前に新しい文書を書いたので、同じ段からでは消えない。段 1 の入口の reset が消すので段 1 からやり直す`, '1')
     if (m) return blocked(`段 ${from} の入口: restore の後の文書が${m.text}。止まった run の writer が控えの前に本文を書いたので、同じ段から再実行しても段の入口の本文に戻らない（reset は既存の文書の本文を残す）。S0 からやり直す（existing_docs の文書を doc_check place で置き直す）`, null)
+  }
+  if (statusCmd) {
+    const blockedBy = formalEntry(from, x.formal_status)
+    if (blockedBy) return blockedBy
   }
   if (answering) entryAnswers = { gate: state.gate, ids: uniq(pendingQuestions(state)), text: x.answers_check }
   const fc = x && flowCheckOf(x.flow_check, true)

@@ -441,7 +441,45 @@ const quotesOf = (prompt, stage, n) => {
   return { quotes: JSON.stringify({ findings: idsQ.length, files, ids: idsQ, unquoted, path: `checks/quotes-${stage}.json`, tree_digest: digest }) }
 }
 
+// 形式検証の接続（workflow-io.md と agent-contracts.md「## 形式検証の事実」）。doc_check formal-request・formal-status の stdout は、label ではなくプロンプトのコマンドで返す
+// （formal-request を実行させる呼び出しの label は設計が決めていない）。
+// formal_request_at: { <rid>: 目標の数 | { goals, units } }。無い rid は送る単位 0（goals: 0）。
+// formal_status_at: { <rid>: { outcome, counts, cex_docs, rid, fnv, units_digest_ok, tree_moved } }（rid・fnv は stdout の値の差し替え）。無い rid は outcome result・反例 0。
+// request の fnv と tree_digest は disk.formal に控え、formal-status の照合の既定値にする（world が無い run は同じ式で求め直す）。
+const formalFnv = (rid) => hash(`req-${rid}`)
+const formalRequestStdout = (rid) => {
+  const fr = at('formal_request_at', rid)
+  const goals = fr === undefined ? 0 : typeof fr === 'number' ? fr : fr.goals
+  const tree = treeDigestOf(disk.docs || {})
+  if (goals) disk.formal = { ...(disk.formal || {}), [rid]: { fnv: formalFnv(rid), tree } }
+  persist()
+  return JSON.stringify({ rid, goals, units: goals ? (typeof fr === 'object' && fr.units) || 1 : 0, unsent: [], tree_digest: tree,
+    ...(goals ? { request_digest: H(`rq-${rid}`), request_fnv: formalFnv(rid), cwd: '/tmp/prd-w.formal' } : {}) })
+}
+const formalStatusStdout = (rid) => {
+  const base = (disk.formal || {})[rid] || { fnv: formalFnv(rid), tree: treeDigestOf(disk.docs || {}) }
+  const st = at('formal_status_at', rid) || {}
+  const counts = { verified: 0, counterexample: 0, overlap: 0, unverified: 0, undetected: 0, ...(st.counts || {}) }
+  return JSON.stringify({ rid: st.rid ?? rid, fnv: st.fnv ?? base.fnv, units_digest_ok: st.units_digest_ok ?? true, outcome: st.outcome === undefined ? 'result' : st.outcome,
+    tree_digest_request: base.tree, tree_digest_now: st.tree_moved ? H('tree-moved') : base.tree, counts, cex_docs: st.cex_docs ?? (counts.counterexample ? ['requirements/x'] : []) })
+}
+const formalParts = (prompt) => {
+  const out = {}
+  const req = /doc_check\.mjs formal-request [^`\n]*/.exec(prompt)
+  const rid = (cmd) => (/--rid (\w+)/.exec(cmd) || [])[1]
+  if (req) out.formal_check = formalRequestStdout(rid(req[0]))
+  const status = /doc_check\.mjs formal-status [^`\n]*/.exec(prompt)
+  if (status) out.formal_status = formalStatusStdout(rid(status[0]))
+  return out
+}
+const KNOWN_ROLES = ['planner', 'resolver', 'flow-check', 'verifier', 'writer', 'writerReviewer', 'wholeReviewer']
 function respond(prompt, label) {
+  const extra = formalParts(prompt)
+  if (Object.keys(extra).length && !KNOWN_ROLES.includes(label.split(':')[0])) return extra
+  const out = respondCore(prompt, label)
+  return out && typeof out === 'object' ? { ...out, ...extra } : out
+}
+function respondCore(prompt, label) {
   const base = label
   const [role, stage, target] = base.split(':')
   curToken = (/^トークン: (\S+)$/m.exec(prompt) || [])[1] || null
@@ -540,6 +578,10 @@ function respond(prompt, label) {
     // writerDisk: 最初の writer が起動した時点の W の検証の状態（検証を通っていない要素が writer に届いていないかを見る）。
     if (!writerDisk) writerDisk = onDisk(false)
     const revise = stage.endsWith('revise') || target === 'revise'
+    // formal_changed: { <label>: [項目 ID] }。形式検証の反例の差し戻し（writer:<unit>:formal-<round>）の申告（既定は PR-X-001）。
+    // formal_noop: [label]。差し戻しの writer が本文を変えない（申告も空）。
+    const formalRw = /^formal-\d+$/.test(target || '')
+    const noop = (spec.formal_noop || []).includes(label)
     const unit = stage
     const docs = (spec.units || [{ id: 'U-1', docs: ['requirements/x'] }]).find((u) => u.id === unit).docs
     // プロンプトが backup を挙げれば、最初のコマンドとして段の token で控えを取ってから書く（backup_after_edit: [label] は書いてから控える）。
@@ -548,7 +590,7 @@ function respond(prompt, label) {
     if (backup && backup[2] !== curToken) throw new Error(`${label}: backup の token ${backup[2]} がプロンプトのトークン ${curToken} と違います`)
     const late = (spec.backup_after_edit || []).includes(label)
     if (backup && !late) touch('docs')
-    const wrote = uniq([...docs, ...((spec.writes_outside || {})[label] || [])])
+    const wrote = noop ? [] : uniq([...docs, ...((spec.writes_outside || {})[label] || [])])
     disk.docs = { ...(disk.docs || {}), ...Object.fromEntries(wrote.map((k) => [k, ((disk.docs || {})[k] ?? 0) + 1])) }
     if (backup && late) touch('docs')
     persist()
@@ -560,7 +602,7 @@ function respond(prompt, label) {
       unit,
       docs: docs.map((key) => ({ key, digest: H(`w-${key}`), doc_check_findings: 0, doc_check_blocking: 0 })),
       // writer_changed_seq: パスごとの改稿の申告（label はパスをまたいで同じなので、呼ばれた順に取る）。
-      changed_items: revise ? (spec.writer_changed_seq ? spec.writer_changed_seq[reviseN++] : ((spec.writer_changed_by_unit || {})[unit] || spec.writer_changed || ['PR-X-001'])) : [],
+      changed_items: formalRw ? (noop ? [] : (spec.formal_changed || {})[label] || ['PR-X-001']) : revise ? (spec.writer_changed_seq ? spec.writer_changed_seq[reviseN++] : ((spec.writer_changed_by_unit || {})[unit] || spec.writer_changed || ['PR-X-001'])) : [],
       open_tbd: spec.open_tbd || [],
       new_tbd: revise ? spec.new_tbd_revise || [] : spec.new_tbd || [],
       // unapplied_seq: パスごとの改稿で当て損ねた指摘（呼ばれた順に取る）。
@@ -687,7 +729,7 @@ const stubAgent = async (prompt, opts) => {
 }
 // STDOUT_KEYS: 返り値のうち doc_check の stdout を写す欄（designated の中も）。truth は最後に返した写す前の stdout で、取り直し（-recopy）は
 // 同じ W で同じコマンドを実行し直すので、それをそのまま返す（取り直しの間に W を書く役はいない）。
-const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'doc_check', 'audited', 'tree_digest', 'quotes']
+const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'doc_check', 'audited', 'tree_digest', 'quotes', 'formal_check', 'formal_status']
 const truth = {}
 const stampText = (text) => {
   const line = typeof text === 'string' && text.trim().startsWith('{') ? JSON.parse(text) : null
@@ -1472,13 +1514,14 @@ class Stages(unittest.TestCase):
             "units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}],
             "flow_digest": "f-framer",
         }
-        for frm, first in (("4", "writer:U-1:draft"), ("5", "writerReviewer:r1:all"), ("3", "verifier:3v")):
+        # 段 5 は入口の後に、送る目標の有無を doc_check formal-request に決めさせる flow-check を 1 体起動する（workflow-io.md と agent-contracts.md「## 形式検証の事実」）。
+        for frm, first in (("4", ["writer:U-1:draft"]), ("5", ["flow-check:5-formal-f1a", "writerReviewer:r1:all"]), ("3", ["verifier:3v"])):
             with self.subTest(frm=frm):
                 # 段 3 は plan の照合を v1 で行うので、planner:1 の plan の版と covers を state に要る（REQUIRES）。
                 st = {**state, "plan_sha256": "plan", "covers": {}} if frm == "3" else state
                 r = run({"args": args(**{"from": frm, "state": st})})
                 self.assertIsNone(r["error"])
-                self.assertEqual(r["labels"][:2], [f"flow-check:{frm}-entry", first])
+                self.assertEqual(r["labels"][:1 + len(first)], [f"flow-check:{frm}-entry", *first])
                 self.assertEqual(r["result"]["status"], "done")
 
     def test_打ち直して変わったnext_argsは止まる(self):
@@ -1523,7 +1566,8 @@ class Stages(unittest.TestCase):
         # 持ち越した指摘は r2 の後も blocking なので再発して decision に回り、延長の段 6 が問いを出さないので輪を出る。段 8 が作った pending を返り値で見る。
         again = run({"args": stopped["next_args"]})
         self.assertIsNone(again["error"], again["error"])
-        self.assertEqual(again["labels"][:2], ["flow-check:8-entry", auditor])
+        self.assertEqual(again["labels"][:3], ["flow-check:8-entry", "flow-check:8-formal-f2a", auditor], "段 8 の本体の最初に形式検証の依頼を決める")
+        self.assertIn({"step": "formal-method:f2a", "fact": "no_formal_target", "ids": []}, again["result"]["skipped"])
         res = again["result"]
         self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
         self.assertEqual(res["carried_blocking"], ["r1-wr-all-002"])
@@ -2164,7 +2208,8 @@ class FlowDigest(unittest.TestCase):
         self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:"))], ["resolver:3a", "verifier:3bv"])
         self.assertEqual(r["labels"][r["labels"].index("resolver:3a") + 1], "flow-check:3a", "resolver の stdout を別の agent が数え直す")
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
-        self.assertEqual(r["result"]["skipped"], [{"step": "verifier:3av", "fact": "unchanged", "ids": ["RS-001"]}])
+        # 書き直した初稿の段 5（監査 r2）は送る目標が無ければ no_formal_target を残す。
+        self.assertEqual(r["result"]["skipped"], [{"step": "verifier:3av", "fact": "unchanged", "ids": ["RS-001"]}, {"step": "formal-method:f2a", "fact": "no_formal_target", "ids": []}])
 
     def test_3a_dashでも候補の選択だけでflowも変わらなければverifierを起動しない(self):
         g1 = run({"args": args(), "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
@@ -2173,7 +2218,7 @@ class FlowDigest(unittest.TestCase):
         self.assertNotIn("verifier:3a'v", r["labels"])
         self.assertEqual(r["labels"][r["labels"].index("resolver:3a'") + 1], "flow-check:3a'")
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
-        self.assertEqual(r["result"]["skipped"], [{"step": "verifier:3a'v", "fact": "unchanged", "ids": ["RS-010"]}])
+        self.assertEqual(r["result"]["skipped"], [{"step": "verifier:3a'v", "fact": "unchanged", "ids": ["RS-010"]}, {"step": "formal-method:f2a", "fact": "no_formal_target", "ids": []}])
 
     def test_verifierを外した後も返らなかった裁定は同じ段で検証する(self):
         # 外す条件は resolver の stdout の要素しか見ない（resolutions は --rulings の stdout にしか無い）。返さずに書いた裁定は、settle の
@@ -2205,7 +2250,7 @@ class FlowDigest(unittest.TestCase):
             with self.subTest(name):
                 r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, **kw})
                 self.assertIn("verifier:3av", r["labels"])
-                self.assertEqual((r["result"]["status"], r["result"]["skipped"]), ("done", []), r["result"].get("reason"))
+                self.assertEqual((r["result"]["status"], r["result"]["skipped"]), ("done", [{"step": "formal-method:f2a", "fact": "no_formal_target", "ids": []}]), r["result"].get("reason"))
 
     def test_変えていないと申告したresolverがflowを変えていればflow_checkが止める(self):
         # verifier を外した後の照合は settle の flow-check が持つ。3a の resolver は flow.json を書けるので、所有表の外の書き込みにせず、
@@ -6296,6 +6341,38 @@ NEXT_ARGS_MAX_CHARS = 8_000
 # D- の合格・当て損ね・項目ごとの指摘と flow 要素）は NextArgsBudget の fixture で固定しているので、それが増えた形も見ていない。
 
 
+_FORMAL_NOTICES = {}
+
+
+def formal_entry_notice(rid="f1a"):
+    """入口の取り込み（formalEntry）が notices に足す、形式検証の 1 行（実物の script が書いた行を読む）。"""
+    if "entry" not in _FORMAL_NOTICES:
+        first = run({"args": args(), "formal_request_at": {"f1a": 3}})["result"]
+        assert first["status"] == "needs_formal", first.get("reason")
+        done = run({"args": first["next_args"]})["result"]
+        lines = [n for n in done["notices"] if "f1a" in n]
+        assert len(lines) == 1, done["notices"]
+        _FORMAL_NOTICES["entry"] = lines[0]
+    return _FORMAL_NOTICES["entry"].replace("f1a", rid)
+
+
+def formal_off_notice():
+    """formal: false の run が notices に足す 1 行（noteFormalOff）。"""
+    if "off" not in _FORMAL_NOTICES:
+        on = set(run({"args": args()})["result"]["notices"])
+        [line] = [n for n in run({"args": args(formal=False)})["result"]["notices"] if n not in on]
+        _FORMAL_NOTICES["off"] = line
+    return _FORMAL_NOTICES["off"]
+
+
+def formal_notices_worst():
+    """next_args の notices に形式検証が足しうる行の最悪の形: 依頼の数の上限（f1a・f1b・f2a・f2b）の取り込みの行と、formal: false の 1 行の多い方。"""
+    entry = [formal_entry_notice(r) for r in ("f1a", "f1b", "f2a", "f2b")]
+    off = [formal_off_notice()]
+    size = lambda xs: len(json.dumps(xs, ensure_ascii=False))
+    return entry if size(entry) >= size(off) else off
+
+
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class NextArgsBudget(unittest.TestCase):
     """試走の G1 の規模（問い 13・resolution 28・D- の合格 55・単位 1）で項目を ITEMS_N まで増やし、stray 100 件と
@@ -6307,7 +6384,9 @@ class NextArgsBudget(unittest.TestCase):
     # ITEMS_N: 上限に収まる項目の数の境界。ITEMS_N で収まり ITEMS_N + 1 の段 8 の最悪の形で超えることを両方確かめるので、
     # next_args の増減が境界をまたげば落ちる。1 項目分に満たない増減は落ちないので、再開で読まない値が載っていないことは
     # _assert_lean が欄ごとに見る。値は指摘の ID が r<n>-wr-all-<連番> の形のときの実測。
-    ITEMS_N = 32
+    # 形式検証の欄（workflow-io.md と agent-contracts.md「## 形式検証の事実」 の formal・formal_by と、notices の取り込みの行 4 つ）を最悪の形で足すと、31 項目の段 8（existing・当て損ね 7 件）が
+    # 8059 字で上限を超え、30 項目で 7932 字に収まる（実測）。そのため 30 にした。
+    ITEMS_N = 30
     UNAPPLIED = 7
     # R: 段 3 の問いを持ち越した run の、回答の後に書き直した初稿の監査の回（仮の初稿の監査が r1）。
     R = 2
@@ -6337,13 +6416,17 @@ class NextArgsBudget(unittest.TestCase):
         return args(skillDir=self.SKILL_DIR, **kw)
 
     def _chars(self, next_args):
-        """段の token（state.tx）を、その next_args の段（from）の再実行の最悪の形にした字数。再実行を重ねると try と restore が伸び、
+        """段の token（state.tx）を、その next_args の段（from）の再実行の最悪の形にし、形式検証の欄（formal・formal_by）を最悪の形で足した字数。再実行を重ねると try と restore が伸び、
         flow を書く段では tx.flow（止まった run が最後に照合を通した flow の digest）が付く。段 8 は flow を書かないので付かない
         （RerunFromTheSameStage.test_flowを書かない段の再実行はtx_flowを運ばない）。"""
         tx = next_args["state"]["tx"]
         stage = next_args["from"]
         worst = {**tx, "stage": stage, "try": 9, "restore": f"t{tx['seq']}r8", **({} if stage == "8" else {"flow": "f" * 64})}
-        return len(json.dumps({**next_args, "state": {**next_args["state"], "tx": worst}}, ensure_ascii=False))
+        # 形式検証の欄（workflow-io.md と agent-contracts.md「## 形式検証の事実」）の最悪の形: 取り込む前の rid と fnv の 8 字、段 5・8 の両方で依頼した回数。
+        # notices には、入口の取り込みが足す行を依頼の数の上限（f1a・f1b・f2a・f2b）だけ足した形と、formal: false の run の 1 行の多い方を足す。
+        formal = {"formal": {"rid": "f9b", "fnv": "x" * 8}, "formal_by": {"5": 1, "8": 1}}
+        notices = [*next_args["state"].get("notices", []), *formal_notices_worst()]
+        return len(json.dumps({**next_args, "state": {**next_args["state"], "tx": worst, **formal, "notices": notices}}, ensure_ascii=False))
 
     def _gates(self, a, n):
         rs, common = self._rs, self._common(n)
@@ -6516,10 +6599,11 @@ STAGE_CASES = {
     # verifier:3v-entry に検証させてから段の本体へ進む（設計 2.3）。
     "3": ({"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}, "verifier:3v", ["verifier:3v-entry"]),
     "4": ({}, "writer:U-1:draft"),
-    "5": ({}, "writerReviewer:r1:all"),
+    # 段 5・8 は入口の後に、送る目標の有無を決める flow-check（formal-request）を起動してから監査役へ進む（workflow-io.md と agent-contracts.md「## 形式検証の事実」）。
+    "5": ({}, "writerReviewer:r1:all", ["flow-check:5-formal-f1a"]),
     "6": ({"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "ruled_at": {"6": ["RS-010"]}}, "resolver:6"),
     "7": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}, "writer:U-1:revise"),
-    "8": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}, "writerReviewer:r2:all"),
+    "8": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}, "writerReviewer:r2:all", ["flow-check:8-formal-f2a"]),
 }
 
 
@@ -6667,7 +6751,7 @@ class OfficialAlignment(unittest.TestCase):
         cases = (("段 3 の verifier の前", left, full_left.index("verifier:3v"), "3", True),
                  ("段 5 の並列の 2 体目", packed, full5.index("writerReviewer:r1:p2"), "5", True),
                  ("段 5 の whole reviewer の前", spec, full.index("wholeReviewer:r1:all"), "5", True),
-                 ("段 5 の入口", spec, full.index("writerReviewer:r1:all"), "5", False))
+                 ("段 5 の入口", spec, full.index("flow-check:5-formal-f1a"), "5", False))
         for name, spec, n, stage, mid in cases:
             with self.subTest(name):
                 Path(self.world).unlink(missing_ok=True)
@@ -7380,6 +7464,301 @@ class ConvertWithoutFlowCheck(unittest.TestCase):
         self.assertEqual(len(lines), 1, res["integrity"])
         self.assertIn("verifier（段 3-convertv）", lines[0])
         self.assertIn("open_ids で違う", lines[0])
+
+
+def fnv(text):
+    """prd-spec.js・doc_check の stdout_fnv と同じ FNV-1a（UTF-16 の code unit ごと）。stub の formal-request は request_fnv を fnv('req-<rid>') にする。"""
+    h = 0x811C9DC5
+    for i in range(0, len(text.encode("utf-16-le")), 2):
+        unit = int.from_bytes(text.encode("utf-16-le")[i:i + 2], "little")
+        h = ((h ^ unit) * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+def auditors(labels):
+    return [l for l in labels if l.split(":")[0] in ("writerReviewer", "wholeReviewer")]
+
+
+def formal_prompts(r, cmd, rid=None):
+    """doc_check の formal-request・formal-status を実行させたプロンプト（rid を渡せばその --rid のもの）。"""
+    return [p for p in r["prompts"] if re.search(rf"doc_check\.mjs {cmd} [^`\n]*", p["prompt"])
+            and (rid is None or re.search(rf"doc_check\.mjs {cmd} [^`\n]*--rid {rid}\b", p["prompt"]))]
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FormalGate(unittest.TestCase):
+    """workflow-io.md と agent-contracts.md「## 形式検証の事実」: 段 5・8 の本体の最初で formal-method へ戻る（needs_formal）経路と、取り込み・差し戻し・依頼 b。
+    stub の doc_check formal-request・formal-status は、label ではなくプロンプトのコマンドで返す（HARNESS の formalParts）。"""
+
+    R1 = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}
+
+    def _first(self, **kw):
+        spec = {"args": args(), "formal_request_at": {"f1a": 3}, **kw}
+        r = run(spec)
+        res = r["result"]
+        self.assertEqual(res["status"], "needs_formal", res.get("reason"))
+        return spec, r, res
+
+    # 1
+    def test_段5は送る目標があればneeds_formalで戻り監査役を起動しない(self):
+        _, r, res = self._first()
+        fr = res["formal_request"]
+        self.assertEqual((fr["rid"], fr["request_path"], fr["units"], fr["goals"]), ("f1a", "/tmp/prd-w/fm/f1a/request.json", 1, 3))
+        self.assertEqual((fr["request_digest"], fr["cwd"]), ("rq-f1a", "/tmp/prd-w.formal"), "formal-request の stdout の値を写す")
+        self.assertEqual(res["next_args"]["from"], "5")
+        self.assertEqual(res["next_args"]["state"]["formal"], {"rid": "f1a", "fnv": fnv("req-f1a")}, "取り込む前は rid と request_fnv の 8 字だけ")
+        self.assertEqual(res["next_args"]["state"]["formal_by"], {"5": 1})
+        self.assertIs(res["resumable"], False, "needs_formal は resume せず next_args で呼び直す")
+        self.assertEqual(auditors(r["labels"]), [], "監査役の前に戻る")
+        self.assertTrue(has(r["labels"], "writer:U-1:draft"), "writer の後に戻る")
+        self.assertTrue(formal_prompts(r, "formal-request", "f1a"))
+
+    # 2
+    def test_next_argsで始めると入口でformal_statusを照らし反例が無ければ監査役へ進む(self):
+        spec, _, res = self._first()
+        r = run({**spec, "args": res["next_args"]})
+        self.assertIsNone(r["error"], r["error"])
+        out = r["result"]
+        self.assertEqual(out["status"], "done", out.get("reason"))
+        [entry] = formal_prompts(r, "formal-status", "f1a")
+        self.assertTrue(entry["label"].startswith("flow-check:"), "入口の flow-check が formal-status を実行する")
+        self.assertLess(r["labels"].index(entry["label"]), r["labels"].index(auditors(r["labels"])[0]))
+        self.assertTrue(has(r["labels"], "writerReviewer:r1"))
+        self.assertFalse(has(r["labels"], "writer:U-1:formal"), "反例が 0 なら差し戻さない")
+        self.assertTrue(any("result" in n for n in out["notices"]), out["notices"])
+
+    # 3
+    def test_反例があれば差し戻しのwriterを1体だけ起動して依頼bで戻る(self):
+        spec, _, res = self._first(formal_request_at={"f1a": 3, "f1b": 1},
+                                   formal_status_at={"f1a": {"counts": {"counterexample": 2}}, "f1b": {"counts": {"counterexample": 1}}})
+        r = run({**spec, "args": res["next_args"]})
+        b = r["result"]
+        self.assertEqual([l for l in r["labels"] if l.startswith("writer:")], ["writer:U-1:formal-1"])
+        self.assertEqual(auditors(r["labels"]), [], "差し戻しは reviewer の前")
+        prompt = nth_prompt(r, "writer:U-1:formal-1", 0)
+        self.assertIn("ST-FORMAL-CEX-", prompt)
+        self.assertIn("fm/facts.json", prompt)
+        writer_backup(self, r, "writer:U-1:formal-1", ["requirements/x"])
+        self.assertEqual((b["status"], b["formal_request"]["rid"], b["next_args"]["from"]), ("needs_formal", "f1b", "5"), b.get("reason"))
+        self.assertEqual(b["next_args"]["state"]["formal"], {"rid": "f1b", "fnv": fnv("req-f1b")})
+        self.assertEqual(b["next_args"]["state"]["formal_by"], {"5": 1}, "依頼 b は上限に数えない")
+        last = run({**spec, "args": b["next_args"]})
+        self.assertIsNone(last["error"], last["error"])
+        self.assertFalse(has(last["labels"], "writer:U-1:formal"), "依頼 b の反例は差し戻さない（差し戻し 1 回）")
+        self.assertTrue(has(last["labels"], "writerReviewer:r1"), "残った反例は blocking のまま reviewer へ進む")
+        self.assertNotEqual(last["result"]["status"], "needs_formal")
+        self.assertTrue(formal_prompts(last, "formal-status", "f1b"))
+
+    def test_差し戻しのwriterが何も変えなければ依頼bを作らずに監査役へ進む(self):
+        spec, _, res = self._first(formal_status_at={"f1a": {"counts": {"counterexample": 1}}}, formal_noop=["writer:U-1:formal-1"])
+        r = run({**spec, "args": res["next_args"]})
+        self.assertTrue(has(r["labels"], "writer:U-1:formal-1"))
+        self.assertNotEqual(r["result"]["status"], "needs_formal", r["result"].get("reason"))
+        self.assertTrue(has(r["labels"], "writerReviewer:r1"))
+
+    # 4
+    def test_送る目標が無ければ戻らずno_formal_targetを残す(self):
+        r = run({"args": args()})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertIn({"step": "formal-method:f1a", "fact": "no_formal_target", "ids": []}, res["skipped"])
+        self.assertTrue(formal_prompts(r, "formal-request", "f1a"), "依頼を作るかは doc_check が決める")
+
+    def test_formal_falseなら依頼せずformal_unavailableを残しnext_argsに写す(self):
+        on = run({"args": args()})["result"]
+        r = run({"args": args(formal=False)})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertEqual(formal_prompts(r, "formal-request") + formal_prompts(r, "formal-status"), [])
+        self.assertIn({"step": "formal-method", "fact": "formal_unavailable", "ids": []}, res["skipped"])
+        self.assertEqual(len(set(res["notices"]) - set(on["notices"])), 1, "notices に 1 行足す")
+        g = run({"args": args(formal=False), "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
+        self.assertEqual(g["status"], "needs_answers", g.get("reason"))
+        self.assertIs(g["next_args"]["formal"], False, "formal は BASE_ARGS で next_args に写る")
+        again = run({"args": g["next_args"], "ruled_at": {"3a'": ["RS-010"]}})
+        self.assertIsNone(again["error"], again["error"])
+        self.assertEqual(formal_prompts(again, "formal-request"), [], "呼び直しでも formal: false のまま")
+
+    # 5
+    def test_持ち越した問いで書いた段5は依頼せず書き直した段5で依頼する(self):
+        spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
+        r = run(spec)
+        g1 = r["result"]
+        self.assertEqual((g1["status"], g1.get("gate")), ("needs_answers", "g1"), g1.get("reason"))
+        self.assertTrue(has(r["labels"], "writerReviewer:r1"), "持ち越した問いのまま初稿を書いて監査した")
+        self.assertEqual(formal_prompts(r, "formal-request"), [], "捨てる初稿の段 5 では依頼しない")
+        self.assertNotIn("formal_by", g1["next_args"]["state"])
+        rewritten = run({"args": g1["next_args"], "ruled_at": {"3a": ["RS-001"]}, "formal_request_at": {"f2a": 2}})
+        res = rewritten["result"]
+        self.assertEqual((res["status"], res["formal_request"]["rid"]), ("needs_formal", "f2a"), res.get("reason"))
+        self.assertEqual(res["next_args"]["state"]["formal_by"], {"5": 1})
+
+    # 6
+    def test_existingは段8で依頼aと差し戻しと依頼bを回し差し戻しの申告をrevisedに足す(self):
+        a = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}])
+        spec = {"args": a, "findings": self.R1, "formal_request_at": {"f2a": 2, "f2b": 1},
+                "formal_status_at": {"f2a": {"counts": {"counterexample": 1}}, "f2b": {"counts": {"counterexample": 1}}},
+                "formal_changed": {"writer:U-1:formal-2": ["PR-X-077"]}}
+        r1 = run(spec)
+        s8 = r1["result"]
+        self.assertIn({"step": "formal-method:f1a", "fact": "no_formal_target", "ids": []}, s8["skipped"], "existing の段 5 は送る単位が 0")
+        self.assertEqual((s8["status"], s8["formal_request"]["rid"], s8["next_args"]["from"]), ("needs_formal", "f2a", "8"), s8.get("reason"))
+        self.assertEqual(s8["next_args"]["state"]["formal_by"], {"8": 1})
+        self.assertTrue(has(r1["labels"], "writer:U-1:revise"))
+        self.assertFalse(has(r1["labels"], "writerReviewer:r2"))
+        r2 = run({**spec, "args": s8["next_args"]})
+        b = r2["result"]
+        self.assertEqual([l for l in r2["labels"] if l.startswith("writer:")], ["writer:U-1:formal-2"])
+        self.assertEqual((b["status"], b["formal_request"]["rid"], b["next_args"]["from"]), ("needs_formal", "f2b", "8"), b.get("reason"))
+        self.assertIn("PR-X-077", b["next_args"]["state"]["revised"]["changes"]["requirements/x"], "差し戻しの changed_items を段 8 の申告に足す")
+        r3 = run({**spec, "args": b["next_args"]})
+        self.assertIsNone(r3["error"], r3["error"])
+        self.assertTrue(has(r3["labels"], "writerReviewer:r2"))
+        self.assertFalse(has(r3["labels"], "writer:U-1:formal"))
+        self.assertTrue(r3["result"]["undeclared"] == {} or "PR-X-077" not in json.dumps(r3["result"]["undeclared"]), "差し戻しの変更を申告に無い変更に数えない")
+
+    def test_延長の2回目の段8は依頼しない(self):
+        dec = {"id": "r2-wr-all-002", "item_id": "PR-X-002", "route": "decision"}
+        spec = {"args": args(), "findings": {**self.R1, "writerReviewer:r2": [dec]}, "about": {"RS-020": {"finding": dec["id"]}},
+                "questions_at": {"6": ["RS-020"]}, "formal_request_at": {"f2a": 1}}
+        s8 = run(spec)["result"]
+        self.assertEqual((s8["status"], s8["formal_request"]["rid"]), ("needs_formal", "f2a"), s8.get("reason"))
+        g = run({**spec, "args": s8["next_args"]})["result"]
+        self.assertEqual((g["status"], g["next_args"]["from"]), ("needs_answers", "3a'"), g.get("reason"))
+        after = run({**spec, "args": g["next_args"], "ruled_at": {"3a'": ["RS-020"]}})
+        self.assertIsNone(after["error"], after["error"])
+        self.assertTrue(has(after["labels"], "writerReviewer:r3"), "延長の段 8 まで進む")
+        self.assertEqual(formal_prompts(after, "formal-request"), [], "FORMAL_LIMIT[8] を使い切った延長の段 8 は依頼しない")
+        self.assertNotEqual(after["result"]["status"], "needs_formal")
+
+    # 7
+    def test_入口の照合に落ちると決めたnext_argsの有無でblockedになる(self):
+        spec, _, res = self._first()
+        broken = '{"rid":'
+        cases = [
+            ("checksum に 2 回落ちる", {"corrupt": {"flow-check:5-entry": {"formal_status": {"literal": broken}}, "flow-check:5-entry-recopy": {"formal_status": {"literal": broken}}}}, "5"),
+            ("rid が違う", {"formal_status_at": {"f1a": {"rid": "f9a"}}}, None),
+            ("fnv が違う", {"formal_status_at": {"f1a": {"fnv": "deadbeef"}}}, None),
+            ("units_digest_ok が偽", {"formal_status_at": {"f1a": {"units_digest_ok": False}}}, None),
+            ("outcome が null", {"formal_status_at": {"f1a": {"outcome": None}}}, "5"),
+            ("文書が変わった", {"formal_status_at": {"f1a": {"tree_moved": True}}}, None),
+        ]
+        for name, kw, rerun in cases:
+            with self.subTest(name):
+                r = run({**spec, **kw, "args": res["next_args"]})
+                out = r["result"]
+                self.assertEqual(out["status"], "blocked", out.get("reason"))
+                self.assertEqual(auditors(r["labels"]), [])
+                self.assertEqual(None if out["next_args"] is None else out["next_args"]["from"], rerun, out.get("reason"))
+                if name == "outcome が null":
+                    self.assertIn("formal-import", out["reason"])
+
+    def test_結果の無いoutcomeは進み未検証をnoticesに残す(self):
+        spec, _, res = self._first()
+        for outcome in ("no_result", "provisional", "rejected"):
+            with self.subTest(outcome):
+                r = run({**spec, "formal_status_at": {"f1a": {"outcome": outcome, "counts": {"unverified": 3}}}, "args": res["next_args"]})
+                out = r["result"]
+                self.assertEqual(out["status"], "done", out.get("reason"))
+                self.assertTrue(has(r["labels"], "writerReviewer:r1"))
+                self.assertTrue(any(outcome in n for n in out["notices"]), out["notices"])
+
+    # 8
+    def test_取り込んだ後に止まった再実行は入口で照らし直し差し戻しからやり直す(self):
+        spec, _, res = self._first(formal_request_at={"f1a": 3, "f1b": 1}, formal_status_at={"f1a": {"counts": {"counterexample": 1}}})
+        stopped = run({**spec, "args": res["next_args"], "null_labels": ["writer:U-1:formal-1"]})["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "5"), stopped.get("reason"))
+        again = run({**spec, "args": stopped["next_args"]})
+        self.assertTrue(formal_prompts(again, "formal-status", "f1a"), "入口で同じ rid の formal-status を照らし直す")
+        self.assertTrue(has(again["labels"], "writer:U-1:formal-1"), "差し戻しからやり直す")
+        out = again["result"]
+        self.assertEqual((out["status"], out["formal_request"]["rid"]), ("needs_formal", "f1b"), out.get("reason"))
+        self.assertEqual(out["next_args"]["state"]["formal_by"], {"5": 1}, "やり直しで formal_by を増やさない")
+
+    # 9
+    def test_持ち越す段5でneeds_formalを返してもexitViolationに落ちない(self):
+        # 仕様書だけを書く run は、最初のゲートまで carrying() が真（state.deferred が無くても）。その段 5 が needs_formal を返す。
+        a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "specifications/x", "fixed": False}])
+        r = run({"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}], "formal_request_at": {"f1a": 2}})
+        res = r["result"]
+        self.assertEqual(res["status"], "needs_formal", res.get("reason"))
+        self.assertNotIn("不変条件", res.get("reason") or "")
+
+    # 10
+    def test_needs_formalの後のneeds_answersから再開でき形式検証の状態を保つ(self):
+        spec, _, res = self._first(findings={"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, questions_at={"6": ["RS-010"]})
+        g = run({**spec, "args": res["next_args"]})["result"]
+        self.assertEqual((g["status"], g["next_args"]["from"]), ("needs_answers", "3a'"), g.get("reason"))
+        self.assertEqual(g["next_args"]["state"]["formal"], {"rid": "f1a", "ok": 1})
+        self.assertEqual(g["next_args"]["state"]["formal_by"], {"5": 1})
+        after = run({**spec, "args": g["next_args"], "ruled_at": {"3a'": ["RS-010"]}})
+        self.assertIsNone(after["error"], after["error"])
+        self.assertNotEqual(after["result"]["status"], "blocked", after["result"].get("reason"))
+
+    # 11
+    def test_formal_requestのstdoutがchecksumに2回落ちるとblocked(self):
+        # JSON としては読めるが stdout_fnv の無い写し（checksum に合わない）を、取り直しでも返す。
+        bad = {"formal_check": {"literal": json.dumps({"rid": "f1a", "goals": 3})}}
+        r = run({"args": args(), "corrupt": {"flow-check:5-formal-f1a": bad, "flow-check:5-formal-f1a-recopy": bad}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "5"), res.get("reason"))
+        self.assertEqual(auditors(r["labels"]), [])
+        self.assertTrue(any(l.endswith("-recopy") for l in r["labels"]), "取り直しを 1 回だけ行う")
+
+    # 再検証の後に決めた直し方 3
+    def test_取り込みの行はWの絶対パスを含まない短い固定の形(self):
+        line = formal_entry_notice()
+        self.assertNotIn("/tmp/prd-w", line, "notices の行に W の絶対パスを入れない（next_args の字数が W の置き場所で動く）")
+        self.assertNotIn("facts.json", line)
+        many = {"f1a": {"counts": {"verified": 12345, "unverified": 678}}}
+        other = run({"args": args(), "formal_request_at": {"f1a": 3}, "formal_status_at": many})["result"]
+        done = run({"args": other["next_args"], "formal_status_at": many})["result"]
+        [line2] = [n for n in done["notices"] if "f1a" in n]
+        self.assertEqual(len(line2), len(line), "件数で長さの変わらない固定の形")
+
+    # 再検証の後に決めた直し方 2
+    def test_差し戻しはcex_docsの文書を持つ単位のwriterだけを起動する(self):
+        units = [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}, {"id": "U-2", "docs": ["specifications/x"], "depends_on": ["U-1"]}]
+        spec, _, res = self._first(units=units, formal_status_at={"f1a": {"counts": {"counterexample": 1}, "cex_docs": ["specifications/x"]}})
+        r = run({**spec, "args": res["next_args"]})
+        self.assertEqual([l for l in r["labels"] if ":formal-" in l and l.startswith("writer:")], ["writer:U-2:formal-1"])
+
+    # 差分の検証の後に決めた直し方 4
+    def test_formalを途中で変えたnext_argsは受け付けない(self):
+        # formal は最初の呼び出しで決める（SKILL.md）。次のどちらかで守る: next_args の打ち直しとして拒む（ENV_ARGS から外して state_hash に入れる）
+        # か、formal を変えた next_args を明示の理由で拒む。どちらでも、変えた next_args では段を進めない。
+        spec = {"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}
+        for name, first, changed in (("false にした", args(), False), ("付けていた false を外した", args(formal=False), None)):
+            with self.subTest(name):
+                g = run({"args": first, **spec})["result"]
+                self.assertEqual(g["status"], "needs_answers", g.get("reason"))
+                na = {k: v for k, v in g["next_args"].items() if k != "formal"}
+                if changed is not None:
+                    na["formal"] = changed
+                # 段を進めないので、3a' の resolver の返りは spec に置かない（置くと一度も引かれない段として落ちる）
+                r = run({"args": na})
+                res = r.get("result")
+                rejected_as_edit = "返った next_args を変えずに渡し直してください" in (r.get("error") or "")
+                rejected_by_reason = res is not None and res["status"] == "blocked" and "formal" in (res.get("reason") or "")
+                self.assertTrue(rejected_as_edit or rejected_by_reason, (r.get("error"), res and res.get("reason")))
+                self.assertFalse(has(r["labels"], "writer:"), "変えた next_args で段を進めない")
+
+    # 差分の検証の後に決めた直し方 7
+    def test_formal_falseのrunはreportに行わなかったと書かせる値を返す(self):
+        # 司令塔が formal-off を実行しなかった W でも、report.md が「形式検証を行わなかった」と書けるように、script の返り値が
+        # doc_check report に渡す値（formal_off: 理由）を持つ。formal-method を使った run は持たない。
+        off = run({"args": args(formal=False)})["result"]
+        self.assertEqual(off["status"], "done", off.get("reason"))
+        self.assertTrue(off.get("formal_off"), "formal: false の run は report に渡す formal_off を返す")
+        on = run({"args": args()})["result"]
+        self.assertFalse(on.get("formal_off"))
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertTrue([l for l in skill.split("\n") if "doc_check.mjs report" in l and "--formal-off" in l], "司令塔が report に formal_off を渡す手順が SKILL.md にある")
+
+    # 13
+    def test_SKIP_FACTSに形式検証の2つの値がある(self):
+        self.assertLessEqual({"no_formal_target", "formal_unavailable"}, set(value("SKIP_FACTS")))
+
 
 if __name__ == "__main__":
     unittest.main()

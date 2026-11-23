@@ -344,6 +344,14 @@ const FINDING_TEXT = {
     issue: `状態「${s}」×「${e}」の行き先が、表では「${tableTo}」、状態遷移図では「${diagramTo}」になっている。どちらが正か決まらない。`,
     fix: '表と図のどちらか一方にだけ書く（主フローは図、それ以外は表。document-structure.md §6）。両方に残すなら行き先を揃える。',
   }),
+  // STATE_GUARD_TABLE: 図の矢印のガードで分けた組（同じ状態・同じイベントの矢印が全てガードを持つ）の行が表にもある。ID は表と図の食い違いと同じにする。
+  STATE_GUARD_TABLE: (docKey, s, e, tableTo, diagramTo) => ({
+    id: `ST-STATE-DIAGRAM-CONFLICT-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」×「${e}」は状態遷移図の矢印のガードで行き先を分けている（${diagramTo}）のに、表にも行がある（${tableTo}）。ガードで分けた組は表に書かない。表の 1 行は 1 つの行き先しか持てず、どちらが正か決まらない。`,
+    fix: `「${s} × ${e}」の行を表から消し、行き先は図の矢印のガードで書く（document-structure.md §6）。`,
+  }),
   STATE_UNREACHABLE: (docKey, s) => ({
     id: `ST-STATE-UNREACHABLE-${docKey}-${s}`,
     location: '状態とイベント',
@@ -681,30 +689,34 @@ function usesOf(sec, roleNames) {
 }
 
 // stateDiagramOf: 節の中の mermaid stateDiagram の辺。`A --> B : ラベル` だけを読む
-// （state 定義・note・複合状態は読まない。読めない行は辺として数えない）。
+// （state 定義・note・複合状態は読まない。読めない行は辺として数えない）。ラベルの `[式]` は矢印のガード（document-structure.md §2.9）で、
+// guard に持ち label からは除く（イベントの名前に入れない）。line は文書の行番号（sec.start は見出しの 0 始まりの添字）。
 function stateDiagramOf(sec) {
   const edges = []
   let inFence = false
   let isState = false
   let found = false
-  for (const ln of sec.lines) {
+  sec.lines.forEach((ln, i) => {
     if (/^\s*(```|~~~)/.test(ln)) {
       inFence = !inFence
       isState = false
-      continue
+      return
     }
-    if (!inFence) continue
+    if (!inFence) return
     if (/^\s*stateDiagram/.test(ln)) {
       isState = true
       found = true
-      continue
+      return
     }
-    if (!isState) continue
+    if (!isState) return
     const m = /^\s*(.+?)\s*-->\s*(.+?)\s*$/.exec(ln)
-    if (!m || /^\s*%%/.test(ln)) continue
+    if (!m || /^\s*%%/.test(ln)) return
     const [to, ...rest] = m[2].split(/\s*:\s*/)
-    edges.push({ from: m[1].trim(), to: to.trim(), label: rest.join(':').trim() })
-  }
+    const raw = rest.join(':').trim()
+    const g = /\[([^\]]*)\]/.exec(raw)
+    const label = g ? raw.replace(g[0], ' ').replace(/\s+/g, ' ').trim() : raw
+    edges.push({ from: m[1].trim(), to: to.trim(), label, guard: g ? g[1].trim() : null, line: (sec.start || 0) + i + 1 })
+  })
   return found ? edges : null
 }
 
@@ -728,6 +740,8 @@ function stateCheck(d, sec, out, fallbackEdges) {
   // 表と図の突き合わせが黙って検査されなくなるのを防ぐ）。図が複数あって節で決まらないときは使わない。
   const edges = stateDiagramOf(sec) || fallbackEdges || null
   if (!tables.length) return
+  const idRanges = ID_IN_TEXT[d.kind] && d.markdown ? itemSections(d.markdown, d.kind).filter((s) => s.id).map((s) => [s.start, s.start + s.lines.length - 1]) : []
+  const unitLine = (n) => idRanges.some(([a, b]) => a <= n && n <= b)
   const paras = quoteParagraphs(sec)
   const axisOf = (re) => {
     const p = paras.find((x) => re.test(x))
@@ -812,20 +826,28 @@ function stateCheck(d, sec, out, fallbackEdges) {
     const ev = events.find((x) => (x.code && new RegExp(`^${x.code}(?![0-9])`).test(e.label)) || (x.name && e.label.startsWith(x.name)))
     if (!ev) continue
     const k = `${e.from}\u0000${ev.label}`
-    if (!diagramByCell.has(k)) diagramByCell.set(k, { s: e.from, e: ev.label, targets: new Set() })
-    diagramByCell.get(k).targets.add(e.to)
+    if (!diagramByCell.has(k)) diagramByCell.set(k, { s: e.from, e: ev.label, targets: new Set(), edges: 0, guarded: 0 })
+    const g = diagramByCell.get(k)
+    g.targets.add(e.to)
+    g.edges += 1
+    if (e.guard && unitLine(e.line)) g.guarded += 1
   }
+  // split: 同じ状態・同じイベントの矢印が全てガードを持つ組（ガードで分けた組）。行き先の一意と網羅は図が持ち、ガードの重なりと覆いは
+  // 形式検証が見る（document-structure.md §6）。ガードの無い矢印が混ざる組は、今までどおり非決定にする。ガードを数えるのは、形式検証の単位に
+  // なる図（ID を持つ区間の図。formalUnits）の矢印だけで、ID の無い節の図のガードは形式検証に回らないので非決定を抑えない。
+  const split = (g) => g.edges > 0 && g.guarded === g.edges
   for (const cell of cells.values()) {
     const g = diagramByCell.get(`${cell.s}\u0000${cell.e}`)
     if (cell.targets.size > 1) out.push({ c: 'STATE_NONDET', d: key, a: [key, cell.s, cell.e, [...cell.targets].join(' / ')] })
-    if (g && (cell.noop || [...g.targets].some((t) => !cell.targets.has(t)) || (cell.targets.size && [...cell.targets].some((t) => !g.targets.has(t))))) {
-      const tableTo = cell.noop ? '発生しない' : cell.open ? '未定義' : [...cell.targets].join(' / ')
+    const tableTo = cell.noop ? '発生しない' : cell.open ? '未定義' : [...cell.targets].join(' / ')
+    if (g && split(g)) out.push({ c: 'STATE_GUARD_TABLE', d: key, a: [key, cell.s, cell.e, tableTo, [...g.targets].join(' / ')] })
+    else if (g && (cell.noop || [...g.targets].some((t) => !cell.targets.has(t)) || (cell.targets.size && [...cell.targets].some((t) => !g.targets.has(t))))) {
       out.push({ c: 'STATE_DIAGRAM_CONFLICT', d: key, a: [key, cell.s, cell.e, tableTo, [...g.targets].join(' / ')] })
     }
   }
   for (const g of diagramByCell.values()) {
     if (cells.has(`${g.s}\u0000${g.e}`)) continue
-    if (g.targets.size > 1) out.push({ c: 'STATE_NONDET', d: key, a: [key, g.s, g.e, [...g.targets].join(' / ')] })
+    if (g.targets.size > 1 && !split(g)) out.push({ c: 'STATE_NONDET', d: key, a: [key, g.s, g.e, [...g.targets].join(' / ')] })
   }
   if (events.length) {
     for (const s of axisStates) {
@@ -1889,6 +1911,15 @@ const WORKSPACE_TEXT = {
     issue: `本文が ${id} を参照しているが、workspace のどの文書にも ${id} を見出しに持つ項目が無く、欠番の申告も無い。読み手は参照先の中身を確認できない。`,
     fix: `${id} を見出しに持つ項目を置くか、参照を実在する ID に直す。欠番なら「欠番」の語と同じ行に ${id} を書く。`,
   }),
+  // FORMAL_CEX: formal-method が目標に反例を見つけた（fm/facts.json の verdict 反例）。単位の digest が今の版と同じときだけ出す（formalFindings）。
+  FORMAL_CEX: (goalId, itemId, quote, goal, witness, related) => ({
+    id: `ST-FORMAL-CEX-${goalId}`,
+    location: itemId,
+    quote,
+    ...(related && related.length ? { related } : {}),
+    issue: `形式検証の目標 ${goalId}「${goal}」に反例がある（${witness}）。この値の組では、書いた式どうしが目標を満たさない。`,
+    fix: '値の式・制約・条件・ガードを直す（document-structure.md §2.9）。反例の値の組で、どの式が目標に反するかを確かめてから直す。',
+  }),
 }
 // WORKSPACE_TEXT_END
 
@@ -1927,7 +1958,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'quotes', 'get', 'view', 'describe', 'contract', 'formal-model']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'quotes', 'get', 'view', 'describe', 'contract', 'formal-model', 'formal-request', 'formal-import', 'formal-status', 'formal-off']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -2524,6 +2555,14 @@ function wsReset(ws, opts) {
     .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || (removes.includes(n) && !ownEntry(n)) || (DOC_FILE.test(n) && !docs.includes(n)) || (CARRY_FILE.test(n) && !carries.includes(n)))
     .sort()
   for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
+  // fm/: 形式検証の依頼と事実（formal-*）は消す。fm/off.json は S0 の印（formal-off）なので残す。
+  const fmDir = path.join(ws, FORMAL_DIR)
+  const fmGone = fs.existsSync(fmDir) ? fs.readdirSync(fmDir).filter((n) => n !== FORMAL_OFF_FILE) : []
+  for (const n of fmGone) fs.rmSync(path.join(fmDir, n), { recursive: true, force: true })
+  if (fmGone.length) {
+    removed.push(FORMAL_DIR)
+    removed.sort()
+  }
   fs.rmSync(path.join(ws, ENTRY_FILE), { force: true })
   for (const key of keep.filter((k) => fixed.includes(k) || carried[k])) {
     const meta = { ...emptyLedger(ledgerOf('meta')), ...(fixed.includes(key) ? { fixed: true } : {}), ...(carried[key] ? { tbd: carried[key] } : {}) }
@@ -2580,7 +2619,8 @@ function writeEntry(ws, keys) {
 const ITEM_LOCAL = ['ST-NO-EVIDENCE-', 'ST-REQ-NO-ORIGIN-', 'ST-MODAL-', 'ST-AMBIGUOUS-', 'ST-ABBREV-ID-']
 // NEVER_PREEXISTING: 項目に帰属するが、prd-graph の事実に無いもの（開いている TBD の集合・flow の要素）に依存する検査。影響の範囲で
 // この run が原因でないと言えないので、既存の指摘にしない。
-const NEVER_PREEXISTING = ['ST-TBD-ASSERT-', 'ST-FLOW-UNKNOWN-REF-', 'ST-DECISION-UNAPPLIED-', 'ST-DOC-FLOW-TABLE-']
+// ST-FORMAL-CEX- は、送る単位を自分か依存が入口から変わったものに限るので既存の指摘にならない（formal-request の規則 2）。それをここで固定する。
+const NEVER_PREEXISTING = ['ST-TBD-ASSERT-', 'ST-FLOW-UNKNOWN-REF-', 'ST-DECISION-UNAPPLIED-', 'ST-DOC-FLOW-TABLE-', 'ST-FORMAL-CEX-']
 // 宣言とつながる指摘（ST-ROLE-INPUT-COVERAGE-・ST-ENUM-SET-MISMATCH-）はどちらにも入れず、related に宣言の区間の key を持たせ、使う区間と related の
 // どれも変わっておらず消えてもいないときだけ既存の指摘にする（宣言と使う区間は ID でつながるとは限らず、影響の範囲では分けられない）。
 
@@ -3423,6 +3463,7 @@ function unreflectedLines(ws, ids) {
 // resolutions と 2 か所に持ち、型も決まらない。本文に反映していない指摘の節は、--findings の ID（script の返り値の unreflected）を
 // W/findings から、doc_check の指摘を checks/doc.json（最後の監査で指名された whole reviewer が書いたもの）から引く。
 function wsReport(ws, opts) {
+  if (opts.formalOff !== undefined && !FORMAL_OFF_REASONS.includes(opts.formalOff)) throw new UsageError(`--formal-off は ${FORMAL_OFF_REASONS.join(' / ')} です: ${opts.formalOff}`)
   const [listName] = Object.keys(ledgerOf('resolutions').lists)
   const rs = listOf(readLedger(ws, 'resolutions'), listName)
   const method = rs.filter((r) => r.ruling === 'method')
@@ -3478,6 +3519,7 @@ function wsReport(ws, opts) {
     '',
     ...(upstream.length ? [] : ['0 件。', '']),
     ...upstream.flatMap((r) => [`### ${r.id}`, '', ...block('改訂の文案', r.upstream_revision)]),
+    ...formalReportLines(ws, opts.formalOff),
   ].join('\n')
   writeAtomic([path.join(ws, 'report.md'), md])
   // report は司令塔が run の返った後に実行するので、動いている label は無い。
@@ -4324,7 +4366,8 @@ function wsDoc(ws, opts) {
   const impactName = opts.doc.length ? `impact.${selected.map(indexName).join('+')}.json` : 'impact.json'
   const impact = entry ? impactOf(ws, withMeta, entry, impactName) : null
   const graph = graphCheck(withMeta, ledgers, flow, impact)
-  const all = [...kept, ...groupCompact([...workspaceExtraCompact(docs, openTbd.ids), ...graph])]
+  const formal = formalFindings(ws, wsDocs)
+  const all = [...kept, ...groupCompact([...workspaceExtraCompact(docs, openTbd.ids), ...graph, ...formal])]
   const expanded = expandWorkspace({ findings: opts.doc.length ? all.filter((g) => selected.includes(g.d)) : all, not_checked: structural.not_checked })
   // 既存の指摘: 入口から本文が変わっていない項目に帰属する指摘のうち、改訂が原因になりえないもの。報告には残すが blocking に数えない。
   // 項目の本文と trace だけで決まる検査（ITEM_LOCAL）は、本文が変わらなければ改訂で生じないので、影響の範囲の中でも既存の指摘にする。
@@ -4336,11 +4379,12 @@ function wsDoc(ws, opts) {
     const entryRoleKeys = roleEntryKeys(withMeta, graph, entry[ENTRY_ROLES] || {})
     for (const f of expanded.findings) {
       if (!entry[f.document] || f.document === ENTRY_ROLES || !Object.hasOwn(entry[f.document], f.location) || changed.has(f.location)) continue
+      // related を持つ指摘（ST-FORMAL-CEX- の依存）も、NEVER_PREEXISTING なら既存の指摘にしない。
+      if (NEVER_PREEXISTING.some((p) => f.id.startsWith(p))) continue
       if (f.related) {
         if ([...f.related, ...(entryRoleKeys.get(f.id) || [])].every((k) => !changed.has(k) && !removed.has(k))) f.preexisting = true
         continue
       }
-      if (NEVER_PREEXISTING.some((p) => f.id.startsWith(p))) continue
       if (ITEM_LOCAL.some((p) => f.id.startsWith(p)) || !hit.has(f.location)) f.preexisting = true
     }
   }
@@ -4404,9 +4448,9 @@ const FLOW_SHAPE = `${ledgerOf('flow').file()} の形`
 const CONTRACT_SECTIONS = {
   planner: [...COMMON_SECTIONS, '§intake', '§flow-framer', '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
   'plan-reviewer': [...COMMON_SECTIONS, '§plan-reviewer', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
-  writer: [...COMMON_SECTIONS, '§writer', '決定の台帳', '現物と既存実装の扱い'],
-  'writer-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '§writer-reviewer', '現物と既存実装の扱い'],
-  'whole-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§whole-reviewer', '現物と既存実装の扱い'],
+  writer: [...COMMON_SECTIONS, '§writer', '決定の台帳', '現物と既存実装の扱い', '形式検証の事実'],
+  'writer-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '§writer-reviewer', '現物と既存実装の扱い', '形式検証の事実'],
+  'whole-reviewer': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§whole-reviewer', '現物と既存実装の扱い', '形式検証の事実'],
   'flow-check': ['§flow-check'],
 }
 
@@ -5048,6 +5092,734 @@ function wsFormalModel(ws, opts) {
   return { formal_models: results }
 }
 
+// ---------------------------------------------------------------- 形式検証の接続（formal-request・formal-import・formal-status・formal-off）
+// prd-spec は formal-method を import しない（公開済みの plugin から未公開のスキルをパスで呼べない）。ここは formal-method に渡す依頼の JSON を
+// 書き、formal-method の run の領域に残った結果を読むだけで、formal-method を呼ぶのは司令塔の手順（SKILL.md「## 中継」）。形の正本は
+// references/workflow-io.md §6 と schemas/agent-contracts.md の「## 形式検証の事実」。
+
+// UsageError: 使い方の誤り（exit 2）。司令塔は formal-import の exit 2 のときだけ止まる。
+class UsageError extends Error {}
+// FORMAL_TIME_LIMIT_S: 依頼の time_limit_seconds。上限が無いと担当の呼び出しの期限（30 分）が段の数だけ積み上がる。実測していない値で、F 段で較正する。
+const FORMAL_TIME_LIMIT_S = 3600
+const FORMAL_DIR = 'fm'
+const FORMAL_OFF_FILE = 'off.json'
+const FORMAL_TARGET = 'prd-spec'
+const FORMAL_RID = /^f[1-9]\d*[ab]$/
+const FORMAL_FACTS = 'prd-spec.formal-facts/1'
+const FORMAL_RESULT = 'formal-method.result/2'
+const FORMAL_OFF_REASONS = ['skill_missing', 'host_unsupported']
+const FORMAL_UNAVAILABLE = ['no_result']
+// FORMAL_CAUSE: 反例を目標の反例として数える原因（formal-method の Cause.cause）。他の原因の反例は未検証にする（モデルや計画の欠陥は文書の誤りではない）。
+const FORMAL_CAUSE = '対象が性質を満たさない'
+// FORMAL_STATIC: 送らない単位を決める静的な指摘の種別（ST-DT-・ST-STATE-・ST-ENUM-SET-MISMATCH-）。静的に決まるものを形式検証に回さない。
+const FORMAL_STATIC = /^(STATE_|DT_(GAP|OVERLAP|VALUE)$|ENUM_SET_MISMATCH$)/
+const FORMAL_KINDS = ['domain', 'bounds', 'guard', 'state']
+
+// 式（コードスパンの中・宣言の値・矢印のガード）。比較の記号で項に分け、項が数で始まれば値、それ以外を名前にする。等号だけの式（`経路 = 社外`）は
+// 最初の項だけを名前にし、残りを条件の値とする。量の名前は、大小の比較か数の値を持つ式に現れる名前である。
+const CMP_SPLIT = /\s*(≤|≥|≠|<=|>=|!=|<|>|=)\s*/
+const ORDERING = new Set(['≤', '≥', '<', '>', '<=', '>='])
+const NUMERIC_TERM = /^[-+]?\d/
+function parseExpr(text) {
+  const t = String(text || '').trim()
+  const parts = t.split(CMP_SPLIT)
+  if (parts.length < 3) return null
+  const terms = parts.filter((_, i) => i % 2 === 0).map((x) => x.trim())
+  if (terms.some((x) => !x)) return null
+  const ordering = parts.some((x, i) => i % 2 === 1 && ORDERING.has(x))
+  const numeric = terms.some((x) => NUMERIC_TERM.test(x))
+  const names = (ordering ? terms : terms.slice(0, 1)).filter((x) => !NUMERIC_TERM.test(x))
+  return names.length ? { text: t, ordering, numeric, names: [...new Set(names)] } : null
+}
+
+// formalSection: ID を持つ区間（itemSections）の、形式検証に回す材料。行番号は文書の行番号（区間の lines[i] は s.start + i 行目）。
+// exprs の kind は、コードスパンの直後の語で決まる（でなければならない → bounds、のとき → guard、どちらでもなければ null）。表の行と引用の行の式は読まない。
+function formalSection(s) {
+  const out = { decls: [], refs: [], exprs: [], arrows: [], diagram: null, tables: [], axes: [] }
+  let fence = null
+  s.lines.forEach((ln, i) => {
+    const line = s.start + i
+    if (i === 0) return
+    if (/^\s*(```|~~~)/.test(ln)) {
+      if (fence) {
+        if (fence.state) out.diagram = { from: fence.from, to: line }
+        fence = null
+      } else fence = { from: line, state: false }
+      return
+    }
+    if (fence) {
+      if (/^\s*stateDiagram/.test(ln)) fence.state = true
+      else if (fence.state && !/^\s*%%/.test(ln)) {
+        const m = /^\s*(.+?)\s*-->\s*(.+?)\s*$/.exec(ln)
+        if (m) {
+          const raw = m[2].split(/\s*:\s*/).slice(1).join(':')
+          const g = /\[([^\]]*)\]/.exec(raw)
+          out.arrows.push({ guard: g ? g[1].trim() : null, line, ids: raw.match(new RegExp(`${ID_IN_TEXT.requirements.source}|${ID_IN_TEXT.specifications.source}`, 'g')) || [] })
+        }
+      }
+      return
+    }
+    const q = /^\s*>\s?(.*)$/.exec(ln)
+    if (q) {
+      const t = q[1].trim()
+      const dm = /^条件の値\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(t)
+      if (dm && CONDITION_REF.test(dm[2].trim())) out.refs.push({ name: dm[1].trim(), ref: dm[2].trim(), line })
+      else if (dm) out.decls.push({ name: dm[1].trim(), values: splitAxis(dm[2]), line, text: t })
+      else if (AXIS_START.test(t)) out.axes.push(line)
+      return
+    }
+    if (/^\s*\|/.test(ln)) {
+      out.tables.push(line)
+      return
+    }
+    for (const m of ln.matchAll(/`([^`]+)`/g)) {
+      const e = parseExpr(m[1])
+      if (!e) continue
+      const after = ln.slice(m.index + m[0].length).replace(/^\s+/, '')
+      out.exprs.push({ ...e, kind: after.startsWith('でなければならない') ? 'bounds' : after.startsWith('のとき') ? 'guard' : null, line })
+    }
+  })
+  return out
+}
+
+const formalSpans = (ns) => {
+  const out = []
+  for (const n of [...new Set(ns)].sort((a, b) => a - b)) {
+    const last = out[out.length - 1]
+    if (last && n === last[1] + 1) last[1] = n
+    else out.push([n, n])
+  }
+  return out.map(([a, b]) => `L${a}-L${b}`)
+}
+const spanFrom = (span) => Number((/^L(\d+)-L(\d+)$/.exec(String(span || '')) || [])[1])
+const spanRange = (span) => {
+  const m = /^L(\d+)-L(\d+)$/.exec(String(span || ''))
+  return m ? [Number(m[1]), Number(m[2])] : null
+}
+// unitKey: 単位の key。bounds は量の名前の組（quantity）も入れる（1 つの項目に別の量の制約があれば別の単位）。
+const unitKey = (u) => `${u.doc}\u0000${u.item_id}\u0000${u.kind}\u0000${u.quantity || ''}`
+
+// formalStatics: 単位を送らない静的な指摘の場所。DT と ENUM は区間の key（<文書>#<ID>）、STATE は文書と区間の見出しの行で引く。
+function formalStatics(ws, wsDocs) {
+  const index = conditionIndex(wsDocs)
+  const dt = new Set()
+  for (const d of wsDocs) {
+    for (const s of itemSections(d.markdown, d.kind)) {
+      if (!s.id) continue
+      const out = []
+      decisionCheck(d, { heading: s.lines[0] || '', start: s.start - 1, lines: s.lines }, out, [], index)
+      if (out.some((f) => FORMAL_STATIC.test(f.c))) dt.add(`${d.key}#${s.id}`)
+    }
+  }
+  const derived = deriveDocs(wsDocs)
+  const metaOf = new Map(wsDocs.map((d) => [d.key, d.meta]))
+  const ledgers = { decisions: readLedger(ws, 'decisions'), resolutions: readLedger(ws, 'resolutions'), verifications: readLedger(ws, 'verifications') }
+  for (const f of graphCheck(derived.map((d) => ({ ...d, meta: metaOf.get(d.key) })), ledgers, readLedger(ws, 'flow'), null)) {
+    if (f.c === 'ENUM_SET_MISMATCH') dt.add(`${f.d}#${f.a[1]}`)
+  }
+  // state: 区間の見出しの行を含む ## の節に stateCheck を当てる（doc の検査と同じ材料。formalCompact の図の拾い方も同じ）。
+  const stateAt = (d, line) => {
+    const secs = sectionsOf2(d.markdown)
+    const diagrams = secs.map((sec) => stateDiagramOf(sec)).filter(Boolean)
+    const sec = [...secs].reverse().find((x) => x.start + 1 <= line)
+    if (!sec) return false
+    const out = []
+    stateCheck(d, sec, out, diagrams.length === 1 ? diagrams[0] : null)
+    return out.some((f) => FORMAL_STATIC.test(f.c))
+  }
+  return { keys: dt, stateAt }
+}
+
+// formalUnits: 固定でない文書の ID を持つ区間から、形式検証の単位を取る（references/workflow-io.md §6 の formal-request）。
+// 単位の digest は、区間の itemDigests の digest と依存の区間の digest の並びから決める（依存の宣言だけを変えても送り直す）。
+function formalUnits(ws, wsDocs) {
+  const docs = wsDocs.map((d) => ({ d, fixed: Boolean(d.meta && d.meta.fixed), secs: itemSections(d.markdown, d.kind).filter((s) => s.id).map((s) => ({ s, f: formalSection(s) })) }))
+  const declIndex = new Map()
+  for (const { d, secs } of docs) {
+    for (const { s, f } of secs) {
+      for (const c of f.decls) {
+        const k = `${s.id}\u0000${c.name}`
+        const v = { doc: d.key, file: d.path, item: s.id, line: c.line, values: c.values }
+        if (!declIndex.has(k)) declIndex.set(k, v)
+        else if (declIndex.get(k) && canonicalJson([...declIndex.get(k).values].sort()) !== canonicalJson([...c.values].sort())) declIndex.set(k, null)
+      }
+    }
+  }
+  const quantities = new Set()
+  for (const { secs } of docs) {
+    for (const { f } of secs) {
+      const exprs = [...f.exprs, ...f.arrows.map((a) => a.guard && parseExpr(a.guard)), ...f.decls.flatMap((c) => c.values.map(parseExpr))].filter(Boolean)
+      for (const e of exprs) if (e.ordering || e.numeric) for (const n of e.names) quantities.add(n)
+    }
+  }
+  const digests = new Map(wsDocs.map((d) => [d.key, itemDigests(d)]))
+  const secDigest = (key) => {
+    const i = key.indexOf('#')
+    const m = digests.get(key.slice(0, i))
+    const v = m && m.get(key.slice(i + 1))
+    return v ? v.digest : null
+  }
+  const statics = formalStatics(ws, wsDocs)
+  const counter = new Map()
+  const goalId = (item, kind) => {
+    const k = `${item}.${kind}`
+    const n = (counter.get(k) || 0) + 1
+    counter.set(k, n)
+    return `${k}.${n}`
+  }
+  // resolve: 名前を、同じ区間の直書きの宣言 → 同じ区間の参照で解いた宣言 → 量の名前の順に解く。1 つに決まらなければ解けない（null）。
+  const resolve = (ctx, name) => {
+    const direct = ctx.f.decls.filter((c) => c.name === name)
+    if (direct.length > 1) return null
+    if (direct.length === 1) return { kind: '条件', line: direct[0].line, item: ctx.s.id, doc: ctx.d.key, file: ctx.d.path, dep: null }
+    const refs = ctx.f.refs.filter((c) => c.name === name)
+    if (refs.length > 1) return null
+    if (refs.length === 1) {
+      const t = declIndex.get(`${refs[0].ref}\u0000${name}`)
+      return t ? { kind: '条件', line: t.line, item: t.item, doc: t.doc, file: t.file, dep: `${t.doc}#${t.item}`, ref: refs[0] } : null
+    }
+    return quantities.has(name) ? { kind: '量' } : null
+  }
+  // knownsOf: 名前と参照の対応（K-NAME・K-REF の文）。抽出役は範囲の外を読まないので、対応を推測させずに渡す。
+  const knownsOf = (ctx, line, resolved) =>
+    resolved.flatMap(([name, r]) => [
+      r.kind === '量'
+        ? { kind: 'NAME', text: `${ctx.s.id} の L${line} の名前「${name}」は、量（比較の式の変数）を指す`, file: ctx.d.path, line }
+        : { kind: 'NAME', text: `${ctx.s.id} の L${line} の名前「${name}」は、${r.item} の L${r.line} の宣言の条件を指す`, file: ctx.d.path, line, refers: { file: r.file, line: r.line } },
+      ...(r.ref ? [{ kind: 'REF', text: `${ctx.s.id} の L${r.ref.line} の参照の行の値の域は、${r.item} の L${r.line} の宣言と同じ集合である`, file: ctx.d.path, line: r.ref.line, refers: { file: r.file, line: r.line } }] : []),
+    ])
+  const units = []
+  const unsent = []
+  const drop = (ctx, kind, reason) => {
+    if (!unsent.some((x) => x.doc === ctx.d.key && x.item_id === ctx.s.id && x.reason === reason)) unsent.push({ doc: ctx.d.key, item_id: ctx.s.id, kind, reason })
+  }
+  const bounds = new Map()
+  const addBounds = (ctx, e, resolved, fixed) => {
+    const k = [...e.names].sort().join('\u0000')
+    bounds.set(k, [...(bounds.get(k) || []), { ctx, e, resolved, fixed }])
+  }
+  for (const { d, fixed, secs } of docs) {
+    // ID の無い節のガード付きの状態図は単位にしない（項目に帰属できず、指摘を返す先が無い）。開示だけにし、非決定の抑止も当てない（stateCheck）。
+    if (!fixed) {
+      for (const s of itemSections(d.markdown, d.kind).filter((x) => !x.id)) {
+        const f = formalSection(s)
+        if (f.diagram && f.arrows.some((a) => a.guard)) unsent.push({ doc: d.key, item_id: `${d.key}${s.key}`, kind: 'state', reason: 'ID を持たない節の状態遷移図なので形式検証に回さない（項目の見出しの下に置く）' })
+      }
+    }
+    for (const { s, f } of secs) {
+      const ctx = { d, s, f }
+      const self = `${d.key}#${s.id}`
+      // 固定の文書の項目は単位にしない。同じ量の制約だけを bounds の依存にする。
+      if (fixed) {
+        for (const e of f.exprs.filter((x) => x.kind === 'bounds')) {
+          const resolved = e.names.map((n) => [n, resolve(ctx, n)])
+          if (resolved.every(([, r]) => r)) addBounds(ctx, e, resolved, true)
+        }
+        continue
+      }
+      // domain: 比較の式を値に持つ直書きの宣言。依存は、その宣言を参照する区間。
+      const domains = f.decls.filter((c) => c.values.some((v) => (parseExpr(v) || {}).ordering))
+      if (domains.length) {
+        const refBy = docs.flatMap((x) => x.secs.flatMap((y) => y.f.refs.filter((r) => r.ref === s.id && domains.some((c) => c.name === r.name)).map((r) => ({ doc: x.d.key, file: x.d.path, item: y.s.id, line: r.line, name: r.name }))))
+        units.push({
+          doc: d.key, file: d.path, item_id: s.id, kind: 'domain', lines: domains.map((c) => c.line),
+          deps: [...new Set(refBy.filter((r) => `${r.doc}#${r.item}` !== self).map((r) => `${r.doc}#${r.item}`))].sort(),
+          goals: domains.map((c) => ({ goal_id: goalId(s.id, 'domain'), text: `${s.id} の \`> ${c.text}\` の値の式は、${c.name} のとりうる値の全体を覆い、どの 2 つも同時に真にならない`, blocking: true })),
+          refs: refBy.map((r) => ({ file: r.file, line: r.line })),
+          knowns: refBy.map((r) => ({ kind: 'REF', text: `${r.item} の L${r.line} の参照の行の値の域は、${s.id} の L${domains.find((c) => c.name === r.name).line} の宣言と同じ集合である`, file: r.file, line: r.line })),
+        })
+      }
+      for (const e of f.exprs.filter((x) => x.kind === null)) drop(ctx, null, '制約か条件か決まらない')
+      // guard: 条件の文型の式。名前を解けない式は送らない。
+      const guards = []
+      for (const e of f.exprs.filter((x) => x.kind === 'guard')) {
+        const resolved = e.names.map((n) => [n, resolve(ctx, n)])
+        const bad = resolved.find(([, r]) => !r)
+        if (bad) drop(ctx, 'guard', `名前を解けない: ${bad[0]}`)
+        else guards.push({ e, resolved })
+      }
+      if (guards.length) {
+        const sat = guards.map(({ e }) => ({ goal_id: goalId(s.id, 'guard'), text: `${s.id} の L${e.line} の条件 \`${e.text}\` は、条件の値の域の下で満たす値を持つ`, blocking: true }))
+        const overlap = guards.flatMap((a, i) => guards.slice(i + 1).map((b) => ({ goal_id: goalId(s.id, 'guard'), text: `${s.id} の L${a.e.line} と L${b.e.line} の条件は同時に真にならない`, blocking: false })))
+        const knowns = guards.flatMap(({ e, resolved }) => knownsOf(ctx, e.line, resolved))
+        units.push({
+          doc: d.key, file: d.path, item_id: s.id, kind: 'guard', lines: guards.map(({ e }) => e.line),
+          deps: [...new Set(guards.flatMap(({ resolved }) => resolved.map(([, r]) => r.dep).filter(Boolean)))].sort(),
+          goals: [...sat, ...overlap], refs: knowns.flatMap((k) => (k.refers ? [k.refers] : [])), knowns,
+        })
+      }
+      // bounds: 制約の文型の式。量（名前の組）ごとに、全ての文書の制約をまとめる。
+      for (const e of f.exprs.filter((x) => x.kind === 'bounds')) {
+        const resolved = e.names.map((n) => [n, resolve(ctx, n)])
+        const bad = resolved.find(([, r]) => !r)
+        if (bad) {
+          drop(ctx, 'bounds', `名前を解けない: ${bad[0]}`)
+          continue
+        }
+        addBounds(ctx, e, resolved, false)
+      }
+      // state: 矢印にガードを 1 つ以上持つ状態遷移図の区間。ガードの名前を解けなければ送らない。
+      if (f.diagram && f.arrows.some((a) => a.guard)) {
+        const resolved = []
+        let bad = null
+        for (const a of f.arrows.filter((x) => x.guard)) {
+          const e = parseExpr(a.guard)
+          if (!e) {
+            bad = bad || `ガードを式として読めない: ${a.guard}`
+            continue
+          }
+          for (const n of e.names) {
+            const r = resolve(ctx, n)
+            if (!r) bad = bad || `名前を解けない: ${n}`
+            else resolved.push({ line: a.line, pair: [n, r] })
+          }
+        }
+        if (bad) drop(ctx, 'state', bad)
+        else {
+          const lines = []
+          for (let n = f.diagram.from; n <= f.diagram.to; n++) lines.push(n)
+          const knowns = resolved.flatMap(({ line, pair }) => knownsOf(ctx, line, [pair]))
+          units.push({
+            doc: d.key, file: d.path, item_id: s.id, kind: 'state',
+            lines: [...lines, ...f.tables, ...f.axes, ...f.decls.map((c) => c.line), ...f.refs.map((c) => c.line)],
+            deps: [...new Set(resolved.map(({ pair }) => pair[1].dep).filter(Boolean))].sort(),
+            goals: [
+              `${s.id} の状態遷移で、初期状態から着ける終端でない状態は、条件と量のどの値でも使える遷移を持つ`,
+              `${s.id} の状態遷移で、同じ状態・同じイベントの矢印のガードは同時に真にならない`,
+              `${s.id} の状態遷移で、宣言した全ての状態に初期状態から着ける`,
+            ].map((text) => ({ goal_id: goalId(s.id, 'state'), text, blocking: true })),
+            refs: knowns.flatMap((k) => (k.refers ? [k.refers] : [])), knowns,
+            stateLine: s.start,
+          })
+        }
+      }
+    }
+  }
+  // bounds: 量（名前の組）ごとに 1 つの単位。1 つの項目の別の量の制約は別の単位になる（quantity が単位の key に入る）。
+  for (const group of bounds.values()) {
+    const first = group.find((x) => !x.fixed)
+    if (!first) continue
+    const own = group.filter((x) => x.ctx.s === first.ctx.s)
+    const names = [...first.e.names].sort().join('・')
+    const knowns = own.flatMap(({ ctx, e, resolved }) => knownsOf(ctx, e.line, resolved))
+    units.push({
+      doc: first.ctx.d.key, file: first.ctx.d.path, item_id: first.ctx.s.id, kind: 'bounds', quantity: names, lines: own.map((x) => x.e.line),
+      deps: [...new Set(group.filter((x) => x.ctx.s !== first.ctx.s).map((x) => `${x.ctx.d.key}#${x.ctx.s.id}`))].sort(),
+      goals: [{ goal_id: goalId(first.ctx.s.id, 'bounds'), text: `量 ${names} の制約（${group.map((x) => `${x.ctx.s.id} の L${x.e.line} \`${x.e.text}\``).join('、')}）は、同時に満たす値を持つ`, blocking: true }],
+      refs: [...group.filter((x) => x.ctx.s !== first.ctx.s).map((x) => ({ file: x.ctx.d.path, line: x.e.line })), ...knowns.flatMap((k) => (k.refers ? [k.refers] : []))],
+      knowns,
+    })
+  }
+  const byDoc = new Map(wsDocs.map((d) => [d.key, d]))
+  for (const u of units) {
+    const self = `${u.doc}#${u.item_id}`
+    u.unit_digest = digestOf({ self: secDigest(self), deps: u.deps.map(secDigest), ...(u.quantity ? { quantity: u.quantity } : {}) })
+    const blocked = [self, ...u.deps].some((k) => statics.keys.has(k)) || (u.kind === 'state' && statics.stateAt(byDoc.get(u.doc), u.stateLine))
+    u.staticReason = blocked ? '静的な検査の指摘が残っている' : null
+  }
+  return { units, unsent, secDigest }
+}
+
+const formalPath = (ws, ...rel) => path.join(ws, FORMAL_DIR, ...rel)
+// withUnsent: 送らなかった単位は今の文書の全体から毎回求め直すので、facts の unverified の unsent を最新の依頼の分に置き換える
+// （直した単位の古い rid の unsent を report に載せ続けない）。
+const withUnsent = (unverified, unsent, rid) => [
+  ...unverified.filter((x) => !x.unsent),
+  ...unsent.map((x) => ({ rid, item: `${x.item_id}（${x.doc}・${x.kind || '種の決まらない式'}）`, reason: x.reason, unsent: true })),
+]
+function readFacts(ws) {
+  const f = readJsonFile(formalPath(ws, 'facts.json'))
+  return f && f.schema === FORMAL_FACTS ? f : { schema: FORMAL_FACTS, requests: [], units: [], unverified: [] }
+}
+// formalRid: --rid の検査。合わなければ使い方の誤り（exit 2）。
+function formalRid(opts) {
+  if (!opts.rid || !FORMAL_RID.test(opts.rid)) throw new UsageError(`--rid は f<回>a か f<回>b です: ${opts.rid}`)
+  return opts.rid
+}
+const sortBytes = (xs) => [...xs].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+// formalCollectionHash: formal-method の集まりの指紋（artifact-formats.md「版と指紋」。FilePath のバイト列の辞書順に `<path>\0sha256:<hex>\n` をつないだ SHA-256）。
+function formalCollectionHash(root) {
+  const files = []
+  const walk = (rel) => {
+    for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) walk(r)
+      else if (e.isFile()) files.push(r)
+    }
+  }
+  walk('')
+  const text = sortBytes(files).map((f) => `${f}\0sha256:${sha256Bytes(fs.readFileSync(path.join(root, f)))}\n`).join('')
+  return `sha256:${sha256Bytes(Buffer.from(text, 'utf8'))}`
+}
+
+// formal-request: 送る単位を決め、formal-method の依頼（fm/<rid>/request.json）と prd-spec の側の対応表（fm/<rid>/units.json）を書く。
+// 送る単位は、依頼 a では 1. facts の最新の事実と digest が違うか retry 2. 入口（checks/entry.json）から自分か依存が変わった 3. どちらも無い の最初の
+// 規則で決め、依頼 b では依頼 a に入れた単位のうち digest が変わったものにする。outcome のある rid は作り直さない（exit 2）。
+function wsFormalRequest(ws, opts) {
+  const rid = formalRid(opts)
+  if (!['5', '8'].includes(String(opts.stage || ''))) throw new UsageError(`--stage は 5 か 8 です: ${opts.stage}`)
+  if (!['a', 'b'].includes(opts.phase) || !rid.endsWith(opts.phase)) throw new UsageError(`--phase は a か b で、--rid の末尾と同じです: ${opts.phase}`)
+  const dir = formalPath(ws, rid)
+  if (fs.existsSync(path.join(dir, 'outcome.json'))) throw new UsageError(`${rid} は取り込み済みです（outcome.json がある）。同じ rid の依頼は作り直さない`)
+  const wsDocs = workspaceDocs(ws)
+  const fu = formalUnits(ws, wsDocs)
+  const tree = digestOf(snapshotOf(wsDocs))
+  let send
+  if (opts.phase === 'a') {
+    const facts = new Map(readFacts(ws).units.map((u) => [unitKey(u), u]))
+    const entry = readJsonFile(path.join(ws, ENTRY_FILE))
+    const fixedKeys = new Set(wsDocs.filter((d) => d.meta && d.meta.fixed).map((d) => d.key))
+    const movedSinceEntry = (key) => {
+      const doc = key.slice(0, key.indexOf('#'))
+      if (fixedKeys.has(doc)) return false
+      const was = entry[doc] && entry[doc][key.slice(key.indexOf('#') + 1)]
+      return was === undefined || was !== fu.secDigest(key)
+    }
+    send = fu.units.filter((u) => {
+      const fact = facts.get(unitKey(u))
+      if (fact) return fact.retry === true || fact.unit_digest !== u.unit_digest
+      if (entry) return [`${u.doc}#${u.item_id}`, ...u.deps].some(movedSinceEntry)
+      return true
+    })
+  } else {
+    const a = readJsonFile(formalPath(ws, rid.replace(/b$/, 'a'), 'units.json'))
+    if (!a) throw new UsageError(`依頼 b の前に、依頼 a（${rid.replace(/b$/, 'a')}）の units.json が要ります`)
+    const before = new Map(a.units.map((u) => [unitKey(u), u.unit_digest]))
+    send = fu.units.filter((u) => before.has(unitKey(u)) && before.get(unitKey(u)) !== u.unit_digest)
+  }
+  const unsent = [...fu.unsent, ...send.filter((u) => u.staticReason).map((u) => ({ doc: u.doc, item_id: u.item_id, kind: u.kind, reason: u.staticReason }))]
+  send = send.filter((u) => !u.staticReason)
+  fs.rmSync(dir, { recursive: true, force: true })
+  if (!send.length) {
+    // 送る単位が 0 でも、送らなかった単位（unsent）は取り込みが無いので、ここで facts の unverified に残す（report が載せる）。
+    const facts = readFacts(ws)
+    if (unsent.length || facts.unverified.some((x) => x.unsent)) {
+      fs.mkdirSync(formalPath(ws), { recursive: true })
+      writeAtomic([formalPath(ws, 'facts.json'), `${JSON.stringify({ ...facts, unverified: withUnsent(facts.unverified, unsent, rid) }, null, 1)}\n`])
+    }
+    return { rid, goals: 0, units: 0, unsent, tree_digest: tree }
+  }
+  // 対象: 単位と依存と対応の行を持つ文書を逐語で写す（W の根を対象にすると checks/ などが集まりに入り、formal-method が「対象の変化」で止まる）。
+  const target = path.join(dir, 'target')
+  const lineRefs = send.flatMap((u) => [...u.lines.map((line) => ({ file: u.file, line })), ...u.refs, ...u.knowns.map((k) => ({ file: k.file, line: k.line }))])
+  const files = sortBytes([...new Set(lineRefs.map((x) => x.file))])
+  fs.mkdirSync(target, { recursive: true })
+  for (const f of files) fs.copyFileSync(path.join(ws, f), path.join(target, f))
+  const source = (file, line) => ({ target_id: FORMAL_TARGET, file, span: `L${line}-L${line}` })
+  const goals = send.flatMap((u) => u.goals.map((g) => ({ id: g.goal_id, text: g.text, source: source(u.file, Math.min(...u.lines)) })))
+  const known = []
+  for (const u of send) {
+    for (const k of u.knowns) {
+      if (known.some((x) => x.text === k.text)) continue
+      const n = known.filter((x) => x.id.startsWith(`K-${k.kind}-${u.item_id}-`)).length + 1
+      known.push({ id: `K-${k.kind}-${u.item_id}-${n}`, text: k.text, source: source(k.file, k.line) })
+    }
+  }
+  const locations = files.flatMap((file) => formalSpans(lineRefs.filter((x) => x.file === file).map((x) => x.line)).map((span) => ({ kind: 'location', target_id: FORMAL_TARGET, file, span })))
+  const request = {
+    targets: [{ id: FORMAL_TARGET, location: target, content_hash: formalCollectionHash(target) }],
+    goals,
+    known_requirements: known,
+    scope: { include: [...goals.map((g) => ({ kind: 'goal', id: g.id })), ...known.map((k) => ({ kind: 'known_requirement', id: k.id })), ...locations], exclude: [] },
+    time_limit_seconds: FORMAL_TIME_LIMIT_S,
+  }
+  const body = `${JSON.stringify(request, null, 1)}\n`
+  const requestDigest = sha256Bytes(Buffer.from(body, 'utf8'))
+  const requestFnv = fnv(body)
+  const units = {
+    rid, stage: String(opts.stage), phase: opts.phase, tree_digest: tree, request_digest: requestDigest, request_fnv: requestFnv,
+    units: send.map((u) => ({ doc: u.doc, item_id: u.item_id, kind: u.kind, ...(u.quantity ? { quantity: u.quantity } : {}), unit_digest: u.unit_digest, deps: u.deps, lines: formalSpans(u.lines).map((span) => ({ file: u.file, span })), goals: u.goals.map((g) => ({ goal_id: g.goal_id, blocking: g.blocking })) })),
+    unsent,
+  }
+  writeAtomic([path.join(dir, 'request.json'), body], [path.join(dir, 'units.json'), `${JSON.stringify(units, null, 1)}\n`])
+  const cwd = `${ws}.formal`
+  fs.mkdirSync(cwd, { recursive: true })
+  return { rid, goals: goals.length, units: send.length, unsent, request_digest: requestDigest, request_fnv: requestFnv, tree_digest: tree, cwd }
+}
+
+// goalFacts: formal-method の結果（result/2）を、依頼の目標ごとの判定にする（結果の欄だけで決める。agent の申告は読まない）。
+// 1. 性質を目標に結び付ける: goal の出所を持つ性質はその目標にだけ、goal の出所を 1 つも持たない性質だけを単位自身の行の span で結び付ける。
+// 2. 原因が「対象が性質を満たさない」反例: goal の出所なら blocking で 反例・でなければ 重なり。span なら、重なった目標が全て blocking のときだけ 反例。
+// 3. 反例の帰属: goal の id の単位（state は矢印の行のラベルの項目）→ location の行の入る単位 → 目標の単位の最初の行。
+function goalFacts(units, result, targetText) {
+  const ourGoals = new Map(units.flatMap((u) => u.goals.map((g) => [g.goal_id, { ...g, unit: u }])))
+  const linesOf = (u) => u.lines.map((x) => ({ file: x.file, range: spanRange(x.span) })).filter((x) => x.range)
+  const unitsAtLine = (file, n) => units.filter((u) => linesOf(u).some((x) => x.file === file && x.range[0] <= n && n <= x.range[1]))
+  const overlaps = (u, file, r) => linesOf(u).some((x) => x.file === file && x.range[0] <= r[1] && r[0] <= x.range[1])
+  const props = Array.isArray(result.properties) ? result.properties : []
+  const cexs = Array.isArray(result.counterexamples) ? result.counterexamples : []
+  const causes = Array.isArray(result.causes) ? result.causes : []
+  const questions = Array.isArray(result.questions) ? result.questions : []
+  const causeOf = (cx) => causes.find((c) => c && c.subject && c.subject.kind === 'counterexample' && c.subject.id === cx.id) || null
+  const bind = new Map()
+  const unbound = []
+  const spanGoals = new Map()
+  for (const p of props) {
+    const srcs = Array.isArray(p.sources) ? p.sources : []
+    const byGoal = srcs.filter((s) => s && s.kind === 'goal' && ourGoals.has(s.id)).map((s) => s.id)
+    let goals = [...new Set(byGoal)]
+    let mode = 'goal'
+    if (!srcs.some((s) => s && s.kind === 'goal')) {
+      mode = 'span'
+      const locs = srcs.filter((s) => s && s.kind === 'location' && s.source).map((s) => ({ file: s.source.file, range: spanRange(s.source.span) })).filter((x) => x.range)
+      goals = [...new Set(units.filter((u) => locs.some((l) => overlaps(u, l.file, l.range))).flatMap((u) => u.goals.map((g) => g.goal_id)))]
+      spanGoals.set(p.id, goals)
+    }
+    if (!goals.length) unbound.push({ item: `目標に結び付かない性質: ${p.id}`, reason: String(p.reason || '') })
+    for (const g of goals) bind.set(g, [...(bind.get(g) || []), { p, mode }])
+  }
+  const arrowItem = (u, cx) => {
+    if (u.kind !== 'state') return null
+    for (const s of (cx.sources || []).filter((x) => x && x.kind === 'location')) {
+      const n = spanFrom(s.span)
+      const text = (targetText(s.file) || '').split('\n')[n - 1] || ''
+      const id = /-->/.test(text) ? (text.match(new RegExp(`\\((${ID_IN_TEXT.requirements.source}|${ID_IN_TEXT.specifications.source})\\)`)) || [])[1] : null
+      if (id) return { doc: u.doc, item_id: id, line: n }
+    }
+    return null
+  }
+  const firstLine = (u) => Math.min(...linesOf(u).map((x) => x.range[0]))
+  const locationOf = (goal, cx) => {
+    const gid = (cx.sources || []).find((s) => s && s.kind === 'goal' && ourGoals.has(s.id))
+    if (gid) {
+      const u = ourGoals.get(gid.id).unit
+      return arrowItem(u, cx) || { doc: u.doc, item_id: u.item_id, line: firstLine(u) }
+    }
+    for (const s of (cx.sources || []).filter((x) => x && x.kind === 'location')) {
+      const n = spanFrom(s.span)
+      const [u] = unitsAtLine(s.file, n)
+      if (u) return arrowItem(u, cx) || { doc: u.doc, item_id: u.item_id, line: n }
+    }
+    return { doc: goal.unit.doc, item_id: goal.unit.item_id, line: firstLine(goal.unit) }
+  }
+  const out = new Map()
+  for (const [gid, goal] of ourGoals) {
+    const bound = bind.get(gid) || []
+    const base = { goal_id: gid, blocking: goal.blocking, detection: null, witness: null, location: null, assurance: null, property_ids: bound.map((b) => b.p.id), cex_ids: [] }
+    if (!bound.length) {
+      out.set(gid, { ...base, verdict: '未検証', reason: '目標に対応する性質が無い' })
+      continue
+    }
+    const found = bound.flatMap((b) => cexs.filter((cx) => cx && cx.property_id === b.p.id).map((cx) => ({ cx, b, cause: causeOf(cx) })))
+    const target = found.filter((x) => x.cause && x.cause.cause === FORMAL_CAUSE)
+    const cexIds = found.map((x) => x.cx.id)
+    const witnessOf = (cx) => `${cx.input_and_trace ?? ''} / ${cx.violated_condition ?? ''}`
+    if (target.length) {
+      const byGoal = target.find((x) => x.b.mode === 'goal')
+      const pick = byGoal || target[0]
+      const allBlocking = byGoal ? true : (spanGoals.get(pick.b.p.id) || []).every((g) => ourGoals.get(g).blocking)
+      const verdict = byGoal ? (goal.blocking ? '反例' : '重なり') : allBlocking ? '反例' : '未検証'
+      out.set(gid, {
+        ...base, cex_ids: cexIds, verdict, reason: verdict === '未検証' ? '目標に結び付かない反例（blocking でない目標の混ざる span で結び付いた）' : String(pick.b.p.reason || ''),
+        witness: witnessOf(pick.cx), location: verdict === '未検証' ? null : locationOf(goal, pick.cx),
+      })
+      continue
+    }
+    if (found.length) {
+      out.set(gid, { ...base, cex_ids: cexIds, verdict: '未検証', reason: `反例の原因が対象の欠陥でない: ${found.map((x) => `${x.cause ? x.cause.cause : '原因なし'}（${x.cause ? x.cause.grounds : ''}）`).join(' / ')}`, witness: witnessOf(found[0].cx) })
+      continue
+    }
+    const verdicts = bound.map((b) => (Array.isArray(b.p.verdict) ? b.p.verdict : []))
+    if (verdicts.every((v) => v.includes('検証済み'))) {
+      const det = bound.map((b) => (b.p.detection && b.p.detection.status) || null)
+      const a = bound.map((b) => b.p.assurance).find(Boolean)
+      out.set(gid, { ...base, verdict: '検証済み', reason: bound.map((b) => String(b.p.reason || '')).join(' / '), detection: det.includes('検出能力未確認') ? '検出能力未確認' : det.find(Boolean) || null, assurance: a ? `${a.kind}${a.scope ? `（${a.scope}）` : ''}` : null })
+      continue
+    }
+    const asked = bound.flatMap((b) => (Array.isArray(b.p.depends_on_questions) ? b.p.depends_on_questions : [])).map((id) => questions.find((q) => q && q.id === id)).filter(Boolean)
+    out.set(gid, { ...base, verdict: '未検証', reason: [...bound.map((b) => `${b.p.id}: ${verdicts[bound.indexOf(b)].join('・')}（${b.p.reason ?? ''}）`), ...asked.map((q) => `問い ${q.id}: ${q.missing_decision}`)].join(' / ') })
+  }
+  return { goals: out, unbound }
+}
+
+const FORMAL_COUNT_KEYS = { verified: '検証済み', counterexample: '反例', overlap: '重なり', unverified: '未検証' }
+function formalCounts(units) {
+  const goals = units.flatMap((u) => u.goals)
+  return {
+    ...Object.fromEntries(Object.entries(FORMAL_COUNT_KEYS).map(([k, v]) => [k, goals.filter((g) => g.verdict === v).length])),
+    undetected: goals.filter((g) => g.verdict === '検証済み' && g.detection === '検出能力未確認').length,
+  }
+}
+// formalCexDocs: 反例の帰属の文書（ST-FORMAL-CEX- が出る文書。差し戻すのはその文書の writer）。location が無ければ目標の単位の文書。
+const formalCexDocs = (units) => [...new Set(units.flatMap((u) => u.goals.filter((g) => g.verdict === '反例').map((g) => (g.location && g.location.doc) || u.doc)))].sort()
+
+// formal-import: formal-method の run の領域（<W>.formal/.formal-method/runs/ の下）の結果を、DC が自分で読んで W に置く（司令塔の申告では決めない）。
+// どの outcome でも exit 0 で終え、同じ rid の 2 回目は何も変えずに前の outcome を返す。使い方の誤りだけ exit 2。
+function wsFormalImport(ws, opts) {
+  const rid = formalRid(opts)
+  if (!opts.runDir && !opts.unavailable) throw new UsageError('formal-import には --run-dir か --unavailable no_result が要ります')
+  if (opts.unavailable && !FORMAL_UNAVAILABLE.includes(opts.unavailable)) throw new UsageError(`--unavailable は ${FORMAL_UNAVAILABLE.join(' / ')} です: ${opts.unavailable}`)
+  const dir = formalPath(ws, rid)
+  const units = readJsonFile(path.join(dir, 'units.json'))
+  if (!units || !fs.existsSync(path.join(dir, 'request.json'))) throw new UsageError(`${rid} の依頼（fm/${rid}/request.json・units.json）がありません`)
+  const facts = readFacts(ws)
+  const done = readJsonFile(path.join(dir, 'outcome.json'))
+  if (done) {
+    const r = facts.requests.find((x) => x.rid === rid) || {}
+    return { rid, outcome: done.outcome, counts: r.counts || formalCounts([]), cex_docs: r.cex_docs || [] }
+  }
+  let ours
+  try {
+    ours = JSON.parse(fs.readFileSync(path.join(dir, 'request.json'), 'utf8'))
+  } catch (e) {
+    throw new UsageError(`fm/${rid}/request.json を JSON として読めません（formal-request で作り直す）: ${e.message}`)
+  }
+  let outcome = 'no_result'
+  let reason = 'formal-method が結果を作らずに終えた'
+  let result = null
+  let resultDigest = null
+  const runDir = opts.runDir ? path.resolve(opts.runDir) : null
+  if (runDir) {
+    const real = (p) => {
+      try {
+        return fs.realpathSync(p)
+      } catch {
+        return null
+      }
+    }
+    const base = real(path.join(`${ws}.formal`, '.formal-method', 'runs'))
+    const at = real(runDir)
+    const theirs = at ? readJsonFile(path.join(at, 'request.json')) : null
+    const ids = (q) => canonicalJson(sortBytes(((q && q.goals) || []).map((g) => String(g && g.id))))
+    if (!base || !at || !at.startsWith(`${base}${path.sep}`)) [outcome, reason] = ['rejected', `run_dir が ${ws}.formal/.formal-method/runs/ の下に無い: ${runDir}`]
+    else if (!theirs || ((theirs.targets || [])[0] || {}).location !== ours.targets[0].location || ids(theirs) !== ids(ours)) [outcome, reason] = ['rejected', 'run_dir の依頼の対象か目標が、この rid の依頼と違う']
+    else if (fs.existsSync(path.join(at, 'result.json'))) {
+      const bytes = fs.readFileSync(path.join(at, 'result.json'))
+      resultDigest = sha256Bytes(bytes)
+      try {
+        result = JSON.parse(bytes.toString('utf8'))
+      } catch {
+        result = null
+      }
+      const hash = result && result.verified_scope && Array.isArray(result.verified_scope.targets) && result.verified_scope.targets[0] && result.verified_scope.targets[0].content_hash
+      if (!result || result.schema !== FORMAL_RESULT) [outcome, reason, result] = ['rejected', `result.json が ${FORMAL_RESULT} ではない`, null]
+      else if (result.provisional !== false) [outcome, reason, result] = ['rejected', 'result.json が仮の結果（provisional）', null]
+      else if (hash !== ours.targets[0].content_hash) [outcome, reason, result] = ['rejected', '結果の対象の指紋が依頼の content_hash と違う', null]
+      else [outcome, reason] = ['result', '']
+    } else [outcome, reason] = ['provisional', 'run_dir に result.json が無い（仮の結果）']
+  }
+  const targetText = (file) => {
+    try {
+      return fs.readFileSync(path.join(ours.targets[0].location, file), 'utf8')
+    } catch {
+      return null
+    }
+  }
+  const judged = result ? goalFacts(units.units, result, targetText) : null
+  const factUnits = units.units.map((u) => ({
+    rid, doc: u.doc, item_id: u.item_id, kind: u.kind, ...(u.quantity ? { quantity: u.quantity } : {}), unit_digest: u.unit_digest, deps: u.deps, retry: !judged,
+    goals: u.goals.map((g) => (judged ? judged.goals.get(g.goal_id) : { goal_id: g.goal_id, blocking: g.blocking, verdict: '未検証', detection: null, reason: `${outcome}（${reason}）`, witness: null, location: null, assurance: null, property_ids: [], cex_ids: [] })),
+  }))
+  const counts = formalCounts(factUnits)
+  const cexDocs = formalCexDocs(factUnits)
+  const stop = result && result.stop_report && Array.isArray(result.stop_report.reasons) ? result.stop_report.reasons.map((x) => `${x.code}: ${x.detail}`) : []
+  const request = {
+    rid, stage: units.stage, phase: units.phase, outcome, reason, run_dir: runDir, request_digest: units.request_digest, result_digest: resultDigest,
+    status: result ? result.status ?? null : null, stop_reasons: stop,
+    coverage_complete: result && result.verified_scope && result.verified_scope.extraction_coverage ? result.verified_scope.extraction_coverage.complete ?? null : null,
+    decomposition_adopted: result && result.decomposition ? result.decomposition.adopted ?? null : null,
+    counts, cex_docs: cexDocs,
+  }
+  const unverified = [
+    ...(result && Array.isArray(result.unverified) ? result.unverified.map((x) => ({ rid, item: String(x.item ?? x.target ?? ''), reason: String(x.reason ?? '') })) : []),
+    ...(judged ? judged.unbound.map((x) => ({ rid, ...x })) : []),
+  ]
+  const keep = new Set(factUnits.map(unitKey))
+  const next = {
+    schema: FORMAL_FACTS,
+    requests: [...facts.requests.filter((x) => x.rid !== rid), request],
+    units: [...facts.units.filter((u) => !keep.has(unitKey(u))), ...factUnits],
+    unverified: withUnsent([...facts.unverified.filter((x) => x.rid !== rid || x.unsent), ...unverified], units.unsent || [], rid),
+  }
+  const outcomeBody = { rid, outcome, reason, run_dir: runDir, result_digest: resultDigest, request_digest: units.request_digest }
+  writeAtomic([formalPath(ws, 'facts.json'), `${JSON.stringify(next, null, 1)}\n`], [path.join(dir, 'outcome.json'), `${JSON.stringify(outcomeBody, null, 1)}\n`])
+  return { rid, outcome, counts, cex_docs: cexDocs }
+}
+
+// formal-status: 読むだけ。再開の入口の flow-check が実行し、script が state.formal と照らす（references/workflow-io.md §3）。
+function wsFormalStatus(ws, opts) {
+  const rid = formalRid(opts)
+  const dir = formalPath(ws, rid)
+  const units = readJsonFile(path.join(dir, 'units.json'))
+  if (!units || !fs.existsSync(path.join(dir, 'request.json'))) throw new UsageError(`${rid} の依頼（fm/${rid}/request.json・units.json）がありません`)
+  const bytes = fs.readFileSync(path.join(dir, 'request.json'))
+  const done = readJsonFile(path.join(dir, 'outcome.json'))
+  const r = done ? readFacts(ws).requests.find((x) => x.rid === rid) || {} : {}
+  return {
+    rid, fnv: fnv(bytes.toString('utf8')), units_digest_ok: units.request_digest === sha256Bytes(bytes), outcome: done ? done.outcome : null,
+    tree_digest_request: units.tree_digest, tree_digest_now: digestOf(snapshotOf(workspaceDocs(ws))), counts: done ? r.counts || formalCounts([]) : null, cex_docs: done ? r.cex_docs || [] : [],
+  }
+}
+
+// formal-off: 司令塔が formal: false で呼ぶ前に、形式検証を行わない理由を残す（report の節の最初に書く。結果の無い依頼 no_result と分ける）。
+function wsFormalOff(ws, opts) {
+  if (!FORMAL_OFF_REASONS.includes(opts.reason)) throw new UsageError(`--reason は ${FORMAL_OFF_REASONS.join(' / ')} です: ${opts.reason}`)
+  fs.mkdirSync(formalPath(ws), { recursive: true })
+  writeAtomic([formalPath(ws, FORMAL_OFF_FILE), `${JSON.stringify({ off: true, reason: opts.reason }, null, 1)}\n`])
+  return { off: true, reason: opts.reason, path: `${FORMAL_DIR}/${FORMAL_OFF_FILE}` }
+}
+
+// formalFindings: facts の反例の目標を ST-FORMAL-CEX- の指摘にする。単位の digest が今の版と同じときだけ出す（書き換えれば消える）。
+function formalFindings(ws, wsDocs) {
+  const facts = readFacts(ws)
+  const cex = facts.units.filter((u) => u.goals.some((g) => g.verdict === '反例'))
+  if (!cex.length) return []
+  const now = new Map(formalUnits(ws, wsDocs).units.map((u) => [unitKey(u), u.unit_digest]))
+  const texts = new Map()
+  const goalText = (rid, id) => {
+    if (!texts.has(rid)) texts.set(rid, new Map(((readJsonFile(formalPath(ws, rid, 'request.json')) || {}).goals || []).map((g) => [g.id, g.text])))
+    return texts.get(rid).get(id) || id
+  }
+  const byDoc = new Map(wsDocs.map((d) => [d.key, d]))
+  const out = []
+  for (const u of cex.filter((x) => now.get(unitKey(x)) === x.unit_digest)) {
+    for (const g of u.goals.filter((x) => x.verdict === '反例')) {
+      // 帰属の先は location の文書（別の文書の単位の行に帰属した反例は、その文書の指摘にし、その文書の行を quote にする）。
+      const loc = { doc: u.doc, item_id: u.item_id, line: null, ...(g.location || {}) }
+      const line = loc.line ? (String((byDoc.get(loc.doc) || {}).markdown || '').split('\n')[loc.line - 1] || '').trim() : ''
+      out.push({ c: 'FORMAL_CEX', d: loc.doc, a: [g.goal_id, loc.item_id, line || loc.item_id, goalText(u.rid, g.goal_id), g.witness || '', u.deps.map((k) => k.slice(k.indexOf('#') + 1))] })
+    }
+  }
+  return out
+}
+
+// formalReportLines: report.md の「## 形式検証」の節。依頼ごとの outcome、目標ごとの判定、重なり、未検証、今の版で事実の無い単位を載せる。
+// offReason: report の --formal-off（script の返り値の formal_off。司令塔が formal-off を実行しなかった W でも書く）。
+function formalReportLines(ws, offReason) {
+  const off = offReason ? { reason: offReason } : readJsonFile(formalPath(ws, FORMAL_OFF_FILE))
+  const facts = readFacts(ws)
+  const lines = ['', '## 形式検証', '']
+  if (off) lines.push(`形式検証は行わなかった（${off.reason}）。`, '')
+  // 送らなかった式は facts の写しに頼らず、report のときの今の文書から求め直す（formal-request を走らせない段の後に足された式も載せる）。
+  const current = off || !fs.existsSync(formalPath(ws, 'facts.json')) ? null : formalUnits(ws, workspaceDocs(ws))
+  const left = [
+    ...facts.unverified.filter((x) => !(current && x.unsent)).map((x) => `- ${x.item}: ${x.reason}（${x.rid}）`),
+    ...(current ? withUnsent([], current.unsent, '今の版').map((x) => `- ${x.item}: ${x.reason}（${x.rid}）`) : []),
+  ]
+  const unverifiedLines = () => ['', '### 未検証として残したもの', '', ...(left.length ? left : ['0 件。'])]
+  if (!facts.requests.length) {
+    if (!off && !left.length) lines.push('0 件（形式検証の依頼は無い）。', '')
+    if (left.length) lines.push('形式検証の依頼は無い（送る単位が 0）。', ...unverifiedLines(), '')
+    return lines
+  }
+  lines.push('### 依頼', '')
+  for (const r of facts.requests) lines.push(`- ${r.rid}（段 ${r.stage}・依頼 ${r.phase}）: ${r.outcome}${r.reason ? `（${r.reason}）` : ''}。状態: ${r.status ?? '—'}。停止の理由: ${r.stop_reasons.length ? r.stop_reasons.join(' / ') : 'なし'}`)
+  lines.push('', '### 目標ごとの判定', '', '未検証の目標を、検証済みと述べない。', '')
+  for (const u of facts.units) {
+    for (const g of u.goals) {
+      const extra = [g.witness ? `反例: ${g.witness}` : '', g.assurance ? `保証: ${g.assurance}` : '', g.detection ? `検出: ${g.detection}` : ''].filter(Boolean).join('。')
+      lines.push(`- ${g.goal_id}（${u.doc} ${u.item_id}・${u.kind}・${u.rid}）: ${g.verdict}${g.reason ? `（${g.reason}）` : ''}${extra ? `。${extra}` : ''}`)
+    }
+  }
+  const overlaps = facts.units.flatMap((u) => u.goals.filter((g) => g.verdict === '重なり').map((g) => `- ${g.goal_id}（${u.doc} ${u.item_id}）: ${g.witness || ''}`))
+  lines.push('', '### 重なり（意味で判定する）', '', ...(overlaps.length ? overlaps : ['0 件。']))
+  lines.push(...unverifiedLines())
+  const had = new Map(facts.units.map((u) => [unitKey(u), u.unit_digest]))
+  const missing = (current || formalUnits(ws, workspaceDocs(ws))).units.filter((u) => had.get(unitKey(u)) !== u.unit_digest)
+  lines.push('', '### 今の版で事実の無い単位', '', ...(missing.length ? missing.map((u) => `- ${u.item_id}（${u.doc}・${u.kind}）`) : ['0 件。']), '')
+  return lines
+}
+
 function parseWorkspaceArgs(argv) {
   const o = { doc: [] }
   for (let i = 0; i < argv.length; i++) {
@@ -5086,6 +5858,13 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--input') o.input = take()
     else if (a === '--sweep') o.sweep = true
     else if (a === '--keep') o.keep = take().split(',').map((s) => s.trim()).filter(Boolean)
+    else if (a === '--rid') o.rid = take()
+    else if (a === '--stage') o.stage = take()
+    else if (a === '--phase') o.phase = take()
+    else if (a === '--run-dir') o.runDir = take()
+    else if (a === '--unavailable') o.unavailable = take()
+    else if (a === '--reason') o.reason = take()
+    else if (a === '--formal-off') o.formalOff = take()
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o
@@ -5122,6 +5901,10 @@ function runWorkspace(mode, argv) {
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
   if (mode === 'formal-model') return wsFormalModel(ws, opts)
+  if (mode === 'formal-request') return wsFormalRequest(ws, opts)
+  if (mode === 'formal-import') return wsFormalImport(ws, opts)
+  if (mode === 'formal-status') return wsFormalStatus(ws, opts)
+  if (mode === 'formal-off') return wsFormalOff(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -5136,14 +5919,14 @@ const invokedDirectly = (() => {
 })()
 
 if (invokedDirectly && WS_MODES.includes(process.argv[2])) {
-  // 失敗は非ゼロで終える。--expect の不一致だけは 3 にして、壊れた入力（1）と区別できるようにする。
+  // 失敗は非ゼロで終える。--expect の不一致だけは 3 に、formal-* の使い方の誤り（UsageError）は 2 にして、壊れた入力（1）と区別できるようにする。
   const mode = process.argv[2]
   try {
     const out = runWorkspace(mode, process.argv.slice(3))
     process.stdout.write(typeof out === 'string' ? out : `${JSON.stringify(stampStdout(out))}\n`)
   } catch (e) {
     process.stderr.write(`doc_check ${mode}: ${e && e.message ? e.message : e}\n`)
-    process.exit(e instanceof DigestMismatch ? 3 : 1)
+    process.exit(e instanceof DigestMismatch ? 3 : e instanceof UsageError ? 2 : 1)
   }
 } else if (invokedDirectly) {
   const file = process.argv[2]

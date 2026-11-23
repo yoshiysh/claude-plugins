@@ -1,0 +1,176 @@
+{
+ "schema": "formal-method.result/2",
+ "status": "完了",
+ "provisional": false,
+ "verified_scope": {
+  "targets": [
+   {
+    "id": "prd-spec",
+    "location": "@location",
+    "resolved_location": null,
+    "revision": null,
+    "content_hash": "@content_hash",
+    "files": []
+   }
+  ],
+  "include": [],
+  "exclude": [],
+  "external_assumptions": [],
+  "unread": [],
+  "internal_time_limits": {
+   "agent_batch_deadline_ms": 1800000,
+   "tool_time_limit_max_s": 600,
+   "note": "内部の上限"
+  },
+  "extraction_coverage": {
+   "complete": true,
+   "reason": "範囲の全ての行を読んだ"
+  }
+ },
+ "properties": [],
+ "checks": [],
+ "models": [
+  {
+   "id": "M1",
+   "ref": "models/M1.json",
+   "covers": {
+    "targets": [
+     "prd-spec"
+    ],
+    "states": [],
+    "events": [],
+    "assumptions": [],
+    "constraints": [],
+    "excluded": []
+   },
+   "mapping": [],
+   "unmapped": {
+    "requirements": [],
+    "properties": [],
+    "model_elements": []
+   },
+   "combinations": {
+    "applicable": false,
+    "reason": "状態遷移を持たないモデル"
+   },
+   "paths": {
+    "applicable": false,
+    "reason": "状態遷移を持たないモデル"
+   },
+   "behavior": {
+    "applicable": false,
+    "reason": "状態遷移を持たないモデル"
+   },
+   "diagram": {
+    "derivable": false,
+    "reason": "状態遷移を持たないモデル"
+   }
+  }
+ ],
+ "decomposition": {
+  "graph": {
+   "nodes": [],
+   "edges": [],
+   "unconfirmed": []
+  },
+  "criteria": {
+   "algorithm": "writer-merge-scc/1"
+  },
+  "candidates": [],
+  "decisions": [],
+  "adopted": false,
+  "reason": "候補が 1 つ以下",
+  "parts": [],
+  "boundaries": [],
+  "contracts": [],
+  "composition_conditions": [],
+  "correspondence": {
+   "matched": [],
+   "unmatched": [],
+   "excluded": []
+  }
+ },
+ "counterexamples": [],
+ "causes": [],
+ "confirmations": {
+  "deterministic": [],
+  "meaning": [],
+  "judgments": []
+ },
+ "unverified": [],
+ "questions": [],
+ "records": {
+  "ledger_refs": [
+   "ledger.jsonl"
+  ],
+  "saved": [],
+  "unsaved": []
+ },
+ "stop_report": null,
+ "performance": {
+  "location": "ローカル",
+  "run": {
+   "total_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "preparation_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "build_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "checks_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "confirmation_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "storage_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "cpu_time_ms": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "peak_rss_bytes": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "cost": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "human_interventions": {
+    "status": "取得できず",
+    "reason": "fixture"
+   },
+   "retries": {
+    "status": "取得できず",
+    "reason": "fixture"
+   }
+  },
+  "executions": [],
+  "findings": [],
+  "agent_calls": {
+   "calls": [],
+   "stages": [],
+   "total": {
+    "calls": 0,
+    "agents": {
+     "status": "取得できず",
+     "reason": "fixture"
+    },
+    "tokens": {
+     "status": "取得できず",
+     "reason": "fixture"
+    }
+   }
+  }
+ }
+}
