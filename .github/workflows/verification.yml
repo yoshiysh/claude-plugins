@@ -68,7 +68,7 @@ jobs:
           toolchain: '1.99.0'
       - name: Cache TLC jar
         id: cache-tlc
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ runner.temp }}/tla2tools.jar
           key: tla2tools-v1.7.4
@@ -104,7 +104,7 @@ jobs:
           java-version: '11'
       - name: Cache TLC jar
         id: cache-tlc
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ runner.temp }}/tla2tools.jar
           key: tla2tools-v1.7.4
@@ -141,7 +141,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Cache Z3 zip
         id: cache-z3
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ runner.temp }}/z3.zip
           key: z3-5.3.3-x64-glibc-2.39-d56f60b06f432f33
@@ -178,7 +178,7 @@ jobs:
         with:
           node-version: '26.12.0'
       - name: Cache runtime node_modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
@@ -195,7 +195,7 @@ jobs:
         with:
           node-version: '26.12.0'
       - name: Cache runtime node_modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
@@ -227,7 +227,7 @@ jobs:
         with:
           node-version: '26.12.0'
       - name: Cache runtime node_modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
