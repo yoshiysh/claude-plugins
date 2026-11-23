@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildRoleReferences, OBLIGATION_FILES, ROLE_TYPES, TYPES_DIR } from './role-references.mjs';
+import { buildRoleReferences, entryTypesOf, OBLIGATION_FILES, refsOf, ROLE_ENTRY_TYPES, TYPES_DIR } from './role-references.mjs';
 import { ROLES, AUTHOR_ROLES, CONFIRMER_ROLES, instructionsOf } from './lib/roles.mjs';
 
 const SKILL = fileURLToPath(new URL('..', import.meta.url));
@@ -27,7 +27,7 @@ test('SP-FORMALMETHOD-013 役ごとの参照: 生成物は正本から作り直�
 
 test('SP-FORMALMETHOD-013 役ごとの参照: 生成は決定的（2 度作って同じ）で、全ての役に型の抜粋がある', () => {
   assert.deepEqual(buildRoleReferences(SKILL), buildRoleReferences(SKILL));
-  assert.deepEqual(Object.keys(ROLE_TYPES).sort(), Object.keys(ROLES).sort());
+  assert.deepEqual(Object.keys(ROLE_ENTRY_TYPES).sort(), Object.keys(ROLES).sort());
 });
 
 test('SP-FORMALMETHOD-013 役ごとの義務: 作成役の分は作成役の禁止を持ち独立検証者の読む範囲を持たず、確認役の分はその逆。どちらも共通の節を持つ', () => {
@@ -64,7 +64,7 @@ test('SP-FORMALMETHOD-013 型の抜粋: 抜粋の型の定義は artifact-format
     'fidelity-reviewer': ['ModelFile', 'Clause', 'MappingFile', 'Judgment', 'Worklog'],
     'assurance-reviewer': ['Inventory', 'Worklog'],
     'composition-reviewer': ['PartitionsFile', 'ModelFile', 'Worklog'],
-    'cause-analyst': ['ModelFile', 'Counterexample', 'Question', 'Worklog'],
+    'cause-analyst': ['ModelFile', 'Cause', 'Subject', 'Question', 'Worklog'],
   };
   for (const [role, names] of Object.entries(want)) {
     const text = read(`${TYPES_DIR}/${role}.md`);
@@ -73,6 +73,64 @@ test('SP-FORMALMETHOD-013 型の抜粋: 抜粋の型の定義は artifact-format
     for (const line of text.split('\n').filter((l) => /^[A-Z][A-Za-z]*\s*= /.test(l))) assert.ok(source.includes(line), `${role}: 正本に無い行 ${line}`);
     // 抜粋の中のリンクは、置き場から解ける相対パスか、この抜粋の中の見出し
     for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) assert.ok(existsSync(join(SKILL, TYPES_DIR, m[1])), `${role}: 解けないリンク ${m[1]}`);
+  }
+});
+
+// 抜粋の中の型の定義（```text の塊の行頭の「<名前> =」）の名前と、定義の行の並び
+function excerptDefs(text) {
+  const lines = text.split('\n');
+  const defs = new Map();
+  let inText = false;
+  let cur = null;
+  for (const line of lines) {
+    if (line.startsWith('```')) { inText = !inText && line === '```text'; cur = null; continue; }
+    if (!inText) continue;
+    const m = /^([A-Za-z][A-Za-z0-9_]*)\s*=/.exec(line);
+    if (m) { cur = m[1]; defs.set(cur, []); }
+    if (cur) defs.get(cur).push(line);
+  }
+  return defs;
+}
+const sourceTypes = () => excerptDefs(read('references/artifact-formats.md'));
+// 抜粋の中の型の定義が参照する型（正本に定義のある名前）のうち、抜粋に定義が無いもの
+export function undefinedRefs(text, isType) {
+  const defs = excerptDefs(text);
+  const out = [];
+  for (const [name, lines] of defs) for (const r of refsOf(lines, isType, name)) if (!defs.has(r)) out.push(`${name} → ${r}`);
+  return out;
+}
+
+test('SP-FORMALMETHOD-013 型の抜粋: 抜粋の型の定義が参照する型は、全て同じ抜粋の中で定義されている（入口の型から正本を推移的に辿る）', () => {
+  const all = sourceTypes();
+  for (const role of Object.keys(ROLES)) {
+    const text = read(`${TYPES_DIR}/${role}.md`);
+    assert.deepEqual(undefinedRefs(text, (n) => all.has(n)), [], `${role} の抜粋に定義の無い型`);
+    const defs = excerptDefs(text);
+    const { writes, reads } = entryTypesOf(role);
+    for (const n of [...writes, ...reads]) assert.ok(defs.has(n), `${role} の抜粋に入口の型 ${n} が無い`);
+    // 定義は正本の定義の行の写し（途中で切らない）
+    for (const [n, lines] of defs) assert.deepEqual(lines, all.get(n), `${role}: ${n} の定義が正本と違う`);
+  }
+});
+
+test('SP-FORMALMETHOD-013 型の抜粋: 役が使わない型を入れない（作成役は Counterexample・Cause を持たず、問いの Question と主題の Subject だけを持つ）', () => {
+  for (const role of AUTHOR_ROLES) {
+    const defs = excerptDefs(read(`${TYPES_DIR}/${role}.md`));
+    for (const n of ['Counterexample', 'Cause', 'Result', 'Confirmation']) assert.ok(!defs.has(n), `${role} の抜粋に ${n}`);
+    assert.ok(defs.has('Question') && defs.has('Subject'), role);
+  }
+});
+
+test('SP-FORMALMETHOD-013 型の抜粋: 役の指示が名前で挙げる型は、その役の抜粋で定義され、指示が指す抜粋の見出しは抜粋にある', () => {
+  const all = sourceTypes();
+  const anchor = (h) => h.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+  for (const role of Object.keys(ROLES)) {
+    const ins = read(`agents/${role}.md`);
+    const text = read(`${TYPES_DIR}/${role}.md`);
+    const defs = excerptDefs(text);
+    for (const m of ins.matchAll(/`([A-Z][A-Za-z0-9]*)(?:\.[a-z_]+)*`/g)) if (all.has(m[1])) assert.ok(defs.has(m[1]), `agents/${role}.md の ${m[1]} が抜粋に無い`);
+    const heads = new Set(text.split('\n').filter((l) => l.startsWith('## ')).map((l) => anchor(l.slice(3))));
+    for (const m of ins.matchAll(new RegExp(`\\.\\./references/types/${role}\\.md#([^)]+)\\)`, 'g'))) assert.ok(heads.has(decodeURIComponent(m[1])), `agents/${role}.md の #${m[1]} が抜粋に無い`);
   }
 });
 
@@ -85,10 +143,19 @@ test('SP-FORMALMETHOD-013 役の指示: agents/*.md の型と義務の参照は�
   }
 });
 
-test('SP-FORMALMETHOD-014 役ごとの義務: 担当に文書の一般規約の写しを読ませず、指紋を手で求めさせない（CLI が claim の document_rules と submit の照合で持つ）', () => {
+test('SP-FORMALMETHOD-014 役ごとの義務: 文書の一般規約は task の instructions の 4 つ目で読ませ、義務に規約の中身を写さず、指紋を手で求めさせない（CLI が claim の document_rules と submit の照合で持つ）', () => {
+  // 規約の太字の規則の文（中身）を、義務・役の指示・Workflow の prompt に写さない（写すと規約の正本が 2 つになる）
+  const rules = [...read('references/document-rules.md').matchAll(/\*\*(.+?)\*\*/g)].map((m) => m[1].replace(/。$/, ''));
+  assert.ok(rules.length >= 5);
+  // 規則の文の 8 文字の窓（言い換えた要約も、規則の句をそのまま含めば見つかる）
+  const fragments = [...new Set(rules.flatMap((r) => Array.from({ length: Math.max(0, r.length - 7) }, (_, i) => r.slice(i, i + 8))))];
+  const texts = { ...Object.fromEntries(Object.values(OBLIGATION_FILES).map((p) => [p, read(p)])), 'references/agent-obligations.md': read('references/agent-obligations.md'),
+    ...Object.fromEntries(Object.keys(ROLES).map((r) => [`agents/${r}.md`, read(`agents/${r}.md`)])), workflow: readFileSync(join(SKILL, '..', '..', 'workflows', 'formal-method-agents.js'), 'utf8') };
+  for (const [path, text] of Object.entries(texts)) for (const f of fragments) assert.ok(!text.includes(f), `${path} が規約の中身「${f}」を写す`);
   for (const path of Object.values(OBLIGATION_FILES)) {
     const text = read(path);
-    assert.ok(!text.includes('<run_dir>/document-rules/'), `${path} が規約の写しを読ませる`);
+    assert.ok(text.includes('`instructions` の 4 つのファイル'), `${path} が instructions の 4 つ目（規約）を読ませない`);
+    assert.ok(!text.includes('写しを読む必要はない') && !text.includes('写しは読まない'), `${path} が規約を読ませない`);
     assert.ok(!text.includes('createHash'), `${path} が指紋の command を持つ`);
     assert.ok(text.includes('document_rules'), `${path} が claim の document_rules を挙げない`);
   }

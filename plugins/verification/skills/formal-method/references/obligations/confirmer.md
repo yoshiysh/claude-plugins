@@ -4,7 +4,7 @@
 
 対象: `extraction-reviewer`・`fidelity-reviewer`・`assurance-reviewer`・`composition-reviewer`・`cause-analyst`。
 
-formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され、`claim` で task を取る全ての担当が守る項目。各担当の指示（`agents/<role>.md`）は、役ごとの境界・観点・返り値を持つ。形と値の正本は [成果物の形式](../artifact-formats.md)（役ごとの抜粋は task の `instructions` の 3 つ目、`references/types/<role>.md`）、手順と配置の正本は [CLI 契約](../cli-contract.md) で、ここには写さない。
+formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され、`claim` で task を取る全ての担当が守る項目。各担当の指示（`agents/<role>.md`）は、役ごとの境界・観点・返り値を持つ。形と値の正本は [成果物の形式](../artifact-formats.md)（役ごとの抜粋は task の `instructions` の 3 つ目、`references/types/<role>.md`）、文書の一般規約は `instructions` の 4 つ目（run の領域の `document-rules/<指紋>.md`）、手順と配置の正本は [CLI 契約](../cli-contract.md) で、ここには写さない。
 
 ## 受け取るもの
 
@@ -12,12 +12,16 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 | 受け取るもの | 中身 | 使い方 |
 |---|---|---|
-| `claim` の応答の最上位 | `query_cmd`・`submit_cmd`・`scratch_dir`・`document_rules`（worker で 1 つ）と `return_schemas`（役ごとの返り値の形） | `query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd` で流す。返り値の形は `return_schemas[<task の role>]`。`document_rules` は適用する文書の一般規約の `{ref, version}` で、作業記録の `document_rules` の値（写しは読まない） |
+| `claim` の応答の最上位 | `query_cmd`・`submit_cmd`・`scratch_dir`・`document_rules`（worker で 1 つ）と `return_schemas`（役ごとの返り値の形） | `query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd` で流す。返り値の形は `return_schemas[<task の role>]`。`document_rules` は適用する文書の一般規約の `{ref, version}` で、作業記録の `document_rules` の値（CLI が補うので書かなくてよい） |
 | `submit` の応答の `next` | `done`・`tasks`・`shared_inputs` と `return_schemas`（`next` の `tasks` の役ごと）。`query_cmd`・`submit_cmd`・`scratch_dir` は持たない | `done: true` なら終える。`done: false` なら `tasks` を続けて果たす。返り値の形は `next` の `return_schemas[<task の role>]`（`claim` の値のまま `query_cmd`・`submit_cmd`・`scratch_dir` を使う） |
-| `claim` の `tasks`（と `submit` の `next` の `tasks`）の各 task | `task_id`・`role`・`instructions`・`attempt_dir`・`result_path`・`context`（`TaskContext`） | `instructions` の 3 つのファイル（役の指示、この義務の役の分、役の型の抜粋）を読む。同じ役の task では読み直さない。`context` が担当の範囲 |
-| `query` の `inputs` | 渡された資料ごとの `{name, ref, path, hash, spans?}`（`hash` は CLI が固定した指紋、`spans` は読む行の範囲。無ければファイルの全体）。ディレクトリの資料（`checks/<id>` など）は `hash` を持たない。同じディレクトリの資料が 2 つ以上続けば `{ref, path, entries: [{name, entry}]}` に畳み、資料は `<path><entry>`（`ref` は `<ref><entry>`）である | 読む資料はここに挙がったものだけ。`spans` があればその行だけ。畳んだ資料は `entries` のものだけ（そのディレクトリの他のファイルを読まない） |
+| `claim` の `tasks`（と `submit` の `next` の `tasks`）の各 task | `task_id`・`role`・`instructions`・`attempt_dir`・`result_path`・`context`（`TaskContext`） | `instructions` の 4 つのファイル（役の指示、この義務の役の分、役の型の抜粋、文書の一般規約）を読む。同じ役の task では読み直さない。`context` が担当の範囲 |
+| `query` の `inputs` | 渡された資料ごとの `{name, ref, path, hash, spans?}`（`hash` は CLI が固定した指紋、`spans` は読む行の範囲。無ければファイルの全体）。ディレクトリの資料（`checks/<id>` など）は `hash` を持たない。`attempts/` の外の同じディレクトリの資料が 2 つ以上続けば `{ref, path, entries: [{name, entry}]}` に畳み、資料は `<path><entry>`（`ref` は `<ref><entry>`）である。`/` で終わる `entry` はディレクトリの資料である | 読む資料は下の「読んでよい資料」の規則のとおり |
 
-- 読む資料は `query` の `inputs` が指すものだけである。`claim` と `query` の出力の外を読まない。`ref` は `context.run_dir` からの相対 path か、対象のファイルを指す `target:<target_id>/<FilePath>` で、`path` は読む絶対 path（対象のファイルは元のファイル。写しは無い）。ディレクトリを指す `ref` は、その下のファイルを読んでよい。
+- **読んでよい資料**: `query` の `inputs` が指す資料と、`instructions` の 4 つのファイルだけである。`claim` と `query` の出力の外を読まない。`ref` は `context.run_dir` からの相対 path か、対象のファイルを指す `target:<target_id>/<FilePath>` で、`path` は読む絶対 path（対象のファイルは元のファイル。写しは無い）。
+  - ファイルの資料（`hash` を持つもの）は、そのファイルだけを読む。
+  - ディレクトリの資料（`hash` を持たない要素と、畳んだ資料の `/` で終わる `entry`）は、その下のファイルを読んでよい。
+  - 畳んだ資料は、`entries` が挙げるものだけを読む。畳んだディレクトリ（`<ref>`）の他のファイルは読まない。
+  - CLI は `attempts/` の下の資料を畳まず、`attempts/` の下のディレクトリを資料にしない。`attempts/` の下のディレクトリを指す資料が渡されたら、その下を読まない（確認役・原因の分類役は、[独立検証者の読む範囲](../agent-obligations.md#独立検証者の読む範囲)のとおり `failures` に書く）。
 - `inputs` の要素が `spans`（`L<開始>-L<終了>` の並び）を持てば、そのファイルはその行だけを読む。範囲ごとに、範囲の行だけを開く手段で読む（Read の `offset` = 開始の行・`limit` = 終了 − 開始 + 1、`sed -n '<開始>,<終了>p' <path>` など）。ファイルの全体を開いてから範囲を探さない。
   - 理由: 渡した資料（SP-012）は、最初の `query` の時点の指紋で、範囲ごとに記録される。その外を読むと、記録された資料と読んだ資料が食い違う。担当の外の資料を `query` で引くと、CLI が拒む。
 - 範囲の外の文脈（前後の行、他のファイル）が要るときは、範囲の外を読まずに、要った範囲（ファイルと行）と理由を作業記録の `unconfirmed` に書く。そのうえで、役ごとに次のとおりにする（どれも既存の欄で表す）。
@@ -49,14 +53,15 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | `role`・`task_id` | task の `role` と `task_id` |
 | `stage` | `context.stage` |
 | `target` | 対象（`context.target_id`、`model_id`、`unit_id` など、この task が扱うもの） |
-| `inputs` | 読んだファイルごとの `{ref}`。ディレクトリの資料と畳んだ資料は、実際に読んだファイルごとに 1 要素（`ref` は `<ディレクトリの ref><ファイルの名前>`）。範囲（`spans`）だけを読んだ対象のファイルは `{ref, spans: [{span}]}`。読まなかった範囲は書かない。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
+| `inputs` | `query` の資料のうち、読んだファイルごとの `{ref}`。`instructions` のファイルは書かない。`ref` は、ファイルの資料ならその `ref`、ディレクトリの資料の下のファイルなら `<ディレクトリの ref>/<ディレクトリからの相対 path>`、畳んだ資料なら `<ref><entry>`（`entry` がディレクトリなら `<ref><entry><ディレクトリからの相対 path>`）。範囲（`spans`）で渡された対象のファイルは `{ref, spans: [{span}]}` で、渡された範囲のうち読んだものだけを書く。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
 | `actions`・`results`・`grounds` | したこと、得たこと、その根拠 |
 | `failures`・`unconfirmed` | できなかったこととその理由、確かめられなかったこと |
 | `unreadable_inputs` | 読めなかった資料と理由 |
 | `document_rules` | 書かなくてよい（書くなら `claim` の `document_rules` のまま） |
 
-- 指紋と `document_rules` は CLI が持つ。`submit` の照合で、書いていない指紋を渡した資料の指紋（最初の `query` の時点で固定したもの。`query` の `hash` と同じ値）で、範囲の指紋をその範囲の行で、`document_rules` を `claim` の値で補い、`worklog.json` を書き直してから照合する。書いた値が CLI の値と違えば欠陥として差し戻される（`problems`）。そのため、指紋を手で求めない。理由: 手で求めた指紋は写し間違いが起き、CLI が持つ値と 2 つの正本になる。
-- 文の欄は、文書の一般規約（平易な文と具体的な条件で書き、値は正本を参照する。PR-BPDESIGNEDSKILL-040）に従って書く。規約の版は `claim` の `document_rules` で、写しを読む必要はない。
+- 指紋と `document_rules` は CLI が持つ。`submit` の照合で、書いていない指紋を渡した資料の指紋（最初の `query` の時点で固定したもの。ファイルの資料なら `query` の `hash` と同じ値、範囲なら渡した範囲ごとの指紋）で、`document_rules` を `claim` の値で補い、`worklog.json` を書き直してから照合する。書いた値が CLI の値と違えば欠陥として差し戻される（`problems`）。そのため、指紋を手で求めない。理由: 手で求めた指紋は写し間違いが起き、CLI が持つ値と 2 つの正本になる。
+- 補うのは渡した資料と範囲だけである。渡していない資料（`query` の資料に無い ref。`query` を流す前の提出では全ての ref）と、渡していない範囲は、補わずに作業記録の欠陥として差し戻される（指紋を書いていても同じ）。理由: 作業記録の `inputs` は渡した資料のうち読んだものを示す欄で、渡していないものの指紋を補うと、資料の外を読んだ記録が通る。
+- 文の欄は、文書の一般規約（`instructions` の 4 つ目のファイル。PR-BPDESIGNEDSKILL-040）に従って書く。そのファイルは `claim` の `document_rules` が指す版の写しである。
 - model・effort・権限・渡した資料の指紋は CLI が台帳に書く。担当はそれらを作業記録に正本として書き直さない（PR-BPDESIGNEDSKILL-032）。
 
 ## 独立検証者の読む範囲
@@ -79,7 +84,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 - `query` の資料に無い `attempts/` の下のファイルと、`attempts/` の下のディレクトリの一覧
 - 作成の過程の会話・推論、他の独立検証者の返り値
 
-- 作成側の記録を読むと、作った者と同じ前提で同じ箇所を見落とす。`query` の資料に作成側の作業記録や `attempts/` のディレクトリが入っていたら、読まずに作業記録の `failures` に「独立した確認に使えない資料が渡された」と `ref` を書く。
+- 作成側の記録を読むと、作った者と同じ前提で同じ箇所を見落とす。`query` の資料に作成側の作業記録（`worklog.json`）・返り値（`return.json`）か `attempts/` の下のディレクトリが入っていたら、読まずに作業記録の `failures` に「独立した確認に使えない資料が渡された」と `ref` を書く。`attempts/` の下のファイルの資料（モデル・対応表・query など）は読む。
 - 成果物を直さない。直すのは作成役の作り直しで、検証者が直すと、確かめた物と保存された物が別になる。
 
 ## 成功に読み替えない・秘密値・限界

@@ -12,29 +12,30 @@ export { OBLIGATION_FILES, TYPES_DIR };
 const TYPES_SOURCE = 'references/artifact-formats.md';
 
 // ---- 型の抜粋の選び方 ----
-// h は artifact-formats.md の見出しの文（# を除く）。mode: section = 見出しから同じか上の階層の次の見出しの前まで、
-// intro = 次の見出し（どの階層でも）の前まで、code = その節の最初の ```text の塊だけ。見出しが無ければ生成を止める（正本の改名を見落とさない）。
-const S = (h) => ({ h, mode: 'section' });
-const INTRO = (h) => ({ h, mode: 'intro' });
-const CODE = (h) => ({ h, mode: 'code' });
-const T = {
-  common: CODE('共通の型'), outputs: INTRO('担当の成果物'), inventory: S('inventory（抽出役。対象 1 つにつき 1 つ）'),
-  model: S('model（モデル作成役）'), mapping: S('mapping（モデル作成役）'), partitions: S('partitions（分割作成役。候補が 2 つ以上のときだけ）'),
-  plan: S('plan と mutations（計画作成役）'), composition: S('分割と合成（SP-008・009）'), check: S('検査（SP-010）'), cause: S('反例と原因（SP-011）'),
-  confirmation: CODE('確認（SP-004・005・012）'), returns: S('担当の返り値'), task: CODE('claim の Task'), worklog: S('作業記録'),
-};
-const tail = [T.returns, T.task, T.worklog];
-export const ROLE_TYPES = Object.freeze({
-  extractor: [T.common, T.outputs, T.inventory, T.cause, ...tail],
-  'model-author': [T.common, T.outputs, T.inventory, T.model, T.mapping, T.cause, ...tail],
-  'partition-author': [T.common, T.outputs, T.model, T.partitions, T.composition, T.cause, ...tail],
-  'plan-author': [T.common, T.outputs, T.model, T.partitions, T.plan, T.check, T.cause, ...tail],
-  'extraction-reviewer': [T.common, T.inventory, ...tail],
-  'fidelity-reviewer': [T.common, T.inventory, T.model, T.mapping, T.confirmation, ...tail],
-  'assurance-reviewer': [T.common, T.inventory, ...tail],
-  'composition-reviewer': [T.common, T.model, T.partitions, T.composition, T.check, ...tail],
-  'cause-analyst': [T.common, T.model, T.mapping, T.check, T.cause, ...tail],
+// 役ごとの入口の型（その役が書く型と読む型）だけを手で挙げ、残りは正本から導く。
+//   定義: artifact-formats.md の ```text の塊の、行頭の「<名前> =」から、次の行頭の定義か塊の終わりまで。
+//   参照: 定義の行の、注釈（// の後）と文字列（"..."）を除いた部分に現れる、定義のある名前。入口から推移的に辿った全ての型の定義を入れる。
+//   節: 書く型（writes）を定義する節は、文も含めて全て入れる（その中の型の塊は、辿った型の定義だけに絞る）。読む型（reads）と辿った型は、
+//       定義だけを、その定義のある節の見出しの下に入れる。全て入れた節の上位の節（文書の題を除く）で、見出しの直下に型の定義を持たないもの
+//       （担当の成果物の前置き）は、下の節の前置きとして入れる。
+//   作業記録は全ての役が書くので書く型、claim の Task と受け付けた依頼（request.json）は全ての役が読むので読む型に入れる。
+// 入口の型の名前が正本に無ければ生成を止める（正本の改名を見落とさない）。
+const COMMON_ENTRY = { writes: ['Worklog'], reads: ['Task', 'Request', 'fixed'] };
+export const ROLE_ENTRY_TYPES = Object.freeze({
+  extractor: { writes: ['AuthorReturn', 'Inventory'], reads: ['Manifest'] },
+  'model-author': { writes: ['AuthorReturn', 'ModelFile', 'MappingFile'], reads: ['Inventory', 'Manifest'] },
+  'partition-author': { writes: ['AuthorReturn', 'PartitionsFile', 'Decomposition'], reads: ['ModelFile', 'MappingFile'] },
+  'plan-author': { writes: ['AuthorReturn', 'PlanFile', 'MutationsFile'], reads: ['ModelFile', 'MappingFile', 'PartitionsFile', 'Inventory'] },
+  'extraction-reviewer': { writes: ['ReviewReturn'], reads: ['Inventory', 'Manifest'] },
+  'fidelity-reviewer': { writes: ['ReviewReturn'], reads: ['ModelFile', 'MappingFile', 'Judgment', 'End'] },
+  'assurance-reviewer': { writes: ['ReviewReturn'], reads: ['Inventory'] },
+  'composition-reviewer': { writes: ['ReviewReturn'], reads: ['PartitionsFile', 'Decomposition', 'ModelFile', 'End'] },
+  'cause-analyst': { writes: ['CauseReturn'], reads: ['Cause', 'ModelFile', 'MappingFile', 'End'] },
 });
+export const entryTypesOf = (role) => {
+  const r = ROLE_ENTRY_TYPES[role];
+  return { writes: [...COMMON_ENTRY.writes, ...r.writes], reads: [...COMMON_ENTRY.reads, ...r.reads] };
+};
 
 // ---- 義務の分け方 ----
 // agent-obligations.md の ## の節は、見出しの次の行が <!-- 対象: author --> か <!-- 対象: confirmer --> ならその分だけに入れ、無ければ両方に入れる。
@@ -68,41 +69,108 @@ function headings(lines) {
   return out;
 }
 
-function pick(lines, hs, sel, source) {
-  const at = hs.findIndex((h) => h.text === sel.h);
-  if (at < 0) throw new Error(`${source} に見出し「${sel.h}」が無い`);
-  const h = hs[at];
-  const next = sel.mode === 'intro' ? hs[at + 1] : hs.slice(at + 1).find((x) => x.level <= h.level);
-  const body = lines.slice(h.i, next ? next.i : lines.length);
-  if (sel.mode !== 'code') return body;
-  const from = body.indexOf('```text');
-  const to = from < 0 ? -1 : body.indexOf('```', from + 1);
-  if (to < 0) throw new Error(`${source} の「${sel.h}」に型の塊（\`\`\`text）が無い`);
-  return [body[0], '', ...body.slice(from, to + 1), ''];
-}
-
-// 抜き出した節の見出しの階層を、生成物の ## に揃える（下の見出しは同じだけ上げる）
-function shift(block) {
-  const top = headingOf(block[0]).level;
-  let fence = false;
-  return block.map((line) => {
-    if (line.startsWith('```')) fence = !fence;
-    const h = fence ? null : headingOf(line);
-    return h ? `${'#'.repeat(Math.max(2, h.level - top + 2))} ${h.text}` : line;
-  });
-}
-
 const trimEnd = (ls) => { const out = [...ls]; while (out.length && out[out.length - 1].trim() === '') out.pop(); return out; };
 const header = (source) => `<!-- 生成物: scripts/role-references.mjs が ${source} から作る。ここを直さずに正本を直して、node scripts/role-references.mjs を流す -->`;
 
-function buildTypes(skillDir) {
-  const text = readFileSync(join(skillDir, TYPES_SOURCE), 'utf8');
-  const lines = text.split('\n');
+// 正本を節（見出しから、どの階層でも次の見出しの前まで）に分け、節ごとに ```text の塊と型の定義を持つ。
+// 戻り値: { sections: [{ text, level, i, end, parent, blocks: [{ from, to, defs }] }], defs: Map(名前 → { name, from, to, section, refs }) }
+function parseTypes(lines) {
   const hs = headings(lines);
-  return Object.entries(ROLE_TYPES).map(([role, sels]) => {
-    const parts = sels.map((sel) => relink(trimEnd(shift(pick(lines, hs, sel, TYPES_SOURCE))).join('\n'), TYPES_SOURCE));
+  const sections = hs.map((h, k) => ({ text: h.text, level: h.level, i: h.i, end: hs[k + 1]?.i ?? lines.length, parent: null, blocks: [] }));
+  const defs = new Map();
+  sections.forEach((sec, k) => {
+    for (let j = k - 1; j >= 0; j -= 1) if (sections[j].level < sec.level) { sec.parent = j; break; }
+    let block = null;
+    for (let i = sec.i + 1; i < sec.end; i += 1) {
+      const line = lines[i];
+      if (line.startsWith('```')) {
+        if (block) { block.to = i; const last = block.defs[block.defs.length - 1]; if (last) last.to = i; sec.blocks.push(block); block = null; }
+        else if (line === '```text') block = { from: i, to: null, defs: [] };
+        else { const close = lines.indexOf('```', i + 1); i = close < 0 ? sec.end : close; }
+        continue;
+      }
+      if (!block) continue;
+      const m = /^([A-Za-z][A-Za-z0-9_]*)\s*=/.exec(line);
+      if (!m) continue;
+      const last = block.defs[block.defs.length - 1];
+      if (last) last.to = i;
+      if (defs.has(m[1])) throw new Error(`${TYPES_SOURCE} に型 ${m[1]} の定義が 2 つある`);
+      const d = { name: m[1], from: i, to: null, section: k };
+      block.defs.push(d);
+      defs.set(m[1], d);
+    }
+    if (block) throw new Error(`${TYPES_SOURCE} の「${sec.text}」の型の塊が閉じていない`);
+  });
+  for (const d of defs.values()) d.refs = refsOf(lines.slice(d.from, d.to), (n) => defs.has(n), d.name);
+  return { sections, defs };
+}
+
+// 定義の行が参照する型の名前（注釈と文字列を除いた部分に現れる、isType が真の名前。self を除く）
+export function refsOf(defLines, isType, self = null) {
+  const out = new Set();
+  for (const line of defLines) {
+    const code = line.replace(/"[^"]*"/g, '""').replace(/\/\/.*$/, '');
+    for (const m of code.matchAll(/[A-Za-z][A-Za-z0-9_]*/g)) if (m[0] !== self && isType(m[0])) out.add(m[0]);
+  }
+  return [...out];
+}
+
+// 入口の型から推移的に辿った型の名前の集合
+function closureOf(entries, defs) {
+  const seen = new Set();
+  const stack = [...entries];
+  while (stack.length) {
+    const n = stack.pop();
+    if (seen.has(n)) continue;
+    if (!defs.has(n)) throw new Error(`${TYPES_SOURCE} に入口の型 ${n} の定義が無い`);
+    seen.add(n);
+    stack.push(...defs.get(n).refs);
+  }
+  return seen;
+}
+
+// 役の型の抜粋の節の並び（各要素は見出しから始まる文字列）
+function typeExcerpt(lines, { sections, defs }, role) {
+  const { writes, reads } = entryTypesOf(role);
+  const keep = closureOf([...writes, ...reads], defs);
+  const full = new Set(writes.map((n) => defs.get(n).section));
+  for (const k of [...full]) {
+    for (let p = sections[k].parent; p !== null && sections[p].level >= 2; p = sections[p].parent) if (sections[p].blocks.every((b) => b.defs.length === 0)) full.add(p);
+  }
+  const blockLines = (b) => {
+    const ds = b.defs.filter((d) => keep.has(d.name));
+    return ds.length ? ['```text', ...ds.flatMap((d) => lines.slice(d.from, d.to)), '```'] : null;
+  };
+  const out = [];
+  sections.forEach((sec, k) => {
+    const mine = sec.blocks.filter((b) => b.defs.some((d) => keep.has(d.name)));
+    if (!full.has(k) && !mine.length) return;
+    const body = [`## ${sec.text}`];
+    if (full.has(k)) {
+      for (let i = sec.i + 1; i < sec.end; i += 1) {
+        const b = sec.blocks.find((x) => x.from === i);
+        if (!b) { body.push(lines[i]); continue; }
+        const bl = blockLines(b);
+        if (bl) body.push(...bl);
+        i = bl || lines[b.to + 1] !== '' ? b.to : b.to + 1;   // 塊を落としたら、その後の空行も落とす
+      }
+    } else {
+      for (const b of mine) body.push('', ...blockLines(b));
+    }
+    out.push(trimEnd(body).join('\n'));
+  });
+  return out;
+}
+
+function buildTypes(skillDir) {
+  const lines = readFileSync(join(skillDir, TYPES_SOURCE), 'utf8').split('\n');
+  const parsed = parseTypes(lines);
+  return Object.keys(ROLE_ENTRY_TYPES).map((role) => {
+    const parts = typeExcerpt(lines, parsed, role).map((part) => relink(part, TYPES_SOURCE));
+    const { writes, reads } = entryTypesOf(role);
+    const q = (ns) => ns.map((n) => `\`${n}\``).join('・');
     const text = [header(TYPES_SOURCE), '', `# 型の抜粋（${role}）`, '',
-      'この役が読み書きする型だけを [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。', '',
+      `この役が書く型（${q(writes)}）の節と、読む型（${q(reads)}）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。`, '',
       parts.join('\n\n'), ''].join('\n');
     return { path: `${TYPES_DIR}/${role}.md`, text };
   });

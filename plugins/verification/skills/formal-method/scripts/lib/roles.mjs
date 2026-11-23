@@ -31,7 +31,7 @@ export const OBLIGATIONS_SOURCE = 'references/agent-obligations.md';
 export const OBLIGATION_FILES = Object.freeze({ author: 'references/obligations/author.md', confirmer: 'references/obligations/confirmer.md' });
 export const TYPES_DIR = 'references/types';
 export const obligationClassOf = (name) => (AUTHOR_ROLES.includes(name) ? 'author' : 'confirmer');
-// task の instructions（skill の根からの相対 path）: 役の指示、その役の分の義務、その役の型の抜粋
+// task の instructions のうち skill の中の 3 つ（skill の根からの相対 path）: 役の指示、その役の分の義務、その役の型の抜粋。4 つ目の文書の一般規約は run の領域の写しで、agents.mjs の makeTask が足す
 export const instructionsOf = (name) => [roleOf(name).instructions, OBLIGATION_FILES[obligationClassOf(name)], `${TYPES_DIR}/${name}.md`];
 
 export function roleOf(name) {

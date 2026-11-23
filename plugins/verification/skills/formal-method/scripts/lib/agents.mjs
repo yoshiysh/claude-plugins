@@ -7,6 +7,7 @@ import { AuthorReturn, CauseReturn, ReviewReturn, conforms, parseSpan } from './
 import { jsonSchemaOf } from './check-shape.mjs';
 import { fileLines, parseTargetRef, spanText } from './target-refs.mjs';
 import { ROLES, instructionsOf } from './roles.mjs';
+import { DOC_RULES_PATH } from './worklog.mjs';
 import { hashFile } from './storage.mjs';
 import { sha256Bytes } from './canonical.mjs';
 import { cmpBytes } from './checks/common.mjs';
@@ -94,42 +95,32 @@ export function refFiles(runDir, refs, pathOf = null) {
 
 // ---- 担当の下書きを CLI が補う（agent-obligations.md「作業記録」、artifact-formats.md「作業記録」「inventory」） ----
 // 指紋は CLI が持つ。担当が書かなかった指紋は補い、書いた指紋は照らして、違えば欠陥の文を返す。戻り値は { worklog, problems, changed }。
-// materials は最初の query の時点で固定した指紋（[RefHash]）。その ref は固定した指紋で、無い ref（query を流さなかった担当など）は今のファイルで求める。
-// 範囲の指紋は、固定した範囲と同じ範囲ならその指紋、無ければそのファイルの範囲の行で求める（quote_hash と同じ求め方）。
+// materials は最初の query の時点で固定した指紋（[RefHash]。渡した資料と範囲）。補うのは materials にある ref と範囲だけで、
+// 無い ref と範囲（渡していない資料、query を流さなかった担当の資料）は今のファイルで求めず、指紋を書いていても欠陥にする。
+// 理由: 作業記録の inputs は渡した資料のうち読んだもので、渡していないものの指紋を補うと、渡していない資料を読んだ記録が通る。
 // inputs が配列でない作業記録は、作業記録の下書きでないので何もしない（形は登録の側の照合に任せる）。
-export function completeWorklog(worklog, { materials = [], pathOf, docRules = null }) {
+export function completeWorklog(worklog, { materials = [], docRules = null }) {
   if (!worklog || typeof worklog !== 'object' || !Array.isArray(worklog.inputs)) return { worklog, problems: [], changed: false };
   const fixed = new Map((materials ?? []).map((m) => [m.ref, m]));
   const problems = [];
   let changed = false;
-  const bytesCache = new Map();
-  const bytesOf = (ref) => {
-    if (!bytesCache.has(ref)) {
-      let b = null;
-      try { const p = pathOf(ref); b = p === null ? null : readFileSync(p); } catch { b = null; }
-      bytesCache.set(ref, b);
-    }
-    return bytesCache.get(ref);
-  };
   const fill = (obj, key, want, what) => {
-    if (want === null) { if (obj[key] === undefined) problems.push(`作業記録の inputs の ${what} の指紋を補えない（ファイルを読めない）`); return; }
     if (obj[key] === undefined) { obj[key] = want; changed = true; return; }
     if (obj[key] !== want) problems.push(`作業記録の inputs の ${what} の指紋 ${obj[key]} が渡した資料の指紋 ${want} と違う`);
   };
   const inputs = worklog.inputs.map((x) => {
     if (!x || typeof x !== 'object' || typeof x.ref !== 'string') return x;
-    const out = { ...x };
     const m = fixed.get(x.ref);
-    const bytes = m ? null : bytesOf(x.ref);
-    fill(out, 'hash', m ? m.hash : bytes === null ? null : sha256Bytes(bytes), x.ref);
+    if (!m) { problems.push(`作業記録の inputs の ${x.ref} は渡していない資料（query の資料に無い）`); return x; }
+    const out = { ...x };
+    fill(out, 'hash', m.hash, x.ref);
     if (Array.isArray(x.spans)) {
       out.spans = x.spans.map((sp) => {
         if (!sp || typeof sp !== 'object' || !parseSpan(sp.span)) { problems.push(`作業記録の inputs の ${x.ref} の範囲 ${JSON.stringify(sp?.span ?? sp)} を読めない`); return sp; }
+        const own = m.spans?.find((y) => y.span === sp.span);
+        if (!own) { problems.push(`作業記録の inputs の ${x.ref} の ${sp.span} は渡していない範囲（query の spans に無い）`); return sp; }
         const o = { ...sp };
-        const own = m?.spans?.find((y) => y.span === sp.span);
-        let want = own ? own.hash : null;
-        if (!own) { const b = bytesOf(x.ref); want = b === null ? null : sha256Bytes(Buffer.from(spanText(fileLines(b), sp.span), 'utf8')); }
-        fill(o, 'hash', want, `${x.ref} の ${sp.span}`);
+        fill(o, 'hash', own.hash, `${x.ref} の ${sp.span}`);
         return o;
       });
     }
@@ -161,6 +152,10 @@ export function completeQuoteHashes(inventory, textOf) {
   return { inventory: changed ? { ...inventory, elements } : inventory, changed };
 }
 
+// 適用する文書の一般規約のファイル（task の instructions の 4 つ目）: run の領域の写し（document-rules/<指紋>.md）。受付で写しを
+// 保存できなかったときは、同じ版の規約の正本（references/document-rules.md）
+const docRulesPathOf = (run) => (run.docRules ? join(run.runDir, run.docRules.ref) : DOC_RULES_PATH);
+
 // task を作る。資料（input_refs）は claim では渡さず、query が返してその時点の指紋を固定する（artifact-formats.md「claim の Task」）。
 export function makeTask(run, spec) {
   const n = run.nextTaskNo();
@@ -170,7 +165,7 @@ export function makeTask(run, spec) {
   const inputRefs = (spec.input_refs ?? []).filter((x) => x && x.ref);
   const task = {
     task_id: taskId, role: spec.role, model: role.model, effort: role.effort,
-    instructions: instructionsOf(spec.role).map((rel) => join(SKILL_DIR, rel)),
+    instructions: [...instructionsOf(spec.role).map((rel) => join(SKILL_DIR, rel)), docRulesPathOf(run)],
     attempt_dir: attemptDir, result_path: join(attemptDir, 'return.json'),
     context: {
       run_dir: run.runDir, stage: spec.stage, unit_id: spec.unit_id ?? null, perspective: spec.perspective ?? null,

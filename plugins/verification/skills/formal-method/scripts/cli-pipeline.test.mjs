@@ -150,6 +150,28 @@ test('SP-FORMALMETHOD-012・014 PR-BPDESIGNEDSKILL-028: 担当が指紋と docum
   }
 });
 
+test('SP-FORMALMETHOD-012 PR-BPDESIGNEDSKILL-028: 畳んだ資料（query の entries）から読んだファイルを作業記録に書くと、CLI が渡した資料の指紋で補って登録し、attempts/ の資料は畳まない', async (t) => {
+  // 反例の原因の分類役は、検査と replay の記録（checks/ の 2 つのディレクトリ）を続けて受け取るので、query はそれを checks/ に畳む
+  const scenario = { properties: [{ id: 'P1', file: 'spec.md', line: 2, statement: 'x は常に 0 以上である', query: { result: 'sat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' } }] };
+  const { status, harness: { memory } } = await runScenario(t, { scenario });
+  const dir = status.run_dir;
+  const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
+  const folded = memory.tasks.flatMap((task) => (task.query_inputs ?? []).filter((x) => x.entries).map((x) => ({ task, x })));
+  assert.ok(folded.length >= 1, '畳んだ資料がある');
+  for (const { task, x } of folded) {
+    assert.ok(!x.ref.startsWith('attempts/'), `attempts/ の資料を畳まない: ${x.ref}`);
+    assert.equal(x.hash, undefined, '畳んだ資料は指紋を返さない');
+    const e = ledger.entries.find((y) => y.kind === 'worklog' && y.producer === task.task_id);
+    assert.ok(e, `${task.task_id} の作業記録が登録された`);
+    const w = JSON.parse(readFileSync(join(dir, e.ref), 'utf8'));
+    const fixed = new Map(e.input_refs.map((y) => [y.ref, y]));
+    const fromFold = w.inputs.filter((y) => x.entries.some((en) => y.ref.startsWith(`${x.ref}${en.entry}`)));
+    assert.ok(fromFold.length >= x.entries.length, `${task.task_id}: 畳んだ資料の entry ごとに読んだファイルがある`);
+    for (const y of fromFold) assert.deepEqual(y, fixed.get(y.ref), `${task.task_id}: ${y.ref} の指紋は台帳の input_refs と同じ`);
+  }
+  for (const task of memory.tasks) for (const x of task.query_inputs ?? []) if (x.ref.startsWith('attempts/')) assert.ok(x.hash && !x.entries, `${task.task_id}: attempts/ の資料はファイルのまま ${x.ref}`);
+});
+
 test('SP-FORMALMETHOD-001 AC-01: 同じ依頼を 2 回渡すと、verified_scope の対象・版・範囲が一致し、指定していない目標が検証済みに現れない', async (t) => {
   const a = await runScenario(t, {});
   const b = await runScenario(t, {});

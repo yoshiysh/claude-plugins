@@ -2,7 +2,7 @@
 
 # 型の抜粋（model-author）
 
-この役が読み書きする型だけを [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
+この役が書く型（`Worklog`・`AuthorReturn`・`ModelFile`・`MappingFile`）の節と、読む型（`Task`・`Request`・`fixed`・`Inventory`・`Manifest`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
 
 ## 共通の型
 
@@ -17,13 +17,87 @@ Span        = string                       // "L<開始>-L<終了>"。1 始ま�
 FilePath    = string                       // 対象の根からの相対 path。"/" 区切り、"." と ".." を含まない。単一のファイルの対象では、そのファイル名。除いたディレクトリを指すときだけ末尾に "/" を付ける
 SourceRef   = { target_id: Id, file: FilePath, span: Span }
 Stage       = "受付" | "洗い出し" | "モデル化" | "計画" | "実行" | "確認" | "集約"
-Measure     = { value: number, unit: "ms" | "bytes" | "count" | "tokens" }
-            | { status: "取得できず", reason: string }
-            | { status: "該当なし", reason: string }
-RecordKind  = "request" | "target_snapshot" | "document_rules" | "inventory" | "model" | "mapping" | "partitions" | "material_view"
-            | "plan" | "mutations" | "query" | "execution_evidence" | "worklog" | "review_record" | "judgments" | "ledger"
-            | "result" | "report" | "salvage_worklog" | "salvage_ledger"
-ExecKind    = "property" | "composition" | "contract" | "sanity" | "mutation" | "replay" | "ablation"   // ablation は静的な確認の実行
+```
+
+## 依頼（Request）
+
+```text
+Request = {
+  targets: [Target]+,
+  goals: [Statement]+,
+  known_requirements?: [Statement],       // 省略は []
+  scope?: Scope,                          // 省略は対象と目標の全体
+  time_limit_seconds?: int≥1              // 省略は上限を渡さなかったもの
+}
+Target    = { id: Id, location: string, revision?: string, content_hash?: Sha256 }   // location はファイルかディレクトリ
+Statement = { id: Id, text: string, source?: SourceRef }
+Scope     = { include: [Pointer]+, exclude: [{ item: Pointer, reason: string }] }
+Pointer   = { kind: "target" | "goal" | "known_requirement", id: Id }
+          | { kind: "location", target_id: Id, file: FilePath, span?: Span }   // span を省くとファイルの全体
+```
+
+```text
+fixed = { revision: string | null, content_hash: Sha256, root: string,          // root は対象の元の絶対パス（symbolic link を解決した先）
+          manifest_ref: Ref,                                                      // targets/<target_id>/manifest.json
+          files: [{ path: FilePath, abs_path: string, content_hash: Sha256 | "unreadable", text: boolean }] }   // abs_path は元のファイルの絶対パス
+Manifest = { root: string, files: [{ path: FilePath, abs_path: string, workspace_path: string | null,   // workspace_path は作業ツリーからの相対 path（外なら null）
+             content_hash: Sha256 | "unreadable", text: boolean }] }
+```
+
+## 性質ごとの結果（SP-003・004・005・007・011・012）
+
+```text
+Assurance =
+    { kind: "範囲を限った検査", scope: string, bounds: [{ item: string, bound: string }]+, scope_variables: [string], fairness_assumptions: [string] }   // scope_variables は範囲として扱う変数（SP-005。query で宣言した記号の名前）
+  | { kind: "無界の証明", proposition: string, open_obligations: [string], fairness_assumptions: [string] }
+  | { kind: "形式検証でない確認", method: string }
+```
+
+## 形式モデルと対応（SP-005・006）
+
+```text
+Model = {
+  id: Id,
+  ref: Ref,
+  covers: { targets: [Id], states: [string], events: [string],
+            assumptions: [{ id: Id, text: string }], constraints: [string],
+            excluded: [{ item: string, reason: string }] },
+  mapping: [{ source: Pointer, property_id: Id, model_element: string, check_ids: [Id],
+              relation: "形式化" | "形式検証でない確認" | "範囲外" | "対応なし", reason: string | null }],
+  unmapped: { requirements: [Pointer], properties: [Id], model_elements: [string] },
+  combinations: Combinations,
+  paths: Paths,
+  behavior: Behavior,
+  diagram: Diagram
+}
+Combinations = { applicable: false, reason: string }
+  | { applicable: true,
+      cells: [{ state: string, event: string,
+                class: "許される" | "禁止された" | "対応できていない",
+                grounds: string,           // 許される遷移の条件、禁止の出所、又は不足する情報
+                transition_ids: [Id] }] }  // cells は state × event の全ての組。順は states・events の宣言順
+Paths = { applicable: false, reason: string }
+  | { applicable: true,
+      targets: [{ state: string, kind: "目標" | "完了" | "停止" | "再開先", property_id: Id }],
+      verified: [{ path: string, property_id: Id }],
+      excluded: [{ path: string, reason: string }],
+      unverified: [{ target: string, reason: string }] }
+Behavior = { applicable: false, reason: string }
+  | { applicable: true,
+      outcomes: { success: [string], failure: [string], interruption: [string], stop: [string] },
+      human_inputs: [{ event: string, accepted_in: [string] }],
+      resumptions: [{ transition_id: Id, resume_to: string }] }   // 検証する相手の状態遷移の再開
+Diagram = { derivable: false, reason: string }
+  | { derivable: true, format: "mermaid", text: string,
+      element_map: [{ diagram_element: string, model_element: string }],
+      extra: [string], missing: [string], omitted_conditions: [string] }
+```
+
+## 反例と原因（SP-011）
+
+```text
+Question = { id: Id, missing_decision: string, affected: [string]+, options: [string]+ }
+Subject = { kind: "counterexample", id: Id } | { kind: "combination", model_id: Id, state: string, event: string } | { kind: "question", id: Id }   // 原因を分ける主題
 ```
 
 ## 担当の成果物
@@ -113,27 +187,6 @@ MappingFile = { schema: "formal-method.mapping/1",
 - モデル作成役は 1 つの task で全てのモデルを作り、`outputs` にモデルごとの `model` と `mapping` を並べる。`MappingFile.model_id` が `ModelFile.model_id` と一致する組で結び付ける。どのモデルにも `MappingFile` がちょうど 1 つあり、どの `MappingFile` も実在のモデルを指す。理由: モデルの数と分け方は、inventory の全体を見て初めて決まる。モデルごとに task を出すには、その数を task の前に決める者が要る。
 - 退けた案: モデルごとに model-author の task を出す。
 
-## 反例と原因（SP-011）
-
-```text
-Counterexample = {
-  id: Id, property_id: Id, sources: [Pointer]+, check_id: Id,
-  input_and_trace: string, violated_condition: string,
-  replay: { confirmation_id: Id, steps_ref: Ref }
-}
-Cause = {
-  subject: { kind: "counterexample", id: Id } | { kind: "combination", model_id: Id, state: string, event: string } | { kind: "question", id: Id },
-  cause: "要求の不足" | "形式モデルの欠陥" | "分類処理の欠陥" | "対象が性質を満たさない" | "原因未確認",
-  grounds: string,
-  classified_by: string                    // 分類した担当の task_id。担当を出さなかったときだけ "cli"
-}
-Question = { id: Id, missing_decision: string, affected: [string]+, options: [string]+ }
-```
-
-- `Counterexample.check_id` は、`kind` が `property` か `composition` で `verdict` が `反例` の検査を指す（`kind: "contract"` の検査からは作らない。[分割と合成](../artifact-formats.md#分割と合成sp-008009)）。`replay` の確認の作り方と `steps_ref` の指す先は [CLI 契約の証人](../cli-contract.md#証人)。
-- 全ての反例と `対応できていない` 組合せは、`causes` に 1 つずつ要素を持つ。
-- `questions` に入るのは、原因の分類が `要求の不足` の問いだけである。
-
 ## 担当の返り値
 
 `attempts/<task_id>/return.json`（claim の Task の `result_path`）。担当はここに書いてから `submit` を流す。Workflow の返り値に内容を書かない（`run-daemon` は返り値を読まない）。
@@ -147,21 +200,6 @@ AuthorReturn = {
   blocked_by_question: [Id],              // 回答を待つ問いに依存する inventory の性質の id（問いの id ではない）
   reason: string | null,                  // cannot_proceed のとき非 null
   worklog_ref: Ref
-}
-ReviewReturn = {
-  task_id: Id, unit_id: Id,
-  perspective: "extraction" | "nonformal" | "fidelity" | "composition",
-  result: "成り立つ" | "成り立たない" | "確認できず",
-  findings: [{ ref: string, kind: "omission" | "addition" | "meaning_change" | "clause_role" | "assurance_overclaim" | "vacuity" | "mutation_invalid" | "boundary_gap" | "circular_assumption" | "other", note: string }],
-  judgments: [{ id: Id, result: "成り立つ" | "成り立たない" | "確認できず", note: string }],   // 忠実さだけ: そのモデルの判断を要する項目の全てに 1 つずつ。他は []
-  record_ref: Ref, worklog_ref: Ref
-}
-CauseReturn = {
-  task_id: Id, unit_id: Id,
-  cause: "要求の不足" | "形式モデルの欠陥" | "分類処理の欠陥" | "対象が性質を満たさない" | "原因未確認",
-  grounds: string,
-  questions: [Question],                  // cause が 要求の不足 のとき 1 つ以上、他は []
-  record_ref: Ref, worklog_ref: Ref
 }
 ```
 
@@ -185,9 +223,10 @@ Task = {
   role: "extractor" | "model-author" | "partition-author" | "plan-author"
       | "extraction-reviewer" | "fidelity-reviewer" | "assurance-reviewer" | "composition-reviewer" | "cause-analyst",
   model: string, effort: string,                // workers の行と同じ値（正本は scripts/lib/roles.mjs）
-  instructions: [string, string, string],       // 担当の指示（agents/<role>.md）、その役の分の義務（references/obligations/<author|confirmer>.md）、
-                                                // その役の型の抜粋（references/types/<role>.md）の絶対 path。後の 2 つは scripts/role-references.mjs が
-                                                // 正本（agent-obligations.md・この文書）から作る生成物
+  instructions: [string, string, string, string],   // 担当の指示（agents/<role>.md）、その役の分の義務（references/obligations/<author|confirmer>.md）、
+                                                // その役の型の抜粋（references/types/<role>.md）、適用する文書の一般規約（run の領域の
+                                                // document-rules/<指紋>.md。写しを保存できなかったときは同じ版の references/document-rules.md）の絶対 path。
+                                                // 2・3 つ目は scripts/role-references.mjs が正本（agent-obligations.md・この文書）から作る生成物
   attempt_dir: string, result_path: string,     // 絶対 path。result_path は attempt_dir の return.json
   context: TaskContext
 }
@@ -200,7 +239,7 @@ TaskContext = {
   model_id: Id | null,
   property_ids: [Id],
   candidates: [{ id: Id, nodes: [string]+ }],   // partition-author だけ空でない（Decomposition.candidates と同じ id）
-  subject: <Cause.subject と同じ形> | null      // cause-analyst だけ非 null
+  subject: Subject | null                 // cause-analyst だけ非 null
 }
 ```
 
@@ -224,5 +263,6 @@ Worklog = {
 ```
 
 - 文の欄（`actions` など）は、文書の一般規約（`document_rules` が指す写し）に従って書く。
-- 担当の作業記録の `inputs[].hash`・`inputs[].spans[].hash`・`document_rules` は、担当が省いてよい。`submit` の照合で、CLI が省いた値を補い（指紋はその担当の `materials`（最初の `query` の時点の指紋）の値。`materials` に無い ref と範囲は今のファイルとその範囲の行で求める。`document_rules` は `claim` の値）、`worklog.json` を書き直してから照合する。担当が書いた値が CLI の値と違えば、作業記録の欠陥として `problems` で差し戻す。登録する作業記録は補った後の、この形のファイルである。理由: 指紋を CLI だけが持てば、担当が手で求めた値との食い違いが起きない。
+- 担当の作業記録の `inputs[].hash`・`inputs[].spans[].hash`・`document_rules` は、担当が省いてよい。`submit` の照合で、CLI が省いた値を補い（指紋はその担当の `materials`（最初の `query` の時点の指紋）の値。`document_rules` は `claim` の値）、`worklog.json` を書き直してから照合する。担当が書いた値が CLI の値と違えば、作業記録の欠陥として `problems` で差し戻す。登録する作業記録は補った後の、この形のファイルである。理由: 指紋を CLI だけが持てば、担当が手で求めた値との食い違いが起きない。
+- 補うのは `materials` にある ref と範囲だけである。`materials` に無い ref（渡していない資料。`query` を流す前の提出では全ての ref）と、その ref の `materials` の `spans` に無い範囲は、今のファイルで求めずに作業記録の欠陥として差し戻す（担当が指紋を書いていても同じ）。理由: `inputs` は渡した資料のうち読んだものの欄で（SP-012 の「渡した資料」）、渡していない資料の指紋を補うと、資料の外を読んだ記録が登録される。
 - salvage の作業記録は時刻を含まない。

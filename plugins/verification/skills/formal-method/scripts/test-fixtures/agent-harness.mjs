@@ -4,7 +4,7 @@
 // 書く形は artifact-formats.md の「担当の成果物」「担当の返り値」「claim の Task」「作業記録」だけ。task から読むのは Task と TaskContext の欄と、
 // query が返した資料（input_refs）だけ。最後に司令塔の代わりに close を呼ぶ（Workflow の返り値は {agents, tokens}）。
 // 受け取った task が契約の形（claim の Task の欄、役ごとの context）に合わなければ、その違反で失敗する。
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, mkdtempSync, chmodSync, linkSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, mkdtempSync, chmodSync, linkSync, unlinkSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
@@ -66,9 +66,10 @@ export function taskViolations(task, runDir, memory = null, worker = null) {
   const CONTEXT_KEYS = ['candidates', 'model_id', 'perspective', 'property_ids', 'run_dir', 'stage', 'subject', 'target_id', 'unit_id'];
   if (Object.keys(c).sort().join() !== CONTEXT_KEYS.join()) v.push(`${task.task_id}: context の欄 ${Object.keys(c).sort().join()}（資料は query で引く）`);
   const ins = task.instructions ?? [];
-  // 役の指示・役の分の義務（作成役か確認役）・役の型の抜粋の 3 つ（artifact-formats.md「claim の Task」）
+  // 役の指示・役の分の義務（作成役か確認役）・役の型の抜粋・run の領域の文書の一般規約の写しの 4 つ（artifact-formats.md「claim の Task」）
   const cls = ['extractor', 'model-author', 'partition-author', 'plan-author'].includes(task.role) ? 'author' : 'confirmer';
-  if (ins.length !== 3 || !ins[0].endsWith(`/agents/${task.role}.md`) || !ins[1].endsWith(`/references/obligations/${cls}.md`) || !ins[2].endsWith(`/references/types/${task.role}.md`) || !ins.every((x) => existsSync(x))) v.push(`${task.task_id}: instructions ${JSON.stringify(ins)}`);
+  if (ins.length !== 4 || !ins[0].endsWith(`/agents/${task.role}.md`) || !ins[1].endsWith(`/references/obligations/${cls}.md`) || !ins[2].endsWith(`/references/types/${task.role}.md`)
+    || !/^document-rules\/[0-9a-f]{64}\.md$/.test(relative(runDir, ins[3])) || !ins.every((x) => existsSync(x))) v.push(`${task.task_id}: instructions ${JSON.stringify(ins)}`);
   if (task.attempt_dir !== join(runDir, 'attempts', task.task_id) || task.result_path !== join(task.attempt_dir, 'return.json')) v.push(`${task.task_id}: attempt_dir・result_path`);
   if (!existsSync(task.attempt_dir)) v.push(`${task.task_id}: attempt の領域が無い`);
   // workers の行の role は、その worker が持つ担当の役を出てくる順に + でつないだもの（分割と計画を 1 体が担うとき 2 つ）
@@ -167,9 +168,32 @@ export function namedClauses(text, mp, p, { mutate = false } = {}) {
   return { text: head + lines.join('\n'), clauses };
 }
 
-// 作業記録の下書き（agent-obligations.md「作業記録」）: 読んだファイルの ref だけを書き、指紋と document_rules は書かない（submit の照合で CLI が補う）
+// 作業記録の下書き（agent-obligations.md「作業記録」）: 読んだファイルの ref だけを書き、指紋と document_rules は書かない（submit の照合で CLI が補う）。
+// 担当と同じく、query の資料を全て読んだものとする。ディレクトリの資料（hash の無い資料、畳んだ資料の / で終わる entry）はその下のファイルごとに、
+// 畳んだ資料は entry ごとに <ref><entry> で 1 要素にする
+function filesUnder(path, ref) {
+  const out = [];
+  for (const name of readdirSync(path).sort()) {
+    const st = statSync(join(path, name));
+    if (st.isDirectory()) out.push(...filesUnder(join(path, name), `${ref}${name}/`));
+    else if (st.isFile()) out.push(`${ref}${name}`);
+  }
+  return out;
+}
+export function worklogInputs(queryInputs) {
+  const one = (ref, path) => {
+    let dir;
+    try { dir = statSync(path).isDirectory(); } catch { return []; }
+    return dir ? filesUnder(path, `${ref.replace(/\/+$/, '')}/`).map((r) => ({ ref: r })) : [{ ref }];
+  };
+  return (queryInputs ?? []).flatMap((x) => {
+    if (x.entries) return x.entries.flatMap((e) => one(`${x.ref}${e.entry}`, `${x.path}${e.entry}`));
+    if (x.hash) return [{ ref: x.ref, ...(x.spans ? { spans: x.spans.map((span) => ({ span })) } : {}) }];
+    return one(x.ref, x.path);
+  });
+}
 function worklog(task) {
-  const inputs = (task.query_inputs ?? []).filter((x) => x.hash).map((x) => ({ ref: x.ref, ...(x.spans ? { spans: x.spans.map((span) => ({ span })) } : {}) }));
+  const inputs = worklogInputs(task.query_inputs);
   return {
     schema: 'formal-method.worklog/1', role: task.role, task_id: task.task_id, stage: task.context.stage,
     target: task.context.target_id ?? 'T1', inputs, actions: `${task.role} として与えられた資料を読んだ。`, results: '返り値を書いた。',
@@ -469,8 +493,8 @@ export function makeHarness(scenario, hooks = {}) {
           // 呼び出しが閉じた・期限を過ぎた（時間の上限のケース）なら、担当を終える
           if (!q.ok) { call.claims.push({ worker: w.id, query: q }); return { ...rec, ok: false }; }
           // query_inputs: query の応答の inputs をそのまま（path を見るテストのため）
-          // 同じディレクトリに畳んだ資料（{ref, path, entries}）は、entries ごとの ref に戻す（cli-contract.md の query）
-          const flat = q.inputs.flatMap((x) => (x.entries ? x.entries.map((e) => ({ name: e.name, ref: `${x.ref}${e.entry}` })) : [x]));
+          // 同じディレクトリに畳んだ資料（{ref, path, entries}）は、entries ごとの ref に戻す（cli-contract.md の query。ディレクトリの entry の末尾の / は除く）
+          const flat = q.inputs.flatMap((x) => (x.entries ? x.entries.map((e) => ({ name: e.name, ref: `${x.ref}${e.entry}`.replace(/\/$/, '') })) : [x]));
           task = { ...raw, query_inputs: q.inputs, context: { ...raw.context, input_refs: flat.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })) } };
           memory.tasks.push(task);
           call.tasks.push(task);

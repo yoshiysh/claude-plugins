@@ -4,7 +4,7 @@
 // 台帳と run の状態を書くのは run-daemon だけで、役と client は依頼のファイルを公開するだけ（Lock.tla・salvage の前提）。
 // 1 体の worker は 1 つ以上の担当（task）を持つ。claim はその worker の出し終えていない担当を全て返し、submit は担当ごとに受理か拒否を返す。
 // 差し戻しの無い submit の応答は、同じ claim の規則で次に出す担当を next に持つ（担当は終わりの claim を流さない）。
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { collectReturn, completeQuoteHashes, completeWorklog, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
@@ -306,17 +306,30 @@ function handle(ctx, req, name) {
 }
 
 // query の応答を小さくする: run の領域の中の同じディレクトリの資料（範囲を持たない）が 2 つ以上続けば、そのディレクトリの 1 つの ref と path と
-// entries（[{name, entry}]。entry はディレクトリの中の名前）に畳む。続いた並びだけを畳むので、entries を順に戻すと input_refs の並びになる。
-// 畳んだ資料の指紋は返さない（materials と台帳の input_refs に残る）。対象のファイルの ref と、run の領域の根の資料は畳まない（cli-contract.md の query）
+// entries（[{name, entry}]。entry はディレクトリの中の名前で、資料がディレクトリなら末尾に / を付ける）に畳む。続いた並びだけを畳むので、
+// entries を順に戻すと input_refs の並びになる（資料の ref は <ref><entry>）。畳んだ資料の指紋は返さない（materials と台帳の input_refs に残る）。
+// 畳まないもの: 対象のファイルの ref、run の領域の根の資料、attempts/ の下の資料（cli-contract.md の query）。attempts/ の資料は作成役の
+// attempt の領域の直下にあり、畳むと作成役の作業記録・返り値を含む attempt のディレクトリを渡すことになるので、ファイルのまま返す。
 function foldDirs(items, pathOf) {
-  const dirOf = (x) => { const n = normRef(x.ref); if (x.spans || n === null || parseTargetRef(x.ref)) return null; const d = posix.dirname(n); return d === '.' ? null : d; };
+  const dirOf = (x) => {
+    const n = normRef(x.ref);
+    if (x.spans || n === null || parseTargetRef(x.ref) || n === 'attempts' || n.startsWith('attempts/')) return null;
+    const d = posix.dirname(n);
+    return d === '.' ? null : d;
+  };
+  const entryOf = (x) => {
+    const n = normRef(x.ref);
+    let dir = false;
+    try { dir = statSync(pathOf(n)).isDirectory(); } catch { dir = false; }
+    return { name: x.name, entry: `${posix.basename(n)}${dir ? '/' : ''}` };
+  };
   const out = [];
   for (let i = 0; i < items.length;) {
     const d = dirOf(items[i]);
     let j = i + 1;
     while (d && j < items.length && dirOf(items[j]) === d) j += 1;
     if (j - i < 2) { out.push(items[i]); i += 1; continue; }
-    out.push({ ref: `${d}/`, path: `${pathOf(d)}/`, entries: items.slice(i, j).map((x) => ({ name: x.name, entry: posix.basename(normRef(x.ref)) })) });
+    out.push({ ref: `${d}/`, path: `${pathOf(d)}/`, entries: items.slice(i, j).map(entryOf) });
     i = j;
   }
   return out;
@@ -364,7 +377,7 @@ function batchOf(ctx, hs) {
 const scratchOf = (ctx, w) => join(ctx.run.runDir, 'attempts', `${ctx.callId}-${w.id}`);
 function workerFields(ctx, w) {
   const base = { run_dir: ctx.run.runDir, call_id: ctx.callId, worker: w.id };
-  // document_rules: 適用する文書の一般規約の {ref, version}（担当は写しを読まず、作業記録の document_rules は submit の照合で CLI が補う）
+  // document_rules: 適用する文書の一般規約の {ref, version}（担当は本文を task の instructions の 4 つ目で読み、作業記録の document_rules は submit の照合で CLI が補う）
   return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratchOf(ctx, w), document_rules: docRulesOf(ctx.run) };
 }
 
@@ -434,7 +447,7 @@ function completeDrafts(ctx, s) {
   const readJson = (ref) => { try { return JSON.parse(readFileSync(join(run.runDir, ref), 'utf8')); } catch { return null; } };
   if (ret && mine(ret.worklog_ref)) {
     const wl = readJson(ret.worklog_ref);
-    const r = completeWorklog(wl, { materials: s.materials ?? [], pathOf: pathOfRun(run), docRules: docRulesOf(run) });
+    const r = completeWorklog(wl, { materials: s.materials ?? [], docRules: docRulesOf(run) });
     problems.push(...r.problems);
     if (r.changed) rewrite(ret.worklog_ref, r.worklog);
   }

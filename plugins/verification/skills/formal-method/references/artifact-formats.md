@@ -421,12 +421,13 @@ Counterexample = {
   replay: { confirmation_id: Id, steps_ref: Ref }
 }
 Cause = {
-  subject: { kind: "counterexample", id: Id } | { kind: "combination", model_id: Id, state: string, event: string } | { kind: "question", id: Id },
+  subject: Subject,
   cause: "要求の不足" | "形式モデルの欠陥" | "分類処理の欠陥" | "対象が性質を満たさない" | "原因未確認",
   grounds: string,
   classified_by: string                    // 分類した担当の task_id。担当を出さなかったときだけ "cli"
 }
 Question = { id: Id, missing_decision: string, affected: [string]+, options: [string]+ }
+Subject = { kind: "counterexample", id: Id } | { kind: "combination", model_id: Id, state: string, event: string } | { kind: "question", id: Id }   // 原因を分ける主題
 ```
 
 - `Counterexample.check_id` は、`kind` が `property` か `composition` で `verdict` が `反例` の検査を指す（`kind: "contract"` の検査からは作らない。[分割と合成](#分割と合成sp-008009)）。`replay` の確認の作り方と `steps_ref` の指す先は [CLI 契約の証人](cli-contract.md#証人)。
@@ -905,9 +906,10 @@ Task = {
   role: "extractor" | "model-author" | "partition-author" | "plan-author"
       | "extraction-reviewer" | "fidelity-reviewer" | "assurance-reviewer" | "composition-reviewer" | "cause-analyst",
   model: string, effort: string,                // workers の行と同じ値（正本は scripts/lib/roles.mjs）
-  instructions: [string, string, string],       // 担当の指示（agents/<role>.md）、その役の分の義務（references/obligations/<author|confirmer>.md）、
-                                                // その役の型の抜粋（references/types/<role>.md）の絶対 path。後の 2 つは scripts/role-references.mjs が
-                                                // 正本（agent-obligations.md・この文書）から作る生成物
+  instructions: [string, string, string, string],   // 担当の指示（agents/<role>.md）、その役の分の義務（references/obligations/<author|confirmer>.md）、
+                                                // その役の型の抜粋（references/types/<role>.md）、適用する文書の一般規約（run の領域の
+                                                // document-rules/<指紋>.md。写しを保存できなかったときは同じ版の references/document-rules.md）の絶対 path。
+                                                // 2・3 つ目は scripts/role-references.mjs が正本（agent-obligations.md・この文書）から作る生成物
   attempt_dir: string, result_path: string,     // 絶対 path。result_path は attempt_dir の return.json
   context: TaskContext
 }
@@ -920,13 +922,13 @@ TaskContext = {
   model_id: Id | null,
   property_ids: [Id],
   candidates: [{ id: Id, nodes: [string]+ }],   // partition-author だけ空でない（Decomposition.candidates と同じ id）
-  subject: <Cause.subject と同じ形> | null      // cause-analyst だけ非 null
+  subject: Subject | null                 // cause-analyst だけ非 null
 }
 ```
 
 - 読む資料（`input_refs`: `[{ name, ref }]`。作成側の作業記録と attempt の領域のディレクトリは入れない）は Task に載せず、`query` が返す（[CLI 契約の依頼と応答](cli-contract.md#依頼と応答)）。理由: 渡した資料の指紋を、担当が資料を引いた時点で固定する（SP-012 の「渡した資料」）。
 - 修正の巡の欠陥は Task に載せず、`submit` の応答の `problems` で返す（同じ担当が直して出し直す）。
-- 適用する文書の一般規約（`document_rules`: `{ref, version}`）は Task に載せず、`claim` の応答の最上位に 1 度だけ置く。担当は写しを読まない。
+- 適用する文書の一般規約の版（`document_rules`: `{ref, version}`）は Task に載せず、`claim` の応答の最上位に 1 度だけ置く。規約の本文は `instructions` の 4 つ目のファイルで読む（義務に規約の要約を写さない。写すと規約の正本が 2 つになり、作業記録が要約でなく `document_rules` の版を適用したと記録する）。
 - 返り値の形と命令は Task に載せず、応答の最上位に 1 度だけ置く（形の正本は [CLI 契約のコマンド](cli-contract.md#コマンド)）。返り値の形は `return_schemas[<Task.role>]`（`AuthorReturn`・`ReviewReturn`・`CauseReturn` のどれか）、`query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd`、成果物でない生成物の置き場は `scratch_dir`（worker ごと）。理由: 同じ役の task を何件も返すと、同じ形と絶対 path の命令が task の数だけ並ぶ。
 
 **役と context**（`unit_id` の作り方は決定的で、同じ run の中で一意）
@@ -972,7 +974,7 @@ InputRef = { name: string, ref: Ref, spans?: [Span] }   // spans は対象のフ
 | `composition` | `PartitionsFile`、全てのモデル、`contracts[]`・`composition_conditions[]` の `query_ref`、`kind` が `contract`・`composition` の検査の記録、`worklogs/cli-計画.json`。依存グラフと候補は CLI が導く値でファイルが無いので、モデルと分割で代える |
 | 原因の分類（`cause-analyst`、`perspective` は null） | 主題から辿れる範囲に、全ての対象の依頼の範囲（`extraction` と同じ）を足した範囲の対象のファイル（`要求の不足`・`形式モデルの欠陥` は出所に無いことで決まるので）。`subject` が反例なら、その検査と replay の検査の記録、そのモデルと対応表と、反例のモデルの性質を支える出所の範囲（`modelScope` をその性質に限ったもの）。組合せなら、その `model_id` のモデルと対応表、`worklogs/cli-モデル化.json` と、その状態か出来事の遷移・禁止の `source_ids` の要素の範囲（無ければそのモデルの対応表の行の範囲）。問いなら、問いを返した作成役の `outputs` のファイルと、問いの `affected` の性質の `source_ids` の要素の範囲 |
 
-- 実行していない検査（記録のディレクトリが無いもの）は入れない。`attempts/` のディレクトリは入れない（その中のファイルは入れてよい）。
+- 実行していない検査（記録のディレクトリが無いもの）は入れない。`attempts/` のディレクトリは入れない（その中のファイルは入れてよい）。`query` の応答も、`attempts/` の下のファイルをディレクトリに畳まない（[CLI 契約の依頼と応答](cli-contract.md#依頼と応答)の `query`）。理由: `attempts/<task_id>/` には作成役の作業記録と返り値もあり、ディレクトリとして渡すと独立検証者の読まない資料が入る。
 - **ディレクトリの ref の指紋**: `materials` と台帳の `input_refs`（どちらも `[RefHash]`）では、ディレクトリを指す `input_refs` の要素を、その下の全てのファイル（再帰的に、ディレクトリ自身は除く）の `RefHash` に展開する。並びは `input_refs` の要素の順で、1 つのディレクトリから展開したものの中だけを `ref` の UTF-8 のバイト列の辞書順に並べる。ファイルを指す要素はそのまま 1 つの `RefHash` にする。指紋を取る時点は意味の確認の作り方と同じ（担当の最初の `query`）。理由: `RefHash` はファイル 1 つの指紋なので、ディレクトリの中身を渡した資料として再現できる形にする。
 
 ## Workflow の返り値
@@ -1006,7 +1008,8 @@ Worklog = {
 ```
 
 - 文の欄（`actions` など）は、文書の一般規約（`document_rules` が指す写し）に従って書く。
-- 担当の作業記録の `inputs[].hash`・`inputs[].spans[].hash`・`document_rules` は、担当が省いてよい。`submit` の照合で、CLI が省いた値を補い（指紋はその担当の `materials`（最初の `query` の時点の指紋）の値。`materials` に無い ref と範囲は今のファイルとその範囲の行で求める。`document_rules` は `claim` の値）、`worklog.json` を書き直してから照合する。担当が書いた値が CLI の値と違えば、作業記録の欠陥として `problems` で差し戻す。登録する作業記録は補った後の、この形のファイルである。理由: 指紋を CLI だけが持てば、担当が手で求めた値との食い違いが起きない。
+- 担当の作業記録の `inputs[].hash`・`inputs[].spans[].hash`・`document_rules` は、担当が省いてよい。`submit` の照合で、CLI が省いた値を補い（指紋はその担当の `materials`（最初の `query` の時点の指紋）の値。`document_rules` は `claim` の値）、`worklog.json` を書き直してから照合する。担当が書いた値が CLI の値と違えば、作業記録の欠陥として `problems` で差し戻す。登録する作業記録は補った後の、この形のファイルである。理由: 指紋を CLI だけが持てば、担当が手で求めた値との食い違いが起きない。
+- 補うのは `materials` にある ref と範囲だけである。`materials` に無い ref（渡していない資料。`query` を流す前の提出では全ての ref）と、その ref の `materials` の `spans` に無い範囲は、今のファイルで求めずに作業記録の欠陥として差し戻す（担当が指紋を書いていても同じ）。理由: `inputs` は渡した資料のうち読んだものの欄で（SP-012 の「渡した資料」）、渡していない資料の指紋を補うと、資料の外を読んだ記録が登録される。
 - salvage の作業記録は時刻を含まない。
 
 ## 記録台帳

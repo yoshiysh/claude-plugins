@@ -232,7 +232,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
     - `claim` は、同じ応答で返す 2 つ以上の task が共有する資料を `shared_inputs` に 1 度だけ挙げる。担当は共有の資料を 1 度だけ読む。渡した資料の指紋は、task ごとの最初の `query` の時点で task ごとに固定する（共有の資料でも task ごとに記録する）。
   - 上限 `UNIT_MAX_BYTES` の値と根拠（実測の手順・余裕・余裕の限界）の正本は [CLI 契約の定数](cli-contract.md#定数) の `UNIT_MAX_BYTES` の根拠で、ここには写さない。
 - 担当は、`<run_dir>/formal-method-cli.mjs`（呼び出しのたびに `run-daemon` が書く入口。本物の CLI を絶対パスで import するだけで、台帳に登録しない）で `claim` を流し、`query` で資料を引き、成果物と返り値を attempt の領域に書いて `submit` を流す。落ちたら直して同じ `submit` を流し直し、受理された `submit` の応答の `next` の task を続けて果たし、`next` が `done: true` なら終える（終わりの `claim` は流さない）。
-  - `claim` は、呼び出しと worker を照らし、その worker の出し終えていない担当の task（[claim の Task](artifact-formats.md#claim-の-task)）を全て `tasks` で返す。task は指示ファイル（`agents/<role>.md`、その役の分の義務 `references/obligations/<author|confirmer>.md`、その役の型の抜粋 `references/types/<role>.md`。後の 2 つは `scripts/role-references.mjs` が `agent-obligations.md` と `artifact-formats.md` から作る生成物）の絶対パス、`attempt_dir`、`result_path` を持つ。worker で 1 つの `query_cmd`・`submit_cmd`・`scratch_dir` と、役ごとの返り値の形 `return_schemas` は、応答の最上位に 1 度だけ置く。
+  - `claim` は、呼び出しと worker を照らし、その worker の出し終えていない担当の task（[claim の Task](artifact-formats.md#claim-の-task)）を全て `tasks` で返す。task は指示ファイル（`agents/<role>.md`、その役の分の義務 `references/obligations/<author|confirmer>.md`、その役の型の抜粋 `references/types/<role>.md`、run の領域の文書の一般規約の写し `document-rules/<指紋>.md`。2・3 つ目は `scripts/role-references.mjs` が `agent-obligations.md` と `artifact-formats.md` から作る生成物）の絶対パス、`attempt_dir`、`result_path` を持つ。worker で 1 つの `query_cmd`・`submit_cmd`・`scratch_dir`・`document_rules`（適用する文書の一般規約の `{ref, version}`。作業記録の `document_rules` の値で、`submit` の照合で CLI が補う）と、役ごとの返り値の形 `return_schemas` は、応答の最上位に 1 度だけ置く。
   - `query` は、その担当の `input_refs` の資料の path だけを返し、担当の外の資料を拒む。`refs` は `.` と `..` を畳んでから照らし、畳んだ後に run の領域の外を指す ref と絶対の path は担当の外とする。最初の `query` の時点で資料の指紋（`expandRefHashes`）を固定し、これを渡した資料（SP-012）として記録する。`query` を流さなかった担当の渡した資料は空である。
   - `submit` は、返り値を書いた task（前の照合から attempt の領域が変わったもの。無ければ出し終えていない全ての task）の `result_path` の返り値を照合し（[担当の返り値](artifact-formats.md#担当の返り値)と各段の照合）、task ごとに `{ok, problems, done}` を返す。受理したものは、呼び出しを閉じた後に台帳に足す。期限の後と閉じた後の `submit` は拒む。
   - 担当が見ていない前の `submit` の応答（依頼の公開から `WORKER_CALL_MAX_MS` 近くの後に書いた応答か、書けなかった応答）があり、その後に取った task の attempt の領域が 1 つも変わっていなければ、照合し直さず前の応答をそのまま返す（期限の後でも返す）。前の応答を見た後の同じ提出は、直せなかった提出として照合する（欠陥が減らなければ残った欠陥ごと受理する）。
@@ -853,6 +853,7 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
   - 正本は `docs/guidelines/documentation.md` である。同梱の写しが正本と一致するかを、`make test` の検査が確かめる。
   - 作業ツリーにある正本を優先する経路は持たない（依頼者の決定）。理由: 実行する場所によって適用する規約が変わると、run ごとの記録の書き方が揃わない。
   - 受付で写しのバイト列の指紋を版とし、不変の写しを run の領域に保存する。各作業記録は、その版と写しへの参照を持つ（PR-040）。
+  - 担当は、task の `instructions` の 4 つ目として run の領域の写しを読む。作業記録の `document_rules`（版と写しへの参照）は `submit` の照合で CLI が補う。理由: 担当の義務に規約の要約を置くと、規約の中身の部分的な写しが 2 つ目の正本になり、作業記録は要約しか読んでいない担当についても、その版を適用したと記録する。
   - 依頼の項目に規約の場所は無いので、依頼から受け取る口は作らない。
 - 保存できた記録は、利用者が消すまで残す（PR-034）。CLI は run の領域を消す手順を持たない。
 
