@@ -112,7 +112,7 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 
 macOS arm64、TLC v1.7.4、8 workers での実行。137 ケースが全て期待どおり（exit 0）。
 
-**未検証（Lock.tla）**: 下の表と数の Lock.tla の行は、Lock.tla を台帳 1 つ（段ごとの rename の置き換え）・status の参照・salvage の結果の `ledger.json` の参照に改めた版（`St`・`Ref`・`RefOnlyIfPublished`、変異 `ref_without_publish`、証人 `d_status_ref`）の前の結果である。改めた版で流したのは、SANY による構文と意味の解析（`java -cp tla2tools.jar tla2sany.SANY Lock.tla`。誤り無し）だけである。手元では `check.sh` の起動が実行環境の権限で止められたので、TLC は 1 ケースも流していない。改めた版の Lock のケースは 71 個（基準 4、証人 44、変異 23）で、CI（`verification.yml` の 8 シャード）で全ケースが期待どおりになるまで、Lock.tla の行の表と数は改めた設計の証拠にならない。状態の数も変わる見込みである（段の版の台帳、status の参照と本文の非決定）。Run.tla は変えていない。
+**未検証（Lock.tla）**: 下の表と数の Lock.tla の行は、Lock.tla を台帳 1 つ（段ごとの rename の置き換え）・status の参照・salvage の結果の `ledger.json` の参照に改めた版（`St`・`Ref`・`RefOnlyIfPublished`、変異 `ref_without_publish`、証人 `d_status_ref`）の前の結果である。改めた版は、SANY による構文と意味の解析（誤り無し）の後、手元（macOS arm64、TLC v1.7.4、OpenJDK 11）で `ONLY='^lock-' sh check.sh` を流し、Lock の 71 ケース（基準 4、証人 44、変異 23）が全て期待どおりだった（`mismatched 0`、exit 0）。下の表の Lock.tla の行の状態の数は、まだ改める前の版の値である。Run.tla は変えていない。
 
 **未検証**: 下の表と数は、Run.tla を提出ごとの受理・期限の後の提出の拒否・同じ体での出し直しに改めた版（担当の `WLaunch`・`WSubmit`・`WLateSubmit`、司令塔の `CClose`、性質 (3) の 4 つ、変異 `close_rejects_batch`・`accept_after_close`・`accept_after_deadline`・`revise_new_worker`、証人 `accepted_kept_timed_out`・`revise_same_body`・`late_submit_refused`・`duplicate_close`・`stale_close`）の前の結果である。改めた版の TLC の結果は次のとおりで、全ケースを通した結果はまだ無い。全ケースが期待どおりになるまで、Run.tla の行の表と数は改めた設計の証拠にならない。
 
