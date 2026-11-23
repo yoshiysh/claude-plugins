@@ -34,11 +34,18 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 
 ## Lock.tla
 
-**範囲**: `run-daemon` 1、`start` 1、client 2、salvage 2、`run-daemon` の crash 1 回と他の process（salvage・client）の crash 1 回、pid の再利用 1 回、ps が使えなくなる出来事 1 回、state.json の確定の範囲 0〜1、LIVENESS_UNKNOWN_MAX を 2 回とした。
+**範囲**: `run-daemon` 1、`start` 1、client 2、salvage 2、`run-daemon` の crash 1 回と他の process（salvage・client）の crash 1 回、pid の再利用 1 回、ps が使えなくなる出来事 1 回、`ledger.json` が記録する保存済みの範囲 0〜1（`MaxRange`）、LIVENESS_UNKNOWN_MAX を 2 回とした。
 
 **非決定の出来事**: `run-daemon` の起動の失敗と保存先の能力の確認の失敗、rename の前後の crash、遅い `run-daemon` と `start` による停止（確認と停止の間の rename を含む）、`run-daemon` の書込みの途中、結果の公開と status.json の間の crash、勝者の台帳と公開の間の salvage の到着と crash、受け箱の書込みの途中の crash、`salvage.mark` の書込みの途中の crash（変異のとき）、**生死の誤判定**（生きている保持者・勝者を死んだと判定する。基準で常に起こしうる）、台帳・結果・`salvage.mark` の公開の I/O の失敗、結果の公開の負け、status.json の書込みの失敗、生死を判定できない状態の継続、`result.json` が読めないか形に合わなくなる、status.json が読めなくなる（`Corrupt_` で選ぶ）。
 
 **前提**: link・rename・排他作成は不可分。死んだ process は生き返らない。`start` は起動した process の終了を親として正確に観測する。salvage を呼べるのは呼出し元が `run_dir` を受け取った後だけ。結果の内容は <<作った者, 保存済みの範囲, 状態>> とし、状態は `C`（完了）・`S`（停止）・`X`（保存の失敗で作り直した停止 R'）。`records.saved` は内容と別に持つ。「読めない」は一度起きたら続く（以後どの読み手も読めない）とした。
+
+**台帳と status の参照**:
+
+- 台帳 `ledger.json` は run に 1 つで、`run-daemon` が段の確定ごとに段の版 `<<"L", 範囲>>` を rename で置き換え、集約で結果を登録した版で最後に置き換える。保存済みの範囲（`St`）は、rename を終えた `ledger.json` だけで決まる（旧 `state.json` の写しを持たない）。最後の置き換えに失敗すれば、直前の段の版が残る。salvage の追補台帳 `salvage-ledger.json` は、今までどおり link で 1 度だけ作る。
+- salvage の結果は、規則 5 の時点で `ledger.json` を読めたかを内容に持ち、読めたら `records.saved` に `ledger` を載せる（公開しない R' も同じ）。
+- `status.json` の terminal は、`result.json` に公開して確かめた結果（link と再読込の成功、又は負けて既にある結果を読んだ）なら参照 `Ref`、そうでなければ本文を持つ。link の後の fsync・再読込の I/O の誤りは、本文の側（`dout` の非決定）に写す。受け取る側は参照を `result.json` の中身として読み、読めなければ受け取らない（`Done` は status.json の terminal で数える。E_RESULT_UNREADABLE と同じ終わり方）。
+- salvage と `start` の 5-1 が返す参照は、取り消せない `result.json` の中身と同じなので、中身で表した。
 
 **仮の結果と性質 (4)**（依頼者の決定: 公開された結果を正とする）: 結果の内容に `provisional` の印を持たせ、公開されずに返る R'（run-daemon が status.json で返すもの、salvage が標準出力で返すもの）にだけ付ける。性質 (4b) は「仮の結果でない受け取った結果は、公開された `result.json` と一致する」とし、仮の結果があとの正の結果と食い違うことは許す。基準は、生死の誤判定・I/O の失敗・読めない出来事を全て起こしうる形で成り立つ。誤判定と I/O の誤りが重なる run に届くことは、証人 `NeverMisjudgeAndIO` で確かめる。
 
@@ -46,10 +53,10 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 
 | 性質（計画の番号） | 名前 | 変異 |
 |---|---|---|
-| (1) state.json・status.json・ledger.json を書くのは lock を持つ `run-daemon` だけ | `WritersOnlyDaemon` | `salvage_writes_state` |
+| (1) status.json・ledger.json を書くのは lock を持つ `run-daemon` だけ | `WritersOnlyDaemon` | `salvage_writes_state` |
 | (2) run の領域は lock を持った状態でだけ現れる | `RunDirAppearsWithLock` | `dir_before_lock` |
 | lock を消すのは作った者だけ | `LockRemovedOnlyByOwner` | `foreign_unlock` |
-| (3) salvage は state.json・status.json・ledger.json を書かない | `SalvageWritesNoState` | `salvage_writes_state` |
+| (3) salvage は status.json・ledger.json を書かない | `SalvageWritesNoState` | `salvage_writes_state` |
 | (4) 公開される `result.json` は 1 つ（誤判定を含めて） | `OneResultPublished` | `two_names`（2 つの名前に公開する） |
 | (4b) 仮の結果でない受け取った結果は、公開された `result.json` と一致する | `ReceivedNonProvisionalMatches` | `no_provisional`（R' に仮の印を付け忘れる）、`loser_returns_own`、`slow_no_kill`、`unreadable_returns_new` |
 | (4c) 仮の結果は `unsaved` に `result` を持ち、状態は停止。公開された結果は仮でない | `ProvisionalShape` | `saved_without_reload` |
@@ -62,7 +69,8 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 | (7) 判定できない状態が続けば、司令塔は結果を作らずに終える（限界） | `Termination`（結果・E_RESULT_UNREADABLE・諦めのどれかで終わる） | — |
 | (8) 受け箱は書き終えた内容でだけ見え、1 batch に 1 つ | `InboxComplete` | `inbox_create_then_write` |
 | (9) 見える `salvage.mark` は識別を持つ | `MarkHasIdentity` | `mark_create_then_write` |
-| (10) `records.saved` に保存していない記録が載らない | `SavedOnlyPublished` | `saved_without_reload` |
+| (10) `records.saved` に保存していない記録が載らない（salvage が載せる `ledger.json` を含む） | `SavedOnlyPublished` | `saved_without_reload` |
+| (11) `status.json` の参照は、公開された `result.json` だけを指す | `RefOnlyIfPublished` | `ref_without_publish`（公開できなかった結果を参照で返す） |
 | (1) E_RESULT_UNREADABLE は結果を 2 つにしない | `UnreadableOnlyWithPublished` | `unreadable_returns_new`（(4b) で検出） |
 
 ## Run.tla
@@ -80,7 +88,9 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 - E_RESULT_UNREADABLE で終わった司令塔は `unreadable` の状態で止まる。
 - `SALVAGE_RETRY_MAX` は数えない。契約の関係 `SALVAGE_RETRY_MAX` × `SALVAGE_RETRY_MS` > `CALL_MAX_MS` から、勝者が 1 回の呼出しで終える間は呼び直しが尽きない、とした。
 - 判定（`classifyCheck`・`aggregateProperty`・`decideStatus`）は、完了の条件の連言に畳んだ。判定の規則そのものはオラクル（`tests/formal/formal-method-spec/`）が扱う。
-- 担当の呼び出しは段ごとに 1 つ、worker 1 体とした。1 体が複数の task を持つ詰め合わせ・束・依存つきの task、束の上限の半減、同じ段の 2 つ目以降の呼び出しは、モデルの外である（unit と結合のテスト `scripts/call.test.mjs`・`scripts/cli-pipeline-packing.test.mjs` が扱う）。
+- `status.json` の terminal の結果 `statusRes` は本文のまま持つ。参照（`ResultRef`）は加えない。理由: 参照を置くのは `result.json` に公開した（`rpub`）ときだけで、参照の先は取り消せない `result.json` の `dres`、つまり本文と同じ値である。違いは `result.json` が読めない（"corrupt"）ときに参照を読めないことだけで、その終わり方は E_RESULT_UNREADABLE と同じ `Ended` の側に入り、`OneResult`・`UnreadableNoNewResult`・`CompleteOnlyIf`・`SaveFailureStops` は受け取る結果が減るだけで真偽が変わらない。参照が公開された結果だけを指すことは Lock.tla の `RefOnlyIfPublished` で確かめる。
+- `submit` の応答の `next`（同じ worker の次の task）は、モデルの外である。提出は `claim`・`submit` を畳んだ `WSubmit` 1 つで、1 体が持つ task は 1 つなので、次の task が無い。
+- 担当の呼び出しは段ごとに 1 つ、worker 1 体とした（契約の「段の担当を 1 回の呼び出しで起動する」と同じ形）。1 体が複数の task を持つ詰め合わせ・束・依存つきの task、束の上限の半減、同じ段の 2 つ目以降の呼び出しは、モデルの外である（unit と結合のテスト `scripts/call.test.mjs`・`scripts/cli-pipeline-packing.test.mjs` が扱う）。
 - 受理は、提出 1 回の照合で決まる。照合の欠陥は同じ体に 1 巡だけ出し直させ（`Revise`）、その後の提出は残った欠陥ごと受理する。照合の中身は抽象の外である。
 
 | 性質（計画の番号） | 名前 | 変異 |
@@ -101,6 +111,8 @@ Z3=/absolute/path/to/z3 python3 -I tests/formal/formal-method-skill/z3_streams.p
 ## 結果
 
 macOS arm64、TLC v1.7.4、8 workers での実行。137 ケースが全て期待どおり（exit 0）。
+
+**未検証（Lock.tla）**: 下の表と数の Lock.tla の行は、Lock.tla を台帳 1 つ（段ごとの rename の置き換え）・status の参照・salvage の結果の `ledger.json` の参照に改めた版（`St`・`Ref`・`RefOnlyIfPublished`、変異 `ref_without_publish`、証人 `d_status_ref`）の前の結果である。改めた版で流したのは、SANY による構文と意味の解析（`java -cp tla2tools.jar tla2sany.SANY Lock.tla`。誤り無し）だけである。手元では `check.sh` の起動が実行環境の権限で止められたので、TLC は 1 ケースも流していない。改めた版の Lock のケースは 71 個（基準 4、証人 44、変異 23）で、CI（`verification.yml` の 8 シャード）で全ケースが期待どおりになるまで、Lock.tla の行の表と数は改めた設計の証拠にならない。状態の数も変わる見込みである（段の版の台帳、status の参照と本文の非決定）。Run.tla は変えていない。
 
 **未検証**: 下の表と数は、Run.tla を提出ごとの受理・期限の後の提出の拒否・同じ体での出し直しに改めた版（担当の `WLaunch`・`WSubmit`・`WLateSubmit`、司令塔の `CClose`、性質 (3) の 4 つ、変異 `close_rejects_batch`・`accept_after_close`・`accept_after_deadline`・`revise_new_worker`、証人 `accepted_kept_timed_out`・`revise_same_body`・`late_submit_refused`・`duplicate_close`・`stale_close`）の前の結果である。改めた版の TLC の結果は次のとおりで、全ケースを通した結果はまだ無い。全ケースが期待どおりになるまで、Run.tla の行の表と数は改めた設計の証拠にならない。
 
