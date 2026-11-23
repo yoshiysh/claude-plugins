@@ -11,7 +11,7 @@ import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { removeTree, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { expandRefs } from './test-fixtures/ledger-check.mjs';
 import { UNIT_MAX_BYTES } from './lib/schemas.mjs';
-import { P, prop, assertExcluded, tasksOf, assertRevised, canonicalRun, hasId, SM, PART_SCENARIO, assertNoChecksRow, QUESTION, QUESTION_CASES, detConf, assertDetCommon, partitionDefect, PARTITION_DEFECTS, assertAuthorPropertyIds, PROPERTY_IDS_CASES, assertInputRefs, timeLimitDiag, NO_MUTATION_CASES, COMBINATION_CASES, HALFWIDTH, EMOJI, wrongGoal } from './test-fixtures/pipeline-cases.mjs';
+import { P, prop, assertExcluded, tasksOf, assertRevised, canonicalRun, hasId, SM, PART_SCENARIO, assertNoChecksRow, QUESTION, QUESTION_CASES, detConf, assertDetCommon, partitionDefect, PARTITION_DEFECTS, assertAuthorPropertyIds, PROPERTY_IDS_CASES, assertInputRefs, assertAuthorInputRefs, timeLimitDiag, NO_MUTATION_CASES, COMBINATION_CASES, HALFWIDTH, EMOJI, wrongGoal } from './test-fixtures/pipeline-cases.mjs';
 
 describe('cli-pipeline', { concurrency: 4 }, () => {
 for (const [role, row] of QUESTION_CASES) {
@@ -148,6 +148,17 @@ test('artifact-formats 原因の分類役の input_refs: 反例の原因の分�
   const out = await runScenario(t, { scenario: { properties: [P('P1', 3, { query: { result: 'sat' } })] } });
   const tasks = out.harness.memory.tasks.filter((x) => x.role === 'cause-analyst');
   assertInputRefs(out, tasks);
+});
+
+test('artifact-formats 担当に渡す資料: 計画作成役の input_refs は全てのモデル・対応表・性質と sanity の query・inventory で、変異を書くために性質の query を読める（run 766370 の退行）', async (t) => {
+  const out = await runScenario(t, { scenario: { properties: [P('P1', 2), P('P2', 3)] } });
+  assertAuthorInputRefs(out, out.harness.memory.tasks.filter((x) => x.role === 'plan-author'));
+});
+test('artifact-formats 担当に渡す資料: 分割作成役の input_refs は全てのモデル・対応表・性質と sanity の query で、計画作成役には採った分割とその契約・合成の条件の query を足す', async (t) => {
+  const out = await runScenario(t, { scenario: PART_SCENARIO() });
+  const tasks = out.harness.memory.tasks.filter((x) => x.role === 'partition-author' || x.role === 'plan-author');
+  assert.deepEqual([...new Set(tasks.map((x) => x.role))].sort(), ['partition-author', 'plan-author']);
+  assertAuthorInputRefs(out, tasks);
 });
 
 // ---- n=34: 担当を出さなかった unit と原因（artifact-formats「意味の確認の作り方」の担当を出さなかったとき、「担当の返り値」） ----

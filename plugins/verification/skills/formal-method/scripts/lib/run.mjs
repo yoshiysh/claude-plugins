@@ -617,7 +617,15 @@ export class Run {
     this.candidates = deriveCandidates(this.graph);
     this.log().actions.push('依存グラフを構文から導き、writer-merge-scc/1 で分割の候補を導いた。');
     if (this.halted()) return;
-    const modelInputs = this.models.flatMap((m) => [{ name: `model-${m.id}`, ref: m.ref }, { name: `mapping-${m.id}`, ref: m.mapping.ref }]);
+    // 分割作成役と計画作成役には、モデルと対応表に、その性質と sanity の query をファイルごとに渡す（artifact-formats.md「担当に渡す資料」）。
+    // 理由: 分割は性質の query の宣言から依存を読み、計画作成役の変異は性質の query の節の項を書き換える。attempts/ の下はディレクトリでは
+    // 渡さない（作成役の作業記録・返り値が入る）ので、query のファイルを挙げなければ担当は読めない（run 766370 で全ての性質の変異が書けなかった）
+    const queryInputs = (m) => {
+      const refs = new Map();
+      for (const p of m.data.properties) for (const [name, ref] of [[`query-${p.id}`, p.query_ref], ...(p.sanity ?? []).map((x, i) => [`sanity-${p.id}-${i + 1}`, x.query_ref])]) if (!refs.has(ref)) refs.set(ref, name);
+      return [...refs].map(([ref, name]) => ({ name, ref }));
+    };
+    const modelInputs = this.models.flatMap((m) => [{ name: `model-${m.id}`, ref: m.ref }, { name: `mapping-${m.id}`, ref: m.mapping.ref }, ...queryInputs(m)]);
     // 分割（候補が 2 つ以上のとき）と計画は、1 体の worker が順に担う。計画の担当は分割の担当が閉じてから claim に出る（依存つきの担当）。
     // 分割の結果は閉じた時点で受け取り（settle）、計画の担当の資料と照合に使う
     const items = [];
@@ -675,7 +683,9 @@ export class Run {
       const invProps = this.inventoryProperties();
       const formal = invProps.filter((p) => p.formalizable && !this.blockedBy.has(p.id) && modelProps.some((mp) => mp.inventory_property_ids.includes(p.id)));
       // 資料は分割の結果（採った分割）を見てから決める
-      const inputs = () => [...modelInputs, ...(this.partitions ? [{ name: 'partitions', ref: this.partitions.ref }] : []), ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref }))];
+      const partInputs = () => (this.partitions ? [{ name: 'partitions', ref: this.partitions.ref },
+        ...[...this.partitions.data.contracts, ...this.partitions.data.composition_conditions].map((x) => ({ name: `query-${x.id}`, ref: x.query_ref }))] : []);
+      const inputs = () => [...modelInputs, ...partInputs(), ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref }))];
       const unit = {
         role: 'plan-author',
         spec: () => ({ role: 'plan-author', stage: '計画', property_ids: formal.map((p) => p.id), input_refs: inputs() }),

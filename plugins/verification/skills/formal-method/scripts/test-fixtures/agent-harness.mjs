@@ -170,6 +170,18 @@ export function namedClauses(text, mp, p, { mutate = false } = {}) {
   return { text: head + lines.join('\n'), clauses };
 }
 
+// 担当と同じく、query の資料（task.query_inputs）が指すファイルだけを読む口。資料に無い ref は読まずに null を返し、違反に挙げる
+// （harness が run の領域を直接読むと、CLI が要る資料を渡さない退行を見逃す）。ディレクトリの資料の下と、畳んだ資料の entry も資料に数える
+function materialReader(task, memory) {
+  const files = new Map(worklogInputs(task.query_inputs).map((x) => [x.ref, null]));
+  for (const x of task.query_inputs ?? []) if (x.hash && !x.entries) files.set(x.ref, x.path);
+  return (ref) => {
+    if (!files.has(ref)) { memory.violations.push(`${task.task_id}（${task.role}）: 要る資料 ${ref} が query の資料に無い`); return null; }
+    const path = files.get(ref) ?? join(task.context.run_dir, ref);
+    return existsSync(path) ? readFileSync(path, 'utf8') : null;
+  };
+}
+
 // 作業記録の下書き（agent-obligations.md「作業記録」）: 読んだファイルの ref だけを書き、指紋と document_rules は書かない（submit の照合で CLI が補う）。
 // 担当と同じく、query の資料を全て読んだものとする。ディレクトリの資料（hash の無い資料、畳んだ資料の / で終わる entry）はその下のファイルごとに、
 // 畳んだ資料は entry ごとに <ref><entry> で 1 要素にする
@@ -318,9 +330,11 @@ const ROLE = {
   'partition-author'(task, s, memory) {
     const cands = task.context.candidates;
     // 部分を跨ぐ辺は、自分の書いたモデルから依存グラフの導出の規則で求める（Boundary.edge_id はその辺の id）
+    // 担当と同じく、query が渡した資料だけを読む（モデルも性質の query も。渡されなければ違反に挙げ、読まない）
     const run = task.context.run_dir;
-    const models = memory.models.map((m) => { const ref = relative(run, join(m.task.attempt_dir, m.file)); return { model: readJson(join(run, ref)), ref }; });
-    const graph = deriveGraph(models, (ref) => (existsSync(join(run, ref)) ? readFileSync(join(run, ref), 'utf8') : null));
+    const read = materialReader(task, memory);
+    const models = memory.models.map((m) => { const ref = relative(run, join(m.task.attempt_dir, m.file)); return { model: JSON.parse(read(ref) ?? 'null'), ref }; }).filter((x) => x.model);
+    const graph = deriveGraph(models, read);
     const put = (name, body) => { write(task, name, body); return runRef(task, name); };
     const extra = s.partition ? s.partition(cands, put, { graph, crossing: (parts, modelId) => crossingEdges(graph, parts, modelId), round: memory.rounds[task.role] }) : null;
     memory.partition = extra;
@@ -348,6 +362,10 @@ const ROLE = {
     // targetRef: 対象のファイルの ref（target:<target_id>/<FilePath>。担当が書いたものでない資料）
     const targetRef = (file) => { const req = readJson(join(task.context.run_dir, 'request.json')); return `target:${req.targets[0].id}/${file}`; };
     const ctx = { round: memory.rounds[task.role], pairs, mref, targetRef, put: (name, body) => { write(task, name, body); return runRef(task, name); } };
+    // 変異は、置き換える性質の query の節を読んで書く（agents/plan-author.md）。担当と同じく、query が渡した資料からだけ読む
+    // （渡されなければ違反に挙げる。run 766370 では性質の query が資料に無く、全ての性質の変異を書けなかった）
+    const read = materialReader(task, memory);
+    for (const { p, mp } of pairs.filter(({ p }) => p.mutation)) read(mref(`${mp}.smt2`));
     // 変異の .smt2 は計画作成役自身の attempt に書き、mutation_ref はそこを指す（artifact-formats「変異のファイル」、agents/plan-author.md）
     for (const { p, mp } of pairs.filter(({ p }) => p.mutation)) write(task, `${mp}-mut.smt2`, namedClauses(smtQuery(`mutation ${mp}`, p.mutation, p.smt), mp, p, { mutate: true }).text);
     const plan = {

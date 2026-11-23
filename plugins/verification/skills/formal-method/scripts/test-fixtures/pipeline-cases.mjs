@@ -738,6 +738,39 @@ export function assertInputRefs(out, tasks) {
   }
 }
 
+// ---- 分割作成役・計画作成役の input_refs（artifact-formats「担当に渡す資料」） ----
+// 分割作成役: 全てのモデルと対応表、その全ての性質の query_ref と sanity の query_ref。計画作成役: それに、採った分割の PartitionsFile と
+// その契約・合成の条件の query_ref、全ての inventory を足したもの。attempts/ の下はファイルごとに渡し（ディレクトリにしない）、
+// 作成役の作業記録・返り値は入れない。query の応答の attempts/ の下の資料は全て hash を持つファイルの資料（読んでよい資料）
+export function expectedAuthorInputRefs(task, { harness, runDir }) {
+  const rel = (abs) => relative(runDir, abs);
+  const models = [...new Set(harness.memory.models.map((m) => m.id))].map((id) => harness.memory.models.filter((x) => x.id === id).at(-1));
+  const modelRefs = models.flatMap((m) => {
+    const json = readJson(join(m.task.attempt_dir, m.file));
+    return [rel(join(m.task.attempt_dir, m.file)), rel(join(m.task.attempt_dir, `mapping-${m.id}.json`)),
+      ...json.properties.flatMap((p) => [p.query_ref, ...p.sanity.map((x) => x.query_ref)])];
+  });
+  if (task.role === 'partition-author') return [...new Set(modelRefs)];
+  assert.equal(task.role, 'plan-author');
+  const pt = lastTask(harness, 'partition-author');
+  const partRef = pt ? rel(join(pt.attempt_dir, 'partitions.json')) : null;
+  const pj = partRef && task.context.input_refs.some((r) => r.ref === partRef) ? readJson(join(runDir, partRef)) : null;
+  const parts = pj ? [partRef, ...pj.contracts.map((k) => k.query_ref), ...pj.composition_conditions.map((k) => k.query_ref)] : [];
+  const invs = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => rel(join(x.attempt_dir, 'inventory.json')));
+  return [...new Set([...modelRefs, ...parts, ...invs])];
+}
+export function assertAuthorInputRefs(out, tasks) {
+  const runDir = out.status.run_dir;
+  assert.ok(tasks.length >= 1);
+  for (const task of tasks) {
+    assert.deepEqual(task.context.input_refs.map((r) => r.ref).sort(), expectedAuthorInputRefs(task, { ...out, runDir }).sort(), `${task.task_id}（${task.role}）の input_refs`);
+    for (const x of task.query_inputs.filter((y) => y.ref.startsWith('attempts/'))) {
+      assert.ok(x.hash && !x.entries, `${x.ref}: attempts/ の下の資料はファイルの資料（hash を持ち、畳まない）`);
+      assert.ok(!/\/(worklog|return)\.json$/.test(x.ref), `${x.ref}: 作成役の作業記録・返り値は渡さない`);
+    }
+  }
+}
+
 // 時間の上限の run が想定の筋に乗らなかったときの手掛かり: 開いた呼び出し（段と役）と停止の理由
 export function timeLimitDiag(result, harness) {
   const calls = harness.memory.calls.map((b) => `${b.callId}[${b.workers.map((x) => `${b.stage}/${x.role}`).join(',')}]`);
