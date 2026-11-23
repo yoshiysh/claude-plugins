@@ -14,7 +14,7 @@ description: >
 
 # formal-method
 
-依頼元（人又は別のスキル）から対象と目標を受け取り、形式手法で確かめられた範囲と確かめられなかった範囲を区別した結果を返す。振る舞いの正本は仕様 `docs/specifications/formal-method.md`、内部の仕組みの正本は [設計](references/architecture.md)、CLI の入出力の正本は [CLI 契約](references/cli-contract.md)、データの形の正本は [成果物の形式](references/artifact-formats.md) である。
+依頼元（人又は別のスキル）から対象と目標を受け取り、形式手法で確かめられた範囲と確かめられなかった範囲を区別した結果を返す。振る舞いの正本は仕様 [`docs/specifications/formal-method.md`](https://github.com/yoshiysh/claude-plugins/blob/main/docs/specifications/formal-method.md)、内部の仕組みの正本は [設計](references/architecture.md)、CLI の入出力の正本は [CLI 契約](references/cli-contract.md)、データの形の正本は [成果物の形式](references/artifact-formats.md) である。
 
 このスキルは対象を変更しない。結果だけで、利用者の意図への適合や対象の実装との一致を断定しない。
 
@@ -187,7 +187,7 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 
 `status.action` が `terminal` のとき、結果の正本は次のどちらかである（[CLI 契約の status.json](references/cli-contract.md#statusjson)）。提示は結果の欄の値を並べて引用するだけで、本文を作らない。結果の構造に無い成功を足さない（SP-FORMALMETHOD-003）。
 
-- `status.result` が `{"ref": "result.json", "path": ...}`（参照）なら、`path` のファイルが結果の正本である。提示に要る欄だけを取り出して読む。ファイルは 1 行の JSON で数 MB になりうるので、全体を Read しない。例（下の「人に示すとき」の順の全ての欄を取り出す）: `node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify({provisional:r.provisional,status:r.status,stop_report:r.stop_report,verified_scope:r.verified_scope,properties:r.properties.map(p=>({id:p.id,verdict:p.verdict,assurance:p.assurance,detection:p.detection})),models:r.models.map(m=>({id:m.id,covers:m.covers})),unverified:r.unverified,counterexamples:r.counterexamples,causes:r.causes,questions:r.questions,records:{unsaved:r.records.unsaved}}))' <path>`。出力の JSON は提示に要る欄だけで、検査・確認・分割・性能などの本文を持たない（本文を文脈に入れないため）。
+- `status.result` が `{"ref": "result.json", "path": ...}`（参照）なら、`path` のファイルが結果の正本である。提示に要る欄だけを取り出して読む。ファイルは 1 行の JSON で数 MB になりうるので、全体を Read しない。例（下の「人に示すとき」の順の全ての欄を取り出す）: `node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify({provisional:r.provisional,status:r.status,stop_report:r.stop_report,verified_scope:r.verified_scope,properties:r.properties.map(p=>({id:p.id,verdict:p.verdict,assurance:p.assurance,detection:p.detection})),models:r.models.map(m=>({id:m.id,covers:m.covers})),unverified:r.unverified,counterexamples:r.counterexamples,causes:r.causes,questions:r.questions,records:{saved:r.records.saved.filter(s=>s.kind==="report"),unsaved:r.records.unsaved}}))' <path>`。`records.saved` は人向けの表示 `report.md` の記録（`kind: "report"`）だけを取り出す。出力の JSON は提示に要る欄だけで、検査・確認・分割・性能などの本文を持たない（本文を文脈に入れないため）。
 - `status.result` が結果の本文（`schema` を持つ）なら、それが正本である。仮の結果（`provisional: true`）か、保存を確かめられなかった結果である。
 
 **呼び出し元がスキルのとき**: `status.result` を書き換えずにそのまま返し、`status.run_dir` を添える（参照なら参照のまま返す。呼び出し元が `path` を読む）。仮の結果であることは本文の `provisional` の欄で伝わる。

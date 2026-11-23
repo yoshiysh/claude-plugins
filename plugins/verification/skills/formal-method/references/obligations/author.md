@@ -13,7 +13,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 | 受け取るもの | 中身 | 使い方 |
 |---|---|---|
 | `claim` の応答の最上位 | `query_cmd`・`submit_cmd`・`scratch_dir`・`document_rules`（worker で 1 つ）と `return_schemas`（役ごとの返り値の形） | `query` は `<query_cmd> <task_id>`、`submit` は `submit_cmd` で流す。返り値の形は `return_schemas[<task の role>]`。`document_rules` は適用する文書の一般規約の `{ref, version}` で、作業記録の `document_rules` の値（CLI が補うので書かなくてよい） |
-| `submit` の応答の `next` | `done`・`tasks`・`shared_inputs` と `return_schemas`（`next` の `tasks` の役ごと）。`query_cmd`・`submit_cmd`・`scratch_dir` は持たない | `done: true` なら終える。`done: false` なら `tasks` を続けて果たす。返り値の形は `next` の `return_schemas[<task の role>]`（`claim` の値のまま `query_cmd`・`submit_cmd`・`scratch_dir` を使う） |
+| `submit` の応答の `next` | `done`・`tasks`・`shared_inputs` と `return_schemas`（`next` の `tasks` の役ごと）。`query_cmd`・`submit_cmd`・`scratch_dir`・`document_rules` は持たない | `done: true` なら終える。`done: false` なら `tasks` を続けて果たす。返り値の形は `next` の `return_schemas[<task の role>]`（`claim` の値のまま `query_cmd`・`submit_cmd`・`scratch_dir`・`document_rules` を使う） |
 | `claim` の `tasks`（と `submit` の `next` の `tasks`）の各 task | `task_id`・`role`・`instructions`・`attempt_dir`・`result_path`・`context`（`TaskContext`） | `instructions` の 4 つのファイル（役の指示、この義務の役の分、役の型の抜粋、文書の一般規約）を読む。同じ役の task では読み直さない。`context` が担当の範囲 |
 | `query` の `inputs` | 渡された資料ごとの `{name, ref, path, hash, spans?}`（`hash` は CLI が固定した指紋、`spans` は読む行の範囲。無ければファイルの全体）。ディレクトリの資料（`checks/<id>` など）は `hash` を持たない。`attempts/` の外の同じディレクトリの資料が 2 つ以上続けば `{ref, path, entries: [{name, entry}]}` に畳み、資料は `<path><entry>`（`ref` は `<ref><entry>`）である。`/` で終わる `entry` はディレクトリの資料である | 読む資料は下の「読んでよい資料」の規則のとおり |
 
@@ -32,7 +32,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 - 命令が `no_response` を返したら、何も書き換えずに同じ命令を 1 度だけ流し直す（それでも `ok: false` なら、理由を書いて担当を終える。Workflow の prompt と同じ）。応答を見られなかった `submit` を書き換えずに流し直すと、CLI は照合し直さず前の応答を返す（提出の回数は増えない）。応答を見た後に、直せないまま同じ成果物を出し直すと、新しい提出として照合される（欠陥が減らなければ残った欠陥ごと受理される）。
 - `claim` の応答と `submit` の `next` の `shared_inputs` に挙がった資料は、同じ応答の複数の task が共有する資料である。`tasks` は共有する task ごとの `{task_id, spans?}` で、範囲は task ごとに違いうる。1 度だけ読み、task ごとの `query` の応答に同じ ref が出ても読み直さない。各 task の `query` は流す（task ごとの渡した資料の指紋はその時点で記録される）。
 - 複数の task を持つときも、task ごとにその task の `query` の資料（範囲を持つ資料はその task の `spans` の行）だけで判断し、task ごとに返り値を書く。共有の資料を 1 度に読んでも、他の task の範囲の行や他の task の資料を根拠にしない（task ごとの渡した資料と判断が記録から読めなくなる）。
-- 語と値は仕様（`docs/specifications/formal-method.md`）と [形式手法の知識](../formal-method-knowledge.md) に従う。一般の形式手法の語で置き換えると、CLI の照合と結果の値が食い違う。
+- 語と値は、`instructions` の役の型の抜粋（[成果物の形式](../artifact-formats.md) から生成したもの）と役の指示に従う。一般の形式手法の語で置き換えると、CLI の照合と結果の値が食い違う。
 
 ## 書く場所と返し方
 

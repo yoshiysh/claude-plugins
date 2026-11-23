@@ -73,8 +73,11 @@ test('SP-FORMALMETHOD-013 型の抜粋: 抜粋の型の定義は artifact-format
     for (const n of names) assert.match(text, new RegExp(`^\\s*${n}\\s*= `, 'm'), `${role} の抜粋に ${n} が無い`);
     // 型の定義の行（"X = " で始まる行）は、正本の行と同じ（抜粋は加工しない）
     for (const line of text.split('\n').filter((l) => /^[A-Z][A-Za-z]*\s*= /.test(l))) assert.ok(source.includes(line), `${role}: 正本に無い行 ${line}`);
-    // 抜粋の中のリンクは、置き場から解ける相対パスか、この抜粋の中の見出し
-    for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) assert.ok(existsSync(join(SKILL, TYPES_DIR, m[1])), `${role}: 解けないリンク ${m[1]}`);
+    // 抜粋の中のリンクは、置き場から解ける相対パスか、この抜粋の中の見出しか、由来の注記の URL（install 先に無い文書は URL で指す）
+    for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) {
+      if (/^https:\/\//.test(m[1])) continue;
+      assert.ok(existsSync(join(SKILL, TYPES_DIR, m[1])), `${role}: 解けないリンク ${m[1]}`);
+    }
   }
 });
 

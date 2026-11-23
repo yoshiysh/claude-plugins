@@ -294,14 +294,15 @@ for (const [name, opts, breakIt, expected] of PLAN_BROKEN) {
   });
 }
 
-test('SKILL.md 結果の提示: 参照から結果を読む例は、提示の順の全ての欄（provisional・status・stop_report・verified_scope・性質の判定・models の範囲・unverified・反例・原因・問い・records.unsaved）を取り出す', (t) => {
+test('SKILL.md 結果の提示: 参照から結果を読む例は、提示の順の全ての欄（provisional・status・stop_report・verified_scope・性質の判定・models の範囲・unverified・反例・原因・問い・records の report の saved と unsaved）を取り出す', (t) => {
   const skill = readFileSync(fileURLToPath(new URL('../SKILL.md', import.meta.url)), 'utf8');
   const m = /`node -e '([^']+)' <path>`/.exec(skill);
   assert.ok(m, 'SKILL.md に参照から結果を読む例がある');
   const r = richResult();
   r.unverified = [{ item: 'x', reason: 'y' }];
   r.questions = [{ id: 'Q1', missing_decision: 'd', affected: ['P1'], options: ['a', 'b'] }];
-  r.records.unsaved = [{ kind: 'report', ref: 'report.md', reason: 'z' }];
+  r.records.saved.push({ kind: 'report', ref: 'report.md', hash: `sha256:${'1'.repeat(64)}` }, { kind: 'plan', ref: 'attempts/p/plan.json', hash: `sha256:${'2'.repeat(64)}` });
+  r.records.unsaved = [{ kind: 'mutations', ref: 'attempts/p/mutations.json', reason: 'z' }];
   const dir = mkdtempSync(join(tmpdir(), 'fm-skill-example-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, 'result.json');
@@ -312,6 +313,7 @@ test('SKILL.md 結果の提示: 参照から結果を読む例は、提示の順
     provisional: r.provisional, status: r.status, stop_report: r.stop_report, verified_scope: r.verified_scope,
     properties: r.properties.map((p) => ({ id: p.id, verdict: p.verdict, assurance: p.assurance, detection: p.detection })),
     models: r.models.map((x) => ({ id: x.id, covers: x.covers })),
-    unverified: r.unverified, counterexamples: r.counterexamples, causes: r.causes, questions: r.questions, records: { unsaved: r.records.unsaved },
+    unverified: r.unverified, counterexamples: r.counterexamples, causes: r.causes, questions: r.questions, records: { saved: r.records.saved.filter((s) => s.kind === 'report'), unsaved: r.records.unsaved },
   });
+  assert.deepEqual(out.records.saved.map((s) => s.ref), ['report.md'], 'saved は report だけ');
 });

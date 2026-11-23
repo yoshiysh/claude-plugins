@@ -985,3 +985,4 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
 - **生死を判定できない環境**: `ps` が使えず、pid が再利用された場合は、生死が分からないまま待つことになる。司令塔は `LIVENESS_UNKNOWN_MAX` 回の後、結果を作らずに「生死を判定できない」誤りとして終える（依頼者の決定。形式検証の `lock-termination`）。この場合、結果は返らない。
 - **仮の結果**: 保存できない状態で返した `停止` の R' は `provisional: true` の仮の結果である。あとで別の salvage が `result.json` を公開すると、受け取った仮の結果と公開された結果が食い違う（形式検証の 4 ケース。生死の誤判定が無くても、`status.json` が読めないだけでも起こる）。依頼者の決定で、公開された `result.json` を正とする。公開される `result.json` は常に 1 つである。
 - **`run-daemon` の異常終了**: 保存の途中で落ちた run は続けない。`salvage` が、rename を終えた台帳 `ledger.json` の範囲だけで停止の結果を作る。
+- **salvage の結果の台帳の指紋**: salvage の結果の `records.saved` の `ledger.json` の指紋は salvage が読んだ時点の値である。生死の誤判定の下で、生きている `run-daemon` が `salvage.mark` の確認を通った後に `ledger.json` を rename で置き換えると、公開された結果の指紋と実物が食い違う（`cli-contract.md` の salvage の手順 5）。salvage は公開の後に読み直さず、`Lock.tla` の `LSav` は台帳の有無だけを見るので、この窓は機械では確かめていない。

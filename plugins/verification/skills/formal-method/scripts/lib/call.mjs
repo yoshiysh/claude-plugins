@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { collectReturn, completeQuoteHashes, completeWorklog, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
 import { ROLES } from './roles.mjs';
 import { CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
+import { textOfTargetFile } from './checks/common.mjs';
 import { guardedWrite, SalvagedError } from './store.mjs';
 import { parseTargetRef } from './target-refs.mjs';
 import { redactSecretText } from './secrets.mjs';
@@ -373,7 +374,7 @@ const scratchOf = (ctx, w) => join(ctx.run.runDir, 'attempts', `${ctx.callId}-${
 function workerFields(ctx, w) {
   const base = { run_dir: ctx.run.runDir, call_id: ctx.callId, worker: w.id };
   // document_rules: 適用する文書の一般規約の {ref, version}（担当は本文を task の instructions の 4 つ目で読み、作業記録の document_rules は submit の照合で CLI が補う）
-  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratchOf(ctx, w), document_rules: docRulesOf(ctx.run) };
+  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratchOf(ctx, w), document_rules: ctx.run.appliedDocRules() };
 }
 
 // 出し終えた後の claim と submit の next で、次に返す担当を作る。中断の理由があれば新しい担当を出さない。
@@ -419,9 +420,6 @@ function sharedInputs(ctx, hs) {
   return [...by].filter(([, ts]) => ts.length >= 2).map(([ref, ts]) => ({ ref, path: pathOf(ref), tasks: ts }));
 }
 
-// 適用する文書の一般規約（受付で写しを保存できなかったときは、適用した版）。run が持たなければ null
-const docRulesOf = (run) => run.docRules ?? run.docRulesIntended?.rules ?? null;
-
 // 担当の下書きを補う（agents.mjs の completeWorklog・completeQuoteHashes）。照合の前に attempt の領域のファイルを書き直すので、
 // 提出の指紋（evalSig）と受理の指紋（snapshot）は補った後の領域で取る。戻り値は補いで見つけた欠陥の文（無ければ []）。
 // 返り値を読めないか、参照が attempt の領域の外なら何もしない（collectReturn が形の違いにする）
@@ -442,15 +440,12 @@ function completeDrafts(ctx, s) {
   const readJson = (ref) => { try { return JSON.parse(readFileSync(join(run.runDir, ref), 'utf8')); } catch { return null; } };
   if (ret && mine(ret.worklog_ref)) {
     const wl = readJson(ret.worklog_ref);
-    const r = completeWorklog(wl, { materials: s.materials ?? [], docRules: docRulesOf(run) });
+    const r = completeWorklog(wl, { materials: s.materials ?? [], docRules: run.appliedDocRules() });
     problems.push(...r.problems);
     if (r.changed) rewrite(ret.worklog_ref, r.worklog);
   }
   if (s.task.role === 'extractor' && ret && Array.isArray(ret.outputs)) {
-    const textOf = (tid, file) => {
-      const f = (run.targets ?? []).find((t) => t.id === tid)?.files?.find((x) => x.path === file);
-      return f && f.text && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null;
-    };
+    const textOf = (tid, file) => textOfTargetFile((run.targets ?? []).find((t) => t.id === tid)?.files?.find((x) => x.path === file));
     for (const o of ret.outputs) {
       if (!o || o.kind !== 'inventory' || !mine(o.ref)) continue;
       const r = completeQuoteHashes(readJson(o.ref), textOf);

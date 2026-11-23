@@ -102,7 +102,10 @@ function assertAcceptStop(status, code) {
   assert.equal(status.seq, 0);
   assert.equal(status.daemon, null);
   const r = status.result;
-  assert.deepEqual(resultInvariants(r), []);
+  // SP-FORMALMETHOD-003: 保存したものがその結果であると確かめられなかった結果は、参照（{ref, path}）でなく本文で返す
+  assert.equal(typeof r.schema, 'string', '結果は参照でなく本文（schema を持つ）');
+  assert.equal('path' in r, false, '結果は result.json の参照でない');
+  assert.deepEqual(resultInvariants(r), [], 'SP-FORMALMETHOD-003 の表の項目を全て持つ（Result の schema）');
   assert.equal(r.status, '停止');
   assert.equal(r.provisional, true, 'run_dir: null で返る結果は仮の結果');
   assert.ok(r.records.unsaved.some((u) => u.kind === 'result'));
@@ -112,7 +115,7 @@ function assertAcceptStop(status, code) {
   return r;
 }
 
-test('SP-FORMALMETHOD-014 AC-13: 保存先の root（.formal-method/runs/）が書込み不可なら、run-daemon を起動せず 保存の失敗 の停止を返し、結果を含む全ての記録が unsaved', async (t) => {
+test('SP-FORMALMETHOD-003 SP-FORMALMETHOD-014 AC-13: 保存先の root（.formal-method/runs/）が書込み不可なら、run-daemon を起動せず 保存の失敗 の停止を本文の結果で返し、結果を含む全ての記録が unsaved', async (t) => {
   if (skipIfRoot(t)) return;
   const ws = workspaceWithTarget();
   t.after(() => removeTree(ws));

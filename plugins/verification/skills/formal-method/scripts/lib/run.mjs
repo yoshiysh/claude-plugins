@@ -271,6 +271,10 @@ export class Run {
 
   nextTaskNo() { this.taskNo += 1; return this.taskNo; }
   nextCallNo() { this.callNo += 1; return this.callNo; }
+  // 適用する文書の一般規約の {ref, version}（受付で写しを保存できなかったときは、適用した版）。持たなければ null。
+  // CLI の作業記録（leaveStage）と、担当の claim の応答・作業記録の補い（call.mjs）は、どちらもこれで決める
+  appliedDocRules() { return this.docRules ?? this.docRulesIntended?.rules ?? null; }
+
   log(stage = this.stage) { if (!this.logs.has(stage)) this.logs.set(stage, newStageLog()); return this.logs.get(stage); }
   halted() { return this.interrupts.length > 0; }
   interrupt(code, detail, stage = this.stage) { this.interrupts.push(reason(code, stage, detail)); this.log(stage).failures.push(`${code}: ${detail}`); }
@@ -348,7 +352,7 @@ export class Run {
     const log = this.log(stage);
     const ref = join('worklogs', `cli-${stage}.json`);
     if (!this.docRules && this.docRulesIntended && !log.unconfirmed.includes(this.docRulesIntended.missing)) log.unconfirmed.push(this.docRulesIntended.missing);
-    const rules = this.docRules ?? this.docRulesIntended?.rules ?? null;
+    const rules = this.appliedDocRules();
     if (rules) this.writeRecordFile(ref, JSON.stringify(cliWorklog(stage, log, rules, this.targets.map((t) => t.id).join('・') || this.runId), null, 2), { kind: 'worklog' });
     else this.saveFailed('worklog', ref, '文書規約を読めないので、作業記録の document_rules を決められない');
     this.stageConfirmed = stage;

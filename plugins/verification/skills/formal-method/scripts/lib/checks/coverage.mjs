@@ -1,7 +1,7 @@
 // 洗い出しの照合（architecture.md「段と処理の順序」の洗い出し）: 走査範囲の網羅・出所・引用の指紋。
 import { sha256Bytes } from '../canonical.mjs';
 import { Inventory, parseSpan, validate } from '../schemas.mjs';
-import { defect, linesOf } from './common.mjs';
+import { defect, linesOf, textOfTargetFile } from './common.mjs';
 
 // otherPropertyIds・otherElementIds: 他の対象の inventory の性質・要素の id → その対象の id（どちらも run の全ての inventory を通して一意）
 // scope: 依頼の範囲（Map<FilePath, Span[] | null>。null はファイルの全体。run.mjs の requestScopeOf）。覆うべきものは依頼の範囲だけで、
@@ -15,7 +15,7 @@ export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(
   if (inv.target_id !== target.id) out.push(defect('reference', 'inventory-target', `target_id ${inv.target_id} が task の対象 ${target.id} と違う`));
   if (inv.content_hash !== target.content_hash) out.push(defect('other', 'inventory-hash', 'content_hash が集まりの指紋と違う'));
   // 受付で読んだバイト列で照らす（写しは作らない。対象は run の間固定している前提で、集約の段で 1 度だけ読み直して照らす）
-  const text = (file) => { const f = target.files.find((x) => x.path === file); return f && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null; };
+  const text = (file) => textOfTargetFile(target.files.find((x) => x.path === file));
   for (const f of target.files) {
     if (scope && !scope.has(f.path)) continue;
     const want = scope ? scope.get(f.path) : null;
@@ -103,13 +103,12 @@ const DEFINITION_RES = [`^#{1,6}\\s+(${ID_SRC})(?![A-Za-z0-9_-])`, `^\\|\\s*(${I
   `^\\s*(?:[-*+]|\\d+[.)])\\s+(?:\\*\\*)?(${ID_SRC})(?![A-Za-z0-9_-])`, `\\*\\*(${ID_SRC})\\*\\*`].map((x) => new RegExp(x, 'g'));
 const shapeOf = (id) => id.split('-').map((x) => (/^[A-Z]+$/.test(x) ? 'L' : /^\d+$/.test(x) ? 'D' : 'M')).join('-');
 const mentions = (text, id) => idsIn(text).includes(id) || text.split(/[^A-Za-z0-9_-]+/).includes(id);
-const fileText = (f) => (f.text && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null);
 
 // 対象のテキストのファイルの全ての行で、定義の位置（見出しの先頭・表の最初の列・箇条書きの先頭・太字）にある ID
 export function definedIdsOf(target) {
   const out = new Set();
   for (const f of target.files) {
-    const t = fileText(f);
+    const t = textOfTargetFile(f);
     if (t === null) continue;
     for (const l of linesOf(t)) for (const re of DEFINITION_RES) for (const m of l.matchAll(re)) if (idsIn(m[1]).length) out.add(m[1]);
   }

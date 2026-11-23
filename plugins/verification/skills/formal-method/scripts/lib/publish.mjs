@@ -23,43 +23,17 @@ export const NODE_FS = Object.freeze({
 
 const errText = (e) => (e && e.code) || (e && e.message) || String(e);
 
-// 1 つのファイルを公開する（cli-contract.md「公開の手順」の正本。結果を除く記録はこれで公開する）。
-// 戻り値: { ok: true } | { ok: false, exists: true, existing: Uint8Array | null, readError } | { ok: false, reason }
-export function publishOne(fs, dir, finalPath, bytes) {
-  const tmp = `${finalPath}.tmp-${randomHex(12)}`;
-  let wrote = false;
-  try {
-    try { fs.writeTemp(finalPath, tmp, bytes); wrote = true; } catch (e) { wrote = true; return { ok: false, reason: `一時ファイルを書けない（${errText(e)}）` }; }
-    try { fs.link(tmp, finalPath); } catch (e) {
-      if (e && e.code === 'EEXIST') {
-        try { return { ok: false, exists: true, existing: fs.readFile(finalPath) }; } catch (re) { return { ok: false, exists: true, existing: null, readError: errText(re) }; }
-      }
-      return { ok: false, reason: `link で公開できない（${errText(e)}）` };
-    }
-    try { fs.fsyncDir(dir); } catch (e) { return { ok: false, reason: `ディレクトリの fsync ができない（${errText(e)}）` }; }
-    let back;
-    try { back = fs.readFile(finalPath); } catch (e) { return { ok: false, reason: `再読込できない（${errText(e)}）` }; }
-    if (!sameBytes(back, bytes)) return { ok: false, reason: '再読込の指紋が一致しない' };
-    return { ok: true };
-  } finally {
-    if (wrote) { try { fs.unlink(tmp); } catch { /* 後始末の失敗は outcome を変えない */ } }
-  }
-}
-
-// run-daemon の台帳の名前。run の台帳はこの 1 つのファイルで、写しを持たない（PR-BPDESIGNEDSKILL-032）。
-export const LEDGER_REF = 'ledger.json';
-
-// 台帳を書く（cli-contract.md「結果と台帳の保存の失敗」の台帳）。run-daemon だけが、段の確定ごとと集約の公開で呼ぶ。
-// 一時ファイル・fsync・rename・ディレクトリの fsync・再読込の指紋の照合で書く。rename で置き換えるので、読む者は書きかけを見ず、
-// 保存済みの範囲は rename を終えた台帳だけで決まる。戻り値: { ok: true } | { ok: false, reason }
-export function writeLedger(fs, dir, content) {
-  const finalPath = join(dir, LEDGER_REF);
-  const bytes = enc(canonicalJson(content));
+// 公開の手順（cli-contract.md「公開の手順」の正本）: 一時ファイルの書込み・置く・ディレクトリの fsync・再読込の指紋の照合・一時ファイルの後始末。
+// 置き方だけを引数で受ける。place(tmp) は一時ファイルを finalPath に置き、成功なら null、失敗なら返す outcome を返す。
+// keepsTmp は置いた後も一時ファイルの名前が残るか（link は残るので後始末で消し、rename は残らないので消さない）。置けなければ一時ファイルを消す。
+function writeVerified(fs, dir, finalPath, bytes, { place, keepsTmp }) {
   const tmp = `${finalPath}.tmp-${randomHex(12)}`;
   let pending = false;
   try {
     try { pending = true; fs.writeTemp(finalPath, tmp, bytes); } catch (e) { return { ok: false, reason: `一時ファイルを書けない（${errText(e)}）` }; }
-    try { fs.rename(tmp, finalPath); pending = false; } catch (e) { return { ok: false, reason: `rename で置き換えられない（${errText(e)}）` }; }
+    const failed = place(tmp);
+    if (failed) return failed;
+    if (!keepsTmp) pending = false;
     try { fs.fsyncDir(dir); } catch (e) { return { ok: false, reason: `ディレクトリの fsync ができない（${errText(e)}）` }; }
     let back;
     try { back = fs.readFile(finalPath); } catch (e) { return { ok: false, reason: `再読込できない（${errText(e)}）` }; }
@@ -68,6 +42,38 @@ export function writeLedger(fs, dir, content) {
   } finally {
     if (pending) { try { fs.unlink(tmp); } catch { /* 後始末の失敗は outcome を変えない */ } }
   }
+}
+
+// 1 つのファイルを link で公開する（結果を除く記録はこれで公開する。既にあれば置き換えない）。
+// 戻り値: { ok: true } | { ok: false, exists: true, existing: Uint8Array | null, readError } | { ok: false, reason }
+export function publishOne(fs, dir, finalPath, bytes) {
+  return writeVerified(fs, dir, finalPath, bytes, {
+    keepsTmp: true,
+    place: (tmp) => {
+      try { fs.link(tmp, finalPath); return null; } catch (e) {
+        if (e && e.code === 'EEXIST') {
+          try { return { ok: false, exists: true, existing: fs.readFile(finalPath) }; } catch (re) { return { ok: false, exists: true, existing: null, readError: errText(re) }; }
+        }
+        return { ok: false, reason: `link で公開できない（${errText(e)}）` };
+      }
+    },
+  });
+}
+
+// run-daemon の台帳の名前。run の台帳はこの 1 つのファイルで、写しを持たない（PR-BPDESIGNEDSKILL-032）。
+export const LEDGER_REF = 'ledger.json';
+
+// 台帳を書く（cli-contract.md「結果と台帳の保存の失敗」の台帳）。run-daemon だけが、段の確定ごとと集約の公開で呼ぶ。
+// 公開の手順と同じで、置き方だけが rename である。rename で置き換えるので、読む者は書きかけを見ず、
+// 保存済みの範囲は rename を終えた台帳だけで決まる。戻り値: { ok: true } | { ok: false, reason }
+export function writeLedger(fs, dir, content) {
+  const finalPath = join(dir, LEDGER_REF);
+  return writeVerified(fs, dir, finalPath, enc(canonicalJson(content)), {
+    keepsTmp: false,
+    place: (tmp) => {
+      try { fs.rename(tmp, finalPath); return null; } catch (e) { return { ok: false, reason: `rename で置き換えられない（${errText(e)}）` }; }
+    },
+  });
 }
 
 function readExistingResult(fs, path) {

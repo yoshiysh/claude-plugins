@@ -10,6 +10,10 @@ export function defect(kind, key, text, { element = null, property = null } = {}
 }
 
 
+// 受付で固定した対象のファイル（target.files の要素）の文字列。テキストでないか、バイト列を持たなければ null。
+// quote_hash を補う側（call.mjs）と照らす側（coverage.mjs）が同じ変換を使う
+export const textOfTargetFile = (f) => (f && f.text && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null);
+
 export function linesOf(text) {
   if (text === '') return [];
   const lines = text.split('\n');

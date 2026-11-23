@@ -3,9 +3,9 @@
 //   node scripts/role-references.mjs --check  生成物が正本から作ったものと違えば 1 で終える（書かない）
 // 正本: 義務は references/agent-obligations.md、型は references/artifact-formats.md。生成物は claim の Task の instructions が指す
 // references/obligations/<author|confirmer>.md と references/types/<role>.md。一致は role-references.test.mjs が照らす（make check）。
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AUTHOR_ROLES, CONFIRMER_ROLES, OBLIGATIONS_SOURCE, OBLIGATION_FILES, TYPES_DIR } from './lib/roles.mjs';
 
 export { OBLIGATION_FILES, TYPES_DIR };
@@ -202,7 +202,7 @@ export function buildRoleReferences(skillDir) {
   return [...buildObligations(skillDir), ...buildTypes(skillDir)];
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const skillDir = fileURLToPath(new URL('..', import.meta.url));
   const check = process.argv.includes('--check');
   let stale = 0;

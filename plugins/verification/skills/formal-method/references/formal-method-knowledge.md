@@ -1,6 +1,6 @@
 # 形式手法の知識
 
-formal-method の担当と、結果を読む依頼元のための語の意味。規範の正本は仕様 `docs/specifications/formal-method.md`（以下 SP-FORMALMETHOD-NNN）で、値の字面は [成果物の形式](artifact-formats.md) と `scripts/lib/schemas.mjs` が持つ。この文書は語の意味と読み違えやすい点だけを置く。
+formal-method の担当と、結果を読む依頼元のための語の意味。規範の正本は仕様 [`docs/specifications/formal-method.md`](https://github.com/yoshiysh/claude-plugins/blob/main/docs/specifications/formal-method.md)（以下 SP-FORMALMETHOD-NNN）で、値の字面は [成果物の形式](artifact-formats.md) と `scripts/lib/schemas.mjs` が持つ。この文書は語の意味と読み違えやすい点だけを置く。
 
 ## 目次
 

@@ -1,6 +1,6 @@
 # 成果物の形式
 
-formal-method が受け取り、作り、返すデータの形の正本。値の意味は仕様（`docs/specifications/formal-method.md`、以下 SP-NNN）に従う。手順と配置は [CLI 契約](cli-contract.md) が正本。実装の `scripts/lib/schemas.mjs` は、この文書の形をそのまま機械の schema にする。
+formal-method が受け取り、作り、返すデータの形の正本。値の意味は仕様（[`docs/specifications/formal-method.md`](https://github.com/yoshiysh/claude-plugins/blob/main/docs/specifications/formal-method.md)、以下 SP-NNN）に従う。手順と配置は [CLI 契約](cli-contract.md) が正本。実装の `scripts/lib/schemas.mjs` は、この文書の形をそのまま機械の schema にする。
 
 テストの担当は、この文書と [CLI 契約](cli-contract.md) と仕様だけで、テストを作れる。
 
@@ -792,7 +792,7 @@ StateMachine = {
 - query のファイル（`.smt2`）は、[担当の成果物](#担当の成果物)の `.smt2` の規則と節の名前の規則に従う。性質の query は「出所の規則と前提と性質の否定」で `expected: "unsat"`、sanity の query は `sat` を期待する。SMT の記号の名前は `variables[].id` と同じにする。
 - **節の照合**（モデル化の照合）: `clauses` の名前の重なりと `goal` の無い性質は `other`、出所の無い `rule`・`basis` の無い `premise`・`basis` と `external_dependency_id` の食い違いは `syntax`、inventory の要素に無い `source_ids`・inventory の `external_dependencies` に無い `external_dependency_id`・query で宣言されていない `assurance.scope_variables` は `reference` の欠陥とする。
   - 確認の段で見つかる型の前倒し（[architecture.md「静的な確認」](architecture.md#静的な確認)の作成役の照合への前倒し）として、`rule` にも `goal` の項にも、それらの項から届く `define-fun` の本体にも現れない `assurance.scope_variables`、`basis: "作成役の仮定"` で `source_ids` の空の `premise`、モデルの性質が扱う inventory の性質の出所の要素でそのモデルのどの `source_ids` にも対応表の行にも無いものは `other` の欠陥とする。
-- 古い形（`formal-method.model/1`、`clauses` の無い性質）は形の違い（`syntax`）として拒む（後方互換性を持たない。`docs/guidelines/agent-work.md`「最小の成果を同じファイルで育てる」）。
+- 古い形（`formal-method.model/1`、`clauses` の無い性質）は形の違い（`syntax`）として拒む（後方互換性を持たない。[`docs/guidelines/agent-work.md`](https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/agent-work.md)「最小の成果を同じファイルで育てる」）。
 
 ### mapping（モデル作成役）
 

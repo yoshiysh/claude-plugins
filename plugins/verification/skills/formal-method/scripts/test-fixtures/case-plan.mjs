@@ -78,7 +78,7 @@ export const CASE_PLAN = {
   'AC-13': {
     normal: [{ id: 'cli-pipeline:完了の run の記録と台帳', layer: 'auto' }],
     recovery: [{ id: 'cli-recovery:途中の段で書込み不可', layer: 'auto' }, { id: 'cli-recovery:status.json の書込みの失敗', layer: 'auto' }, { id: 'cli-recovery:salvage.mark を I/O で書けない（R\' を返す）', layer: 'auto' }, { id: 'cli-client・cli-recovery:壊れた status.json', layer: 'auto' }, { id: 'cli-recovery:公開の負けと result.json 1 つ', layer: 'auto' }],
-    error: [{ id: 'cli-intake:保存先の root が書込み不可', layer: 'auto' }],
+    error: [{ id: 'cli-intake:保存先の root が書込み不可（結果は本文で返る）', layer: 'auto' }],
     boundary: [{ id: 'cli-intake:.formal-method/ 自体を作れない', layer: 'auto' }],
   },
   'AC-14': {

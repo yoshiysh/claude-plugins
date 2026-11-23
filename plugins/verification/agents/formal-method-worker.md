@@ -1,6 +1,6 @@
 ---
 name: formal-method-worker
-description: formal-method の CLI が claim で渡す担当（洗い出し・モデル化・計画・確認の役）をこなす worker。formal-method の Workflow（verification:formal-method-agents）が起動する。
+description: formal-method の CLI が claim で渡す担当（洗い出し・モデル化・計画・確認の役）をこなす worker。formal-method の Workflow（verification:formal-method-agents）から起動する想定（`agentType` に `verification:formal-method-worker` を渡す）で、Workflow からはまだ起動されていない（未接続）。
 tools: Bash, Read, Write, Edit
 ---
 
