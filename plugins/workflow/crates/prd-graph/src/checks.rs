@@ -1,4 +1,4 @@
-//! 優先度 1 の静的な検査。doc_check が渡す事実だけから、決定的に指摘を返す。
+//! 優先度 1 と 2 の静的な検査。doc_check が渡す事実だけから、決定的に指摘を返す。
 //!
 //! 文書の構造の解析（区間・表・「> 条件の値:」の宣言・本文中の ID・用語表の行）は doc_check が 1 か所で行い、
 //! 解析済みの値を渡す。ここで文字を読むのは、略記の ID と欄の数の 2 つの検査だけ。
@@ -51,12 +51,35 @@ pub struct Section {
     /// 「> 条件の値: 名前 = a / b」の宣言（doc_check の quoteParagraphs と splitAxis で取り出したもの）。
     #[serde(default)]
     pub conditions: Vec<Condition>,
+    /// 「> 渡すもの: 役 = a / b」の宣言（document-structure.md §2.9）。
+    #[serde(default)]
+    pub roles: Vec<RoleDecl>,
+    /// 本文の `渡された「X」` の印。roles は同じ文に現れた宣言済みの役の名前（「」の中を除いて探したもの）。
+    #[serde(default)]
+    pub uses: Vec<RoleUse>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Condition {
     pub name: String,
+    /// 値の集合。参照（`ref`）なら doc_check が参照先の宣言から解いた値（解けなければ空）。
     pub values: Vec<String>,
+    /// 「> 条件の値: 名前 = <項目 ID>」の参照先。直書きの宣言なら無い。
+    #[serde(default)]
+    pub r#ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RoleDecl {
+    pub role: String,
+    pub inputs: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RoleUse {
+    pub input: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
 }
 
 /// 用語表の行のうち、定義の所在を「定義は SP-X」と示すもの。
@@ -153,6 +176,8 @@ pub fn check(f: &CheckFacts) -> Vec<Finding> {
     out.extend(glossary_backref(f));
     out.extend(hold_propagation(f));
     out.extend(field_spelling(f));
+    out.extend(role_input_coverage(f));
+    out.extend(enum_set_mismatch(f));
     // 同じ区間の別の文が同じ指摘を出すことがある。同じ引数は 1 つにする。
     let mut seen = BTreeSet::new();
     out.retain(|x| {
@@ -309,7 +334,9 @@ fn doc_flow_table(f: &CheckFacts) -> Vec<Finding> {
             for r in refs {
                 let Some(el) = flow.get(r) else { continue };
                 for input in &el.inputs {
-                    for c in sec.conditions.iter().filter(|c| c.name == input.name) {
+                    // 解けない参照は空集合と比べず飛ばす（指摘は ENUM_SET_MISMATCH が出す）。
+                    let named = sec.conditions.iter().filter(|c| c.name == input.name);
+                    for c in named.filter(|c| c.r#ref.is_none() || !c.values.is_empty()) {
                         let a: BTreeSet<&String> = c.values.iter().collect();
                         let b: BTreeSet<&String> = input.values.iter().collect();
                         if a != b {
@@ -470,4 +497,153 @@ fn item_count(sentence: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// 名前の比較の鍵: 空白とバッククォートを除く。
+fn name_key(t: &str) -> String {
+    t.chars()
+        .filter(|c| !c.is_whitespace() && *c != '`')
+        .collect()
+}
+
+fn keys_array<'a>(keys: impl IntoIterator<Item = &'a str>) -> serde_json::Value {
+    let set: BTreeSet<&str> = keys.into_iter().collect();
+    serde_json::Value::Array(set.into_iter().map(s).collect())
+}
+
+/// ROLE_INPUT_COVERAGE: 規則が `渡された「X」` と書くのに、その役の「> 渡すもの:」の宣言（全文書の同じ役の和）に X が無い。
+/// 役は、文に現れた宣言済みの役がちょうど 1 つならその役、文に役が無く区間が役をちょうど 1 つ宣言していればその役にする。
+/// 役が決まらない文・宣言の無い役・固定の文書の規則は拾わない。
+fn role_input_coverage(f: &CheckFacts) -> Vec<Finding> {
+    let mut decl: BTreeMap<&str, (BTreeSet<String>, BTreeSet<&str>)> = BTreeMap::new();
+    for d in &f.docs {
+        for sec in &d.sections {
+            for r in &sec.roles {
+                let e = decl.entry(r.role.as_str()).or_default();
+                e.0.extend(r.inputs.iter().map(|x| name_key(x)));
+                e.1.insert(sec.key.as_str());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if decl.is_empty() {
+        return out;
+    }
+    for d in f.docs.iter().filter(|d| !d.fixed) {
+        for sec in &d.sections {
+            let own: BTreeSet<&str> = sec.roles.iter().map(|r| r.role.as_str()).collect();
+            for u in &sec.uses {
+                let role = match u.roles.as_slice() {
+                    [r] => r.as_str(),
+                    [] if own.len() == 1 => own.iter().next().copied().unwrap_or_default(),
+                    _ => continue,
+                };
+                let Some((inputs, keys)) = decl.get(role) else {
+                    continue;
+                };
+                if !inputs.contains(&name_key(&u.input)) {
+                    out.push(Finding {
+                        code: "ROLE_INPUT_COVERAGE",
+                        doc: d.key.clone(),
+                        args: vec![
+                            s(&sec.key),
+                            s(role),
+                            s(&u.input),
+                            keys_array(keys.iter().copied()),
+                        ],
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// ENUM_SET_MISMATCH: 「> 条件の値: 名前 = <項目 ID>」の参照について、
+/// (1) unresolved: 参照が解けない（参照先に同じ名前の宣言が無いか、1 つに決まらない）。
+/// (2) redeclared: 参照される名前を、参照先でない項目が、どの参照先とも違う値の集合で直書きしている。
+/// (3) split: 同じ名前の参照先どうしの値の集合が違う（参照する区間ごとに出す）。
+/// 参照の無い名前の直書きどうしは見ない。固定の文書の区間は拾わないが、正の集合と参照元には数える。
+fn enum_set_mismatch(f: &CheckFacts) -> Vec<Finding> {
+    // 名前 → 参照先 ID → 値の集合（解けた参照から）。名前 → 参照元の区間 key。
+    let mut canon: BTreeMap<&str, BTreeMap<&str, BTreeSet<&str>>> = BTreeMap::new();
+    let mut referrers: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for d in &f.docs {
+        for sec in &d.sections {
+            for c in &sec.conditions {
+                let Some(r) = &c.r#ref else { continue };
+                referrers
+                    .entry(c.name.as_str())
+                    .or_default()
+                    .insert(sec.key.as_str());
+                if !c.values.is_empty() {
+                    canon
+                        .entry(c.name.as_str())
+                        .or_default()
+                        .entry(r.as_str())
+                        .or_insert_with(|| c.values.iter().map(String::as_str).collect());
+                }
+            }
+        }
+    }
+    let related = |name: &str| {
+        let targets = canon.get(name).into_iter().flat_map(|m| m.keys().copied());
+        let from = referrers
+            .get(name)
+            .into_iter()
+            .flat_map(|k| k.iter().copied());
+        keys_array(targets.chain(from))
+    };
+    let join = |v: &BTreeSet<&str>| v.iter().copied().collect::<Vec<_>>().join(" / ");
+    let mut out = Vec::new();
+    for d in f.docs.iter().filter(|d| !d.fixed) {
+        for sec in &d.sections {
+            for c in &sec.conditions {
+                let mine: BTreeSet<&str> = c.values.iter().map(String::as_str).collect();
+                let push = |out: &mut Vec<Finding>, kind: &str, other: String, rel| {
+                    out.push(Finding {
+                        code: "ENUM_SET_MISMATCH",
+                        doc: d.key.clone(),
+                        args: vec![
+                            s(kind),
+                            s(&sec.key),
+                            s(&c.name),
+                            s(&c.values.join(" / ")),
+                            s(&other),
+                            rel,
+                        ],
+                    })
+                };
+                match &c.r#ref {
+                    Some(r) if c.values.is_empty() => push(
+                        &mut out,
+                        "unresolved",
+                        String::new(),
+                        keys_array([r.as_str()]),
+                    ),
+                    Some(_) => {
+                        let other = canon
+                            .get(c.name.as_str())
+                            .and_then(|m| m.values().find(|v| **v != mine));
+                        if let Some(other) = other {
+                            push(&mut out, "split", join(other), related(&c.name));
+                        }
+                    }
+                    None => {
+                        let Some(m) = canon.get(c.name.as_str()) else {
+                            continue;
+                        };
+                        if sec.id.as_deref().is_some_and(|id| m.contains_key(id)) {
+                            continue;
+                        }
+                        if m.values().all(|v| *v != mine) {
+                            let first = m.values().next().map(join).unwrap_or_default();
+                            push(&mut out, "redeclared", first, related(&c.name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
 }

@@ -578,11 +578,20 @@ function tablesOf(sec) {
 // quoteParagraphs: 節の中の引用段落（連続する `>` 行を 1 つに連結したもの）。軸の宣言が複数行に折れていても
 // 拾う。宣言の書き出し（「対象の状態:」「条件の値:」など）の行と空の `>` 行は新しい段落を始める —
 // 続けて並べた 2 つの宣言を 1 つに連結すると、状態の軸の末尾にイベントの宣言が混ざる。
-const AXIS_START = /^(対象[^:：]{0,6}(状態|イベント)|条件の値)\s*[:：]/
-function quoteParagraphs(sec) {
+const AXIS_START = /^(対象[^:：]{0,6}(状態|イベント)|条件の値|渡すもの)\s*[:：]/
+// outsideFence が真なら、コードフェンスの中の行を読まない（新しい宣言の書式（§2.9）だけがこれを使い、直書きの「> 条件の値:」の既存の挙動は変えない）。
+function quoteParagraphs(sec, outsideFence = false) {
   const paras = []
   let cur = null
+  let inFence = false
   for (const ln of sec.lines) {
+    if (outsideFence && /^\s*(```|~~~)/.test(ln)) {
+      if (cur !== null) paras.push(cur)
+      cur = null
+      inFence = !inFence
+      continue
+    }
+    if (inFence) continue
     const m = /^\s*>\s?(.*)$/.exec(ln)
     if (m) {
       const t = m[1].trim()
@@ -599,6 +608,76 @@ function quoteParagraphs(sec) {
   }
   if (cur !== null) paras.push(cur)
   return paras
+}
+
+// conditionDecls: 区間の「> 条件の値: 名前 = 右辺」。右辺が項目 ID 1 つだけなら参照（document-structure.md §2.9）で、
+// values は空のまま ref に ID を入れる（解くのは resolveCondition）。直書きは ref: null。参照はコードフェンスの外のものだけを読む
+// （直書きはフェンスの中も読む既存の挙動のまま）。outsideFence が真なら直書きもフェンスの外だけにする（参照の索引が使う）。
+const CONDITION_REF = /^(PR|SP)-[A-Z][A-Z0-9]*-\d+$/
+function conditionDecls(sec, outsideFence = false) {
+  const decls = (paras) =>
+    paras
+      .map((p) => /^条件の値\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(p))
+      .filter(Boolean)
+      .map((m) => ({ name: m[1].trim(), right: m[2].trim() }))
+  const direct = decls(quoteParagraphs(sec, outsideFence)).filter((c) => !CONDITION_REF.test(c.right))
+  const refs = decls(quoteParagraphs(sec, true)).filter((c) => CONDITION_REF.test(c.right))
+  return [...direct.map((c) => ({ name: c.name, values: splitAxis(c.right), ref: null })), ...refs.map((c) => ({ name: c.name, values: [], ref: c.right }))]
+}
+// roleDecls: 区間の「> 渡すもの: 役 = a / b」（コードフェンスの外だけ）。
+function roleDecls(sec) {
+  return quoteParagraphs(sec, true)
+    .map((p) => /^渡すもの\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(p))
+    .filter(Boolean)
+    .map((m) => ({ role: m[1].trim(), inputs: splitAxis(m[2]) }))
+}
+// conditionIndex: 全ての文書（固定を含む）の、ID を持つ区間の直書きの宣言の索引。"<ID>\0<名前>" → 値の配列。
+// 同じ ID・同じ名前に値の集合の違う宣言が 2 つ以上あれば null（1 つに決まらない）。参照の参照は辿らない。
+function conditionIndex(docs) {
+  const index = new Map()
+  const same = (a, b) => a.length === b.length && [...a].sort().join('\u0000') === [...b].sort().join('\u0000')
+  for (const d of docs) {
+    if (!d || !d.markdown || !ID_IN_TEXT[d.kind]) continue
+    for (const sec of itemSections(d.markdown, d.kind)) {
+      if (!sec.id) continue
+      for (const c of conditionDecls(sec, true)) {
+        if (c.ref) continue
+        const k = `${sec.id}\u0000${c.name}`
+        if (!index.has(k)) index.set(k, c.values)
+        else if (index.get(k) !== null && !same(index.get(k), c.values)) index.set(k, null)
+      }
+    }
+  }
+  return index
+}
+// resolveCondition: 参照なら参照先の値（無いか 1 つに決まらなければ []）を values にする。直書きはそのまま。
+const resolveCondition = (c, index) => (c.ref ? { ...c, values: index.get(`${c.ref}\u0000${c.name}`) || [] } : c)
+// usesOf: 区間の本文（コードフェンスの中と `>` の行を除く）を文に分け、`渡された「X」` の印ごとに、同じ文に現れる宣言済みの役の名前を返す。
+// 役の名前は「」の中を除いた文から探す（入力の名前に役の名前が含まれていても役に数えない）。役の宣言が全文書に無ければ作らない。
+// 「引き渡された「」」のように動詞の一部になった「渡された」は印にしない（USE_MARK の直前の字の規則）。
+// USE_MARK: 直前が文の始め・空白・記号か、助詞の 1 字（に・は・が・も・へ・と・で・ら・を・の）のときだけ印にする。
+// 漢字・カタカナ・英数字や他のかなが前にあれば、複合動詞（引き渡す・受け渡す・言い渡す・見渡す）の一部とみなす。
+const USE_MARK = /(?<![\p{L}\p{N}](?<![にはがもへとでらをの]))渡された「([^」]+)」/gu
+function usesOf(sec, roleNames) {
+  if (!roleNames.length) return []
+  const body = []
+  let inFence = false
+  for (const ln of sec.lines.slice(1)) {
+    if (/^\s*(```|~~~)/.test(ln)) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence || /^\s*>/.test(ln)) continue
+    body.push(ln)
+  }
+  const uses = []
+  for (const sentence of body.join('\n').split(/[。\n]/)) {
+    const inputs = [...sentence.matchAll(USE_MARK)].map((m) => m[1].trim()).filter(Boolean)
+    if (!inputs.length) continue
+    const roles = namesIn(sentence.replace(/「[^」]*」/g, '\u0000'), roleNames).sort()
+    for (const input of inputs) uses.push({ input, roles })
+  }
+  return uses
 }
 
 // stateDiagramOf: 節の中の mermaid stateDiagram の辺。`A --> B : ラベル` だけを読む
@@ -807,11 +886,12 @@ function stateCheck(d, sec, out, fallbackEdges) {
 
 const DT_WILDCARD = /^(\*|—|-|–|任意)?$/
 const DT_MAX_COMBOS = 4096
-function decisionCheck(d, sec, out, notChecked) {
+function decisionCheck(d, sec, out, notChecked, index = new Map()) {
+  // 参照（「> 条件の値: 名前 = <ID>」）は参照先の値で検査する。解けない参照は宣言の無い条件と同じに扱う（指摘は ST-ENUM-SET-MISMATCH- が出す）。
   const domains = new Map()
-  for (const p of quoteParagraphs(sec)) {
-    const m = /^条件の値\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(p)
-    if (m) domains.set(m[1].trim(), splitAxis(m[2]))
+  for (const c of conditionDecls(sec).map((x) => resolveCondition(x, index))) {
+    if (c.ref && !c.values.length) continue
+    domains.set(c.name, c.values)
   }
   const seenLabels = new Map()
   for (const t of tablesOf(sec)) {
@@ -880,6 +960,8 @@ function tableFindings(conds, rows, hasElse) {
 function formalCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(docs)), origin = null) {
   const out = []
   const notChecked = []
+  // 参照の索引は固定の文書も含む全ての文書から作る（参照先が固定の文書にあってよい）。
+  const index = conditionIndex(docs)
   for (const d of docs) {
     if (d.fixed || !d.markdown) continue
     const secs = sectionsOf2(d.markdown)
@@ -887,7 +969,7 @@ function formalCompact(docs, flow, writesSpec = writesSpecOf(writtenKeys(docs)),
     const fallback = diagrams.length === 1 ? diagrams[0] : null
     for (const sec of secs) {
       stateCheck(d, sec, out, fallback)
-      decisionCheck(d, sec, out, notChecked)
+      decisionCheck(d, sec, out, notChecked, index)
     }
   }
   if (flow === null) {
@@ -1726,12 +1808,15 @@ const WORKSPACE_TEXT = {
     issue: `「${token}」は ${id} の略記に見える。略記は参照先の実在の検査を素通りするので、読み手も機械もどの項目を指すかを確かめられない。`,
     fix: `「${token}」を「${id}」に書き換える。別の項目を指すなら、その項目 ID を正しい形で書く。`,
   }),
-  DOC_FLOW_TABLE: (itemId, flowId, name, docValues, flowValues) => ({
+  // ref: 項目の条件が参照（「> 条件の値: 名前 = <ID>」）なら、その参照先（graphCheck が足す）。
+  DOC_FLOW_TABLE: (itemId, flowId, name, docValues, flowValues, ref) => ({
     id: `ST-DOC-FLOW-TABLE-${itemId}-${flowId}-${name}-${docValues}`,
     location: itemId,
-    quote: `${name} = ${docValues}`,
-    issue: `項目 ${itemId} の条件「${name}」の値（${docValues}）が、trace が指す流れの判断 ${flowId} の入力の値（${flowValues}）と違う。同じ判断に流れと本文が別の値を定めている。`,
-    fix: `本文の「> 条件の値:」と表を ${flowId} の値の集合に揃える。流れの側が誤っているなら、その要素を直す役（flow-framer）へ戻す。`,
+    quote: `${name} = ${ref || docValues}`,
+    issue: `項目 ${itemId} の条件「${name}」の値（${docValues}${ref ? `。参照先 ${ref} から解いた値` : ''}）が、trace が指す流れの判断 ${flowId} の入力の値（${flowValues}）と違う。同じ判断に流れと本文が別の値を定めている。`,
+    fix: ref
+      ? `参照先 ${ref} の「> 条件の値: ${name} = …」の宣言と、${itemId} の表を ${flowId} の値の集合に揃える。流れの側が誤っているなら、その要素を直す役（flow-framer）へ戻す。`
+      : `本文の「> 条件の値:」と表を ${flowId} の値の集合に揃える。流れの側が誤っているなら、その要素を直す役（flow-framer）へ戻す。`,
   }),
   GLOSSARY_BACKREF: (where, term, specId) => ({
     id: `ST-GLOSSARY-BACKREF-${where}-${term}-${specId}`,
@@ -1755,6 +1840,33 @@ const WORKSPACE_TEXT = {
     severity: 'degraded',
     issue: `項目 ${itemId} は \`${field}\` の要素を日本語の名前で ${n} 項目と述べるが、同じ文にキーの綴りが無い。実装者がキーの名前を決められない。`,
     fix: `要素のキーをコードスパンで並べる（例: \`{a, b}\`）。`,
+  }),
+  ROLE_INPUT_COVERAGE: (where, role, input, related) => ({
+    id: `ST-ROLE-INPUT-COVERAGE-${where}-${role}-${input}`,
+    location: where,
+    quote: `渡された「${input}」`,
+    related,
+    issue: `${where} の規則は ${role} に渡された「${input}」を使うが、${role} の「> 渡すもの:」の宣言（${related.join('・')}）に「${input}」が無い。役が受け取らないものを規則が使っている。`,
+    fix: `宣言 ${related.join('・')} に「${input}」を足すか、規則が使うものを宣言の中の名前に直す（document-structure.md §2.9）。`,
+  }),
+  // ref: split のときの自分の参照先（graphCheck が足す）。quote は本文の宣言の行（参照なら `名前 = <ID>`）にする。
+  ENUM_SET_MISMATCH: (kind, where, name, mine, other, related, ref) => ({
+    id: `ST-ENUM-SET-MISMATCH-${where}-${name}`,
+    location: where,
+    quote: `${name} = ${kind === 'unresolved' ? related[0] : kind === 'split' && ref ? ref : mine}`,
+    related,
+    issue:
+      kind === 'unresolved'
+        ? `${where} の条件「${name}」の参照先 ${related[0]} に同じ名前の宣言が無いか、1 つに決まらない。値の集合を解けないので、判定表を検査できない。`
+        : kind === 'redeclared'
+          ? `${where} は、参照される条件「${name}」を別の値の集合（${mine}）で書き直している。参照先の集合（${other}）と食い違う。`
+          : `${where} の条件「${name}」が参照する${ref ? ` ${ref} の` : ''}値の集合（${mine}）が、同じ名前の別の参照先の集合（${other}）と違う。参照された名前は 1 つの集合を指す。`,
+    fix:
+      kind === 'unresolved'
+        ? `参照先 ${related[0]} に「> 条件の値: ${name} = …」を 1 つだけ置くか、参照を宣言のある項目に直す（document-structure.md §2.9）。`
+        : kind === 'redeclared'
+          ? `値を写さず「> 条件の値: ${name} = <参照先の ID>」の参照に置き換える。別の集合なら別の名前にする（document-structure.md §2.9）。`
+          : `参照先（${related.filter((k) => k !== where).join('・')}）の宣言を 1 つの集合に揃えるか、別の集合の側の名前を変える（document-structure.md §2.9）。`,
   }),
   AMBIGUOUS: (docKey, itemId, word, quote) => ({
     id: `ST-AMBIGUOUS-${docKey}-${itemId}-${word}`,
@@ -2294,7 +2406,7 @@ function wsBackup(ws, opts) {
 // tree_digest は全文書の木の digest。script は段 4・7 の控えと再実行の入口の本文をこれで段の入口の本文と照らす。
 function docDigests(ws, docs, keys) {
   const items = snapshotOf(docs)
-  const entryKeys = Object.keys(readJsonFile(path.join(ws, ENTRY_FILE)) || {})
+  const entryKeys = Object.keys(entryDocsOf(readJsonFile(path.join(ws, ENTRY_FILE))))
   return {
     digests: Object.fromEntries(keys.map((k) => [k, items[k] ? digestOf({ [k]: items[k] }) : null])),
     entry_digest: entryKeys.length ? digestOf(entryOf(docs, entryKeys)) : null,
@@ -2419,7 +2531,7 @@ function wsReset(ws, opts) {
   }
   const carriedIds = Object.fromEntries(Object.entries(carried).map(([key, tbd]) => [key, tbd.map((t) => t.id).sort()]))
   const entry = writeEntry(ws, keep.filter((k) => !fixed.includes(k)))
-  const keys = Object.keys(entry).sort()
+  const keys = Object.keys(entryDocsOf(entry)).sort()
   return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed), entry: keys, entry_digest: keys.length ? digestOf(entry) : null }
 }
 
@@ -2441,7 +2553,22 @@ function itemDigests(d) {
   }
   return new Map([...byId].map(([id, secs]) => [id, { secs, digest: digestOf({ text: secs.map((s) => s.text), trace: trace.filter((t) => t && t.item_id === id) }) }]))
 }
-const entryOf = (docs, keys) => Object.fromEntries(docs.filter((x) => keys.includes(x.key)).map((d) => [d.key, Object.fromEntries([...itemDigests(d)].map(([id, v]) => [id, v.digest]))]))
+// ENTRY_ROLES: entry.json の予約のキー。入口の「> 渡すもの:」の宣言のある区間の key を役ごとに残す（宣言の無い W では書かない。
+// 書かなければ entry.json と entry_digest は今までと同じ）。宣言を消した改訂で生じた ST-ROLE-INPUT-COVERAGE- を既存の指摘にしないため。
+// 文書のキーは `<種別>/<トピック>` なので衝突しない。prd-graph impact には渡さない（entryDocsOf）。
+const ENTRY_ROLES = '§roles'
+const entryDocsOf = (entry) => Object.fromEntries(Object.entries(entry || {}).filter(([k]) => k !== ENTRY_ROLES))
+const entryOf = (docs, keys) => {
+  const picked = docs.filter((x) => keys.includes(x.key))
+  const roles = {}
+  for (const d of picked) {
+    for (const sec of itemSections(d.markdown, d.kind)) {
+      for (const r of roleDecls(sec)) roles[r.role] = [...new Set([...(roles[r.role] || []), sec.id || `${d.key}${sec.key}`])].sort()
+    }
+  }
+  const docsPart = Object.fromEntries(picked.map((d) => [d.key, Object.fromEntries([...itemDigests(d)].map(([id, v]) => [id, v.digest]))]))
+  return Object.keys(roles).length ? { ...docsPart, [ENTRY_ROLES]: Object.fromEntries(Object.entries(roles).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) } : docsPart
+}
 function writeEntry(ws, keys) {
   const entry = entryOf(workspaceDocs(ws), keys)
   if (keys.length) writeCheck(ws, 'entry.json', entry)
@@ -2454,6 +2581,8 @@ const ITEM_LOCAL = ['ST-NO-EVIDENCE-', 'ST-REQ-NO-ORIGIN-', 'ST-MODAL-', 'ST-AMB
 // NEVER_PREEXISTING: 項目に帰属するが、prd-graph の事実に無いもの（開いている TBD の集合・flow の要素）に依存する検査。影響の範囲で
 // この run が原因でないと言えないので、既存の指摘にしない。
 const NEVER_PREEXISTING = ['ST-TBD-ASSERT-', 'ST-FLOW-UNKNOWN-REF-', 'ST-DECISION-UNAPPLIED-', 'ST-DOC-FLOW-TABLE-']
+// 宣言とつながる指摘（ST-ROLE-INPUT-COVERAGE-・ST-ENUM-SET-MISMATCH-）はどちらにも入れず、related に宣言の区間の key を持たせ、使う区間と related の
+// どれも変わっておらず消えてもいないときだけ既存の指摘にする（宣言と使う区間は ID でつながるとは限らず、影響の範囲では分けられない）。
 
 // GRAPH_BIN: 影響の範囲を決める Rust の CLI の wrapper（plugins/workflow/crates/prd-graph が正本）。本文の解析は doc_check に 1 つだけ置き、
 // prd-graph には解析済みの事実だけを渡す。
@@ -2461,7 +2590,7 @@ const GRAPH_BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), 'prd-g
 function impactOf(ws, docs, entry, name) {
   const ids = new RegExp(`${ID_IN_TEXT.requirements.source}|${ID_IN_TEXT.specifications.source}`, 'g')
   const facts = {
-    entry,
+    entry: entryDocsOf(entry),
     docs: docs.map((d) => ({
       key: d.key,
       fixed: Boolean(d.fixed),
@@ -2476,7 +2605,7 @@ function impactOf(ws, docs, entry, name) {
   return { ...out, path: writeCheck(ws, name, out) }
 }
 
-// graphCheck: 優先度 1 の静的な検査（prd-graph check）に事実を渡し、指摘を doc_check の compact の形で返す。文書の構造の解析
+// graphCheck: 優先度 1 と 2 の静的な検査（prd-graph check）に事実を渡し、指摘を doc_check の compact の形で返す。文書の構造の解析
 // （区間・表・「> 条件の値:」・本文中の ID・用語表の行）はここで doc_check の解析を使って済ませ、Rust には解析済みの値を渡す。
 // Rust の側が文字を読むのは、略記の ID と欄の数の検査だけ。
 function graphCheck(docs, ledgers, flow, impact) {
@@ -2484,11 +2613,10 @@ function graphCheck(docs, ledgers, flow, impact) {
   const idsOf = (text, self) => [...new Set(String(text).match(ids) || [])].filter((x) => x !== self).sort()
   const trace = (d) => (d.meta && Array.isArray(d.meta.trace) ? d.meta.trace : []).filter((t) => t && t.item_id).map((t) => ({ item_id: t.item_id, kind: String(t.kind || ''), ref: t.ref == null ? null : String(t.ref) }))
   const changed = impact ? impact.changed : docs.filter((d) => !d.fixed).flatMap((d) => d.ids)
-  const conditionsOf = (sec) =>
-    quoteParagraphs(sec)
-      .map((p) => /^条件の値\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(p))
-      .filter(Boolean)
-      .map((m) => ({ name: m[1].trim(), values: splitAxis(m[2]) }))
+  const index = conditionIndex(docs)
+  const conditionsOf = (sec) => conditionDecls(sec).map((c) => resolveCondition(c, index))
+  // 役の名前は全文書（固定を含む）の「> 渡すもの:」の宣言から集める。
+  const roleNames = [...new Set(docs.flatMap((d) => itemSections(d.markdown, d.kind).flatMap((sec) => roleDecls(sec).map((r) => r.role))))]
   // 用語表: 見出しに「用語」を含む節の表の行のうち、定義の所在を「定義は <ID>」と示すもの。
   const glossaryOf = (d, secs) =>
     secs
@@ -2511,7 +2639,7 @@ function graphCheck(docs, ledgers, flow, impact) {
       return {
         key: d.key,
         fixed: Boolean(d.fixed),
-        sections: secs.map((sec) => ({ key: sec.id ? sec.key : `${d.key}${sec.key}`, id: sec.id, body: sec.lines.slice(1).join('\n'), ids: idsOf(sec.lines.slice(1).join('\n'), sec.id), conditions: conditionsOf(sec) })),
+        sections: secs.map((sec) => ({ key: sec.id ? sec.key : `${d.key}${sec.key}`, id: sec.id, body: sec.lines.slice(1).join('\n'), ids: idsOf(sec.lines.slice(1).join('\n'), sec.id), conditions: conditionsOf(sec), roles: roleDecls(sec), uses: usesOf(sec, roleNames) })),
         trace: trace(d),
         glossary: glossaryOf(d, secs),
       }
@@ -2528,10 +2656,18 @@ function graphCheck(docs, ledgers, flow, impact) {
   const found = JSON.parse(r.stdout).findings
   const unknown = found.filter((f) => !GRAPH_CODES.includes(f.code))
   if (unknown.length) throw new Error(`prd-graph check が知らない種別を返しました: ${[...new Set(unknown.map((f) => f.code))].join(', ')}`)
-  return found.map((f) => ({ c: f.code, d: f.doc, a: f.args }))
+  // 参照（「> 条件の値: 名前 = <ID>」）を持つ区間の DOC_FLOW_TABLE と split は、本文の行を quote にし参照先を直させるため、参照先の ID を
+  // 引数の末尾に足す（Rust の引数は変えない）。
+  const refOf = new Map(facts.docs.flatMap((d) => d.sections.flatMap((sec) => sec.conditions.filter((c) => c.ref).map((c) => [`${sec.key}\u0000${c.name}`, c.ref]))))
+  const withRef = (f) => {
+    const at = f.code === 'DOC_FLOW_TABLE' ? [f.args[0], f.args[2]] : f.code === 'ENUM_SET_MISMATCH' && f.args[0] === 'split' ? [f.args[1], f.args[2]] : null
+    const ref = at && refOf.get(`${at[0]}\u0000${at[1]}`)
+    return ref ? [...f.args, ref] : f.args
+  }
+  return found.map((f) => ({ c: f.code, d: f.doc, a: withRef(f) }))
 }
 // GRAPH_CODES: prd-graph check が返す種別（文面は WORKSPACE_TEXT）。crates/prd-graph/src/checks.rs の Finding.code と一致させる。
-const GRAPH_CODES = ['DECISION_UNAPPLIED', 'ABBREV_ID', 'DOC_FLOW_TABLE', 'GLOSSARY_BACKREF', 'HOLD_PROPAGATION', 'FIELD_SPELLING']
+const GRAPH_CODES = ['DECISION_UNAPPLIED', 'ABBREV_ID', 'DOC_FLOW_TABLE', 'GLOSSARY_BACKREF', 'HOLD_PROPAGATION', 'FIELD_SPELLING', 'ROLE_INPUT_COVERAGE', 'ENUM_SET_MISMATCH']
 
 // place: S0 が既存文書を W に置く。文書と、その隣の開いている TBD の写しを 1 回でまとめて逐語で写す（写しを別の手順にすると置き忘れが起き、
 // 次の保存で写しの無い文書として正本を上書きするか消す）。隣に写しが無ければ、前に置いた W の写しを消す。
@@ -3855,7 +3991,7 @@ function expandWorkspace(compact, table = { ...FINDING_TEXT, ...WORKSPACE_TEXT }
   for (const g of compact.findings || []) {
     for (const args of (g && g.a) || []) {
       const t = make(g.c, args)
-      findings.push({ id: t.id, document: g.d, location: t.location, quote: t.quote, ...(t.severity ? { severity: t.severity } : {}), issue: t.issue, fix: t.fix })
+      findings.push({ id: t.id, document: g.d, location: t.location, quote: t.quote, ...(t.severity ? { severity: t.severity } : {}), ...(t.related ? { related: t.related } : {}), issue: t.issue, fix: t.fix })
     }
   }
   return { findings, not_checked: (compact.not_checked || []).map((n) => make(n && n.c, n && n.a)) }
@@ -4147,6 +4283,22 @@ function wsPlan(ws) {
 // report の本文に反映していない指摘の節も同じ式で選ぶ。
 const countsAsBlocking = (f, fixedKeys) => !f.preexisting && (!fixedKeys.has(f.document) || String(f.id).startsWith('ST-ORPHAN-REQ-'))
 
+// roleEntryKeys: ST-ROLE-INPUT-COVERAGE- の指摘 ID → 入口で、その役と、その印の文に現れる役（入口の役の名前で探す）を宣言していた区間の key。
+// 今の宣言だけ（related）では、宣言の片方を消した改訂や、文の 2 つの役の片方の宣言を消して役が 1 つに決まった改訂を見分けられない。
+function roleEntryKeys(docs, graph, entryRoles) {
+  const out = new Map()
+  const names = Object.keys(entryRoles)
+  if (!names.length) return out
+  const secOf = new Map(docs.flatMap((d) => itemSections(d.markdown, d.kind).map((sec) => [`${d.key}\u0000${sec.id ? sec.key : `${d.key}${sec.key}`}`, sec])))
+  for (const g of graph.filter((x) => x.c === 'ROLE_INPUT_COVERAGE')) {
+    const [where, role, input] = g.a
+    const sec = secOf.get(`${g.d}\u0000${where}`)
+    const roles = new Set([role, ...(sec ? usesOf(sec, names).filter((u) => u.input === input).flatMap((u) => u.roles) : [])])
+    out.set(WORKSPACE_TEXT.ROLE_INPUT_COVERAGE(...g.a).id, [...roles].flatMap((r) => entryRoles[r] || []))
+  }
+  return out
+}
+
 function wsDoc(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
@@ -4180,8 +4332,14 @@ function wsDoc(ws, opts) {
   if (impact) {
     const hit = new Set(impact.impact)
     const changed = new Set(impact.changed)
+    const removed = new Set(impact.removed)
+    const entryRoleKeys = roleEntryKeys(withMeta, graph, entry[ENTRY_ROLES] || {})
     for (const f of expanded.findings) {
-      if (!entry[f.document] || !Object.hasOwn(entry[f.document], f.location) || changed.has(f.location)) continue
+      if (!entry[f.document] || f.document === ENTRY_ROLES || !Object.hasOwn(entry[f.document], f.location) || changed.has(f.location)) continue
+      if (f.related) {
+        if ([...f.related, ...(entryRoleKeys.get(f.id) || [])].every((k) => !changed.has(k) && !removed.has(k))) f.preexisting = true
+        continue
+      }
       if (NEVER_PREEXISTING.some((p) => f.id.startsWith(p))) continue
       if (ITEM_LOCAL.some((p) => f.id.startsWith(p)) || !hit.has(f.location)) f.preexisting = true
     }

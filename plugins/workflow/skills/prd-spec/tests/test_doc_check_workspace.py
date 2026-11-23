@@ -99,6 +99,71 @@ def _findings(ws, name="doc.json"):
     return [f["id"] for f in json.loads((Path(ws) / "checks" / name).read_text())["findings"]]
 
 
+# D 段（document-structure.md §2.9）の書き方の fixture。宣言の項目と使う項目は互いの ID を書かない（ROLE は ID を書かない。
+# ENUM の書き直しの項目も参照先の ID を書かない）ので、影響の範囲（1 hop）でつながらない。
+ROLE_BLOCK = "\n".join([
+    "#### SP-AUTH-003 検査役に渡すもの",
+    "",
+    "> 渡すもの: 検査役 = 対象の文書 / 観点の一覧",
+    "> 渡すもの: 司令塔 = 判定の記録",
+    "",
+    "検査役は渡された「対象の文書」を読まなければならない。",
+    "",
+    "#### SP-AUTH-004 検査の規則",
+    "",
+    "検査役は、渡された「前の巡の指摘」を読まなければならない。",
+    "検査役は、渡された「観点の一覧」で検査しなければならない。",
+    "検査役は、渡された「司令塔の記録」を読まなければならない。",
+    "",
+    "#### SP-AUTH-005 印の無い規則",
+    "",
+    "検査役は、渡された前の巡の指摘と照らさなければならない。",
+    "",
+])
+ENUM_CANON = "\n".join([
+    "## 結末",
+    "",
+    "#### SP-AUTH-006 結末",
+    "",
+    "> 条件の値: 結末 = 完了 / 中断 / 失敗",
+    "",
+    "システムは run の結末を 1 つに決めなければならない。",
+    "",
+])
+ENUM_REF = "\n".join([
+    "## 通知",
+    "",
+    "#### SP-AUTH-007 結末ごとの通知",
+    "",
+    "> 条件の値: 結末 = SP-AUTH-006",
+    "",
+    "| 条件: 結末 | 結果 |",
+    "|---|---|",
+    "| 完了 | 通知しない |",
+    "| 中断 | 再開の手順を通知する |",
+    "| 失敗 | 原因を通知する |",
+    "",
+])
+ENUM_REDECL = "\n".join([
+    "## 再掲",
+    "",
+    "#### SP-AUTH-008 結末の再掲",
+    "",
+    "> 条件の値: 結末 = 完了 / 失敗",
+    "",
+    "システムは結末を記録しなければならない。",
+    "",
+])
+
+
+def _spec_block(*blocks):
+    return "\n".join(blocks) + "\n## トレーサビリティ表"
+
+
+def _found(ws, out):
+    return {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+
+
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -1343,6 +1408,187 @@ class Report(_Workspace):
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class FormalWriting(_Workspace):
+    """document-structure.md §2.9 の書き方を前提にした優先度 2 の検査（ST-ROLE-INPUT-COVERAGE-・ST-ENUM-SET-MISMATCH-）。"""
+
+    def test_役の渡すものに無い入力を使う規則を拾う(self):
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ROLE_BLOCK))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        role = {i: f for i, f in found.items() if i.startswith("ST-ROLE-INPUT-COVERAGE-")}
+        hit = role.get("ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘")
+        self.assertIsNotNone(hit, sorted(role))
+        self.assertEqual((hit["document"], hit["location"], hit.get("related")), ("specifications/auth", "SP-AUTH-004", ["SP-AUTH-003"]))
+        self.assertNotIn("severity", hit, "blocking（degraded にしない）")
+        self.assertNotIn("ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-観点の一覧", role, "宣言にある入力は拾わない")
+        self.assertNotIn("ST-ROLE-INPUT-COVERAGE-SP-AUTH-003-検査役-対象の文書", role, "宣言の項目の中の規則は役の名前で照らす")
+        # 「」の中の「司令塔」は役に数えない。数えると文の役が 2 つになり、拾われなくなる。
+        self.assertIn("ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-司令塔の記録", role)
+        self.assertFalse([i for i in role if role[i]["location"] == "SP-AUTH-005"], "印（「」）の無い文は拾わない")
+
+    def test_役の宣言が無ければ渡された印があっても拾わない(self):
+        self.assertIn("> 渡すもの: 検査役 = 対象の文書 / 観点の一覧\n> 渡すもの: 司令塔 = 判定の記録\n", ROLE_BLOCK)
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ROLE_BLOCK.replace("> 渡すもの: 検査役 = 対象の文書 / 観点の一覧\n> 渡すもの: 司令塔 = 判定の記録\n", "")))
+        _ok(self.ws, "doc")
+        self.assertFalse([i for i in _findings(self.ws) if i.startswith("ST-ROLE-INPUT-COVERAGE-")])
+
+    def test_値の集合の参照を解いて判定表を検査し書き直しを拾う(self):
+        # 参照先の宣言（SP-AUTH-006）は、参照元の判定表（SP-AUTH-007）と別の ## 節に置く。同じ節に置くと、参照を解かなくても
+        # 直書きの宣言が値を供給してしまう。
+        self.assertIn("| 失敗 | 原因を通知する |", ENUM_REF)
+        ref = ENUM_REF.replace("| 失敗 | 原因を通知する |", "| 失敗 | 原因を通知する |\n| 保留 | 通知しない |")
+        unresolved = "\n".join([
+            "## 通知の種類",
+            "",
+            "#### SP-AUTH-009 種類ごとの通知",
+            "",
+            "> 条件の値: 通知の種類 = SP-AUTH-001",
+            "",
+            "| 条件: 通知の種類 | 結果 |",
+            "|---|---|",
+            "| メール | 宛先に送る |",
+            "| 画面 | 一覧に出す |",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ref, ENUM_REDECL, unresolved))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        dt = sorted(i for i in found if i.startswith("ST-DT-VALUE-"))
+        self.assertEqual(dt, ["ST-DT-VALUE-specifications/auth-SP-AUTH-007 結末ごとの通知-結末-保留"], "解いた値（完了 / 中断 / 失敗）で検査し、集合に無い値だけを拾う。解けない参照の表は検査しない")
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末", "ST-ENUM-SET-MISMATCH-SP-AUTH-009-通知の種類"])
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"]["location"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"].get("related")), ("SP-AUTH-008", ["SP-AUTH-006", "SP-AUTH-007"]))
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-009-通知の種類"]["location"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-009-通知の種類"].get("related")), ("SP-AUTH-009", ["SP-AUTH-001"]))
+        self.assertFalse([f for f in enum.values() if "severity" in f], "blocking（degraded にしない）")
+
+    def test_参照の無い直書きの宣言どうしは食い違っても拾わない(self):
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REDECL))
+        _ok(self.ws, "doc")
+        self.assertFalse([i for i in _findings(self.ws) if i.startswith("ST-ENUM-SET-MISMATCH-")])
+
+    def test_条件の値の直後の渡すものの宣言は条件の値に混ざらない(self):
+        # AXIS_START: 続けて並べた「> 渡すもの:」を前の宣言の段落に連結すると、最後の値が「人間渡すもの: …」になる。
+        table = "\n".join([
+            "## 判定",
+            "",
+            "> 条件の値: 呼び手 = 司令塔 / 人間",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "| 条件: 呼び手 | 結果 |",
+            "|---|---|",
+            "| 司令塔 | 承認を求めない |",
+            "| 人間 | 承認を求める |",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(table))
+        _ok(self.ws, "doc")
+        self.assertEqual([i for i in _findings(self.ws) if i.startswith("ST-DT-VALUE-")], [])
+
+    # 以下は doc_check を通した確かめ（Rust の単体のテストだけでは見えない経路）。
+    def test_同じ名前の参照先どうしの集合が違えば参照ごとに拾い本文の参照の行を引く(self):
+        other = "\n".join([
+            "## 結末（別）",
+            "",
+            "#### SP-AUTH-010 別の結末",
+            "",
+            "> 条件の値: 結末 = 完了 / 失敗",
+            "",
+            "システムは結末を記録しなければならない。",
+            "",
+            "#### SP-AUTH-011 別の結末の通知",
+            "",
+            "> 条件の値: 結末 = SP-AUTH-010",
+            "",
+            "システムは結末を通知しなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REF, other))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末", "ST-ENUM-SET-MISMATCH-SP-AUTH-011-結末"], "参照先（SP-AUTH-006・SP-AUTH-010）そのものは拾わない")
+        related = ["SP-AUTH-006", "SP-AUTH-007", "SP-AUTH-010", "SP-AUTH-011"]
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["quote"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["related"]), ("結末 = SP-AUTH-006", related), "quote は本文の参照の行")
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-011-結末"]["quote"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-011-結末"]["related"]), ("結末 = SP-AUTH-010", related))
+        text = (self.ws / "specifications-auth.md").read_text()
+        self.assertFalse([f for f in enum.values() if f["quote"] not in text], "quote が本文の逐語")
+
+    def test_区間が宣言する1つの役で役の名前の無い文を照らす(self):
+        block = "\n".join([
+            "#### SP-AUTH-012 検査役の入力",
+            "",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "渡された「前の巡の指摘」を読まなければならない。",
+            "渡された「対象の文書」を読まなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(block))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        role = {i: f for i, f in found.items() if i.startswith("ST-ROLE-INPUT-COVERAGE-")}
+        self.assertEqual(sorted(role), ["ST-ROLE-INPUT-COVERAGE-SP-AUTH-012-検査役-前の巡の指摘"])
+        self.assertEqual(role["ST-ROLE-INPUT-COVERAGE-SP-AUTH-012-検査役-前の巡の指摘"]["related"], ["SP-AUTH-012"])
+
+    def test_参照先の同じ名前の宣言どうしが食い違えば参照は解けない(self):
+        self.assertIn("> 条件の値: 結末 = 完了 / 中断 / 失敗\n", ENUM_CANON)
+        canon = ENUM_CANON.replace("> 条件の値: 結末 = 完了 / 中断 / 失敗\n", "> 条件の値: 結末 = 完了 / 中断 / 失敗\n\n> 条件の値: 結末 = 完了 / 失敗\n")
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(canon, ENUM_REF))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"])
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["quote"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["related"]), ("結末 = SP-AUTH-006", ["SP-AUTH-006"]))
+        self.assertFalse([i for i in found if i.startswith("ST-DT-") and "SP-AUTH-007" in i], "解けない参照の表は宣言の無い条件と同じ扱い")
+
+    def test_参照の参照は辿らず解けない参照にする(self):
+        chained = "\n".join([
+            "## 再通知",
+            "",
+            "#### SP-AUTH-013 結末ごとの再通知",
+            "",
+            "> 条件の値: 結末 = SP-AUTH-007",
+            "",
+            "システムは結末を再び通知しなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REF, chained))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-013-結末"], "SP-AUTH-007 は参照だけを持つので、その参照は解けない")
+        self.assertEqual(enum["ST-ENUM-SET-MISMATCH-SP-AUTH-013-結末"]["related"], ["SP-AUTH-007"])
+
+    def test_フェンスの中と引用の行の宣言と印は読まず複合動詞の渡されたは印にしない(self):
+        block = "\n".join([
+            "#### SP-AUTH-003 検査役に渡すもの",
+            "",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "#### SP-AUTH-004 検査の規則",
+            "",
+            "```markdown",
+            "> 渡すもの: 司令塔 = 判定の記録",
+            "> 条件の値: 結末 = SP-AUTH-099",
+            "検査役は、渡された「フェンスの入力」を読まなければならない。",
+            "```",
+            "",
+            "> 検査役は、渡された「引用の入力」を読む。",
+            "",
+            "検査役は、引き渡された「複合動詞の入力」を読まなければならない。",
+            "司令塔は、渡された「判定の記録の写し」を読まなければならない。",
+            "検査役は、渡された「本文の入力」を読まなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(block))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        role = sorted(i for i in found if i.startswith("ST-ROLE-INPUT-COVERAGE-"))
+        # 対照の本文の印だけを拾う。フェンスの中の宣言を読むと司令塔が役になり、「判定の記録の写し」も拾われる。
+        self.assertEqual(role, ["ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-本文の入力"])
+        self.assertFalse([i for i in found if i.startswith("ST-ENUM-SET-MISMATCH-")], "フェンスの中の参照は読まない")
+
+    def test_参照で解いた値の判定表の欠けを拾う(self):
+        self.assertIn("| 失敗 | 原因を通知する |\n", ENUM_REF)
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REF.replace("| 失敗 | 原因を通知する |\n", "")))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        self.assertEqual(sorted(i for i in found if i.startswith("ST-DT-")), ["ST-DT-GAP-specifications/auth-SP-AUTH-007 結末ごとの通知-結末=失敗"])
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class Index(_Workspace):
     def test_2_つの_INDEX_を文書から導出する(self):
         out = _ok(self.ws, "index", "--req-dir", "docs/req")
@@ -1597,6 +1843,126 @@ class CarriedTbd(_Workspace):
         self.assertNotIn("impact", out)
         self.assertEqual(out["preexisting_findings"], 0)
         self.assertFalse((self.ws / "checks/impact.json").exists())
+
+    # 宣言とつながる指摘（D 段 §2.4 の第 3 の規則）: 使う区間が入口にあって変わっておらず、related のどの key も changed ∪ removed に
+    # 無いときだけ既存の指摘にする。使う区間は宣言の区間と ID でつながらないので影響の範囲の外にあり、旧い規則では既存の指摘に紛れる。
+    def _entry_with(self, block):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("## トレーサビリティ表", block))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        return ws
+
+    def _swap(self, doc, base, old, new):
+        self.assertIn(old, base)
+        doc.write_text(base.replace(old, new, 1))
+
+    def _doc_with_impact(self, ws):
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        return out, _found(ws, out), json.loads((ws / out["impact"]["path"]).read_text())
+
+    def test_宣言とつながる役の指摘は宣言も使う項目も変わらなければ既存の指摘(self):
+        ws = self._entry_with(_spec_block(ROLE_BLOCK))
+        missing = "ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘"
+        out, found, _ = self._doc_with_impact(ws)
+        self.assertTrue(found[missing].get("preexisting"), "宣言も使う項目も変えていない古い指摘は既存の指摘")
+        # 宣言の項目だけを変える（入力を 1 つ消す）。
+        doc = ws / "specifications-auth.md"
+        self._swap(doc, doc.read_text(), "> 渡すもの: 検査役 = 対象の文書 / 観点の一覧", "> 渡すもの: 検査役 = 対象の文書")
+        again, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-003"])
+        self.assertNotIn("SP-AUTH-004", impact["impact"], "前提: 使う項目は影響の範囲の外（旧い規則なら既存の指摘になる）")
+        self.assertFalse(found[missing].get("preexisting"), "宣言を変えた run では、使う項目が変わっていなくても数える")
+        self.assertFalse(found["ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-観点の一覧"].get("preexisting"), "宣言から消した入力の退行は数える")
+        self.assertGreaterEqual(again["blocking"], out["blocking"] + 2)
+
+    def test_宣言とつながる値の集合の指摘は宣言も参照元も変わらなければ既存の指摘(self):
+        ws = self._entry_with(_spec_block(ENUM_CANON, ENUM_REF, ENUM_REDECL))
+        doc = ws / "specifications-auth.md"
+        original = doc.read_text()
+        redecl = "ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"
+        out, found, _ = self._doc_with_impact(ws)
+        self.assertTrue(found[redecl].get("preexisting"))
+        # 参照先の宣言だけを変える。
+        self._swap(doc, original, "> 条件の値: 結末 = 完了 / 中断 / 失敗", "> 条件の値: 結末 = 完了 / 中断 / 失敗 / 取消")
+        again, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-006"])
+        self.assertNotIn("SP-AUTH-008", impact["impact"], "前提: 書き直しの項目は影響の範囲の外")
+        self.assertFalse(found[redecl].get("preexisting"), "宣言を変えた run では、書き直しの項目が変わっていなくても数える")
+        self.assertGreater(again["blocking"], out["blocking"])
+        # 参照先の項目を消す（impact の removed にだけ入る）。
+        self._swap(doc, original, "#### SP-AUTH-006 結末\n\n> 条件の値: 結末 = 完了 / 中断 / 失敗\n\nシステムは run の結末を 1 つに決めなければならない。\n", "")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertIn("SP-AUTH-006", impact["removed"])
+        unresolved = found["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]
+        self.assertEqual(unresolved.get("related"), ["SP-AUTH-006"])
+        self.assertFalse(unresolved.get("preexisting"), "参照先を消して生じた解けない参照は数える")
+
+    def test_変わらない直書きの項目は別の項目に参照を足すと既存の指摘にならない(self):
+        # 参照を足しただけで、変わっていない直書きが新しく食い違いになる。related に参照元の key が入るので数える。
+        self.assertIn("> 条件の値: 結末 = SP-AUTH-006\n\n", ENUM_REF)
+        plain = ENUM_REF.replace("> 条件の値: 結末 = SP-AUTH-006\n\n", "")
+        ws = self._entry_with(_spec_block(ENUM_CANON, plain, ENUM_REDECL))
+        _, found, _ = self._doc_with_impact(ws)
+        self.assertFalse([i for i in found if i.startswith("ST-ENUM-SET-MISMATCH-")], "参照が無ければ直書きどうしは見ない")
+        _edit(ws, "specifications-auth.md", "#### SP-AUTH-007 結末ごとの通知\n\n", "#### SP-AUTH-007 結末ごとの通知\n\n> 条件の値: 結末 = SP-AUTH-006\n\n")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-007"])
+        self.assertNotIn("SP-AUTH-008", impact["impact"], "前提: 書き直しの項目は影響の範囲の外")
+        redecl = found["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"]
+        self.assertEqual(redecl.get("related"), ["SP-AUTH-006", "SP-AUTH-007"])
+        self.assertFalse(redecl.get("preexisting"))
+
+    # 入口の役の宣言（entry.json の §roles）: 今の宣言（related）だけでは、宣言を消した改訂を見分けられない。
+    def test_同じ役の2か所の宣言の片方を消すと役の指摘は既存の指摘にならない(self):
+        extra = "#### SP-AUTH-009 検査役に渡す基準\n\n> 渡すもの: 検査役 = 判定の基準\n\nシステムは判定の基準を検査役に渡さなければならない。\n"
+        ws = self._entry_with(_spec_block(ROLE_BLOCK, extra))
+        roles = json.loads((ws / "checks/entry.json").read_text())["§roles"]
+        self.assertEqual(roles, {"検査役": ["SP-AUTH-003", "SP-AUTH-009"], "司令塔": ["SP-AUTH-003"]})
+        missing = "ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘"
+        _, found, _ = self._doc_with_impact(ws)
+        self.assertEqual(found[missing]["related"], ["SP-AUTH-003", "SP-AUTH-009"])
+        self.assertTrue(found[missing].get("preexisting"), "何も変えなければ既存の指摘")
+        doc = ws / "specifications-auth.md"
+        self._swap(doc, doc.read_text(), extra, "")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertEqual((impact["changed"], impact["removed"]), ([], ["SP-AUTH-009"]))
+        self.assertEqual(found[missing]["related"], ["SP-AUTH-003"], "前提: 今の宣言の区間は変わっていない（旧い規則なら既存の指摘になる）")
+        self.assertFalse(found[missing].get("preexisting"), "入口で同じ役を宣言していた区間を消した run では数える")
+
+    def test_文の2つの役の片方の宣言を消して役が1つに決まると既存の指摘にならない(self):
+        block = "\n".join([
+            "#### SP-AUTH-003 検査役に渡すもの",
+            "",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "#### SP-AUTH-010 司令塔に渡すもの",
+            "",
+            "> 渡すもの: 司令塔 = 判定の記録",
+            "",
+            "システムは判定の記録を残さなければならない。",
+            "",
+            "#### SP-AUTH-004 検査の規則",
+            "",
+            "司令塔は、検査役に渡された「前の巡の指摘」を記録しなければならない。",
+            "",
+        ])
+        ws = self._entry_with(_spec_block(block))
+        missing = "ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘"
+        _, found, _ = self._doc_with_impact(ws)
+        self.assertNotIn(missing, found, "入口では文に役が 2 つあり、拾わない")
+        doc = ws / "specifications-auth.md"
+        self._swap(doc, doc.read_text(), "> 渡すもの: 司令塔 = 判定の記録\n\n", "")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-010"])
+        self.assertEqual(found[missing]["related"], ["SP-AUTH-003"], "前提: 検査役の宣言の区間は変わっていない（旧い規則なら既存の指摘になる）")
+        self.assertFalse(found[missing].get("preexisting"), "文に現れる役の入口の宣言を変えた run では数える")
+
+    def test_役の宣言の無い入口は今までと同じ形(self):
+        ws = self._entry_with(_spec_block(ENUM_CANON))
+        self.assertNotIn("§roles", json.loads((ws / "checks/entry.json").read_text()), "宣言が無ければ entry.json の形と entry_digest は変わらない")
 
     def test_書き換えてよい既存文書の写しはtraceを未検査のままmetaのtbdになりstrayに出ない(self):
         repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
