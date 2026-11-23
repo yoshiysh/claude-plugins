@@ -1815,7 +1815,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract', 'formal-model']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'quotes', 'get', 'view', 'describe', 'contract', 'formal-model']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
@@ -3233,9 +3233,59 @@ function wsQuestions(ws, opts) {
 
 const fenceOf = (text) => '`'.repeat(Math.max(4, ...(String(text).match(/`+/g) || []).map((m) => m.length + 1)))
 
+// FINDING_ID: 監査役の指摘の ID（契約「### 指摘の形」）。末尾の -<連番> を除いた名前が W/findings/<名前>.json になる。
+const FINDING_ID = /^(r[1-9]\d*-(?:wr|wh)-(?:all|p[1-9]\d*))-\d{3,}$/
+
+// findingsByIds: --findings の ID を W/findings から引く。ファイルか要素の無い ID があれば例外にする（何も書かない）。
+function findingsByIds(ws, ids) {
+  const files = new Map()
+  const missing = []
+  const out = []
+  for (const id of ids) {
+    const m = FINDING_ID.exec(id)
+    if (!m) {
+      missing.push(id)
+      continue
+    }
+    if (!files.has(m[1])) {
+      const data = readJsonFile(path.join(ws, 'findings', `${m[1]}.json`))
+      files.set(m[1], data && Array.isArray(data.findings) ? data.findings : null)
+    }
+    const f = (files.get(m[1]) || []).find((x) => x && x.id === id)
+    if (f) out.push(f)
+    else missing.push(id)
+  }
+  if (missing.length) throw new Error(`--findings に W/findings のファイルか要素の無い ID があります: ${missing.join(', ')}`)
+  return out
+}
+
+// unreflectedLines: 本文に反映していない指摘の節。LLM の指摘は blocking の真を先に、doc_check の指摘は checks/doc.json のうち blocking に
+// 数えるもの（countsAsBlocking。degraded も数えない）だけを並べ、既存の指摘（preexisting）は件数の 1 行にする。checks/doc.json が無い W は 0 件。
+function unreflectedLines(ws, ids) {
+  const found = findingsByIds(ws, ids)
+  const llm = [...found.filter((f) => f.blocking === true), ...found.filter((f) => f.blocking !== true)].map(
+    (f) => `- ${f.id}（${f.doc ?? ''} ${f.item_id ?? ''}。blocking: ${f.blocking === true}）: ${f.issue ?? ''}`
+  )
+  const doc = readJsonFile(path.join(ws, 'checks', 'doc.json'))
+  const docFindings = doc && Array.isArray(doc.findings) ? doc.findings.filter((f) => f && f.id) : []
+  const fixedKeys = new Set((doc && Array.isArray(doc.documents) ? doc.documents : []).filter((d) => d && d.fixed).map((d) => d.key))
+  const counted = docFindings.filter((f) => countsAsBlocking(f, fixedKeys) && f.severity !== 'degraded').map((f) => `- ${f.id}（${f.document} ${f.location}）`)
+  const preexisting = docFindings.filter((f) => f.preexisting).length
+  const lines = [...llm, ...counted]
+  return {
+    count: lines.length,
+    md: [
+      ...(lines.length ? lines : ['0 件。']),
+      ...(preexisting ? ['', `既存の指摘（blocking に数えない）: ${preexisting} 件。checks/doc.json の preexisting`] : []),
+      '',
+    ],
+  }
+}
+
 // report: 事後報告は resolutions.json の method・answered_by・measured・hold・upstream_revision から導出する。answered_by は依頼者の回答を
 // 別の論点に当てた裁定、measured は聞かずに現物で決めた裁定（仕様書の実現の手段を含む）で、依頼者はここで初めて見て覆せる。手で書くと、同じ事実を
-// resolutions と 2 か所に持ち、型も決まらない。
+// resolutions と 2 か所に持ち、型も決まらない。本文に反映していない指摘の節は、--findings の ID（script の返り値の unreflected）を
+// W/findings から、doc_check の指摘を checks/doc.json（最後の監査で指名された whole reviewer が書いたもの）から引く。
 function wsReport(ws, opts) {
   const [listName] = Object.keys(ledgerOf('resolutions').lists)
   const rs = listOf(readLedger(ws, 'resolutions'), listName)
@@ -3253,6 +3303,7 @@ function wsReport(ws, opts) {
   const holds = rs.filter((r) => r.ruling === 'hold' && !draftIds.has(r.id))
   const drafts = rs.filter((r) => draftIds.has(r.id))
   const upstream = rs.filter((r) => r.upstream_revision != null)
+  const unreflected = unreflectedLines(ws, opts.findings || [])
   const block = (label, text) => {
     const fence = fenceOf(text)
     return [`**${label}**:`, '', `${fence}markdown`, String(text ?? ''), fence, '']
@@ -3284,6 +3335,9 @@ function wsReport(ws, opts) {
     '',
     ...(drafts.length ? [] : ['0 件。', '']),
     ...drafts.flatMap(holdBlock),
+    '## 本文に反映していない指摘',
+    '',
+    ...unreflected.md,
     '## 上位文書の改訂の文案',
     '',
     ...(upstream.length ? [] : ['0 件。', '']),
@@ -3292,7 +3346,7 @@ function wsReport(ws, opts) {
   writeAtomic([path.join(ws, 'report.md'), md])
   // report は司令塔が run の返った後に実行するので、動いている label は無い。
   const swept = sweepWorkDirs(ws, [], 'report')
-  return { path: 'report.md', method: method.length, answered_by: answeredBy.length, measured: measured.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
+  return { path: 'report.md', method: method.length, answered_by: answeredBy.length, measured: measured.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, unreflected: unreflected.count, sha256: sha256Bytes(Buffer.from(md)), ...swept }
 }
 
 // isResetMeta: meta が、段 1 の入口の reset が写しから書いたもの（固定でない文書）のままか。
@@ -4085,6 +4139,10 @@ function wsPlan(ws) {
 // （script が解消済みを除いて算出したもの）を正とし、無ければ meta の TBD の候補の和を使う（どちらを
 // 使ったかを結果に書く）。--doc を付けると、その文書の指摘だけを別のファイルに書く（並列の writer が
 // 同じ結果ファイルを奪い合わないため。検査そのものは文書を跨いで全体に当てる）。
+// countsAsBlocking: doc の指摘のうち blocking に数えるもの（degraded は別に引く）。既存の指摘と固定の文書の指摘は数えない。
+// report の本文に反映していない指摘の節も同じ式で選ぶ。
+const countsAsBlocking = (f, fixedKeys) => !f.preexisting && (!fixedKeys.has(f.document) || String(f.id).startsWith('ST-ORPHAN-REQ-'))
+
 function wsDoc(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
@@ -4137,7 +4195,7 @@ function wsDoc(ws, opts) {
   // 固定の文書はラン内で書き換えないので、その指摘は blocking に数えない（数えると直せない件数で収束が止まる）。
   // ORPHAN-REQ は書いている仕様書の側で直せるものにしか出ないので数える（DUP は直せる文書へ帰属させてある）。
   const fixedKeys = new Set(docs.filter((d) => d.fixed).map((d) => d.key))
-  const counted = expanded.findings.filter((f) => !f.preexisting && (!fixedKeys.has(f.document) || f.id.startsWith('ST-ORPHAN-REQ-')))
+  const counted = expanded.findings.filter((f) => countsAsBlocking(f, fixedKeys))
   const preexisting = expanded.findings.filter((f) => f.preexisting).length
   const degraded = counted.filter((f) => f.severity === 'degraded').length
   // flow_refs: 項目 → trace が指す flow 要素。prd-spec.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
@@ -4377,6 +4435,72 @@ function wsDiff(ws, opts) {
   const tree = digestOf(cur)
   const rel = writeCheck(ws, `diff-${opts.against}.json`, { against: opts.against, expect: opts.expect, tree_digest: tree, ...all, by_doc: byDoc })
   return { changed: all.changed.length, added: all.added.length, removed: all.removed.length, path: rel, tree_digest: tree }
+}
+
+// quotes: writer reviewer の指摘の quote が W の原文のどれかに在るかを照らす（prd-spec.js が not_found の指摘を静的に退ける）。照らす先は文書の本文
+// （固定の文書を含む）と meta、input.md と answers、台帳の decisions・resolutions・flow で、ファイルごとに文字列として読む。静的な退けは LLM の
+// 判断を通らないので、正規化は在る向きにだけ倒す: NFKC にし、quote を ... で断片に分け、文字と数字以外を除いた形（plain）と、その前に HTML の
+// タグ・Markdown のリンクの行き先・JSON の文字列のエスケープを外した形（stripped）を両側で作り、どの組でも空でない断片が全て同じファイルの中に
+// この順で在れば在るとする。quote が無いか正規化して空になる形があれば no_quote（記録だけ）。
+const QUOTE_NAME = /^r([1-9]\d*)-wr-(?:all|p[1-9]\d*)$/
+const quoteKeep = (t) => t.replace(/[^\p{L}\p{N}]+/gu, '')
+const quoteStrip = (t) => t.replace(/<\/?[A-Za-z][^<>]*>/g, ' ').replace(/\]\([^()]*\)/g, ']').replace(/\\[nrt"\\/]/g, ' ')
+const quoteForms = (text) => {
+  const n = String(text).normalize('NFKC')
+  return [quoteKeep(n), quoteKeep(quoteStrip(n))]
+}
+const quoteFragments = (quote) => {
+  const n = String(quote).normalize('NFKC')
+  return [n, quoteStrip(n)].map((t) => t.split(/\.{3,}/).map(quoteKeep).filter(Boolean))
+}
+const inOrder = (text, frags) => {
+  let at = 0
+  for (const f of frags) {
+    const i = text.indexOf(f, at)
+    if (i < 0) return false
+    at = i + f.length
+  }
+  return true
+}
+function quoteSources(ws, wsDocs) {
+  const read = (rel) => {
+    const p = path.join(ws, rel)
+    return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, 'utf8') : null
+  }
+  const dir = path.join(ws, 'answers')
+  const answers = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort().map((n) => path.join('answers', n)) : []
+  const rels = [...wsDocs.flatMap((d) => [d.path, ledgerOf('meta').file(d.key)]), 'input.md', ...answers, ...['decisions', 'resolutions', 'flow'].map((n) => ledgerOf(n).file())]
+  return rels.map(read).filter((t) => t !== null).map(quoteForms)
+}
+function wsQuotes(ws, opts) {
+  const names = opts.findings || []
+  if (!names.length) throw new Error('--findings に r<n>-wr-<組> の名前が要ります')
+  const bad = names.filter((n) => !QUOTE_NAME.test(n))
+  if (bad.length) throw new Error(`--findings の名前は r<n>-wr-(all|p<k>) の形です: ${bad.join(', ')}`)
+  const rounds = [...new Set(names.map((n) => QUOTE_NAME.exec(n)[1]))]
+  if (rounds.length !== 1) throw new Error(`--findings の名前は同じ回のものだけです: ${names.join(', ')}`)
+  const findings = names.flatMap((name) => {
+    const data = readJsonFile(path.join(ws, 'findings', `${name}.json`))
+    if (data === null || !Array.isArray(data.findings)) throw new Error(`W/findings/${name}.json が無いか findings の配列がありません`)
+    return data.findings.filter((f) => f && typeof f.id === 'string')
+  })
+  const wsDocs = workspaceDocs(ws)
+  const sources = quoteSources(ws, wsDocs)
+  const results = findings.map((f) => {
+    const forms = typeof f.quote === 'string' ? quoteFragments(f.quote) : []
+    if (!forms.length || forms.some((frags) => !frags.length)) return { id: f.id, reason: 'no_quote' }
+    const found = forms.some((frags) => sources.some((texts) => texts.some((t) => inOrder(t, frags))))
+    return { id: f.id, reason: found ? 'found' : 'not_found' }
+  })
+  const rel = writeCheck(ws, `quotes-r${rounds[0]}.json`, { files: names, results })
+  return {
+    findings: findings.length,
+    files: names,
+    ids: findings.map((f) => f.id),
+    unquoted: results.filter((r) => r.reason === 'not_found').map((r) => r.id),
+    path: rel,
+    tree_digest: digestOf(snapshotOf(wsDocs)),
+  }
 }
 
 // tree-digest: 今の木の digest。--doc を付けるとその文書だけの digest（snapshot の docs[key].digest と同じ値）。
@@ -4789,6 +4913,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--expect-resolutions') o.expectResolutions = take()
     else if (a === '--expect-decisions') o.expectDecisions = take()
     else if (a === '--drafts') o.drafts = take().split(',').map((s) => s.trim()).filter(Boolean)
+    else if (a === '--findings') o.findings = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--check') o.check = true
     else if (a === '--rulings') o.rulings = true
     else if (a === '--lint') o.lint = true
@@ -4831,6 +4956,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'answers') return wsAnswers(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)
+  if (mode === 'quotes') return wsQuotes(ws, opts)
   if (mode === 'get') return wsGet(ws, opts)
   if (mode === 'view') return wsView(ws, opts)
   if (mode === 'formal-model') return wsFormalModel(ws, opts)

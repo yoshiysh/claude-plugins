@@ -49,15 +49,15 @@ const ROLE_OF = { resolver: 'planner', verifier: 'planReviewer' }
 const roleOf = (kind) => ROLE_OF[kind] || kind
 const JOB = { resolver: '裁定' }
 
-// 改稿と監査のパスの上限。1 パス目で網羅し、2 パス目は変えた範囲の見直しにする。残った指摘は、輪を出た後の resolver が保持規則と Issue の
-// 文案にし、理由に全件を載せる。
-const MAX_AUDIT_PASSES = 2
+// 網羅の監査 r1 の後の、改稿と範囲の再監査のパスの数（監査は r1 と r2 の 2 回、改稿は 1 回）。r1 の指摘が blocking を含まなければ改稿と
+// 2 巡目を飛ばす（段 5 の lowOnly）。残った指摘は、輪を出た後の resolver が保持規則と Issue の文案にし、全件は report.md の節に載せる。
+const MAX_AUDIT_PASSES = 1
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
-// 依頼者を止める回数の上限。最初のゲートは初稿の監査の後に開き（collecting）、そこまでに出た問いをまとめて聞く。その後に聞けるのは、
-// 回答で flow を組み直した後の問いと、改稿のパスごとの問い。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖は
-// ここで必ず終わる。
-const MAX_GATES = 2 + MAX_AUDIT_PASSES
+// 依頼者を止める回数の上限。内訳は、初稿の監査の後の段 6 で開く最初のゲート（collecting。そこまでに出た問いをまとめて聞く）、回答の反映
+// （3a・3b）から出る続きの問いのゲート、改稿のパスの段 6 のゲート（MAX_AUDIT_PASSES 回）、2 巡目の後の延長のゲート（延長を入れるまでは続きの問いの余り）。問いを持ち越さない run では
+// 最初のゲートが改稿のパスの段 6 を兼ねるので 1 回余る。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖はここで必ず終わる。
+const MAX_GATES = 3 + MAX_AUDIT_PASSES
 
 const ENTRIES = ['new', 'existing', 'expand']
 const STAGES = ['1', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
@@ -615,7 +615,7 @@ const REQUIRES = {
   "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'gates', 'questions'],
   7: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
   8: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'revised'],
-  9: ['units', 'tree_digest'],
+  9: ['units', 'tree_digest', 'pending'],
 }
 function stateErrors(from, state) {
   if (!Object.prototype.hasOwnProperty.call(REQUIRES, from)) return [`from "${from}" は段の境界ではありません（${Object.keys(REQUIRES).join(' / ')}）`]
@@ -642,7 +642,7 @@ const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
-const SKIP = { unchanged: 'unchanged' }
+const SKIP = { unchanged: 'unchanged', low_only: 'low_only' }
 const SKIP_FACTS = Object.values(SKIP)
 const skipped = []
 
@@ -715,7 +715,7 @@ const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, require
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const RECOPY_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR },
+  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR, quotes: STR },
 }
 
 // PLANNER_SCHEMA: 流れと裁定を同じ起動で行う planner の返り値（流れの stdout と §resolver の裁定の欄。routes は持たない）。flow_check・conflicts_check は
@@ -834,6 +834,7 @@ const AUDIT_SCHEMA = {
         diff_error: STR,
         audited: STR,
         tree_digest: STR,
+        quotes: STR,
       },
     },
   },
@@ -2732,9 +2733,10 @@ async function writerBackups(stage, labels, results, phaseTitle) {
   }
 }
 
-// designatedCmds: 指名された監査役の doc と tree-digest は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
+// designatedCmds: 指名された監査役の doc と tree-digest と quotes は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
 // 監査役の実行中の値なので、取り直さずに段からやり直させる（snapshotFault）。
-const designatedCmds = () => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`), tree_digest: cli('tree-digest') })
+const quotesCmd = (round, packs) => cli('quotes', `--findings ${packs.map((p) => findingsName(p, round)).join(',')}`)
+const designatedCmds = (round, packs) => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`), tree_digest: cli('tree-digest'), quotes: quotesCmd(round, packs) })
 const snapshotFault = (d) => (d && copyFault(d.audited) ? `（snapshot の stdout の写しが checksum（${STDOUT_FNV}）に合いません。snapshot は基準を書き直すので取り直しません）` : '')
 
 async function stage4() {
@@ -2843,17 +2845,37 @@ async function runAuditors(plan, round, stage, opt = {}) {
 // reviewed: whole reviewer に渡す、同じ回の writer reviewer の指摘のファイルと ID。
 const reviewed = (packs, results, round) => ({ files: packs.map((p) => findingsName(p, round)), ids: uniq(results.flatMap((r) => ((r && r.findings) || []).map((f) => f.id))) })
 
+// staticUnquoted: 指名された whole reviewer が判定の前に実行した doc_check quotes の stdout から、quote がどの原文にも無い（not_found）同じ回の
+// writer reviewer の指摘の ID。照らした findings か版が期待と違うか stdout が無ければ、退けずに integrity に 1 行足す（静的な退けは LLM の判断を
+// 通らないので、退けない向きに倒す）。同じ回の writer reviewer の返り値に無い ID は照らせないので退けない。
+function staticUnquoted(d, audited, packs, results, round) {
+  const note = (why) => {
+    noteIntegrity(`監査 r${round}: ${why}ので、quote の照合で指摘を退けなかった`)
+    return []
+  }
+  const q = parseStdout(d && d.quotes)
+  const expected = packs.map((p) => findingsName(p, round))
+  if (!q || !Array.isArray(q.files) || !Array.isArray(q.unquoted)) return note('quote の照合の stdout が無い')
+  if (canonicalText([...q.files].sort()) !== canonicalText([...expected].sort())) return note('照らした findings が期待と違う')
+  if (q.tree_digest !== audited.digest) return note('照合の版が監査の基準と違う')
+  const own = new Set(results.flatMap((r) => (r && r.findings) || []).map((f) => f.id))
+  return uniq(q.unquoted.filter((id) => own.has(id)))
+}
+
 // auditFindings: その回の指摘の集合。whole reviewer が退けたのは同じ回の writer reviewer の指摘の ID だけで、それ以外の ID は退けない（自分の
-// 指摘・前の回の指摘を退けると、blocking を監査役が自分で消せる）。退けた指摘は経路・再発・逆向きの判定より前に外す。
-function auditFindings(packs, results, whole, round) {
+// 指摘・前の回の指摘を退けると、blocking を監査役が自分で消せる）。unquoted は quote の照合で静的に退ける ID（staticUnquoted）。
+// 退けた指摘は経路・再発・逆向きの判定より前に外す。
+function auditFindings(packs, results, whole, round, unquoted = []) {
   const fromWriter = results.flatMap((r) => (r && r.findings) || [])
   const own = new Set(fromWriter.map((f) => f.id))
   const asked = uniq((whole && whole.rejected) || [])
-  const rejected = asked.filter((id) => own.has(id))
-  const stray = minus(asked, rejected)
+  const stray = asked.filter((id) => !own.has(id))
+  const statics = new Set(unquoted)
+  const rejected = asked.filter((id) => own.has(id) && !statics.has(id))
   if (stray.length) noteIntegrity(`監査 r${round}: whole reviewer が同じ回の writer reviewer の指摘に無い ID を退けようとした（退けずに数えた）: ${list(stray)}`)
   if (rejected.length) state.notices = [...(state.notices || []), `監査 r${round}: whole reviewer が writer reviewer の指摘 ${rejected.length} 件を退けた: ${list(rejected)}（理由は ${W}/findings/${findingsName(wholePlan(), round)}.json の rejected）`]
-  const out = new Set(rejected)
+  if (unquoted.length) state.notices = [...(state.notices || []), `監査 r${round}: 引用がどの原文にも無い writer reviewer の指摘 ${unquoted.length} 件を退けた: ${list(unquoted)}（${W}/checks/quotes-r${round}.json）`]
+  const out = new Set([...rejected, ...unquoted])
   return [...fromWriter.filter((f) => !out.has(f.id)), ...((whole && whole.findings) || [])]
 }
 
@@ -2875,13 +2897,13 @@ async function stage5() {
   if (wr.missing.length) throw notRun(wr.missing.join(', '))
   whole.designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
-    `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
+    `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、続けて（判定の前に）\`${quotesCmd(round, packs)}\` → designated.quotes`,
     `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs([...packs, whole], round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
   const wh = await runAuditors([whole], round, '5', { reviewed: reviewed(packs, wr.results, round) })
   if (wh.missing.length) throw notRun(wh.missing.join(', '))
   const wv = wh.results[0]
-  if (wv.designated) wv.designated = await recopy(auditorLabel(whole, round), wv.designated, designatedCmds(), 'Audit')
+  if (wv.designated) wv.designated = await recopy(auditorLabel(whole, round), wv.designated, designatedCmds(round, packs), 'Audit')
   const audited = parseStdout(wv.designated && wv.designated.audited)
   const docCheck = parseStdout(wv.designated && wv.designated.doc_check)
   if (!audited || !audited.digest) return blocked(`whole reviewer が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(wv.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
@@ -2892,7 +2914,20 @@ async function stage5() {
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
   noteAudited(audited, base)
-  setPending(auditFindings(packs, wr.results, wv, round), docCheck, [])
+  setPending(auditFindings(packs, wr.results, wv, round, staticUnquoted(wv.designated, audited, packs, wr.results, round)), docCheck, [])
+  // lowOnly: 指摘が blocking を含まず、改稿の理由（doc_check の blocking・新しい TBD・回答待ちの問い・本文にまだ入っていない裁定・当てていない
+  // routes）も無ければ、段 6〜8 を飛ばして 9 へ進む。blocking でない指摘（route が decision のものも）は裁定せず、本文に反映しないまま
+  // unreflected で開示する。doc の stdout が無ければ doc_check の blocking を数えられないので飛ばさない（退けない向きと同じく、安全側に倒す）。
+  const p = pendingView(state.pending)
+  const unwritten = minus(uniq([...usableResolutions(state), ...(state.holds || [])]), state.settled_written || [])
+  const applied = new Set(state.applied_routes || [])
+  const unrouted = (state.routes || []).filter((x) => !applied.has(x.id))
+  const lowOnly = Boolean(docCheck) && !p.blocking.length && !p.doc_blocking && !(state.new_tbd || []).length && !pendingQuestions(state).length && !unwritten.length && !unrouted.length
+  if (lowOnly) {
+    if (p.findings.length) skipped.push({ step: auditorLabel(packs[0], round + 1), fact: SKIP.low_only, ids: p.findings.map((f) => f.id) })
+    log(`監査 r${round} の指摘が blocking を含まないので、改稿と 2 巡目の監査を飛ばします（残した指摘 ${p.findings.length} 件）`)
+    return '9'
+  }
   return '6'
 }
 
@@ -3054,13 +3089,13 @@ async function stage8() {
   if (wr.missing.length) throw notRun(wr.missing.join(', '))
   whole.designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
-    `最初に（判定の前に）: \`${diffCmd}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
+    `最初に（判定の前に）: \`${diffCmd}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。続けて（判定の前に）\`${quotesCmd(round, packs)}\` → designated.quotes`,
     `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs([...packs, whole], round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
   const wh = await runAuditors([whole], round, '8', { changes, reviewed: reviewed(packs, wr.results, round) })
   if (wh.missing.length) throw notRun(wh.missing.join(', '))
   const first = wh.results[0]
-  if (first.designated) first.designated = await recopy(auditorLabel(whole, round), first.designated, designatedCmds(), 'Revise')
+  if (first.designated) first.designated = await recopy(auditorLabel(whole, round), first.designated, designatedCmds(round, packs), 'Revise')
   const d = first.designated || {}
   if (d.diff_error) return blocked(`監査の基準 audited-${n} の digest が一致しません。基準が差し替わっているので、この監査が何と比べたのか分かりません: ${d.diff_error}`, null)
   if (!d.diff) return blocked('指名された監査役が diff の結果を返しませんでした', '8')
@@ -3081,7 +3116,7 @@ async function stage8() {
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
-  const findings = auditFindings(packs, wr.results, first, round)
+  const findings = auditFindings(packs, wr.results, first, round, staticUnquoted(d, audited, packs, wr.results, round))
   const docCheck = parseStdout(d.doc_check)
   const entryN = entryMoved(docCheck)
   if (entryN) return blocked(entryN, null)
@@ -3109,6 +3144,7 @@ async function stage8() {
   const blocking = now.blocking.length + now.doc_blocking + newTbd.length
   if (!blocking) return '9'
   if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit', `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した`, '8')
+  // ここから下は MAX_AUDIT_PASSES = 1 では通らない（上の行で必ず輪を出る）。定数を戻せるように残す。
   state.pass += 1
   log(`blocking が ${blocking} 件残った（新しい TBD ${newTbd.length} 件を含む。経路を変えた項目 ${list(recurring)}）。段 6 → 7 → 8 をもう 1 パス回します（${state.pass}/${MAX_AUDIT_PASSES}）`)
   return '6'
@@ -3145,7 +3181,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
     threw = e.message
   }
   if (r) absorbResolver(r)
-  const report = { report_path: `${W}/report.md`, remaining_blocking: p.blocking, carried_blocking: p.carried, doc_blocking: p.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
+  const report = { report_path: `${W}/report.md`, remaining_blocking: p.blocking, carried_blocking: p.carried, doc_blocking: p.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason, unreflected: unreflectedIds() }
   if (r) {
     const kept = flowKept('final', r)
     if (kept) return blocked(kept.error, kept.rerun ? stage : null, report)
@@ -3159,12 +3195,16 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
     : ''
   const rerouted = list(Object.keys(routes))
   const noDrafts = r ? '' : `。${threw || `${label} が応答しなかった（${NOT_RUN_WHY}）`}ので、残った論点の保持規則と Issue の文案はありません`
-  return blocked(`${why}。blocking が ${blocking} 件残りました（残った指摘: ${list(p.blocking)} / 再発で裁定に回した項目: ${rerouted}）${flowLeft}${noDrafts}`, null, report)
+  return blocked(`${why}。blocking が ${blocking} 件残りました（全件は report.md の「本文に反映していない指摘」。再発で裁定に回した項目: ${rerouted}）${flowLeft}${noDrafts}`, null, report)
 }
+
+// unreflectedIds: 本文に反映していない指摘の全件（blocking によらない）。退けた指摘と既裁定の再出は pending に入らないので含まない。
+// 司令塔が doc_check report --findings に渡し、report.md の節の中身は doc_check が W の findings から引く。
+const unreflectedIds = () => pendingFindings(state.pending).map((f) => f.id)
 
 // stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。
 async function stage9() {
-  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })
+  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS, unreflected: unreflectedIds() })
 }
 
 const PHASE_OF = { 1: 'Intake', 3: 'Resolve', '3a': 'Answers', '3b': 'Answers', 4: 'Draft', 5: 'Audit', 6: 'Decide', "3a'": 'Answers', 7: 'Revise', 8: 'Revise', 9: 'Report' }

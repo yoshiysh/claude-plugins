@@ -90,7 +90,15 @@ PROMPT_CLUES = [
 ]
 
 # SKIPPED_CLUES: 事実の条件で外した手順（返り値の skipped）。fact ごとに外した step の label の形。
-SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v"}
+# low_only の step は、飛ばした 2 巡目の監査の最初の writer reviewer の label（段 5 の監査の次の回）。
+SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v", "low_only": r"writerReviewer:r\d+:(?:all|p\d+)"}
+
+# RECURRENCE_CLUES: 再発した項目の行（R6）。段 6 が 2 回目以降の監査の後に開くときだけ起動のプロンプトに出る。C 段の前半（監査を 2 回に揃え、
+# 2 巡目の後の延長がまだ無い間）は、段 6 は r1 の後にしか開かず、再発は r2 の後に輪を出る finalHold に渡るので届かない。
+# 断片が本文に在ることは Clues が確かめ続ける。延長（C 段の後半。設計 §6.2 で Convergence の筋書きを戻す）を入れたら、この除外を外して
+# recurring_ledger_spec を延長の経路に組み直す（MAX_AUDIT_PASSES は 1 のまま延長で届くので、MAX の値では決めない）。
+RECURRENCE_AT_6 = False
+RECURRENCE_CLUES = {"settle: 続けて出た項目（R6）", "収束のループの経路の変更（R6、再発した項目）"}
 
 # COVERING_TESTS: 全形と全行を起動する既存の段のテスト（段のテスト全体の run を捕まえて貪欲に選んだ被覆。全部を走らせ直すと
 # 段のテストの時間が倍になる）。足りない 1 行は recurring_ledger_spec で足す。
@@ -114,6 +122,8 @@ COVERING_TESTS = [
     # 単独の flow-check:<ゲート>-answers（gates_answered の resume）。next_args で 3a・3a' から始める run は入口の flow-check が answers も実行するので、
     # 上の run には現れない。
     "SameSessionResume.test_回答のファイルが一部の問いに答えていなければゲートを越えない",
+    # skipped の low_only（監査 r1 の指摘が blocking を含まないときに飛ばした 2 巡目の監査）。
+    "LowOnly.test_blockingでない指摘だけなら改稿と2巡目の監査を飛ばしてdoneにする",
 ]
 
 
@@ -168,6 +178,7 @@ class Clues(unittest.TestCase):
         for fam, reason, frag in PROMPT_CLUES:
             with self.subTest(reason=reason):
                 self.assertIn(frag, src)
+        self.assertLessEqual(RECURRENCE_CLUES, {reason for _, reason, _ in PROMPT_CLUES}, "起動を数えない行は PROMPT_CLUES の行に限る")
 
     def test_label_の形は重ならず_重なるのは_AMBIGUOUS_の組だけ(self):
         self.assertEqual(AMBIGUOUS, {})
@@ -240,13 +251,15 @@ class Launched(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.runs, cls.outcome = capture(COVERING_TESTS)
-        got = test_prd_stages.run(recurring_ledger_spec())
-        cls.recurring = got
-        cls.runs.append({"prompts": got["prompts"], "skipped": got["result"].get("skipped") or []})
+        if RECURRENCE_AT_6:
+            got = test_prd_stages.run(recurring_ledger_spec())
+            cls.recurring = got
+            cls.runs.append({"prompts": got["prompts"], "skipped": got["result"].get("skipped") or []})
 
     def test_流用した段のテストが通る(self):
         self.assertTrue(self.outcome.wasSuccessful(), [str(t) for t, _ in self.outcome.failures + self.outcome.errors])
 
+    @unittest.skipUnless(RECURRENCE_AT_6, "再発した項目を段 6 が受け取る経路が無い（RECURRENCE_CLUES）")
     def test_再発したledger由来の指摘だけがsettleに続けて出た項目の行で渡る(self):
         self.assertEqual(self.recurring["result"]["status"], "done")
         [first, *_] = [p["prompt"] for p in self.recurring["prompts"] if p["label"] == "planner:6-settle"]
@@ -262,6 +275,8 @@ class Launched(unittest.TestCase):
         fams = {f for f, _ in launched}
         self.assertEqual(sorted(n for n, _, _, _ in LABEL_FAMILIES if n not in fams), [])
         for fam, reason, frag in PROMPT_CLUES:
+            if reason in RECURRENCE_CLUES and not RECURRENCE_AT_6:
+                continue
             with self.subTest(reason=reason):
                 self.assertTrue(any(f == fam and frag in p for f, p in launched), f"{fam} の起動のプロンプトに「{frag}」が無い")
 

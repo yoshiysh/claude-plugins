@@ -417,6 +417,25 @@ const resolve = (prompt, stage, { keys = [stage], only = null, drop = [], planne
   return out
 }
 
+// quotesOf: 指名された whole reviewer が実行する doc_check quotes の stdout（designated.quotes）。プロンプトに quotes のコマンドがあるときだけ返す。
+// files はコマンドの --findings の名前、ids はその回の writer reviewer の指摘、tree_digest はその回の audited の digest（監査の間は誰も本文を書かない）。
+// unquoted_at: { <監査の段 r<n>>: [ID] }。引用がどの原文にも無い（not_found）指摘。quotes_files_at・quotes_digest_at: files・tree_digest の差し替え
+// （照らした findings か版が期待と違う stdout）。no_quotes_at: [r<n>]。quotes を返さない回。どの鍵もコマンドの有無によらず引く（quotes を指示しない
+// script では、鍵を引かなかったことではなく、退けたか・integrity に出したかの照合で落ちる）。
+const wrIds = {}
+const quotesOf = (prompt, stage, n) => {
+  const unquoted = at('unquoted_at', stage) || []
+  const silent = (spec.no_quotes_at || []).includes(stage)
+  const files0 = at('quotes_files_at', stage)
+  const digest0 = at('quotes_digest_at', stage)
+  const m = /doc_check\.mjs quotes --workspace \S+ --findings (\S+?)`/.exec(prompt)
+  if (!m || silent) return {}
+  const files = files0 !== undefined ? files0 : m[1].split(',')
+  const digest = digest0 !== undefined ? H(digest0) : H(`a${n}`)
+  const idsQ = wrIds[stage] || []
+  return { quotes: JSON.stringify({ findings: idsQ.length, files, ids: idsQ, unquoted, path: `checks/quotes-${stage}.json`, tree_digest: digest }) }
+}
+
 function respond(prompt, label) {
   const base = label
   const [role, stage, target] = base.split(':')
@@ -551,6 +570,8 @@ function respond(prompt, label) {
     // 詰め合わせの組（p1・p2…）には、その label で明示した指摘だけを返す（組ごとに同じ指摘を返すと ID が重なる）。
     const findings = (byKey[`${role}:${stage}:${target}`] || (target === 'all' ? byKey[`${role}:${stage}`] : null) || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', direction: 'remove', origin: 'text', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
+    // wrIds: 回ごとに writer reviewer が返した指摘の ID（quote の照合の stdout の ids）。
+    if (role === 'writerReviewer') wrIds[stage] = uniq([...(wrIds[stage] || []), ...findings.map((f) => f.id)])
     // rejected_at: { <監査の段 r<n>>: [ID] }。whole reviewer が退けるとして返す ID（script がそのうち何を退けるかを確かめる）。
     if (role === 'wholeReviewer' && Object.hasOwn(spec.rejected_at || {}, stage)) out.rejected = spec.rejected_at[stage]
     if (prompt.includes('あなたは指名された監査役')) {
@@ -566,8 +587,9 @@ function respond(prompt, label) {
       const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {}, ...(entryDigest ? { entry_digest: entryDigest } : {}) })
       const fixedFlag = /doc_check\.mjs snapshot [^`]* --fixed (\S+?)`/.exec(prompt)
       if (fixedFlag) found.fixed_sha256 = fixedShas(fixedFlag[1].split(','), stage)
+      const quotes = quotesOf(prompt, stage, n)
       if (n === 1) {
-        out.designated = { doc_check: docCheck, audited: JSON.stringify({ digest: H('a1'), ...found }) }
+        out.designated = { doc_check: docCheck, audited: JSON.stringify({ digest: H('a1'), ...found }), ...quotes }
         recordAudited(H('a1'))
       }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
@@ -580,6 +602,7 @@ function respond(prompt, label) {
           audited: JSON.stringify({ digest: H(`a${n}`), ...found }),
           doc_check: docCheck,
           tree_digest: JSON.stringify({ digest: H(`t${n}`) }),
+          ...quotes,
         }
         recordAudited(H(`a${n}`))
       }
@@ -659,7 +682,7 @@ const stubAgent = async (prompt, opts) => {
 }
 // STDOUT_KEYS: 返り値のうち doc_check の stdout を写す欄（designated の中も）。truth は最後に返した写す前の stdout で、取り直し（-recopy）は
 // 同じ W で同じコマンドを実行し直すので、それをそのまま返す（取り直しの間に W を書く役はいない）。
-const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'doc_check', 'audited', 'tree_digest']
+const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'doc_check', 'audited', 'tree_digest', 'quotes']
 const truth = {}
 const stampText = (text) => {
   const line = typeof text === 'string' && text.trim().startsWith('{') ? JSON.parse(text) : null
@@ -784,8 +807,9 @@ def const(name):
 
 
 MAX_AUDIT_PASSES = const("MAX_AUDIT_PASSES")
-# MAX_GATES: prd-spec.js の `const MAX_GATES = 2 + MAX_AUDIT_PASSES`（Gates.test_聞ける回数の上限は監査のパスの数から決まる が本文と照合する）。
-MAX_GATES = 2 + MAX_AUDIT_PASSES
+# MAX_GATES: prd-spec.js の `const MAX_GATES = <k> + MAX_AUDIT_PASSES` の値（式の k は本文から読む。k の内訳は
+# Gates.test_聞ける回数の上限は監査のパスの数から決まる が本文と照合する）。
+MAX_GATES = int(re.search(r"const MAX_GATES = (\d+) \+ MAX_AUDIT_PASSES\n", PRD.read_text(encoding="utf-8")).group(1)) + MAX_AUDIT_PASSES
 LIMIT_WHY = f"依頼者に聞ける回数の上限（MAX_GATES = {MAX_GATES}）に達した"
 
 
@@ -1314,14 +1338,16 @@ class Stages(unittest.TestCase):
             "findings": new_item_each_round(last),
             "holds_at": {"final": ["RS-051"]},
         }
-        # 聞ける段 6 は hold を作れない（script の指定の外の hold は blocked）ので、輪の中の hold は聞ける回数を使い切った 2 パス目の段 6 で作る。
+        # 聞ける段 6 は hold を作れない（script の指定の外の hold は blocked）ので、輪の中の hold は聞ける回数を使い切った段 6 で作る
+        # （監査 r1 の decision の指摘を裁定する段 6。改稿は 1 回なので、輪の中の段 6 はこの 1 回だけ）。
         second_pass = {
             **limit,
-            "findings": {**limit["findings"], "writerReviewer:r2": [*limit["findings"]["writerReviewer:r2"], {"id": "r2-wr-all-101", "item_id": "PR-X-101", "route": "decision"}]},
+            "about": {"RS-051": {"finding": last_id}, "RS-050": {"finding": "r1-wr-all-101"}},
+            "findings": {**limit["findings"], "writerReviewer:r1": [*limit["findings"]["writerReviewer:r1"], {"id": "r1-wr-all-101", "item_id": "PR-X-101", "route": "decision"}]},
             "holds_at": {"6": ["RS-050"], "final": ["RS-051"]},
         }
         second_pass["args"] = stage6_at_limit(second_pass)
-        for name, spec, holds in (("上限の経路", limit, []), ("2 パス目の hold の経路", second_pass, ["RS-050"])):
+        for name, spec, holds in (("上限の経路", limit, []), ("輪の中の段 6 の hold の経路", second_pass, ["RS-050"])):
             with self.subTest(name):
                 r = run(spec)
                 res = r["result"]
@@ -1332,25 +1358,22 @@ class Stages(unittest.TestCase):
                 self.assertEqual(res["remaining_blocking"], [last_id], "文案にした指摘も本文には無いので残す")
                 self.assertFalse(set(res["holds"]) & set(res["hold_drafts"]))
         revise = [p["prompt"] for p in run(second_pass)["prompts"] if p["label"].startswith("writer:U-1:revise")]
-        self.assertIn("RS-050", revise[0], "輪の中の hold は段 7 で writer に渡る（段 6 から始めた run の最初の改稿が 2 パス目）")
+        self.assertIn("RS-050", revise[0], "輪の中の hold は段 7 で writer に渡る")
 
-    def test_2パス目の段6の問いはゲートで聞き回答を当てて改稿と再監査を経てdoneになる(self):
-        # RS-045 の形: 2 パス目の監査で初めて出た価値の問い。改稿のパスにも段 7・8 が残っているので、位置で保持規則にせず聞く。
+    def test_改稿のパスの段6の問いはゲートで聞き回答を当てて改稿と再監査を経てdoneになる(self):
+        # RS-045 の形: 監査で初めて出た価値の問い。改稿のパスに段 7・8 が残っているので、位置で保持規則にせず聞く。
         spec = {
             "args": args(),
-            "findings": {
-                "writerReviewer:r1": [{"id": "r1-wr-all-001"}],
-                "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}],
-            },
+            "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "route": "decision"}]},
             "questions_at": {"6": ["RS-020"]},
             "ruled_at": {"3a'": ["RS-020"]},
         }
-        # 1 パス目の段 6 は decision が 0 件で起動しない。2 パス目の段 6 で出た問いは、この run で最初に開くゲート g1 で聞く。
+        # 段 6 で出た問いは、この run で最初に開くゲート g1 で聞く。
         r = run(spec)
         res = r["result"]
         self.assertEqual((res["status"], res["gate"], res["question_ids"]), ("needs_answers", "g1", ["RS-020"]), res.get("reason"))
-        self.assertEqual((res["answers_path"], res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("/tmp/prd-w/answers/g1.md", "3a'", 2))
-        self.assertTrue(has(r["labels"], "writerReviewer:r2"), "2 パス目の監査の後に止まる")
+        self.assertEqual((res["answers_path"], res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("/tmp/prd-w/answers/g1.md", "3a'", 1))
+        self.assertFalse(has(r["labels"], "writer:U-1:revise"), "改稿の前に止まる")
         self.assertFalse(has(r["labels"], "resolver:6-hold"))
         self.assertNotIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0))
         after = run({**spec, "args": res["next_args"]})
@@ -1359,17 +1382,14 @@ class Stages(unittest.TestCase):
         self.assertEqual(after["labels"][:2], ["flow-check:3a'-entry", "resolver:3a'"])
         assert_entry_answers(self, after, "3a'", "g1", ["RS-020"])
         self.assertTrue(has(after["labels"], "writer:U-1:revise"), "回答を当てた後に改稿する")
-        self.assertTrue(has(after["labels"], "writerReviewer:r3"), "改稿の後に再監査する")
+        self.assertTrue(has(after["labels"], "writerReviewer:r2"), "改稿の後に再監査する")
         self.assertNotIn("RS-020", done["holds"])
         self.assertFalse(has(after["labels"], "resolver:3a'-hold"))
 
-    def test_上限に達していれば2パス目の段6の問いは保持規則になり上限を理由に渡す(self):
+    def test_上限に達していれば改稿のパスの段6の問いは保持規則になり上限を理由に渡す(self):
         spec = {
             "args": args(),
-            "findings": {
-                "writerReviewer:r1": [{"id": "r1-wr-all-001"}],
-                "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}],
-            },
+            "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "route": "decision"}]},
             "questions_at": {"6": ["RS-020"]},
         }
         r = run({**spec, "args": stage6_at_limit(spec)})
@@ -1384,7 +1404,7 @@ class Stages(unittest.TestCase):
     def test_申告に無い変更はwriter_reviewerのdiffの指示とundeclaredで監査の範囲に入る(self):
         spec = {
             "args": args(),
-            "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]},
+            "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]},
             "writer_changed": ["PR-X-001"],
             "diff": {"r2": ["PR-X-001", "PR-X-009"]},
         }
@@ -1408,8 +1428,8 @@ class Stages(unittest.TestCase):
             "units": units,
             "findings": {
                 "writerReviewer:r1:all": [
-                    {"id": "r1-wr-all-001", "blocking": False},
-                    {"id": "r1-wr-all-002", "doc": "requirements/y", "item_id": "PR-Y-001", "blocking": False},
+                    {"id": "r1-wr-all-001"},
+                    {"id": "r1-wr-all-002", "doc": "requirements/y", "item_id": "PR-Y-001"},
                 ],
             },
             "writer_changed_by_unit": {"U-1": ["PR-X-001"], "U-2": []},
@@ -1495,14 +1515,14 @@ class Stages(unittest.TestCase):
         stopped = run({"args": args(), "findings": findings, "unapplied_seq": [["r1-wr-all-002"]], "null_labels": [auditor]})["result"]
         self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "8"), stopped.get("reason"))
         self.assertEqual(stopped["next_args"]["state"]["revised"]["unapplied"], ["r1-wr-all-002"])
-        # 持ち越した指摘は 2 パス続けて blocking なので段 6 に回る。そこで止め、段 8 が作った pending を next_args で見る。
-        again = run({"args": stopped["next_args"], "null_labels": ["resolver:6"]})
+        # 持ち越した指摘は r2 の後も blocking なので、改稿のパスが 1 回で尽きて輪を出る。段 8 が作った pending を返り値で見る。
+        again = run({"args": stopped["next_args"]})
         self.assertIsNone(again["error"], again["error"])
         self.assertEqual(again["labels"][:2], ["flow-check:8-entry", auditor])
         res = again["result"]
-        self.assertEqual(res["status"], "blocked", res.get("reason"))
-        self.assertEqual(res["next_args"]["from"], "6")
-        self.assertEqual(res["next_args"]["state"]["pending"]["carried"], ["r1-wr-all-002"])
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        self.assertEqual(res["carried_blocking"], ["r1-wr-all-002"])
+        self.assertIn("r1-wr-all-002", res["unreflected"])
 
     def test_差し戻しの再検証で合格した決定はwriterに無効として渡さない(self):
         r = run({"args": args(), "verifier_fail": {"3v": [{"id": "D-004", "kind": "unsupported", "reason": "r"}]}, "verifier_extra_pass": {"3-fixv": ["D-004"]}})
@@ -1860,7 +1880,7 @@ class Notices(unittest.TestCase):
         self.assertEqual(res["integrity"], [])
 
     def test_段8のstrayはnoticesに入りintegrityに入らない(self):
-        spec = {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}, "stray_at": {"r2": 1}}
+        spec = {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}, "stray_at": {"r2": 1}}
         r = run(spec)
         res = r["result"]
         self.assertEqual(res["status"], "done")
@@ -1879,7 +1899,7 @@ class Notices(unittest.TestCase):
         self.assertEqual(run({"args": args()})["result"]["notices"], [])
 
     def test_指名された監査役のsnapshotに同じplanの全labelをliveで渡す(self):
-        spec = {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}}
+        spec = {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}
         r = run(spec)
         by_label = {p["label"]: p["prompt"] for p in r["prompts"]}
         self.assertIn("--live writerReviewer__r1__all,wholeReviewer__r1__all --sweep", by_label["wholeReviewer:r1:all"])
@@ -1994,7 +2014,7 @@ class Transcription(unittest.TestCase):
     def test_段8のtree_digestの写し損ねは取り直して申告に無い変更を記録する(self):
         r = run({
             "args": args(),
-            "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]},
+            "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]},
             "writer_changed": ["PR-X-001"],
             "diff": {"r2": ["PR-X-001", "PR-X-009"]},
             "corrupt": {"wholeReviewer:r2:all": {"tree_digest": bad_literal('{"digest": "t2"')}},
@@ -2473,7 +2493,7 @@ class RerunFromTheSameStage(unittest.TestCase):
                            "unverified_at": {f"{st}-settle": ["F-004"], f"{st}-settle-rework": ["F-004"]}}
         no_cc = lambda st: {"no_conflicts_check_at": [f"{st}-settle", f"{st}-settle-rework"]}
         stale = [{"el": "F-002", "ref": "D-001"}]
-        hold = {"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}]},
+        hold = {"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "route": "decision"}]},
                 "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale, "6-holdv-left": stale}, "unverified_at": {"6-hold-settle": ["F-002"]}}
         cases = (
             ("段 6 の settle の verifier が応答しない（RS-060 は合格する裁定）", "6", {**opens, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}},
@@ -2482,7 +2502,7 @@ class RerunFromTheSameStage(unittest.TestCase):
             ("段 6 の flow-framer が conflicts を返さない", "6", {**g1, **only("6"), "ruled_at": {"6": ["RS-010"]}}, no_cc("6")),
             ("段 6 の flow-framer が書いてから応答しない", "6", {**opens, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}},
              {"silent_after_write": ["planner:6-settle"]}),
-            ("上限の 2 パス目の段 6 の保持規則への変換の後の verifier が応答しない", "6", hold, silent("verifier:6-holdv-settle")),
+            ("上限の段 6 の保持規則への変換の後の verifier が応答しない", "6", hold, silent("verifier:6-holdv-settle")),
         )
         for name, stage, base, stop in cases:
             with self.subTest(name):
@@ -2528,7 +2548,7 @@ class RerunFromTheSameStage(unittest.TestCase):
 
     def test_返らなかった裁定は同じrunの中でもsettleの前に検証しstateに入れる(self):
         # 応答した resolver が書いたのに返さなかった裁定は、W にだけ残る。flow-check の resolutions（--rulings）から受け取って検証し、止まらなかった run と同じく保持規則に数える。
-        spec = {"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}]},
+        spec = {"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "route": "decision"}]},
                 "questions_at": {"6": ["RS-020"]}, "orphans_at": {"6-hold": ["RS-077"]}, "about": {"RS-077": {"open": "O-077"}}, **self._world()}
         # 段 6 の問いを保持規則に変える経路（聞ける回数の上限）で、保持規則への変換の resolver が返さなかった裁定。
         r = run({**spec, "args": stage6_at_limit({**spec, "args": args()})})
@@ -2789,7 +2809,7 @@ class RerunFromTheSameStage(unittest.TestCase):
     def test_flowを書かない段の再実行はtx_flowを運ばない(self):
         # tx.flow は restore が flow.json を戻したときの照合にだけ使う。段 8 の入口が所有表の外の flow の書き換えを取り込んでも、段 8 に flow を
         # 書く役はいないので、止まった再実行の next_args に載せない（載せると next_args の上限の見積もりが実際より大きくなる）。
-        spec = {"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}, **self._world()}
+        spec = {"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}, **self._world()}
         auditor = "writerReviewer:r2:all"
         stop = {"null_labels": [auditor]}
         first = run({**spec, "args": args(), **stop})["result"]
@@ -3696,7 +3716,7 @@ class FlowRecheck(unittest.TestCase):
                    "questions_at": {"3-convert": ["RS-001"]}, "supersedes_at": {"3-convert": ["D-001"]}, "stale_refs_at": {"3-convert": stale},
                    "unverified_at": {"3-settle": ["F-002"]}}
         convert["stale_refs_at"]["3-convertv"] = stale
-        hold = {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}]},
+        hold = {"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "route": "decision"}]},
                 "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale, "6-holdv-left": stale},
                 "unverified_at": {"6-hold-settle": ["F-002"]}}
         hold["args"] = stage6_at_limit(hold)
@@ -4149,9 +4169,9 @@ class FlowFixerRoutes(unittest.TestCase):
 class DecidedNotHeld(unittest.TestCase):
     """入力・回答・合格した裁定で決まる論点と、依頼者に聞ける論点を保持規則にしない。"""
 
-    PASS2 = {
-        "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-001", "route": "decision"}]},
-        "about": {"RS-020": {"finding": "r2-wr-all-001"}},
+    STAGE6 = {
+        "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "route": "decision"}]},
+        "about": {"RS-020": {"finding": "r1-wr-all-001"}},
     }
     DECIDABLE = {"id": "RS-020", "kind": "decidable", "reason": "g1 の回答が同じ返し方を決めている", "source": "answers/g1.md#L3"}
 
@@ -4159,9 +4179,9 @@ class DecidedNotHeld(unittest.TestCase):
         [p] = [x["prompt"] for x in r["prompts"] if x["label"] == label]
         return p
 
-    def _pass2(self, **kw):
-        # 1 パス目の段 6 は decision が 0 件で起動しない。聞ける回数を使い切った 2 パス目の段 6（聞けない）が RS-020 を保持規則で返す。
-        spec = {"args": args(), **self.PASS2, "holds_at": {"6": ["RS-020"]}, **kw}
+    def _at_limit6(self, **kw):
+        # 聞ける回数を使い切った段 6（聞けない）が RS-020 を保持規則で返す。
+        spec = {"args": args(), **self.STAGE6, "holds_at": {"6": ["RS-020"]}, **kw}
         return run({**spec, "args": stage6_at_limit(spec)})
 
     def test_聞ける段のsettleで根拠不足に落ちた裁定は1回差し戻しそれでも落ちれば問いにする(self):
@@ -4186,8 +4206,8 @@ class DecidedNotHeld(unittest.TestCase):
         res = failed["result"]
         self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-009"]), res.get("reason"))
 
-    def test_上限の2パス目の段6でdecidableに落ちた保持規則は差し戻しで決めて保持規則に残さない(self):
-        r = self._pass2(verifier_fail={"6v": [self.DECIDABLE]})
+    def test_上限の段6でdecidableに落ちた保持規則は差し戻しで決めて保持規則に残さない(self):
+        r = self._at_limit6(verifier_fail={"6v": [self.DECIDABLE]})
         labels = r["labels"]
         self.assertEqual(labels[labels.index("verifier:6v") + 1:][:2], ["resolver:6-fix", "verifier:6-fixv"])
         fix = self._prompt(r, "resolver:6-fix")
@@ -4203,7 +4223,7 @@ class DecidedNotHeld(unittest.TestCase):
 
     def test_差し戻しの後もdecidableに落ちれば聞くゲートが無い段では保持規則のまま変換を回さない(self):
         # 差し戻しは 1 回で、その verifier の不合格はもう差し戻さない（decidable と value_as_method の往復が起きない）。
-        r = self._pass2(verifier_fail={"6v": [self.DECIDABLE], "6-fixv": [self.DECIDABLE]}, holds_at={"6": ["RS-020"], "6-fix": ["RS-020"]})
+        r = self._at_limit6(verifier_fail={"6v": [self.DECIDABLE], "6-fixv": [self.DECIDABLE]}, holds_at={"6": ["RS-020"], "6-fix": ["RS-020"]})
         labels = r["labels"]
         self.assertEqual(sum(l.startswith("resolver:6-fix") for l in labels), 1)
         self.assertFalse(has(labels, "resolver:6-convert"), "既に保持規則なので書き換えない")
@@ -4223,7 +4243,7 @@ class DecidedNotHeld(unittest.TestCase):
         for src in ("/tmp/prd-w/answers/g1.md#L3", "W/answers/g1.md#L3", "answers/g1.md#L3-L5", "answers/g1.md#L3-5", "answers/g1.md:3", "answers/g1.md#l3",
                     "`answers/g1.md#L3`", "'answers/g1.md#L3'", '"answers/g1.md#L3"', "answers//g1.md#L3", "/tmp/prd-w//answers/g1.md#L3", "answers/g1.md#L03"):
             with self.subTest(src):
-                r = self._pass2(verifier_fail={"6v": [{**self.DECIDABLE, "source": src}]})
+                r = self._at_limit6(verifier_fail={"6v": [{**self.DECIDABLE, "source": src}]})
                 self.assertFalse(has(r["labels"], "verifier:6v-source"), "揃えれば受け取れるので聞き直さない")
                 self.assertIn("（決める出典: answers/g1.md#L3）", self._prompt(r, "resolver:6-fix"))
                 self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
@@ -4231,24 +4251,24 @@ class DecidedNotHeld(unittest.TestCase):
 
     def test_固定の要求文書の行はdecidableの出典になり固定でない文書の行はならない(self):
         a = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}, {"key": "requirements/a", "fixed": True}])
-        r = self._pass2(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "W/requirements-a.md:40"}]})
+        r = self._at_limit6(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "W/requirements-a.md:40"}]})
         self.assertFalse(has(r["labels"], "verifier:6v-source"), "固定の要求文書の行は受け取れる")
         self.assertIn("（決める出典: requirements-a.md#L40）", self._prompt(r, "resolver:6-fix"))
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         hyphen = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}, {"key": "requirements/research-rag", "fixed": True}])
-        r = self._pass2(args=hyphen, verifier_fail={"6v": [{**self.DECIDABLE, "source": "requirements-research-rag.md#L3"}]})
+        r = self._at_limit6(args=hyphen, verifier_fail={"6v": [{**self.DECIDABLE, "source": "requirements-research-rag.md#L3"}]})
         self.assertFalse(has(r["labels"], "verifier:6v-source"), "topic に - を含む固定の要求文書も受け取れる")
-        bad = self._pass2(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "requirements-x.md#L40"}], "6v-source": [self.DECIDABLE]})
+        bad = self._at_limit6(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "requirements-x.md#L40"}], "6v-source": [self.DECIDABLE]})
         self.assertIn("requirements-x.md#L40", self._prompt(bad, "verifier:6v-source"), "書き換えてよい文書の行は決める出典にならない")
 
     def test_固定の仕様書の行と仕様書を書くrunの現物の行はdecidableの出典になる(self):
         a = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}, {"key": "specifications/a", "fixed": True}])
-        r = self._pass2(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "specifications-a.md#L7"}]})
+        r = self._at_limit6(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "specifications-a.md#L7"}]})
         self.assertFalse(has(r["labels"], "verifier:6v-source"), "固定の仕様書の行は受け取れる")
         repo = "/repo/src/holdings.py#L12"
-        bad = self._pass2(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": repo}], "6v-source": [self.DECIDABLE]})
+        bad = self._at_limit6(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": repo}], "6v-source": [self.DECIDABLE]})
         self.assertIn(repo, self._prompt(bad, "verifier:6v-source"), "要求文書だけを書く run では、現物の行は決める出典にならない")
-        ok = self._pass2(units=[{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}], verifier_fail={"6v": [{**self.DECIDABLE, "source": repo}]})
+        ok = self._at_limit6(units=[{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}], verifier_fail={"6v": [{**self.DECIDABLE, "source": repo}]})
         self.assertFalse(has(ok["labels"], "verifier:6v-source"), "仕様書を書く run では、実現の手段を定める現物の行を受け取る")
         self.assertIn(f"（決める出典: {repo}）", self._prompt(ok, "resolver:6-fix"))
 
@@ -4260,18 +4280,18 @@ class DecidedNotHeld(unittest.TestCase):
             ("自分自身", {**self.DECIDABLE, "source": "RS-020"}, "RS-020"),
         ):
             with self.subTest(name):
-                fixed = self._pass2(verifier_fail={"6v": [fail], "6v-source": [self.DECIDABLE]})
+                fixed = self._at_limit6(verifier_fail={"6v": [fail], "6v-source": [self.DECIDABLE]})
                 self.assertIn(why, self._prompt(fixed, "verifier:6v-source"))
                 self.assertIn("resolver:6-fix", fixed["labels"], "聞き直した返り値の decidable で差し戻す")
                 self.assertEqual(fixed["result"]["status"], "done", fixed["result"].get("reason"))
-                r = self._pass2(verifier_fail={"6v": [fail], "6v-source": [fail]})
+                r = self._at_limit6(verifier_fail={"6v": [fail], "6v-source": [fail]})
                 self.assertEqual(sum(l.startswith("verifier:6v-source") for l in r["labels"]), 1)
                 res = r["result"]
                 self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "6"), res.get("reason"))
                 self.assertIn("decidable が受け取れません", res["reason"])
                 self.assertIn(why, res["reason"])
         valued = {"id": "RS-021", "kind": "decidable", "reason": "r", "source": "input.md#L1"}
-        spec = {"args": args(), **self.PASS2, "about": {"RS-021": {"finding": "r2-wr-all-001"}}, "ruled_at": {"6": ["RS-021"]}}
+        spec = {"args": args(), **self.STAGE6, "about": {"RS-021": {"finding": "r1-wr-all-001"}}, "ruled_at": {"6": ["RS-021"]}}
         res = run({**spec, "verifier_fail": {"6v": [valued], "6v-source": [valued]}})["result"]
         self.assertEqual(res["status"], "blocked", res.get("reason"))
         self.assertIn("RS-021 は回答待ちの問いでも保持規則でもない", res["reason"])
@@ -4283,7 +4303,6 @@ class DecidedNotHeld(unittest.TestCase):
             ("段 3", {"args": args(), "flow_open": 1, "holds_at": {"3": ["RS-001"]}}, "3", "3", "planner:1", "1-toquestion"),
             ("1 パス目の段 6", {"args": args(), "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]},
                                "about": {"RS-010": {"finding": "r1-wh-all-001"}}, "holds_at": {"6": ["RS-010"]}}, "6", "6", "resolver:6", "6-toquestion"),
-            ("2 パス目の段 6", {"args": args(), **self.PASS2, "holds_at": {"6": ["RS-020"]}}, "6", "6", "resolver:6", "6-toquestion"),
         ):
             with self.subTest(name):
                 held = spec["holds_at"][gate][0]
@@ -4301,7 +4320,7 @@ class DecidedNotHeld(unittest.TestCase):
                 self.assertIn("script が hold を指定していない", res["reason"])
                 self.assertFalse([l for l in stuck["labels"] if l.startswith("verifier:") and l != "verifier:3v"], "受け取らずに止める")
         # 聞ける回数を使い切った段 6 は hold にしてよい。
-        self.assertEqual(self._pass2()["result"]["status"], "done")
+        self.assertEqual(self._at_limit6()["result"]["status"], "done")
 
     def test_返り値に載せずに台帳に書いたholdも聞ける段では問いに書き換え直させる(self):
         # 3a（g1 の後）の resolver が RS-001 を候補の選択として返しながら、台帳には hold で書いた。
@@ -4501,73 +4520,60 @@ class FindingRoutes(unittest.TestCase):
     def _prompt(self, r, label):
         return next(p["prompt"] for p in r["prompts"] if p["label"] == label)
 
-    def _reversal(self, r3_direction):
-        # PR-X-001 への指摘は non-blocking にして再発（両パスで blocking）と分け、パスは別の項目の blocking で進める。
-        return run({"args": args(), "findings": {
-            "writerReviewer:r1": [{"id": "r1-wr-all-001"}],
-            "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "tighten", "blocking": False},
-                             {"id": "r2-wr-all-002", "item_id": "PR-X-002"}],
-            "writerReviewer:r3": [{"id": "r3-wr-all-001", "direction": r3_direction, "blocking": False},
-                             {"id": "r3-wr-all-003", "item_id": "PR-X-003"}],
-        }})
+    LAST = MAX_AUDIT_PASSES + 1
+
+    def _reversal(self, last_direction):
+        # PR-X-001 への指摘は non-blocking にして再発（両パスで blocking）と分け、パスは毎回別の項目の blocking で進める。
+        # 最後の監査 r<LAST> だけが向きを last_direction にする。
+        findings = {f"writerReviewer:r{k}": [{"id": f"r{k}-wr-all-001", "direction": "tighten" if k < self.LAST else last_direction, "blocking": False},
+                                             {"id": f"r{k}-wr-all-{k + 1:03d}", "item_id": f"PR-X-{k + 1:03d}"}] for k in range(1, self.LAST + 1)}
+        return run({"args": args(), "findings": findings})
 
     def test_前のパスと逆向きの指摘はdecisionになり裁定に届く(self):
-        # r3 は最後のパスの監査なので、逆向きの指摘は段 6 ではなく輪を出た後の resolver に届く。
+        # 最後の監査の後に段 6 は無いので、逆向きの指摘は輪を出た後の resolver に届く。
+        last = f"r{self.LAST}-wr-all-001"
         r = self._reversal("relax")
-        self.assertIn("route が decision の指摘 r3-wr-all-001", self._prompt(r, "resolver:final"))
+        self.assertIn(f"route が decision の指摘 {last}", self._prompt(r, "resolver:final"))
         same = self._reversal("tighten")
         self.assertFalse(has(same["labels"], "resolver:6"))
-        self.assertNotIn("r3-wr-all-001", self._prompt(same, "resolver:final"))
-
-    def test_2パス目の段6に前のパスと逆向きの指摘が届く(self):
-        # r1 に向きのある指摘、r2 に逆向きの指摘を置くと、2 パス目の段 6 に decision として届く（パスは別の項目の blocking で進める）。
-        def run2(r2_direction):
-            return run({"args": args(), "findings": {
-                "writerReviewer:r1": [{"id": "r1-wr-all-001", "direction": "tighten", "blocking": False},
-                                   {"id": "r1-wr-all-002", "item_id": "PR-X-002"}],
-                "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": r2_direction, "blocking": False},
-                                 {"id": "r2-wr-all-003", "item_id": "PR-X-003"}],
-            }})
-        self.assertIn("route が decision の指摘 r2-wr-all-001", self._prompt(run2("relax"), "resolver:6"))
-        self.assertFalse(has(run2("tighten")["labels"], "resolver:6"))
+        self.assertNotIn(last, self._prompt(same, "resolver:final"))
 
     def test_改稿で当て損ねた指摘は持ち越して上限で輪を出たらcarried_blockingに載る(self):
-        findings = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}],
-                    "writerReviewer:r2": [{"id": "r2-wr-all-002", "item_id": "PR-X-002"}],
-                    "writerReviewer:r3": [{"id": "r3-wr-all-003", "item_id": "PR-X-003"}]}
-        # 最後のパスの改稿が r2 の指摘を当て損ねると、その後に段 7 が無いので、持ち越したまま輪を出る。
-        res = run({"args": args(), "findings": findings, "unapplied_seq": [[], ["r2-wr-all-002"]]})["result"]
+        findings = new_item_each_round(MAX_AUDIT_PASSES + 1)
+        # 最後のパスの改稿が r<MAX_AUDIT_PASSES> の指摘を当て損ねると、その後に段 7 が無いので、持ち越したまま輪を出る。
+        missed = findings[f"writerReviewer:r{MAX_AUDIT_PASSES}"][0]["id"]
+        res = run({"args": args(), "findings": findings, "unapplied_seq": [[]] * (MAX_AUDIT_PASSES - 1) + [[missed]]})["result"]
         self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
-        self.assertEqual(res["carried_blocking"], ["r2-wr-all-002"])
+        self.assertEqual(res["carried_blocking"], [missed])
 
     def test_段8の監査に同じ項目への前のパスの指摘のIDが入る(self):
         r = self._reversal("relax")
-        self.assertIn("この文書への前のパスの指摘（範囲の項目のものを照らす）: r1-wr-all-001", self._prompt(r, "writerReviewer:r2:all"))
-        self.assertIn("この文書への前のパスの指摘（範囲の項目のものを照らす）: r2-wr-all-001", self._prompt(r, "writerReviewer:r3:all"))
+        for k in range(2, self.LAST + 1):
+            self.assertIn(f"この文書への前のパスの指摘（範囲の項目のものを照らす）: r{k - 1}-wr-all-001", self._prompt(r, f"writerReviewer:r{k}:all"))
         self.assertNotIn("前のパスの指摘", self._prompt(r, "writerReviewer:r1:all"))
 
     def test_申告に無い項目への前のパスの指摘も段8のwriter_reviewerに届く(self):
         # 申告に無い変更は writer reviewer が diff で読むまで script に分からないので、組の文書の前の指摘を申告の項目に絞らずに渡す。
         r = run({"args": args(), "writer_changed": ["PR-X-001"],
-                 "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False},
-                                                   {"id": "r1-wr-all-002", "item_id": "PR-X-002", "blocking": False}]}})
+                 "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"},
+                                                   {"id": "r1-wr-all-002", "item_id": "PR-X-002"}]}})
         self.assertIn("r1-wr-all-002", nth_prompt(r, "writerReviewer:r2:all", 0))
 
     def test_改稿のwriterに項目のtraceが指すflow要素のIDを渡す(self):
         r = run({"args": args(), "doc_flow_refs": {"requirements/x": {"PR-X-001": ["F-011", "F-010"]}, "requirements/y": {"PR-X-002": ["F-099"]}},
-                 "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False},
-                                                 {"id": "r1-wr-all-002", "item_id": "PR-X-002", "blocking": False}]}})
+                 "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"},
+                                                 {"id": "r1-wr-all-002", "item_id": "PR-X-002"}]}})
         revise = self._prompt(r, "writer:U-1:revise")
         self.assertIn("- requirements/x PR-X-001: r1-wr-all-001（trace が指す flow 要素: F-010, F-011）", revise)
         self.assertIn("- requirements/x PR-X-002: r1-wr-all-002\n", revise, "別の文書の同じ項目 ID の要素は渡さない")
         self.assertNotIn("F-099", revise)
-        none = self._prompt(run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}}), "writer:U-1:revise")
+        none = self._prompt(run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}), "writer:U-1:revise")
         self.assertNotIn("flow 要素", none, "flow_refs の無い項目では行を出さない")
 
     FLOW_FINDING = "r1-wr-all-001"
 
     def _flow_finding(self, **kw):
-        spec = {"args": args(), "findings": {"writerReviewer:r1": [{"id": self.FLOW_FINDING, "route": "writer", "origin": "flow", "blocking": False}]},
+        spec = {"args": args(), "findings": {"writerReviewer:r1": [{"id": self.FLOW_FINDING, "route": "writer", "origin": "flow"}]},
                 "ruled_at": {"6": ["RS-011"]}, "about": {"RS-011": {"finding": self.FLOW_FINDING}}, "unverified_at": {"6-settle": ["F-010"]}}
         spec.update(kw)
         return run(spec)
@@ -4588,7 +4594,7 @@ class FindingRoutes(unittest.TestCase):
         failed = self._flow_finding(verifier_fail={"3v": fail, "3-fixv": fail}, holds_at={"3-fix": ["RS-005"]},
                                     about={"RS-011": {"finding": self.FLOW_FINDING}, "RS-005": {"verification": "F-010"}})
         judged_by(self, failed, "verifier:6v-settle", "F-010")  # 検証に落ちた要素でも、指摘から直させて書き換えれば検証する
-        text = run({**{"args": args()}, "findings": {"writerReviewer:r1": [{"id": self.FLOW_FINDING, "route": "decision", "origin": "text", "blocking": False}]},
+        text = run({**{"args": args()}, "findings": {"writerReviewer:r1": [{"id": self.FLOW_FINDING, "route": "decision", "origin": "text"}]},
                     "ruled_at": {"6": ["RS-011"]}, "about": {"RS-011": {"finding": self.FLOW_FINDING}}})
         self.assertFalse(has(text["labels"], "planner:6-settle"), "origin が text の指摘の裁定は flow に写さない")
 
@@ -5013,7 +5019,9 @@ class Gates(unittest.TestCase):
 
     def test_聞ける回数の上限は監査のパスの数から決まる(self):
         src = PRD.read_text(encoding="utf-8")
-        self.assertIn("const MAX_GATES = 2 + MAX_AUDIT_PASSES\n", src)
+        # 内訳: 初稿の監査の後の最初のゲート・回答の反映から出る続きの問いのゲート・延長のゲート（3）と、改稿のパスの段 6 のゲート（MAX_AUDIT_PASSES）。
+        self.assertIn("const MAX_GATES = 3 + MAX_AUDIT_PASSES\n", src)
+        self.assertEqual(MAX_GATES, 4, "監査を 2 回にしても聞ける回数は変えない")
         self.assertIn(f"const LIMIT_WHY = `依頼者に聞ける回数の上限（MAX_GATES = ${{MAX_GATES}}）に達した`", src)
         self.assertIn("const canAsk = () => (entryState.gates || 0) < MAX_GATES", src, "聞けるかは段の入口の数で決める")
 
@@ -5088,59 +5096,6 @@ class Gates(unittest.TestCase):
         self.assertFalse(has(after["labels"], "planner:3b"), "3b を通った run の 3a は組み直さない")
         res = after["result"]
         self.assertEqual((res["status"], res["gate"], res["question_ids"], res["next_args"]["from"]), ("needs_answers", "g2", ["RS-002"], "3a"), res.get("reason"))
-
-    def test_回答済みの論点が次のパスで再発したら聞き直さず保持規則にする(self):
-        # パス 1 の段 6 の問い RS-010（r1 の指摘への裁定）に g1 で答えた。パス 2 の監査が同じ項目に指摘を出し直し（再発）、段 6 の resolver が
-        # それでも問い RS-011 を返す。同じ論点を二度聞かないので、ゲートを開かずに hold にする（聞ける回数は残っている）。
-        about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
-        findings = {**self.CROSS, "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
-        g1 = run({"args": args(), "findings": findings, "about": about, "questions_at": {"6": ["RS-010"]}})["result"]
-        self.assertEqual((g1["gate"], g1["question_ids"]), ("g1", ["RS-010"]))
-        spec = {"args": g1["next_args"], "findings": findings, "about": about, "ruled_at": {"3a'": ["RS-010"]}, "questions_at": {"6": ["RS-011"]}}
-        r = run(spec)
-        res = r["result"]
-        self.assertNotEqual(res["status"], "needs_answers", "回答済みの論点の再発でゲートを開かない")
-        self.assertEqual(res["status"], "done", res.get("reason"))
-        second = nth_prompt(r, "resolver:6", 0)
-        self.assertIn("前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: r2-wr-all-001", second)
-        self.assertIn("resolver:6-hold", r["labels"])
-        self.assertIn("次の問いは依頼者に聞かない（前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない）", nth_prompt(r, "resolver:6-hold", 0))
-        self.assertIn("RS-011", res["holds"])
-        self.assertNotIn(LIMIT_WHY, second, "聞ける回数は残っている")
-
-    def test_保持規則にした論点が次のパスで再発しても聞き直さない(self):
-        # パス 1 の段 6 が RS-010（r1 の指摘への裁定）を hold にし、パス 2 で同じ項目が再発する。回答の無い保持規則でも、同じ論点を二度聞かない。
-        about = {"RS-010": {"finding": "r1-wh-all-001"}}
-        findings = {**self.CROSS, "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
-        spec = {"findings": findings, "about": about, "holds_at": {"6": ["RS-010"]}}
-        start = stage6_at_limit({"args": args(), **spec})
-        line = "前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: r2-wr-all-001"
-        r = run({"args": start, **spec})
-        self.assertIn("RS-010", r["result"]["holds"], r["result"].get("reason"))
-        self.assertIn(line, nth_prompt(r, "resolver:6", 1))
-        # 対照: 回答のある裁定だけを見ると、保持規則にした論点の再発を聞き直しうる。
-        only_answered = ("  const settled = new Set([...(state.answered || []), ...(state.holds || [])])\n", "  const settled = new Set(state.answered || [])\n")
-        self.assertNotIn(line, nth_prompt(run({"args": start, **spec}, patch=[only_answered]), "resolver:6", 1))
-
-    def test_聞ける段のholdLeftはnewHoldsInWで止まらない(self):
-        # 聞ける段（canAsk 真）の holdLeft が作った hold は、holdLeft 自身の orderHolds(ids) で script の指定になり、段の出口の newHoldsInW を通る。
-        # 上の再発の経路では段 6 も再発の指摘の about を指定する（decide）ので、その指定を外した本文で holdLeft の指定だけが効くことを確かめる。
-        about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
-        findings = {**self.CROSS, "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
-        g1 = run({"args": args(), "findings": findings, "about": about, "questions_at": {"6": ["RS-010"]}})["result"]
-        self.assertLess(g1["next_args"]["state"]["gates"], MAX_GATES, "段 6 は聞ける段")
-        spec = {"args": g1["next_args"], "findings": findings, "about": about, "ruled_at": {"3a'": ["RS-010"]}, "questions_at": {"6": ["RS-011"]}}
-        by_about = ("  orderHolds([], [...reasked])\n", "  orderHolds([], [])\n")
-        by_hold_left = ("  orderHolds(ids)\n  const label = `resolver:${stage}-hold`\n", "  const label = `resolver:${stage}-hold`\n")
-        r = run(spec, patch=[by_about])
-        self.assertNotIn(LIMIT_WHY, nth_prompt(r, "resolver:6", 0))
-        self.assertTrue(has(r["labels"], "resolver:6-hold"))
-        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
-        self.assertIn("RS-011", r["result"]["holds"])
-        broken = run(spec, patch=[by_about, by_hold_left])["result"]
-        # 対照: holdLeft が指定を入れないと、聞ける段の resolver の hold は script の指定の外として問いに書き換え直させられ、holdLeft が止まる。
-        self.assertEqual(broken["status"], "blocked", broken.get("reason"))
-        self.assertIn("RS-011 を resolver が hold に返しませんでした", broken["reason"])
 
 
 def docs_units(n):
@@ -5264,24 +5219,20 @@ class Convergence(unittest.TestCase):
         rulings = {f"RS-01{k}": {"finding": f"r{k + 1}-wr-all-001" if k else "r1-wh-all-001"} for k in range(rounds)}
         return run({"args": args(), "findings": findings, "ruled_seq_at": {"6": [[rs] for rs in rulings]}, "about": rulings, **kw})
 
-    def test_再発した項目は段6に前の指摘と裁定が渡りwriterに回らない(self):
-        r = self._recurring(2)
-        self.assertEqual(r["result"]["status"], "done")
-        self.assertEqual(r["result"]["item_routes"], {self.KEY: "decision"})
-        second = nth_prompt(r, "resolver:6", 1)
-        self.assertIn(f"再発した項目（項目: 前のパスの指摘 ← その裁定）: {self.KEY}: r1-wh-all-001 ← RS-010", second)
-        self.assertIn("route が decision の指摘 r2-wr-all-001", second)
-        self.assertNotIn("r2-wr-all-001", nth_prompt(r, "writer:U-1:revise", 1))
-
     def test_裁定の後の再発は上限で輪を出て残りの裁定に回る(self):
-        # 2 パス（MAX_AUDIT_PASSES）では、再発した項目は毎回 decision に回り、最後の r3 の後は段 6 に戻らず輪を出る。
+        # 改稿は 1 回（MAX_AUDIT_PASSES）なので、r1 の裁定の後に r2 で再発した項目は decision に回り、段 6 に戻らず輪を出て resolver:final に渡る。
+        last = f"r{MAX_AUDIT_PASSES + 1}-wr-all-001"
         stuck = self._recurring(MAX_AUDIT_PASSES + 1)
         res = stuck["result"]
         self.assertEqual((res["status"], res["stop_reason"], res["item_routes"], res["passes"]), ("blocked", "pass_limit", {self.KEY: "decision"}, MAX_AUDIT_PASSES))
         self.assertIn("resolver:final", stuck["labels"])
-        self.assertEqual(res["remaining_blocking"], [f"r{MAX_AUDIT_PASSES + 1}-wr-all-001"])
-        self.assertIn(f"残った指摘: r{MAX_AUDIT_PASSES + 1}-wr-all-001", res["reason"], "理由に残った指摘を全件載せる")
-        self.assertIn(f"route が decision の指摘 r{MAX_AUDIT_PASSES + 1}-wr-all-001", nth_prompt(stuck, "resolver:final", 0))
+        self.assertEqual(res["remaining_blocking"], [last])
+        # 残った指摘の全件は理由ではなく report.md の節に載せる（ID の集合は返り値の unreflected）。
+        self.assertEqual(sorted(res["unreflected"]), [last])
+        self.assertIn("全件は report.md の「本文に反映していない指摘」", res["reason"])
+        self.assertNotIn(last, res["reason"], "理由に残った指摘の ID を並べない")
+        self.assertIn(f"route が decision の指摘 {last}", nth_prompt(stuck, "resolver:final", 0))
+        self.assertFalse(any(last in x["prompt"] for x in stuck["prompts"] if x["label"].startswith("writer:")), "再発した項目の指摘は writer に回らない")
         self.assertIsNone(res["next_args"])
 
     def test_改稿に回すものが無いままblockingが残ればdoneにせずno_progressで止まる(self):
@@ -5292,80 +5243,43 @@ class Convergence(unittest.TestCase):
         self.assertIn("resolver:final", r["labels"])
 
     def test_doc_checkのblockingだけが残るときは上限まで回す(self):
-        fixed = run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}, "doc_blocking_at": {"r2": 1}})["result"]
-        self.assertEqual((fixed["status"], fixed["passes"]), ("done", 2), "doc_check が増えても 1 パス目で進展なしにしない")
+        fixed = run({"args": args(), "doc_blocking_at": {"r1": 1}})
+        self.assertTrue(has(fixed["labels"], "writer:U-1:revise"), "doc_check の blocking だけでも改稿に回す")
+        self.assertEqual((fixed["result"]["status"], fixed["result"]["passes"]), ("done", 1), fixed["result"].get("reason"))
+        # 最後の監査で doc_check の指摘が増えても、進展なし（no_progress）にせず上限（pass_limit）で輪を出る。
+        grew = run({"args": args(), "findings": new_item_each_round(MAX_AUDIT_PASSES), "doc_blocking_at": {f"r{MAX_AUDIT_PASSES + 1}": 1}})["result"]
+        self.assertEqual((grew["status"], grew["stop_reason"], grew["passes"], grew["doc_blocking"]), ("blocked", "pass_limit", MAX_AUDIT_PASSES, 1), grew.get("reason"))
         stuck = run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]},
                      "doc_blocking_at": {f"r{k}": 1 for k in range(1, MAX_AUDIT_PASSES + 2)}})["result"]
         self.assertEqual((stuck["status"], stuck["stop_reason"], stuck["passes"], stuck["doc_blocking"]), ("blocked", "pass_limit", MAX_AUDIT_PASSES, 1))
         self.assertIn("パスが上限", stuck["reason"])
 
-    def _reraise(self, r3, writer_changed_seq=None, r1_writer=False):
-        # r1 の tighten を段 6 が RS-010 で裁定して合格し、1 パス目の改稿がそれを PR-X-001 に当てた。r2・r3 の監査が同じ向きで指摘し直す。
-        findings = {
-            "wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "tighten"}],
-            "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "tighten"}, {"id": "r2-wr-all-002", "item_id": "PR-X-002"}],
-            "writerReviewer:r3": r3,
-        }
+    def _reraise(self, r2, r1_writer=False, **kw):
+        # r1 の tighten を段 6 が RS-010 で裁定して合格し、改稿がそれを PR-X-001 に当てた。r2 の監査が r2 の指摘を返す。
+        findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "tighten"}], "writerReviewer:r2": r2}
         if r1_writer:
             findings["writerReviewer:r1"] = [{"id": "r1-wr-all-001"}]
-        spec = {"args": args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-wh-all-001"}}}
-        seq = writer_changed_seq or [["PR-X-001"], ["PR-X-002"]]
-        return run({**spec, "writer_changed_seq": seq, "diff": {f"r{i + 2}": c for i, c in enumerate(seq)}})
+        spec = {"args": args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-wh-all-001"}},
+                "writer_changed_seq": [["PR-X-001"]], "diff": {"r2": ["PR-X-001"]}}
+        return run({**spec, **kw})
 
     def test_既裁定の再出は再発にもblockingにも数えずnoticesに出す(self):
-        r = self._reraise([{"id": "r3-wr-all-001", "direction": "tighten"}])
+        r = self._reraise([{"id": "r2-wr-all-001", "direction": "tighten"}])
         res = r["result"]
-        self.assertEqual((res["status"], res["item_routes"]), ("done", {}), "2 回続けて再出しても数えない")
-        self.assertEqual([n for n in res["notices"] if "既裁定の再出" in n],
-                         ["監査 r2: 既裁定の再出（再発に数えない）: r2-wr-all-001 ← RS-010",
-                          "監査 r3: 既裁定の再出（再発に数えない）: r3-wr-all-001 ← RS-010"])
-        self.assertNotIn("r2-wr-all-001", nth_prompt(r, "writer:U-1:revise", 1))
-        turned = self._reraise([{"id": "r3-wr-all-001", "direction": "relax"}])
-        self.assertEqual(turned["result"]["item_routes"], {}, "r2 の再出は blocking に数えていないので、r3 は再発ではない")
-        # r3 は最後のパスの監査なので、逆向きの指摘は輪を出た後の resolver に届く。
-        self.assertIn("route が decision の指摘 r3-wr-all-001", nth_prompt(turned, "resolver:final", 0), "再出と逆向きの指摘は裁定に逆らうので writer に回さない")
-        self.assertFalse(any("r3-wr-all-001" in x["prompt"] for x in turned["prompts"] if x["label"].startswith("writer:")))
-        bundled = self._reraise([], r1_writer=True)["result"]
+        self.assertEqual((res["status"], res["item_routes"]), ("done", {}), res.get("reason"))
+        self.assertEqual([n for n in res["notices"] if "既裁定の再出" in n], ["監査 r2: 既裁定の再出（再発に数えない）: r2-wr-all-001 ← RS-010"])
+        self.assertNotIn("r2-wr-all-001", res["unreflected"], "既裁定の再出は本文に反映していない指摘に含めない")
+        turned = self._reraise([{"id": "r2-wr-all-001", "direction": "relax"}])
+        # r2 は最後の監査なので、逆向きの指摘は輪を出た後の resolver に届く。
+        self.assertIn("route が decision の指摘 r2-wr-all-001", nth_prompt(turned, "resolver:final", 0), "再出と逆向きの指摘は裁定に逆らうので writer に回さない")
+        self.assertFalse(any("r2-wr-all-001" in x["prompt"] for x in turned["prompts"] if x["label"].startswith("writer:")))
+        bundled = self._reraise([{"id": "r2-wr-all-001", "direction": "tighten"}], r1_writer=True)["result"]
         self.assertEqual(bundled["item_routes"], {self.KEY: "decision"}, "同じパスで writer の指摘も渡した項目の変更は、裁定を当てただけとは言えない")
 
-    def test_前のパスの再出だけが持つ裁定の項目が変わった後の同じ向きの指摘はblockingにする(self):
-        # RS-010 は 1 パス目に渡し終えた。2 パス目の改稿が PR-X-001 を変える（doc_check の直し・申告に無い変更・別の項目の指摘の改稿）。
-        spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-wh-all-001"}},
-                "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "tighten"}],
-                             "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "tighten"}, {"id": "r2-wr-all-002", "item_id": "PR-X-002"}],
-                             "writerReviewer:r3": [{"id": "r3-wr-all-001", "direction": "tighten"}]}}
-        declared = [["PR-X-001"], ["PR-X-001", "PR-X-002"]]
-        r3 = spec["findings"]["writerReviewer:r3"]
-        for name, extra, found in (
-            ("doc_check の直し", {"writer_changed_seq": declared, "diff": {"r2": declared[0], "r3": declared[1]}, "doc_blocking_at": {"r2": 1}}, r3[0]["id"]),
-            # 申告に無い PR-X-001 の変更は、whole reviewer の diff の by_doc から照合の範囲（reRaised の changed）に入る。
-            ("申告に無い変更", {"writer_changed_seq": [["PR-X-001"], ["PR-X-002"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-001", "PR-X-002"]}, "doc_blocking_at": {"r2": 1}}, r3[0]["id"]),
-            ("別の項目の指摘の改稿", {"writer_changed_seq": declared, "diff": {"r2": declared[0], "r3": declared[1]}}, r3[0]["id"]),
-        ):
-            with self.subTest(name):
-                r = run({**spec, **extra})
-                res = r["result"]
-                # r3 は最後のパスの監査なので、blocking に数えた指摘は改稿に回らず、残った blocking として輪を出る。
-                self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", MAX_AUDIT_PASSES))
-                self.assertFalse(any(found in n for n in res["notices"]), res["notices"])
-                self.assertIn(found, res["remaining_blocking"])
-        same = run({**spec, "writer_changed_seq": [["PR-X-001"], ["PR-X-002"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-002"]}, "doc_blocking_at": {"r1": 1}})["result"]
+    def test_裁定を渡したパスの変更はdoc_checkの直しと混ざっていても再出にする(self):
+        same = self._reraise([{"id": "r2-wr-all-001", "direction": "tighten"}], doc_blocking_at={"r1": 1})["result"]
         self.assertIn("監査 r2: 既裁定の再出（再発に数えない）: r2-wr-all-001 ← RS-010", same["notices"],
                       "裁定を渡したパスの変更は、doc_check の直しと混ざっていても裁定を当てたのと見分けられないので再出にする")
-
-    def test_当て損ねて持ち越した指摘を段6が裁定して当てた後の同じ向きの指摘は再出にする(self):
-        # r1 の writer の指摘を 1 パス目の改稿が当て損ね、r2 で再発して decision に回り、2 パス目の段 6 が RS-010 で裁定して同じパスの改稿が当てる。
-        spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-wr-all-001"}},
-                "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "direction": "tighten"}],
-                             "writerReviewer:r3": [{"id": "r3-wr-all-001", "direction": "tighten"}]},
-                "unapplied_seq": [["r1-wr-all-001"]], "writer_changed_seq": [["PR-X-001"]] * 3}
-        res = run(spec)["result"]
-        self.assertEqual((res["status"], res["passes"]), ("done", 2), res.get("reason"))
-        self.assertIn("監査 r3: 既裁定の再出（再発に数えない）: r3-wr-all-001 ← RS-010", res["notices"])
-
-    def test_再出した項目を後で監査する監査役に前の裁定のIDを渡す(self):
-        r = self._reraise([], [["PR-X-001"], ["PR-X-001"]])
-        self.assertIn("この文書への前のパスの指摘を裁定した resolution: RS-010", nth_prompt(r, "writerReviewer:r3:all", 0))
 
     def test_planner_1のdoc_checkの差し戻しは1回で直れば通り直らなければ止まる(self):
         # 設計 3.3a: 上限は MAX_CHECK_REWORK でなく 1 回。減り続けても 2 回目の差し戻しは無い。
@@ -5431,24 +5345,22 @@ class Convergence(unittest.TestCase):
         self.assertEqual([l for l in r["labels"] if l.startswith("planner:") and l != "planner:1"], ["planner:3-settle"])
         self.assertEqual(r["result"]["status"], "needs_answers")
 
-    def _settle_each_pass(self, **kw):
-        # 段 6 が毎パス O- を閉じ、その O- を引く要素を settle が直す。
-        about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
-        findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "remove"}],
-                    "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": "make_measurable"}]}
-        spec = {"args": args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010", "RS-090"], ["RS-011", "RS-091"]]}, "about": about,
-                "open_only_at": {"6v": [{"el": "F-091", "open": "O-RS-090"}, {"el": "F-092", "open": "O-RS-091"}]},
-                "writer_changed_seq": [["PR-X-001"], ["PR-X-001"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-001"]}}
+    def _settle_at_6(self, **kw):
+        # 段 6 が O- を閉じ、その O- を引く要素を settle が直す。
+        findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": "remove"}]}
+        spec = {"args": args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010", "RS-090"]]}, "about": {"RS-010": {"finding": "r1-wh-all-001"}},
+                "open_only_at": {"6v": [{"el": "F-091", "open": "O-RS-090"}]}}
         spec.update(kw)
         return run(spec)
 
-    def test_settleのlabelはパスと再開で変わらない(self):
-        whole = self._settle_each_pass()
+    def test_settleのlabelは再開で変わらない(self):
+        whole = self._settle_at_6()
         settles = lambda r: [l for l in r["labels"] if "settle" in l]
-        self.assertEqual(settles(whole), ["planner:6-settle", "verifier:6v-settle"] * 2)
-        stopped = self._settle_each_pass(null_labels=["writerReviewer:r2:all"])["result"]
-        resumed = self._settle_each_pass(args=stopped["next_args"], ruled_seq_at={"6": [["RS-011", "RS-091"]]})
-        self.assertEqual(resumed["result"]["status"], "done")
+        self.assertEqual(settles(whole), ["planner:6-settle", "verifier:6v-settle"])
+        stopped = self._settle_at_6(null_labels=["verifier:6v-settle"])["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "6"), stopped.get("reason"))
+        resumed = self._settle_at_6(args=stopped["next_args"])
+        self.assertEqual(resumed["result"]["status"], "done", resumed["result"].get("reason"))
         self.assertEqual(settles(resumed), ["planner:6-settle", "verifier:6v-settle"])
 
     def test_settleの中の差し戻しの出口ではsettleを入れ子にしない(self):
@@ -5458,6 +5370,240 @@ class Convergence(unittest.TestCase):
         r = run(spec)
         self.assertIn("resolver:3-settle-questions", r["labels"])
         self.assertFalse(any("settle-settle" in l for l in r["labels"]), r["labels"])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class LowOnly(unittest.TestCase):
+    """監査 r1 の指摘が blocking を含まず、他に改稿の理由も無ければ、段 6〜8 を飛ばして段 9 へ進む（low_only。workflow-io.md §4 の段 5）。
+    飛ばした指摘は本文に反映しないまま、返り値の unreflected と skipped で開示する。"""
+
+    LOW = {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}], "wholeReviewer:r1": [{"id": "r1-wh-all-001", "item_id": "PR-X-002", "blocking": False}]}
+    EXISTING = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}])
+
+    def _skipped(self, res):
+        return [s for s in res["skipped"] if s["fact"] == "low_only"]
+
+    def test_blockingでない指摘だけなら改稿と2巡目の監査を飛ばしてdoneにする(self):
+        r = run({"args": args(), "findings": self.LOW})
+        res = r["result"]
+        self.assertEqual((res["status"], res["passes"], res["tree_digest"]), ("done", 1, "a1"), res.get("reason"))
+        self.assertFalse(has(r["labels"], "resolver:6"))
+        self.assertFalse(has(r["labels"], "writer:U-1:revise"))
+        self.assertFalse(has(r["labels"], "writerReviewer:r2"))
+        self.assertFalse(has(r["labels"], "wholeReviewer:r2"))
+        [skip] = self._skipped(res)
+        self.assertEqual((skip["step"], sorted(skip["ids"])), ("writerReviewer:r2:all", ["r1-wh-all-001", "r1-wr-all-001"]))
+        self.assertEqual(sorted(res["unreflected"]), ["r1-wh-all-001", "r1-wr-all-001"], "本文に反映していない指摘の全件")
+        self.assertIsNone(res["next_args"])
+
+    def test_指摘が0件ならskippedに積まない(self):
+        r = run({"args": args()})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertEqual(self._skipped(res), [])
+        self.assertEqual(res["unreflected"], [])
+        self.assertFalse(has(r["labels"], "writerReviewer:r2"))
+
+    def test_改稿の理由が1つでもあれば飛ばさない(self):
+        # 土台（blocking でない指摘だけ）から 1 点だけ変える。
+        blocking = {**self.LOW, "writerReviewer:r1": [*self.LOW["writerReviewer:r1"], {"id": "r1-wr-all-002", "item_id": "PR-X-003"}]}
+        for name, extra, launched in (
+            ("blocking の指摘 1 件", {"findings": blocking}, "writerReviewer:r2"),
+            ("doc_check の blocking 1 件", {"doc_blocking_at": {"r1": 1}}, "writerReviewer:r2"),
+            ("新しい TBD", {"new_tbd": ["TBD-RX-001"]}, "resolver:6"),
+            ("existing で段 3 の裁定がある（まだ本文に入っていない）", {"args": self.EXISTING, "flow_open": 1, "ruled_at": {"3": ["RS-001"]}}, "writerReviewer:r2"),
+        ):
+            with self.subTest(name):
+                r = run({"args": args(), "findings": self.LOW, **extra})
+                res = r["result"]
+                self.assertEqual(self._skipped(res), [], res.get("reason"))
+                self.assertTrue(has(r["labels"], launched), r["labels"])
+        # 持ち越した問い（段 3 の回答待ち）があれば、初稿の監査の後のゲートで聞く。
+        asked = run({"args": args(), "findings": self.LOW, "flow_open": 1, "questions_at": {"3": ["RS-001"]}})
+        res = asked["result"]
+        self.assertEqual((res["status"], res["gate"], res["question_ids"]), ("needs_answers", "g1", ["RS-001"]), res.get("reason"))
+        self.assertTrue(has(asked["labels"], "writerReviewer:r1"), "仮の初稿の監査の後に止まる")
+        self.assertEqual(self._skipped(res), [])
+
+    def test_docのstdoutが無ければdoc_checkのblockingを数えられないので飛ばさない(self):
+        # 指名された whole reviewer が doc の stdout の代わりに JSON の行の無い値（失敗したコマンドの stderr）を返した。写し損ねではないので取り直さない。
+        r = run({"args": args(), "findings": self.LOW, "corrupt": {"wholeReviewer:r1:all": {"doc_check": {"literal": "doc_check doc: plan.json がありません"}}}})
+        res = r["result"]
+        self.assertEqual(self._skipped(res), [], res.get("reason"))
+        self.assertTrue(has(r["labels"], "writerReviewer:r2"), r["labels"])
+
+    def test_当てていないroutesがあれば飛ばさない(self):
+        # 段 3 の問いを持ち越した run: 仮の初稿の監査 r1 の後の段 6 が RT-010 を返し、ゲートの後に初稿を書き直した。書き直しの writer は
+        # routes を当てないので、書き直した初稿の監査 r2 が blocking でない指摘だけでも、段 7 で RT-010 を当てる。
+        findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}], "writerReviewer:r2": [{"id": "r2-wr-all-001", "blocking": False}]}
+        g1 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "findings": findings, "about": {"RS-010": {"finding": "r1-wh-all-001"}},
+                  "ruled_at": {"6": ["RS-010"]}, "routes_at": {"6": [{"id": "RT-010", "unit": "U-1"}]}})["result"]
+        self.assertEqual((g1["status"], g1["question_ids"]), ("needs_answers", ["RS-001"]), g1.get("reason"))
+        r = run({"args": g1["next_args"], "findings": findings, "ruled_at": {"3a": ["RS-001"]}})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertEqual(self._skipped(res), [])
+        self.assertIn("RT-010", nth_prompt(r, "writer:U-1:revise", 0), "当てていない routes を段 7 で当てる")
+        self.assertTrue(has(r["labels"], "writerReviewer:r3"))
+
+    def test_existingで裁定が無くblockingでない指摘だけなら飛ばす(self):
+        r = run({"args": self.EXISTING, "findings": self.LOW})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertFalse(has(r["labels"], "writer:"), "existing は段 4 を通らず、段 5 の後も書かない")
+        self.assertEqual(len(self._skipped(res)), 1)
+
+    def test_routeがdecisionでblockingでない指摘は裁定せずunreflectedに残す(self):
+        r = run({"args": args(), "findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "blocking": False}]}})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertFalse(has(r["labels"], "resolver:6"))
+        self.assertFalse(has(r["labels"], "resolver:final"))
+        self.assertEqual(res["unreflected"], ["r1-wh-all-001"])
+        self.assertEqual(res["holds"] + res["hold_drafts"], [], "保持規則にもしない")
+
+    def test_段5と段9の境界でbudgetに達したnext_argsから再開してもunreflectedは同じ(self):
+        whole = run({"args": args(), "findings": self.LOW})
+        n = len(whole["labels"])
+        cut = run({"args": args(), "findings": self.LOW, "budget": {"total": n}})["result"]
+        self.assertEqual((cut["status"], cut["stop_reason"], cut["next_args"]["from"]), ("blocked", "budget", "9"), cut.get("reason"))
+        self.assertIn("pending", cut["next_args"]["state"])
+        again = run({"args": cut["next_args"], "findings": self.LOW})
+        self.assertEqual(again["labels"], [], "段 9 は agent を起動しない")
+        res = again["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertEqual(sorted(res["unreflected"]), sorted(whole["result"]["unreflected"]))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class AuditTwice(unittest.TestCase):
+    """監査は網羅の r1 と範囲の再監査の r2 の 2 回、改稿は 1 回（MAX_AUDIT_PASSES = 1）。r2 の後に blocking が残れば finalHold（pass_limit）。"""
+
+    def test_改稿は1回で監査はr2までにしr2の後に残ればpass_limitで止まる(self):
+        self.assertEqual(MAX_AUDIT_PASSES, 1)
+        r = run({"args": args(), "findings": new_item_each_round(2)})
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["passes"]), ("blocked", "pass_limit", 1), res.get("reason"))
+        self.assertEqual(sum(1 for l in r["labels"] if l.startswith("writer:U-1:revise")), 1)
+        self.assertTrue(has(r["labels"], "writerReviewer:r2"))
+        self.assertFalse(has(r["labels"], "writerReviewer:r3"))
+        self.assertIn("resolver:final", r["labels"])
+        self.assertEqual((res["remaining_blocking"], sorted(res["unreflected"])), (["r2-wr-all-002"], ["r2-wr-all-002"]))
+        self.assertIn("全件は report.md の「本文に反映していない指摘」", res["reason"])
+        self.assertIsNone(res["next_args"])
+
+    def test_r2の後にblockingが無ければblockingでない指摘を残してdoneにする(self):
+        r = run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-002", "item_id": "PR-X-002", "blocking": False}]}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["passes"]), ("done", 1), res.get("reason"))
+        self.assertEqual(res["unreflected"], ["r2-wr-all-002"])
+        self.assertFalse(any(s["fact"] == "low_only" for s in res["skipped"]), "low_only は r1 の後だけに効く")
+
+    def test_r2でblockingのdecisionが残れば段6に戻らずresolver_finalに渡す(self):
+        findings = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-002", "item_id": "PR-X-002", "route": "decision"}]}
+        r = run({"args": args(), "findings": findings})
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        self.assertFalse(has(r["labels"], "resolver:6"), "改稿のパスは尽きたので段 6 で聞かない")
+        self.assertIn("route が decision の指摘 r2-wr-all-002", nth_prompt(r, "resolver:final", 0))
+        self.assertEqual(res["unreflected"], ["r2-wr-all-002"])
+
+    def test_finalHoldのどの経路の返り値にもunreflectedが載る(self):
+        base = {"args": args(), "findings": new_item_each_round(2)}
+        for name, extra, frm in (
+            ("通常", {}, None),
+            ("resolver:final の後に flow.json が変わった（flowKept）", {"flow_sha_at": {"final": "f-bad"}}, None),
+            ("resolver:final の後の flow-check が別の版を数えた（independentFlow）", {"tamper_before": {"flow-check:final": "outside"}}, None),
+        ):
+            with self.subTest(name):
+                res = run({**base, **extra})["result"]
+                self.assertEqual(res["status"], "blocked", res.get("reason"))
+                self.assertEqual((res["next_args"] or {}).get("from"), frm, res.get("reason"))
+                self.assertEqual((res["report_path"], res["unreflected"], res["remaining_blocking"]), ("/tmp/prd-w/report.md", ["r2-wr-all-002"], ["r2-wr-all-002"]))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class StaticQuoteReject(unittest.TestCase):
+    """指名された whole reviewer が判定の前に doc_check quotes を実行し、script は quote がどの原文にも無い（not_found）writer reviewer の
+    指摘を退ける（workflow-io.md §4 の段 5・段 8）。照合の stdout が期待と合わなければ退けずに integrity に 1 行出す。"""
+
+    TWO = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}, {"id": "r1-wr-all-002", "item_id": "PR-X-002"}]}
+    NOTE = "監査 r1: 引用がどの原文にも無い writer reviewer の指摘 1 件を退けた: r1-wr-all-002（/tmp/prd-w/checks/quotes-r1.json）"
+
+    def _quote_notes(self, res):
+        return [n for n in res["notices"] if "引用がどの原文にも無い" in n]
+
+    def test_段5の指名にquotesのコマンドをdocの後に置きスキーマに欄がある(self):
+        r = run({"args": args(), "units": docs_units(5), "findings": {"writerReviewer:r1:p1": [{"id": "r1-wr-p1-001", "doc": "requirements/d1", "item_id": "PR-D1-001"}]}})
+        prompt = nth_prompt(r, "wholeReviewer:r1:all", 0)
+        quotes = prompt.index("doc_check.mjs quotes --workspace /tmp/prd-w --findings r1-wr-p1,r1-wr-p2` → designated.quotes")
+        self.assertLess(prompt.index("doc_check.mjs doc --workspace /tmp/prd-w"), quotes)
+        self.assertLess(quotes, prompt.index("doc_check.mjs snapshot --workspace /tmp/prd-w --save audited-1"))
+        self.assertIn("quotes", r["auditSchema"]["properties"]["designated"]["properties"])
+        r8 = nth_prompt(r, "wholeReviewer:r2:all", 0)
+        quotes8 = r8.index("doc_check.mjs quotes --workspace /tmp/prd-w --findings r2-wr-p1,r2-wr-p2` → designated.quotes")
+        self.assertLess(r8.index("doc_check.mjs diff --workspace /tmp/prd-w --against audited-1"), quotes8)
+        self.assertLess(quotes8, r8.index("doc_check.mjs snapshot --workspace /tmp/prd-w --save audited-2"))
+
+    def test_引用が無い指摘はblockingにも改稿にも入らずnoticesに出る(self):
+        r = run({"args": args(), "findings": self.TWO, "unquoted_at": {"r1": ["r1-wr-all-002"]}})
+        res = r["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        revise = nth_prompt(r, "writer:U-1:revise", 0)
+        self.assertIn("r1-wr-all-001", revise)
+        self.assertNotIn("r1-wr-all-002", revise)
+        self.assertEqual(self._quote_notes(res), [self.NOTE])
+        self.assertNotIn("r1-wr-all-002", res["unreflected"], "退けた指摘は本文に反映していない指摘に含めない")
+        self.assertEqual(res["integrity"], [])
+        # 退けた 1 件だけなら blocking は残らず、改稿も 2 巡目も無い。
+        only = run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-002", "item_id": "PR-X-002"}]}, "unquoted_at": {"r1": ["r1-wr-all-002"]}})
+        self.assertFalse(has(only["labels"], "writer:U-1:revise"))
+        self.assertEqual((only["result"]["status"], only["result"]["unreflected"]), ("done", []))
+
+    def test_whole_reviewerのrejectedと重なるIDはquotesの行にだけ出る(self):
+        three = {"writerReviewer:r1": [*self.TWO["writerReviewer:r1"], {"id": "r1-wr-all-003", "item_id": "PR-X-003"}]}
+        res = run({"args": args(), "findings": three, "unquoted_at": {"r1": ["r1-wr-all-002"]}, "rejected_at": {"r1": ["r1-wr-all-002", "r1-wr-all-003"]}})["result"]
+        self.assertEqual(self._quote_notes(res), [self.NOTE])
+        self.assertIn("監査 r1: whole reviewer が writer reviewer の指摘 1 件を退けた: r1-wr-all-003（理由は /tmp/prd-w/findings/r1-wh-all.json の rejected）", res["notices"])
+        self.assertEqual(res["integrity"], [])
+
+    def test_照合のstdoutが期待と合わなければ退けずにintegrityに1行出す(self):
+        for name, extra, why in (
+            ("照らした findings が違う", {"quotes_files_at": {"r1": ["r1-wr-p9"]}}, "照らした findings が期待と違う"),
+            ("照合の版が監査の基準と違う", {"quotes_digest_at": {"r1": "a-other"}}, "照合の版が監査の基準と違う"),
+            ("quotes を返さない", {"no_quotes_at": ["r1"]}, "quote の照合の stdout が無い"),
+        ):
+            with self.subTest(name):
+                r = run({"args": args(), "findings": self.TWO, "unquoted_at": {"r1": ["r1-wr-all-002"]}, **extra})
+                res = r["result"]
+                self.assertIn("r1-wr-all-002", nth_prompt(r, "writer:U-1:revise", 0), "退けない向きに倒す")
+                self.assertEqual(self._quote_notes(res), [])
+                self.assertEqual(len(res["integrity"]), 1, res["integrity"])
+                self.assertIn(why, res["integrity"][0])
+
+    def test_同じ回のwriter_reviewerの指摘に無いIDは退けない(self):
+        findings = {**self.TWO, "wholeReviewer:r1": [{"id": "r1-wh-all-001", "item_id": "PR-X-003"}]}
+        r = run({"args": args(), "findings": findings, "unquoted_at": {"r1": ["r1-wr-all-009", "r1-wh-all-001"]}})
+        res = r["result"]
+        revise = nth_prompt(r, "writer:U-1:revise", 0)
+        for id_ in ("r1-wr-all-001", "r1-wr-all-002", "r1-wh-all-001"):
+            self.assertIn(id_, revise)
+        self.assertEqual(self._quote_notes(res), [])
+
+    def test_写し損ねたquotesは取り直して退ける(self):
+        self.assertIn("doc_check.mjs quotes --workspace /tmp/prd-w --findings r1-wr-all`", nth_prompt(run({"args": args(), "findings": self.TWO}), "wholeReviewer:r1:all", 0))
+        r = run({"args": args(), "findings": self.TWO, "unquoted_at": {"r1": ["r1-wr-all-002"]},
+                 "corrupt": {"wholeReviewer:r1:all": {"quotes": {"drop": "unquoted"}}}})
+        self.assertIn("doc_check.mjs quotes --workspace /tmp/prd-w --findings r1-wr-all`", nth_prompt(r, "flow-check:wholeReviewer-r1-all-recopy", 0))
+        self.assertEqual(self._quote_notes(r["result"]), [self.NOTE])
+
+    def test_段8でも引用が無い指摘を退ける(self):
+        findings = {"writerReviewer:r1": [{"id": "r1-wr-all-001"}], "writerReviewer:r2": [{"id": "r2-wr-all-002", "item_id": "PR-X-002"}]}
+        kept = run({"args": args(), "findings": findings})["result"]
+        self.assertEqual(kept["status"], "blocked", "退けなければ r2 の blocking が残る（この照合の前提）")
+        res = run({"args": args(), "findings": findings, "unquoted_at": {"r2": ["r2-wr-all-002"]}})["result"]
+        self.assertEqual((res["status"], res["unreflected"]), ("done", []), res.get("reason"))
+        self.assertEqual(self._quote_notes(res), ["監査 r2: 引用がどの原文にも無い writer reviewer の指摘 1 件を退けた: r2-wr-all-002（/tmp/prd-w/checks/quotes-r2.json）"])
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
@@ -5807,7 +5953,9 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
         state = res["next_args"]["state"]
         self.assertEqual(state["pass"], MAX_AUDIT_PASSES)
-        self.assertEqual(state["item_routes"], {f"{self.DOC}#{it}": "decision" for it in items}, "2 パスでは 1 回目の再発の経路（decision）まで")
+        # 再発の経路は 2 回目以降の監査の後に付く。改稿のパスが 1 回なら、最後のパスの段 8 の途中にはまだ無い。
+        routes = {f"{self.DOC}#{it}": "decision" for it in items} if MAX_AUDIT_PASSES > 1 else {}
+        self.assertEqual(state.get("item_routes", {}), routes)
         self.assertLess(self._chars(res["next_args"]), NEXT_ARGS_MAX_CHARS)
 
     def test_段8で裁定を持って止まったnext_argsも上限に収まる(self):
@@ -5818,20 +5966,18 @@ class NextArgsBudget(unittest.TestCase):
                     self.assertLess(self._stage8(entry, self.ITEMS_N, unapplied), NEXT_ARGS_MAX_CHARS)
 
     def _stage6(self, entry, n):
-        # 2 パス目の監査が decision の指摘を出し、段 6 の resolver が応答しない。段 6 は flow を書く段なので、最悪の tx は tx.flow を持つ。
+        # 書き直した初稿の監査の後の段 6 の resolver が応答しない（改稿のパスは 1 回なので、輪の中の段 6 はこの 1 回だけ）。
+        # 段 6 は flow を書く段なので、最悪の tx は tx.flow を持つ。
         a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
-        g1 = self._gates(a, n)[2]
-        common = self._common(n)
-        decision = [{"id": f"r{self.R + 1}-wr-all-{k:03d}", "doc": self.DOC, "item_id": self._item(k), "route": "decision"} for k in (1, 2, 3)]
-        ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:self.UNAPPLIED]
-        res = run({"args": g1["next_args"], **common, "findings": {**common["findings"], f"writerReviewer:r{self.R + 1}": decision}, "ruled_at": {"3a'": self._rs(23, 25)},
-                   "null_labels": ["resolver:6"], "unapplied_seq": [ids]})["result"]
-        self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("blocked", "6", 2), res.get("reason"))
+        g02 = self._gates(a, n)[1]
+        res = run({"args": g02["next_args"], **self._common(n), "ruled_at": {"3a": ["RS-022"], "6": self._rs(26, 28)}, "questions_at": {"6": self._rs(23, 25)},
+                   "null_labels": ["resolver:6"]})["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("blocked", "6", 1), res.get("reason"))
         self._assert_lean(res["next_args"]["state"])
         return self._chars(res["next_args"])
 
     def test_段8が境界を決める最悪の段である(self):
-        # 境界（ITEMS_N + 1 で超える）は段 8 でだけ測る。tx.flow を持つ段 6 の再実行（2 パス目）が段 8 より大きければ、境界は段 6 が決める。
+        # 境界（ITEMS_N + 1 で超える）は段 8 でだけ測る。tx.flow を持つ段 6 の再実行が段 8 より大きければ、境界は段 6 が決める。
         for entry in ("new", "existing"):
             with self.subTest(entry=entry):
                 self.assertLessEqual(self._stage6(entry, self.ITEMS_N + 1), self._stage8(entry, self.ITEMS_N + 1, self.UNAPPLIED))
@@ -5848,9 +5994,9 @@ STAGE_CASES = {
     "3": ({"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}, "verifier:3v", ["verifier:3v-entry"]),
     "4": ({}, "writer:U-1:draft"),
     "5": ({}, "writerReviewer:r1:all"),
-    "6": ({"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "blocking": False}]}, "ruled_at": {"6": ["RS-010"]}}, "resolver:6"),
-    "7": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}}, "writer:U-1:revise"),
-    "8": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}}, "writerReviewer:r2:all"),
+    "6": ({"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "ruled_at": {"6": ["RS-010"]}}, "resolver:6"),
+    "7": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}, "writer:U-1:revise"),
+    "8": ({"findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}}, "writerReviewer:r2:all"),
 }
 
 
@@ -5884,10 +6030,15 @@ class EveryEntry(unittest.TestCase):
                 self.assertEqual(self._recover({"args": args(), **extra, **w}, label, stage, *checked)["status"], "done")
 
     def test_段9から再開すると誰も起動せずにdoneになる(self):
-        r = run({"args": args(**{"from": "9", "state": {"units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}], "tree_digest": "t2"}})})
+        units = [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}]
+        r = run({"args": args(**{"from": "9", "state": {"units": units, "tree_digest": "t2", "pending": {}}})})
         self.assertIsNone(r["error"], r["error"])
         self.assertEqual(r["labels"], [])
-        self.assertEqual((r["result"]["status"], r["result"]["report_path"], r["result"]["tree_digest"]), ("done", "/tmp/prd-w/report.md", "t2"))
+        self.assertEqual((r["result"]["status"], r["result"]["report_path"], r["result"]["tree_digest"], r["result"]["unreflected"]), ("done", "/tmp/prd-w/report.md", "t2", []))
+        # 本文に反映していない指摘は段 9 が state.pending から返すので、pending の無い state からは始めない。
+        bare = run({"args": args(**{"from": "9", "state": {"units": units, "tree_digest": "t2"}})})
+        self.assertIn('from "9" には state.pending が要ります', bare["error"] or "")
+        self.assertEqual(bare["labels"], [])
 
     def test_回答の反映の段から再開できる(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
@@ -6026,7 +6177,7 @@ class OfficialAlignment(unittest.TestCase):
 
     def test_申告に無い変更の一覧を打ち切って見せたら残りの件数を書く(self):
         items = [f"PR-X-{i:03d}" for i in range(1, 9)]
-        r = run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "blocking": False}]}, "writer_changed": ["PR-X-001"], "diff": {"r2": items}})
+        r = run({"args": args(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001"}]}, "writer_changed": ["PR-X-001"], "diff": {"r2": items}})
         line = next(l for l in r["logs"] if "申告に無い変更" in l)
         self.assertIn("ほか 2 件（全件は返り値の undeclared）", line)
         self.assertEqual(r["result"]["undeclared"], {"requirements/x": items[1:]})
@@ -6315,8 +6466,9 @@ class SameSessionResume(unittest.TestCase):
         self.assertTrue(ok["labels"])
 
     def test_next_argsから始めたrunもgates_answeredを足してresumeでき返るnext_argsはgates_answeredを持たない(self):
-        findings = new_item_each_round(3)
-        findings["writerReviewer:r3"][0]["route"] = "decision"
+        # 段 3 の問いを持ち越すので r1 は仮の初稿の監査。書き直した初稿の監査の後の最後のパスの段 6 が問いを出す。
+        findings = new_item_each_round(MAX_AUDIT_PASSES + 1)
+        findings[f"writerReviewer:r{MAX_AUDIT_PASSES + 1}"][0]["route"] = "decision"
         spec = {"flow_open": 1, "questions_at": {"3": ["RS-001"], "6": ["RS-020"]}, "findings": findings, "ruled_at": {"3a": ["RS-001"], "3a'": ["RS-020"]}}
         world = self._w("x")
         g0 = run({"args": args(), **spec, "world": world})["result"]

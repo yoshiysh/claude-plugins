@@ -810,8 +810,8 @@ whole reviewer は、監査の判定とは別にそれを実行し、**stdout �
 
 | 段 | 最初に | 最後に |
 |---|---|---|
-| 段 5 | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-<n> --role auditor --live <label,…> --workspace W` |
-| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --live <label,…> --workspace W`、`doc`、`tree-digest` |
+| 段 5 | `doc --workspace W --open-tbd <ID>`、`quotes --workspace W --findings <名前,…>` | `snapshot --save audited-<n> --role auditor --live <label,…> --workspace W` |
+| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す。続けて `quotes --workspace W --findings <名前,…>` | `snapshot --save audited-<n+1> --role auditor --live <label,…> --workspace W`、`doc`、`tree-digest` |
 
 - `--live` には、その段の writer reviewer と whole reviewer の label を script が並べる（その作業用ディレクトリを `stray` に
   数えないため）。snapshot の `stray`・`size_over` の件数とパスは、script が返り値の `notices` に入れる。
@@ -837,7 +837,8 @@ whole reviewer は、監査の判定とは別にそれを実行し、**stdout �
     },
     "diff_error": "diff が exit 3 で終わったときだけ、stderr（そのまま）",
     "audited": "snapshot の stdout（そのまま）",
-    "tree_digest": "tree-digest の stdout（そのまま）"
+    "tree_digest": "tree-digest の stdout（そのまま）",
+    "quotes": "quotes の stdout（そのまま）"
   }
 }
 ```
@@ -851,6 +852,7 @@ whole reviewer は、監査の判定とは別にそれを実行し、**stdout �
 監査役の共通節に従う。観点は着手と根拠（`agents/writer-reviewer.md`）。入力は全文書（詰め合わせに分けたときは、プロンプトが渡す組の文書）。
 範囲を絞った監査（段 8）では、プロンプトが渡す申告の項目と、判定の前に実行した `diff` の結果ファイルの `by_doc` にある自分の組の文書の
 `changed`・`added` の項目を合わせて見る（writer の申告に無い変更も監査に入れるため）。
+`quote` は文書の本文か meta か入力・回答・台帳から逐語で写す（省略は `…`）。どの原文にも無い quote の指摘は script が退ける（`references/workflow-io.md` §4 の段 5）。
 
 ## §whole-reviewer
 
@@ -860,7 +862,7 @@ whole reviewer は、監査の判定とは別にそれを実行し、**stdout �
 同じ要求の下の項目を見る。`removed` の項目が担っていた範囲が、どの文書にも残っていないかも見る。
 
 writer reviewer の指摘を確かめて退けるものは、自分の指摘のファイルの `rejected` に `{ "id": "<writer reviewer の指摘の ID>", "reason": "退ける理由（原文・入力・台帳の行で）" }`
-の形で並べ、返り値の `rejected` に ID だけを返す。退けた指摘は script が blocking に数えず、改稿にも裁定にも回さない。扱いは
+の形で並べ、返り値の `rejected` に ID だけを返す。`W/checks/quotes-r<n>.json` で `not_found` の指摘は script が退けるので、確かめず `rejected` にも入れない。退けた指摘は script が blocking に数えず、改稿にも裁定にも回さない。扱いは
 `references/workflow-io.md` §4 の段 5 の行を正とする。
 
 ## §structural（doc_check が生成する finding）

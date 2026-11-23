@@ -1229,7 +1229,8 @@ class Report(_Workspace):
     def test_resolutionsが無くても型どおりに0件を書く(self):
         out = _ok(self.ws, "report")
         self.assertEqual((out["method"], out["answered_by"], out["measured"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0, 0))
-        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 6)
+        # 6 つの節と、本文に反映していない指摘の節（checks/doc.json が無い W では doc_check の指摘も 0 件）。
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 7)
 
     def test_既にある回答を別の論点に当てた裁定は依頼者に見せる(self):
         # answered_by は依頼者の回答を依頼者の知らない論点に広げる。事後報告に出さないと、依頼者は覆す機会を持てない。
@@ -1269,6 +1270,57 @@ class Report(_Workspace):
         r = _run(self.ws, "report", "--drafts", "RS-003")
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse((self.ws / "report.md").exists())
+
+    # --- 本文に反映していない指摘の節（--findings と checks/doc.json の blocking） ---
+
+    UNREFLECTED = "## 本文に反映していない指摘"
+
+    def _write_findings(self, name, findings):
+        (self.ws / "findings").mkdir(exist_ok=True)
+        (self.ws / "findings" / f"{name}.json").write_text(json.dumps({"findings": findings, "checked": "全文"}, ensure_ascii=False))
+
+    def _finding(self, id_, item, blocking, issue, doc="requirements/auth"):
+        return {"id": id_, "doc": doc, "item_id": item, "quote": "q", "issue": issue, "repro": "r", "blocking": blocking, "route": "writer", "direction": "remove", "origin": "text"}
+
+    def _section(self):
+        text = (self.ws / "report.md").read_text()
+        self.assertIn(self.UNREFLECTED, text)
+        section = text.split(self.UNREFLECTED)[1]
+        self.assertIn("## 上位文書の改訂の文案", section, "節は上位文書の改訂の文案の前に置く")
+        return section.split("## 上位文書の改訂の文案")[0]
+
+    def test_findingsの指摘はissueとblockingを出しblockingの真を先に並べる(self):
+        self._write_findings("r2-wr-all", [self._finding("r2-wr-all-001", "PR-AUTH-001", False, "曖昧語が残る"),
+                                           self._finding("r2-wr-all-002", "PR-AUTH-002", True, "主体が決まっていない")])
+        self._write_findings("r2-wh-all", [self._finding("r2-wh-all-001", "SP-AUTH-001", True, "要求と食い違う", doc="specifications/auth")])
+        doc = _ok(self.ws, "doc")
+        out = _ok(self.ws, "report", "--findings", "r2-wr-all-001,r2-wr-all-002,r2-wh-all-001")
+        lines = [l for l in self._section().split("\n") if l.startswith("- r2-")]
+        self.assertEqual(sorted(lines[:2]), ["- r2-wh-all-001（specifications/auth SP-AUTH-001。blocking: true）: 要求と食い違う",
+                                             "- r2-wr-all-002（requirements/auth PR-AUTH-002。blocking: true）: 主体が決まっていない"])
+        self.assertEqual(lines[2:], ["- r2-wr-all-001（requirements/auth PR-AUTH-001。blocking: false）: 曖昧語が残る"], "blocking の真を先に並べる")
+        # 件数に doc_check の blocking も足すかは設計が決めていないので、--findings の分を下限にだけ置く。
+        self.assertGreaterEqual(out["unreflected"], 3)
+        self.assertGreater(doc["blocking"], 0, "doc_check の blocking のある W で確かめる")
+
+    def test_findingsのIDがファイルにも要素にも無ければ何も書かない(self):
+        self._write_findings("r2-wr-all", [self._finding("r2-wr-all-001", "PR-AUTH-001", True, "x")])
+        _ok(self.ws, "doc")
+        for ids in ("r2-wr-all-009", "r9-wr-all-001", "r2-wr-all-001,r2-wr-all-002"):
+            with self.subTest(ids=ids):
+                r = _run(self.ws, "report", "--findings", ids)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertFalse((self.ws / "report.md").exists())
+
+    def test_doc_checkのblockingに数える指摘を並べる(self):
+        doc = _ok(self.ws, "doc")
+        _ok(self.ws, "report", "--findings", "")
+        section = self._section()
+        found = json.loads((self.ws / "checks" / "doc.json").read_text())["findings"]
+        for f in found:
+            self.assertIn(f"- {f['id']}（{f['document']} {f['location']}）", section)
+        self.assertEqual(len(found), doc["blocking"], "この fixture の doc の指摘はすべて blocking に数える")
+
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
@@ -1634,6 +1686,166 @@ stateDiagram-v2
         self.assertIn("認証成功", tla_text)
         proc = subprocess.run(["node", "--test", str(formal_dir / "check.test.mjs")], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, f"check.test.mjs failed: {proc.stderr}")
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class ReportPreexisting(_Workspace):
+    """既存の指摘（preexisting）と固定の文書の指摘は、本文に反映していない指摘の節に一覧を載せず、既存の指摘を件数の 1 行にする。"""
+
+    _save = CarriedTbd._save
+    _intake = CarriedTbd._intake
+    _next_ws = CarriedTbd._next_ws
+
+    def test_既存の指摘は件数の1行にし数えるものだけを並べる(self):
+        # CarriedTbd.test_入口から変わらない既存の項目の機械検査は既存の指摘としてblockingに数えない と同じ W（既存の指摘 2 件、固定の要求文書）。
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答などを返さなければならない。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        doc = ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("PR-AUTH-002 と PR-AUTH-009 を実現する。", "PR-AUTH-002 と PR-AUTH-009 を実現する。承認を記録しなければならない。"))
+        meta = ws / "specifications-auth.meta.json"
+        meta.write_text(json.dumps({"tbd": [], "trace": [{"item_id": "SP-AUTH-002", "kind": "flow", "ref": "F-003"}]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertEqual(out["preexisting_findings"], 2)
+        _ok(ws, "report", "--findings", "")
+        section = (ws / "report.md").read_text().split(Report.UNREFLECTED)[1].split("## 上位文書の改訂の文案")[0]
+        found = json.loads((ws / "checks" / "doc.json").read_text())["findings"]
+        counted = [f for f in found if not f.get("preexisting") and f["document"] == "specifications/auth"]
+        self.assertEqual(len(counted), out["blocking"])
+        for f in counted:
+            self.assertIn(f"- {f['id']}（{f['document']} {f['location']}）", section)
+        for f in found:
+            if f not in counted:
+                self.assertNotIn(f"- {f['id']}（", section, "既存の指摘と固定の文書の指摘は一覧に載せない")
+        self.assertIn("既存の指摘（blocking に数えない）: 2 件", section)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Quotes(_Workspace):
+    """quotes: writer reviewer の指摘の quote が W の原文（文書の本文・meta・入力・回答・台帳）のどれかに在るかを、緩い正規化で照らす。
+    どの原文にも無い（not_found）指摘だけを script が退けるので、在るものを not_found にしない（設計 §4.1）。"""
+
+    def _write(self, name, quotes):
+        (self.ws / "findings").mkdir(exist_ok=True)
+        fs = []
+        for i, q in enumerate(quotes, 1):
+            f = {"id": f"{name}-{i:03d}", "doc": "specifications/auth", "item_id": "SP-AUTH-001", "issue": "i", "repro": "r", "blocking": True,
+                 "route": "writer", "direction": "remove", "origin": "text"}
+            if q is not None:
+                f["quote"] = q
+            fs.append(f)
+        (self.ws / "findings" / f"{name}.json").write_text(json.dumps({"findings": fs, "checked": "全文"}, ensure_ascii=False))
+        return [f["id"] for f in fs]
+
+    def _reasons(self, out):
+        # 結果のファイルの形は {id, reason} の要素を持つこと以外を決めないので、入れ子のどこにあっても拾う。
+        got = {}
+
+        def walk(x):
+            if isinstance(x, dict):
+                if "id" in x and "reason" in x:
+                    got[x["id"]] = x["reason"]
+                for v in x.values():
+                    walk(v)
+            elif isinstance(x, list):
+                for v in x:
+                    walk(v)
+        walk(json.loads((self.ws / out["path"]).read_text()))
+        return {k: v for k, v in got.items() if v in ("not_found", "no_quote")}
+
+    def _check(self, quotes):
+        ids = self._write("r1-wr-all", quotes)
+        out = _ok(self.ws, "quotes", "--findings", "r1-wr-all")
+        return ids, out
+
+    def test_原文にある引用は書き方が揺れても在るとする(self):
+        _edit(self.ws, "requirements-auth.md", "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。",
+              "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。\n\n"
+              "| 入力 | 結果 \\| 備考 |\n|---|---|\n| 誤った鍵 | 拒否 \\| 記録する |\n\n"
+              "- 詳細は[認証の仕様](specifications-auth.md)を参照する。\n"
+              "- 失敗理由<br>記録先\n\n"
+              "### 「通知の宛先」は利用者とする")
+        meta = json.loads((self.ws / "requirements-auth.meta.json").read_text())
+        (self.ws / "requirements-auth.meta.json").write_text(json.dumps({**meta, "fixed": True}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g1.md").write_text("RS-001: 画面の右上に出す\n")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "method", "value": 'ボタンに "送信" と出す', "why": "依頼文のとおり"}]})
+        cases = {
+            "逐語": "利用者は 3 秒まで待たされてもよい。",
+            "改行またぎ": "承認された操作は pdca が実行しなければならない（TBD-RAUTH-001）。 TBD-RAUTH-001 の裁定が下るまで",
+            "表の行（| と \\|）": "| 誤った鍵 | 拒否 | 記録する |",
+            # リンクの記号だけが消える（URL の文字は残るので、URL を落とした quote は在るにならない）。
+            "リンクの記号": "詳細は認証の仕様（specifications-auth.md）を参照する",
+            # 確かめるのは <br> の前後の空白の差だけ（手順 3 は文字の br を残すので、<br> を改行に替えた quote は在るにならない）。
+            "<br> を残した quote の前後の空白": "失敗理由 <br> 記録先",
+            "リストの印": "詳細は[認証の仕様](specifications-auth.md)を参照する。",
+            "見出しの印と両端の「」": "「通知の宛先」は利用者とする",
+            "全角と半角": "利用者は３秒まで待たされてもよい",
+            "… の省略": "利用者は…待たされてもよい。",
+            "... の省略": "システムは...記録しなければならない",
+            "meta.json の文（tbd の text）": "承認された操作の実行主体。解消: 依頼者の回答",
+            "固定の文書（仕様書の指摘が要求文書の文を写す）": "システムはこれまでの設定を保たなければならない。",
+            "input.md": "認証に失敗したら通知する。",
+            "answers": "画面の右上に出す",
+            "decisions.json の文": "承認は人間が行う",
+            "resolutions.json の文（JSON のエスケープ \\\"）": 'ボタンに "送信" と出す',
+            "flow.json の文": "依頼文の工程を列挙した",
+        }
+        ids, out = self._check(list(cases.values()))
+        self.assertEqual(out["unquoted"], [], {name: id_ for name, id_ in zip(cases, ids) if id_ in out["unquoted"]})
+        self.assertEqual(self._reasons(out), {})
+        self.assertEqual((out["findings"], out["files"], out["ids"]), (len(cases), ["r1-wr-all"], ids))
+
+    def test_タグとリンクの行き先とJSONのエスケープを外した形でも在るとする(self):
+        # 手順 3 だけでは <br> の br・リンクの行き先の文字・JSON の \n の n が原文の側に残り、それを落として写した正しい quote を not_found にする。
+        # 両側からこの 3 つを外した形でも照らす（退けない向きにだけ倒す）。
+        _edit(self.ws, "requirements-auth.md", "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。",
+              "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。\n\n"
+              "- 通知の宛先<br>管理者の窓口\n"
+              "- 手順は[運用の手引き](https://example.com/ops-guide)に従う。")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "method", "value": "一行目は概要とする\n二行目は詳細とする", "why": "依頼文のとおり"}]})
+        cases = {
+            "<br> を改行に替えた quote": "通知の宛先\n管理者の窓口",
+            "<br> を落とした quote": "通知の宛先 管理者の窓口",
+            "リンクの行き先を落とした quote": "手順は運用の手引きに従う。",
+            "JSON の \\n をまたぐ quote": "一行目は概要とする 二行目は詳細とする",
+        }
+        ids, out = self._check(list(cases.values()))
+        self.assertEqual(out["unquoted"], [], {name: id_ for name, id_ in zip(cases, ids) if id_ in out["unquoted"]})
+        self.assertEqual(self._reasons(out), {})
+        # 対照: 外す形は原文に無い文字を足さないので、原文に無い quote は今どおり not_found にする。
+        ids, out = self._check(["手順は運用の手順書に従う。", "通知の宛先 利用者の窓口"])
+        self.assertEqual(sorted(out["unquoted"]), sorted(ids))
+
+    def test_1字違いはnot_foundで空の引用はno_quote(self):
+        ids, out = self._check(["利用者は 4 秒まで待たされてもよい。", "", "「」…", None, "利用者は…認証に失敗したら通知する", "利用者は 3 秒まで待たされてもよい。"])
+        miss, empty, blank, absent, split, ok = ids
+        # 省略で分けた断片は同じファイルの中にこの順で在るときだけ在るとする（前半は文書、後半は input.md）。
+        self.assertEqual(sorted(out["unquoted"]), sorted([miss, split]), "退けるのは not_found だけ")
+        self.assertEqual(self._reasons(out), {miss: "not_found", split: "not_found", empty: "no_quote", blank: "no_quote", absent: "no_quote"})
+        self.assertNotIn(ok, self._reasons(out))
+        self.assertEqual(out["path"], "checks/quotes-r1.json")
+
+    def test_filesは引数の名前でtree_digestはtree_digestのモードと一致する(self):
+        a = self._write("r2-wr-p1", ["利用者は 3 秒まで待たされてもよい。"])
+        b = self._write("r2-wr-p2", ["存在しない文"])
+        out = _ok(self.ws, "quotes", "--findings", "r2-wr-p1,r2-wr-p2")
+        self.assertEqual((sorted(out["files"]), out["ids"], out["unquoted"], out["path"]), (["r2-wr-p1", "r2-wr-p2"], a + b, b, "checks/quotes-r2.json"))
+        self.assertEqual(out["tree_digest"], _ok(self.ws, "tree-digest")["digest"])
+        snap = _ok(self.ws, "snapshot", "--save", "audited-2", "--role", "auditor")
+        self.assertEqual(out["tree_digest"], snap["digest"], "script は監査の基準の digest と照らす")
+
+    def test_名前の形が違うかファイルが読めなければ止まる(self):
+        self._write("r1-wr-all", ["利用者は 3 秒まで待たされてもよい。"])
+        (self.ws / "findings" / "r1-wr-p1.json").write_text("{ not json")
+        self._write("r1-wh-all", ["利用者は 3 秒まで待たされてもよい。"])
+        for names in ("r1-wh-all", "r1-wr-all.json", "wr-all", "r1-wr-x1", "r1-wr-all,r1-wr-p2", "r1-wr-p1"):
+            with self.subTest(names=names):
+                r = _run(self.ws, "quotes", "--findings", names)
+                self.assertNotEqual(r.returncode, 0, r.stdout)
 
 
 if __name__ == "__main__":

@@ -49,9 +49,9 @@ workspace を用意し、保存することだけである。** 決定・問い�
 | 1〜3 | planner 1 体が依頼を仕分け、流れを閉じ、未決と矛盾を裁定し、plan reviewer が検証する |
 | ゲート | プロダクトの価値の判断だけを聞く（流れの抜けもここで届く）。最初のゲートは初稿の監査の裁定（段 6）の後に開き、それまでの段で出た問いをまとめて聞く。その後は価値の問いが出た段の終わりに聞き、何パス目かでは閉じない。聞ける回数の上限に達した後と改稿の輪を出た後に出た論点だけを保持規則にする |
 | 3a・3b | 最初のゲートの回答を当てて flow を組み直し、初稿を書き直す（最初の初稿は回答待ちの論点を決めずに書いたもの）。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
-| 4〜5 | 初稿を書き（writer）、writer reviewer と whole reviewer で 1 回監査する |
+| 4〜5 | 初稿を書き（writer）、writer reviewer と whole reviewer で 1 回監査する（網羅の r1）。指摘が blocking を含まず改稿の理由も無ければ 6〜8 を飛ばして 9 へ |
 | 6・3a' | 決定が要る指摘を裁定する。価値の問いはどのパスでも聞き、回答を当ててから改稿する。答えたか保持規則にした論点の再発は聞き直さない |
-| 7〜8 | 改稿し、変えた範囲だけを監査する。blocking が 0 になるまで回す（上限は `MAX_AUDIT_PASSES`。残れば、残った指摘を全件挙げて blocked） |
+| 7〜8 | 改稿と範囲の再監査は `MAX_AUDIT_PASSES` 回。最後の監査の後に blocking が残れば blocked |
 | 9 | 事後報告（resolver）→ 司令塔が照合して保存する |
 
 段ごとの入出力、返り値の読み方、再実行は `references/workflow-io.md` を正とする。
@@ -113,7 +113,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
   しなかったなど）のときで、原因を除いてから下の「呼び直し」のとおりに呼び直す。`report_path` があれば
-  `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
+  `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>" --findings "<返り値の unreflected をカンマで>"` で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
   `stop_reason` が `upstream_gap` なら、固定の要求文書に答えが見つからなかった価値の論点が出ている（初稿の監査の裁定までに出た論点がまとめて載る）。問いとして聞かずに、
@@ -151,7 +151,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 不変条件（`.claude/rules/`・`CLAUDE.md`・PR のマージ・外部公開）に触れるとき、保存先が git 管理下でないとき、
 このランの生成物でない既存ファイルを上書きするとき（下の衝突）だけである。
 
-1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む。
+1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --findings "<返り値の unreflected をカンマで>"` で `W/report.md` を導出する（3・4・5 が読む。
    report は `tmp/` の作業用ディレクトリも消すので、後の tree-digest の `stray` に消えるファイルが載らない）。続けて
    `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
    `tree_digest` を文字列で比べる（digest は文書だけから取るので、report の後でも変わらない）。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
@@ -172,7 +172,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    `node [SKILL_DIR]/scripts/doc_check.mjs formal-model --workspace <W> --doc specifications/<topic>`
    を実行し、出力の `formal_models[].files`（`W/formal/<topic>/` の TLA+ モデル・TLC 設定・README・有界モデル検査 `check.test.mjs`）を
    保存先の `tests/formal/<topic>/` 配下へ逐語で写す。これにより、仕様書とともに多層防御（Layer 2 状態遷移モデル検査）のモデルが成果物として納品され、`node --test tests/formal/<topic>/check.test.mjs` で即座に機械検証できる。
-5. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
+5. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・本文に反映していない指摘・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
    できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、監査役に diff から範囲に足させたが、申告漏れがあった事実は依頼者に見えるようにする）。
    `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
