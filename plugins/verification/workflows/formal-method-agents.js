@@ -37,7 +37,7 @@ const promptOf = (w) => `## 共通の前提
 printf '%s' ${sq(JSON.stringify({ run_dir: A.state, call_id: A.callId, worker: w.id }))} | node ${sq(cliOf(A.state))} claim
 
 ### 手順
-1. 取る命令を 1 度だけ流す。出力が done: true なら、手順を終えて返り値を返す。出力の最上位の query_cmd・submit_cmd・scratch_dir・return_schemas は、この worker の全ての担当に共通である（next の出力にも return_schemas が来たら足す）。
+1. 最初に取る命令を流す（流し直すのは 7 の場合だけ）。出力が done: true なら、手順を終えて返り値を返す。出力の最上位の query_cmd・submit_cmd・scratch_dir は、この worker の全ての担当に共通である。return_schemas は役ごとの返り値の形で、担当の task の role で引く（next の出力の return_schemas も、同じく役ごとに足す）。
 2. 出力の tasks の担当ごとに、次の 3〜5 を順に行う。同じ instructions のファイルは 1 度読めばよく、既に query した担当は query し直さない。
 3. task の instructions の 2 つのファイル（役の指示と、担当の共通の義務）を Read で全て読み、従う。task の context が担当の範囲で、return_schemas の task の role の値が返り値の形である。
 4. query_cmd の後に空白と task_id を足して Bash で流す（<query_cmd> <task_id>）。出力の inputs の path が、この担当に渡された資料の全てである。資料はそこだけを読む（claim と query の出力の外を読まない）。inputs の要素が spans（L<開始>-L<終了> の並び）を持てば、そのファイルはその行だけを開いて読む（範囲の外の行を読まない。範囲の外の文脈が要れば、共通の義務の書き方で記録する）。

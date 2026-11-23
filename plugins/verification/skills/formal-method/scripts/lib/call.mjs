@@ -95,7 +95,7 @@ const roleStage = (workers) => {
 // 1 つの呼び出しを開き、閉じるまで依頼を処理する。workers の行は w01, w02, … の順。
 // worker: { items: [item], mode?: 'all' | 'fit', cap? }
 //   mode 'all'（既定）: 最初の claim で、依存の無い全ての担当を返す。item.after（同じ worker の前の item の位置）は、その担当が閉じてから返す。
-//   mode 'fit': 出し終えた後の claim ごとに、残りの item を並びの順に、資料の和集合のバイト数（item.files、無ければ item.bytes）が cap に収まる所まで束で返す（next-fit）。
+//   mode 'fit': 出し終えた後の claim と submit の next ごとに、残りの item を並びの順に、資料の和集合のバイト数（item.files、無ければ item.bytes）が cap に収まる所まで束で返す（next-fit）。
 // item: { spec | role + spec() → spec | null, stage?, check?(ret, task), observe?(ret), onAccept?(), expect?(ret) → 文 | null, settle?(r), revoke?(r), after?, bytes? }
 //   check は作成役の照合（欠陥が減っているうちは同じ担当に出し直させる）、expect は確認役の返り値の追加の照合（形の違いとして扱う）。
 //   onAccept は、submit の照合でその担当を受理した時点で呼ぶ（unit をまたぐ照合が、相手が受理済みかを知るため）。閉じた時点の受理では呼ばない。
@@ -133,14 +133,19 @@ export async function runCall(run, { stage, workers }) {
   const rows = ws.map((w) => w.row);
   const argsRef = join('calls', callId, 'args.json');
   const args = { state: run.runDir, callId, stage, workers: rows };
-  // mode 'all' の依存の無い担当は、呼び出しを開く時点で task を作る（呼び出しの記録に載せる）。他は claim の時点で作る
+  // mode 'all' の依存の無い担当は、呼び出しを開く時点で task を作る（呼び出しの記録に載せる）。他は claim と submit の next の時点で作る
   for (const w of ws) {
     if (w.mode !== 'all') continue;
     for (const e of w.entries) if (e.item.after === undefined && typeof e.item.spec !== 'function') newState(ctx, w, e);
   }
-  // attempt の領域と依頼・応答の置き場を作り、記録と入口を書く。どれかが書けなければ担当を出さない（保存の失敗）
+  // attempt の領域・worker の scratch_dir・依頼と応答の置き場を作り、記録と入口を書く。どれかが書けなければ担当を出さない（保存の失敗）。
+  // scratch_dir を呼び出しを開く時点で作るのは、claim が無い scratch_dir を返さないため（作れないときは claim を受ける前に run を止める）
   for (const s of allStates(ctx)) {
     try { mkdirSync(s.task.attempt_dir, { recursive: true }); } catch (e) { run.saveFailed('worklog', relative(run.runDir, s.task.attempt_dir), `attempt の領域を作れない（${e.code ?? e.message}）`); return notIssued('attempt の領域を作れないので担当を出さなかった'); }
+  }
+  for (const w of ws) {
+    const dir = scratchOf(ctx, w);
+    try { mkdirSync(dir, { recursive: true }); } catch (e) { run.saveFailed('worklog', relative(run.runDir, dir), `worker の scratch_dir を作れない（${e.code ?? e.message}）`); return notIssued('worker の scratch_dir を作れないので担当を出さなかった'); }
   }
   try {
     for (const d of ['requests', 'responses']) mkdirSync(join(run.runDir, d, callId), { recursive: true });
@@ -165,7 +170,7 @@ export async function runCall(run, { stage, workers }) {
   }
   ctx.closed = true;
   const out = ws.map((w) => finalizeWorker(ctx, w));
-  // 呼び出しの記録は、claim の時点で作った担当を含めて書き直す（登録しない記録）
+  // 呼び出しの記録は、claim と submit の next の時点で作った担当を含めて書き直す（登録しない記録）
   writeTasks(ctx, stage);
   recordClose(run, { callId, stage, box, closedBy, rows, tasks: allStates(ctx).length });
   run.writeStatus('working', null);
@@ -279,12 +284,13 @@ function handle(ctx, req, name) {
     // 前の応答を返したときも、この流し直しの依頼の時刻で見たかを決め直す（この応答も見られなければ、次の流し直しにも同じ応答を返す）
     if (w.lastSubmit && w.lastSubmit.unseen && w.lastSubmit.sig === sig) { w.lastSubmit.unseen = unseenNow(name); return w.lastSubmit.response; }
     const hs = mine.filter((s) => !s.done);
-    if (!hs.length) return withNext(ctx, w, late, { ok: true, results: mine.map((s) => result(s, s.ok, [])) });
+    // 受理の後の同じ submit（照合しない）も next を持つ（cli-contract.md の submit の next）
+    if (!hs.length) return withNext(ctx, w, { ok: true, results: mine.map((s) => result(s, s.ok, [])) });
     if (late) return refusal('deadline_passed', `呼び出し ${ctx.callId} の期限（deadline_wall_ms ${ctx.deadline}）を過ぎたので、提出を受け付けない`);
     w.submits += 1;
     // 照合するのは、返り値があり、前の照合から attempt の領域が変わった担当。無ければ出し終えていない全ての担当を照合する（無い返り値を返す）
     const fresh = hs.filter((s) => existsSync(s.task.result_path) && attemptHashes(ctx.run, s) !== s.evalSig);
-    const response = withNext(ctx, w, late, { ok: true, results: (fresh.length ? fresh : hs).map((s) => submit(ctx, s)) });
+    const response = withNext(ctx, w, { ok: true, results: (fresh.length ? fresh : hs).map((s) => submit(ctx, s)) });
     w.lastSubmit = { sig: sigOf(), response, unseen: unseenNow(name) };
     return response;
   }
@@ -313,10 +319,11 @@ function claimNext(ctx, w, late) {
 }
 
 // 差し戻し（done: false）の無い submit の応答に next を足す。中身は claim の応答の done・tasks・shared_inputs と return_schemas。
-// claim が期限の後で拒むとき（受理の後の同じ submit が期限の後に届いた）は、出せる担当が無いので done: true とする
-function withNext(ctx, w, late, response) {
+// 期限は next を作る直前に求め直す（照合の間に期限を越えたら、新しい task を作らない）。期限の後で claim の規則が拒むときは、
+// 出せる担当が無いので done: true とする（cli-contract.md の submit の next）
+function withNext(ctx, w, response) {
   if (response.results.some((r) => !r.done)) return response;
-  const c = claimNext(ctx, w, late);
+  const c = claimNext(ctx, w, Date.now() >= ctx.deadline);
   return { ...response, next: c.hs ? batchOf(ctx, c.hs) : { done: true } };
 }
 
@@ -328,15 +335,14 @@ function batchOf(ctx, hs) {
 }
 
 // claim の応答の最上位に 1 度だけ置く、worker で 1 つの値（cli-contract.md「依頼と応答」）。query は <query_cmd> <task_id> で流す。
-// scratch_dir は worker の作業用の領域で、claim の時点で作る。task の attempt の領域の外なので受理の照合に入らず、台帳にも登録しない
+// scratch_dir は worker の作業用の領域で、呼び出しを開く時点で作ってある。task の attempt の領域の外なので受理の照合に入らず、台帳にも登録しない
+const scratchOf = (ctx, w) => join(ctx.run.runDir, 'attempts', `${ctx.callId}-${w.id}`);
 function workerFields(ctx, w) {
   const base = { run_dir: ctx.run.runDir, call_id: ctx.callId, worker: w.id };
-  const scratch = join(ctx.run.runDir, 'attempts', `${ctx.callId}-${w.id}`);
-  try { mkdirSync(scratch, { recursive: true }); } catch (e) { ctx.run.saveFailed('worklog', relative(ctx.run.runDir, scratch), `worker の scratch_dir を作れない（${e.code ?? e.message}）`); }
-  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratch };
+  return { query_cmd: cliCommand(CLI_PATH, 'query', base), submit_cmd: cliCommand(CLI_PATH, 'submit', base), scratch_dir: scratchOf(ctx, w) };
 }
 
-// 出し終えた後の claim で、次に返す担当を作る。中断の理由があれば新しい担当を出さない。
+// 出し終えた後の claim と submit の next で、次に返す担当を作る。中断の理由があれば新しい担当を出さない。
 function take(ctx, w) {
   if (ctx.run.halted()) return [];
   const pending = w.entries.filter((e) => !e.state && !e.result);
@@ -476,7 +482,8 @@ function finalizeWorker(ctx, w) {
       const dep = e.item.after;
       const head = `呼び出し ${ctx.callId} の worker ${w.id} の ${roleOfItem(e.item)} の担当は`;
       const why = dep !== undefined && !closedInCall[dep] ? `${head}、依存する担当が閉じる前に呼び出しが閉じたので出さなかった`
-        : `${head}、${dep !== undefined ? '依存する担当が閉じた後、' : ''}呼び出しが閉じるまでに worker が claim しなかったので出さなかった`;
+        : dep !== undefined ? `${head}、依存する担当が閉じた時点で呼び出しの期限を過ぎていたので出さなかった`
+          : `${head}、呼び出しが閉じるまでに worker が claim しなかったので出さなかった`;
       run.agentFailedStage(e.item.stage ?? run.stage, why);
       e.result = { spec: null, task: null, ok: false, notIssued: true, dependency: true, cause: why, materials: [] };
       continue;

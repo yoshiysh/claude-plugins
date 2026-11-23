@@ -546,29 +546,42 @@ test('SP-FORMALMETHOD-012 cli-contract 依頼と応答 query: refs の .. と . 
   await p;
 });
 
-test('SP-FORMALMETHOD-015 AC-19 依存つきの担当: 依存する担当が閉じた後に worker が claim しないまま呼び出しが閉じたら、そのとおりに書く（依存する担当が閉じる前とは書かない）', async (t) => {
-  const run = makeRun(t);
-  const part = { role: 'partition-author', stage: '計画', candidates: [{ id: 'C1', nodes: ['n1'] }], input_refs: [{ name: 'request', ref: 'request.json' }] };
-  // 分割と同じ submit で差し戻される担当（同じ model・effort の作成役）を置く。差し戻しの応答は next を持たないので、
-  // 分割が閉じても計画の担当は next に出ず、worker が claim を流さなければ取られないまま閉じる
-  const items = [{ spec: part, check: () => ({ defects: [], value: null }) },
-    { spec: authorSpec(), check: () => ({ defects: defects(2), value: null }) },
-    { role: 'plan-author', stage: '計画', spec: () => ({ role: 'plan-author', stage: '計画', property_ids: ['P1'], input_refs: [] }), after: 0 }];
+test('SP-FORMALMETHOD-015 AC-19 cli-contract submit の next 依存つきの担当: 分割の照合の間に呼び出しの期限を越えたら、next は期限を求め直して計画の task を作らずに done: true を返し、計画の担当は期限を過ぎていたと書く（依存する担当が閉じる前とは書かない）', async (t) => {
+  const run = makeRun(t, { deadlineMs: 1500 });
+  let deadline = Infinity;
+  let planSpecs = 0;
+  let base = null;
+  let resent = null;
+  // 分割の照合が期限を越えるまで掛かる（依頼を受けた時点では期限の前）。照合の間に同じ submit を公開する（workerCall は依頼を同期で公開する）。
+  // run-daemon は、それを期限の後（閉じる前の最後の処理）に処理する
+  const slow = () => {
+    resent = workerCall('submit', base);
+    while (Date.now() < deadline + 100) { /* 期限を越えるまで待つ */ }
+    return { defects: [], value: null };
+  };
+  const items = [{ spec: partSpec(), check: slow },
+    { role: 'plan-author', stage: '計画', spec: () => { planSpecs += 1; return planSpec(); }, after: 0 }];
   const p = runCall(run, { stage: '計画', workers: [{ items }] });
   const call = await waitOpen(run.runDir);
-  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  deadline = call.deadline_wall_ms;
+  base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
   const c = await workerCall('claim', base);
-  assert.deepEqual(c.tasks.map((x) => x.role), ['partition-author', 'model-author']);
-  for (const [i, task] of c.tasks.entries()) writeAuthor(task, i);
+  assert.deepEqual(c.tasks.map((x) => x.role), ['partition-author']);
+  writeAuthor(c.tasks[0], 1);
   const s = await workerCall('submit', base);
-  assert.deepEqual(s.results.map((r) => [r.ok, r.done]), [[true, true], [false, false]]);
-  assert.ok(!('next' in s), '差し戻しを含む応答は next を持たない');
-  closeWith(run, call.call_id, agentsOf(1));
+  assert.deepEqual(s.results.map((r) => [r.ok, r.done]), [[true, true]], JSON.stringify(s));
+  assert.deepEqual(s.next, { done: true }, '照合の後に期限を求め直し、期限の後は新しい task を作らない');
+  // 受理の後の同じ submit が期限の後に届いても、結果を返し、claim の規則の拒否（deadline_passed）を next: {done: true} に変える
+  const r = await resent;
+  assert.deepEqual([r.ok, r.results?.map((x) => [x.ok, x.done]), r.next], [true, [[true, true]], { done: true }], JSON.stringify(r));
+  assert.equal(planSpecs, 0, '計画の task を作らない');
   const [w] = await p;
-  assert.deepEqual(w.results.map((r) => [r.ok, Boolean(r.dependency)]), [[true, false], [true, false], [false, true]], '差し戻した担当は書き換えが無いので前の提出を受理する');
+  assert.deepEqual(w.results.map((r) => [r.ok, Boolean(r.dependency)]), [[true, false], [false, true]]);
   assert.equal(run.agentFailures.length, 1);
-  assert.match(run.agentFailures[0].detail, /依存する担当が閉じた後、呼び出しが閉じるまでに worker が claim しなかった/);
+  assert.match(run.agentFailures[0].detail, /依存する担当が閉じた時点で呼び出しの期限を過ぎていた/);
   assert.doesNotMatch(run.agentFailures[0].detail, /閉じる前に/);
+  const record = JSON.parse(readFileSync(join(run.runDir, 'calls', call.call_id, 'tasks.json'), 'utf8'));
+  assert.deepEqual(record.tasks.map((x) => x.task.role), ['partition-author']);
 });
 
 test('SP-FORMALMETHOD-008・015 AC-19 結合: 分割の担当が受理された後に attempt の領域が書き換わると、分割の受理を取り消し（台帳に登録せず、分割を採らない）、計画の段の 担当の失敗 にする', async (t) => {
@@ -955,6 +968,62 @@ test('SP-FORMALMETHOD-008・013 cli-contract 依頼と応答 submit の next: �
   assert.deepEqual(run.agentFailures, [], 'next で受け取った計画の task も、取った担当として閉じる');
 });
 
+test('SP-FORMALMETHOD-015 cli-contract 依頼と応答 流し直し submit の next: next で新しい task を作った submit の応答を担当が見ていなければ、同じ submit の流し直しは同じ next を返し、task を作り直さない。tasks.json は next で作った task を含めて書き直す', async (t) => {
+  const run = makeRun(t);
+  let planSpecs = 0;
+  const items = [{ spec: partSpec(), check: () => ({ defects: [], value: null }) },
+    { role: 'plan-author', stage: '計画', spec: () => { planSpecs += 1; return planSpec(); }, check: () => ({ defects: [], value: null }), after: 0 }];
+  const p = runCall(run, { stage: '計画', workers: [{ items }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  writeAuthor(c.tasks[0], 1);
+  const first = await workerCall('submit', base, ago(WORKER_CALL_MAX_MS));
+  assert.deepEqual(first.next?.tasks?.map((x) => x.role), ['plan-author'], JSON.stringify(first));
+  const again = await workerCall('submit', base);
+  assert.deepEqual(again, first, '流し直しは前の応答（同じ next）');
+  assert.equal(planSpecs, 1, '流し直しで計画の task を作り直さない');
+  writeAuthor(first.next.tasks[0], 1);
+  const last = await workerCall('submit', base);
+  assert.deepEqual(last.results.map((r) => [r.task_id, r.ok, r.done]), [[first.next.tasks[0].task_id, true, true]]);
+  assert.deepEqual(last.next, { done: true });
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.deepEqual(w.results.map((r) => r.ok), [true, true]);
+  const record = JSON.parse(readFileSync(join(run.runDir, 'calls', call.call_id, 'tasks.json'), 'utf8'));
+  assert.deepEqual(record.tasks.map((x) => x.task.task_id), [c.tasks[0].task_id, first.next.tasks[0].task_id], 'next で作った task も呼び出しの記録に残る');
+});
+
+test('SP-FORMALMETHOD-013 cli-contract 依頼と応答 submit の next: 受理の後の同じ submit（照合しない）も、取った全ての task の結果と next を持つ', async (t) => {
+  const run = makeRun(t);
+  const p = runCall(run, { stage: '確認', workers: [{ items: [1, 2].map((n) => ({ spec: reviewSpecN(n) })) }] });
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  for (const task of c.tasks) writeReview(task);
+  const s1 = await workerCall('submit', base);
+  assert.deepEqual(s1.next, { done: true });
+  const s2 = await workerCall('submit', base);
+  assert.deepEqual(s2.results.map((r) => [r.task_id, r.ok, r.done]), c.tasks.map((x) => [x.task_id, true, true]));
+  assert.deepEqual(s2.next, { done: true }, '受理の後の同じ submit も next を持つ');
+  closeWith(run, call.call_id, agentsOf(1));
+  const [w] = await p;
+  assert.deepEqual(w.results.map((r) => r.ok), [true, true]);
+});
+
+test('SP-FORMALMETHOD-013 cli-contract 依頼と応答 claim scratch_dir: worker の scratch_dir を作れなければ、呼び出しを開かずに 保存の失敗 で run を止め、担当を出さない（claim は無い scratch_dir を返さない）', async (t) => {
+  const run = makeRun(t);
+  // 次の呼び出し（call-001）の w01 の scratch_dir の場所にファイルを置き、ディレクトリを作れなくする
+  mkdirSync(join(run.runDir, 'attempts'), { recursive: true });
+  writeFileSync(join(run.runDir, 'attempts', 'call-001-w01'), '');
+  const out = await callOf(run, '確認', [{ spec: reviewSpec() }]);
+  assert.deepEqual(out.map((r) => [r.ok, Boolean(r.notIssued)]), [[false, true]]);
+  assert.match(out[0].cause, /scratch_dir を作れない/);
+  assert.ok(run.halted() && run.interrupts.some((x) => x.code === '保存の失敗'), JSON.stringify(run.interrupts));
+  assert.ok(run.unsaved.some((x) => x.ref === 'attempts/call-001-w01'), JSON.stringify(run.unsaved));
+  assert.notEqual(readStatus(run.runDir)?.action, 'run_agents', '呼び出しを開かない');
+});
+
 test('SP-FORMALMETHOD-013 cli-contract コマンド claim: 返り値の形は最上位の return_schemas に役ごとに 1 度だけ置き、task は return_schema・query_cmd・submit_cmd を持たない', async (t) => {
   const run = makeRun(t);
   const p = runCall(run, { stage: '確認', workers: [{ items: [1, 2, 3, 4].map((n) => ({ spec: reviewSpecN(n) })) }] });
@@ -999,6 +1068,13 @@ test('SP-FORMALMETHOD-013 cli-contract コマンド claim・query: query_cmd・s
   // 2 語目を取るのは query だけ。claim に 2 語目を渡すと契約の誤り
   const extra = await runShell(`printf '%s' ${sq(JSON.stringify(base))} | ${sq(process.execPath)} ${sq(CLI)} claim extra`);
   assert.deepEqual([extra.code, extra.json?.code], [2, 'E_CONTRACT'], extra.stdout);
+  // 2 語目と標準入力の両方に task_id があれば、どちらの task か決まらないので入力の形に合わない
+  const id0 = c.tasks[0].task_id;
+  const both = await runShell(`printf '%s' ${sq(JSON.stringify({ ...base, task_id: id0 }))} | ${sq(process.execPath)} ${sq(CLI)} query ${sq(id0)}`);
+  assert.deepEqual([both.code, both.json?.code, both.json?.detail?.reason], [1, 'E_INPUT', 'shape'], both.stdout);
+  // query も 3 語目は取らない（契約の誤り）
+  const three = await runShell(`${c.query_cmd} ${sq(id0)} ${sq(c.tasks[1].task_id)}`);
+  assert.deepEqual([three.code, three.json?.code], [2, 'E_CONTRACT'], three.stdout);
   for (const task of c.tasks) writeReview(task);
   const s = (await runShell(c.submit_cmd)).json;
   assert.deepEqual(s?.results?.map((r) => [r.ok, r.done]), [[true, true], [true, true]], JSON.stringify(s));

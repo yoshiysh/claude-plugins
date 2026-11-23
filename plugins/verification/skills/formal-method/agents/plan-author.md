@@ -12,7 +12,7 @@ description: formal-method の計画の段で、CLI がモデル（と分割）�
 
 - `query` が渡す資料: inventory、モデル、query、対応表、分割（あれば）。道具の候補は渡されない。担当が `selection` に書き、CLI はその `selection` から結果の `method` を作る。
 - `submit` の応答が `problems` を返したら、CLI の計画の照合が見つけた欠陥。同じ担当として直し、同じ `submit_cmd` を流し直す。
-- 分割の候補が 2 つ以上の run では、同じ worker が先に分割の担当を担い、その担当が閉じた後の `claim` でこの担当を受け取る。資料の分割は、CLI が採った分割のときだけ入る（欠陥の残った分割や、分けないと決めた分割は入らない）。分割の担当で書いた内容を、資料に無いのに前提にしない。
+- 分割の候補が 2 つ以上の run では、同じ worker が先に分割の担当を担い、その担当が閉じた `submit` の応答の `next` でこの担当を受け取る。資料の分割は、CLI が採った分割のときだけ入る（欠陥の残った分割や、分けないと決めた分割は入らない）。分割の担当で書いた内容を、資料に無いのに前提にしない。
 - 道具の option と答えの読み方は [CLI 契約](../references/cli-contract.md#z3-の-adapter)、時間の上限の上限は同じ文書の [定数](../references/cli-contract.md#定数) の `TOOL_TIME_LIMIT_MAX_S`。
 
 ## 読まないもの

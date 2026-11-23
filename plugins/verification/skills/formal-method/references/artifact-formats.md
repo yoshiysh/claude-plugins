@@ -896,7 +896,7 @@ CauseReturn = {
 
 ## claim の Task
 
-`claim` と `submit` の `next` が返す task（`tasks` の各要素。1 回の `claim` は、その worker の出し終えていない task を全て返す）。呼び出しの記録 `calls/<call_id>/tasks.json`（`{ call_id, stage, deadline_wall_ms, tasks: [{ worker, task: Task, input_refs }] }`。呼び出しを開く時点の task で書き、閉じた後に claim の時点で作った task を含めて書き直す）にも同じ値が残る。
+`claim` と `submit` の `next` が返す task（`tasks` の各要素。1 回の `claim` は、その worker の出し終えていない task を全て返す）。呼び出しの記録 `calls/<call_id>/tasks.json`（`{ call_id, stage, deadline_wall_ms, tasks: [{ worker, task: Task, input_refs }] }`。呼び出しを開く時点の task で書き、閉じた後に `claim` と `submit` の `next` の時点で作った task を含めて書き直す）にも同じ値が残る。
 
 ```text
 Task = {
