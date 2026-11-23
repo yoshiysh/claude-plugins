@@ -78,12 +78,6 @@ const within = (inputRefs, ref) => {
 const roleOfItem = (item) => item.role ?? item.spec.role;
 const rowRole = (items) => [...new Set(items.map(roleOfItem))].join('+');
 
-// 担当の項目（items）を 1 つの呼び出しに出す。1 体に 1 担当。戻り値は items と同じ順の結果。
-export async function runItems(run, items) {
-  const out = await runWorkers(run, items.map((item) => ({ items: [item] })));
-  return out.map((w) => w.results[0]);
-}
-
 // worker（1 体が持つ担当の並び）を 1 つの呼び出しに出す。戻り値は workers と同じ順の [{ results, nextCap }]。
 export async function runWorkers(run, workers) {
   if (workers.length === 0) return [];

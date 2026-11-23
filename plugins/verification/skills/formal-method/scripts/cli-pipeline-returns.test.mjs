@@ -10,6 +10,7 @@ import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeli
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { removeTree, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { expandRefs } from './test-fixtures/ledger-check.mjs';
+import { UNIT_MAX_BYTES } from './lib/schemas.mjs';
 import { P, prop, assertExcluded, tasksOf, assertRevised, canonicalRun, hasId, SM, PART_SCENARIO, assertNoChecksRow, QUESTION, QUESTION_CASES, detConf, assertDetCommon, partitionDefect, PARTITION_DEFECTS, assertAuthorPropertyIds, PROPERTY_IDS_CASES, assertInputRefs, timeLimitDiag, NO_MUTATION_CASES, COMBINATION_CASES, HALFWIDTH, EMOJI, wrongGoal } from './test-fixtures/pipeline-cases.mjs';
 
 describe('cli-pipeline', { concurrency: 4 }, () => {
@@ -365,7 +366,22 @@ test('artifact-formats goals の property_id: 目標の性質の id の誤りが
   assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
 });
 // ---- 対象をまたぐ id の重なり（architecture.md「段と処理の順序」の洗い出し） ----
-test('architecture 洗い出し: 後の対象（T2）が先に submit して受理された後に T1 が同じ id の inventory を出すと、提出の順序に依らず T1（後から submit した側）の欠陥にし、受理済みの T2 は変えない', async (t) => {
+// 別の体に分かれる 2 つの対象（資料がそれぞれ UNIT_MAX_BYTES の半分を超え、和集合が 1 体に収まらない）と、1 体に詰まる 2 つの対象
+const BIG_SPEC = `${SPEC_TEXT}# pad ${'x'.repeat(Math.ceil(UNIT_MAX_BYTES / 2) + 100)}\n`;
+const TWO_BIG = { 'target/spec.md': BIG_SPEC, 'target2/spec.md': BIG_SPEC };
+const TWO_SMALL = { 'target/spec.md': SPEC_TEXT, 'target2/spec.md': SPEC_TEXT };
+const TWO_TARGETS = () => canonicalRequest({ targets: [{ id: 'T1', location: 'target' }, { id: 'T2', location: 'target2' }] });
+const isExtractorOf = (task, tid) => task.role === 'extractor' && task.context.target_id === tid;
+const extractorSubmits = (harness, tid) => harness.memory.submits.filter((x) => harness.memory.tasks.some((k) => k.task_id === x.task_id && isExtractorOf(k, tid)));
+const overlaps = (x) => [...(x.result?.problems ?? []), ...(x.result?.remaining ?? [])].filter((d) => /重なる/.test(d));
+// task を受け取った呼び出しの worker と、claim か submit の next か
+const deliveryOf = (harness, taskId) => {
+  for (const call of harness.memory.calls) { const c = call.claims.find((x) => x.task_ids?.includes(taskId)); if (c) return { callId: call.callId, worker: c.worker, via: c.via, task_ids: c.task_ids }; }
+  return null;
+};
+const extractorTask = (harness, tid) => harness.memory.tasks.find((k) => isExtractorOf(k, tid));
+const inventoryProducers = (out) => JSON.parse(readFileSync(join(out.status.run_dir, 'ledger.json'), 'utf8')).entries.filter((e) => e.kind === 'inventory').map((e) => e.producer);
+test('architecture 洗い出し: 別の体の後の対象（T2）が先に submit して受理された後に T1 が同じ id の inventory を出すと、提出の順序に依らず T1（後から submit した側）の欠陥にし、受理済みの T2 は変えない', async (t) => {
   let t2Accepted;
   const accepted = new Promise((r) => { t2Accepted = r; });
   const isExtractor = (task, tid) => task.role === 'extractor' && task.context.target_id === tid;
@@ -377,8 +393,8 @@ test('architecture 洗い出し: 後の対象（T2）が先に submit して受�
     },
     afterSubmit: async (_s, { task, result }) => { if (isExtractor(task, 'T2') && result.done) t2Accepted(); },
   };
-  const request = canonicalRequest({ targets: [{ id: 'T1', location: 'target' }, { id: 'T2', location: 'target2' }] });
-  const { harness } = await runScenario(t, { files: { 'target/spec.md': SPEC_TEXT, 'target2/spec.md': SPEC_TEXT }, request, hooks });
+  const { harness } = await runScenario(t, { files: TWO_BIG, request: TWO_TARGETS(), hooks });
+  assert.notEqual(deliveryOf(harness, extractorTask(harness, 'T1').task_id).worker, deliveryOf(harness, extractorTask(harness, 'T2').task_id).worker, '資料が 1 体に収まらない 2 つの対象は別の体');
   const subs = (tid) => harness.memory.submits.filter((x) => harness.memory.tasks.some((k) => k.task_id === x.task_id && isExtractor(k, tid)));
   const dup = (x) => [...(x.result?.problems ?? []), ...(x.result?.remaining ?? [])].filter((d) => /重なる/.test(d));
   const t2 = subs('T2');
@@ -391,7 +407,7 @@ test('architecture 洗い出し: 後の対象（T2）が先に submit して受�
   assert.ok(first.some((d) => d.includes('要素の id E-P1') && d.includes('対象 T2')), `T1 の最初の提出に要素の重なり: ${JSON.stringify(t1[0])}`);
   assert.equal(t1[0].result.ok, false, '重なりは T1 の修正の巡に戻す');
 });
-test('architecture 洗い出し: 両方とも未受理で id が重なるとき、前の対象（T1）が後から submit しても欠陥にせず、後ろの対象（T2）だけを差し戻す', async (t) => {
+test('architecture 洗い出し: 別の体の 2 つの対象が両方とも未受理で id が重なるとき、前の対象（T1）が後から submit しても欠陥にせず、後ろの対象（T2）だけを差し戻す', async (t) => {
   const signal = () => { let r; const p = new Promise((x) => { r = x; }); return { p, r }; };
   const t2Rejected = signal();
   const t1Accepted = signal();
@@ -418,8 +434,8 @@ test('architecture 洗い出し: 両方とも未受理で id が重なるとき�
       if (isExtractor(task, 'T1') && result.done) t1Accepted.r();
     },
   };
-  const request = canonicalRequest({ targets: [{ id: 'T1', location: 'target' }, { id: 'T2', location: 'target2' }] });
-  const { harness } = await runScenario(t, { files: { 'target/spec.md': SPEC_TEXT, 'target2/spec.md': SPEC_TEXT }, request, hooks });
+  const { harness } = await runScenario(t, { files: TWO_BIG, request: TWO_TARGETS(), hooks });
+  assert.notEqual(deliveryOf(harness, extractorTask(harness, 'T1').task_id).worker, deliveryOf(harness, extractorTask(harness, 'T2').task_id).worker, '資料が 1 体に収まらない 2 つの対象は別の体');
   const subs = (tid) => harness.memory.submits.filter((x) => harness.memory.tasks.some((k) => k.task_id === x.task_id && isExtractor(k, tid)));
   const dup = (x) => [...(x.result?.problems ?? []), ...(x.result?.remaining ?? [])].filter((d) => /重なる/.test(d));
   const t1 = subs('T1');
@@ -431,5 +447,73 @@ test('architecture 洗い出し: 両方とも未受理で id が重なるとき�
   assert.deepEqual(dup(t2[0]), [], 'T2 の最初の提出の時点では T1 がまだ無い');
   assert.equal(t2[1].result.ok, false, 'T2 の 2 回目の提出は重なりで差し戻す');
   assert.ok(dup(t2[1]).some((d) => d.includes('性質の id P1') && d.includes('対象 T1')), `T2 の 2 回目の提出に重なり: ${JSON.stringify(t2[1])}`);
+});
+test('architecture 洗い出し 担当の起動: 1 体に詰めた 2 つの対象では、T1 の受理の後に submit の next で T2 を受け取り、id の重なりは受理済みの T1 の側でなく T2 の欠陥になる', async (t) => {
+  const { harness } = await runScenario(t, { files: TWO_SMALL, request: TWO_TARGETS() });
+  const d1 = deliveryOf(harness, extractorTask(harness, 'T1').task_id);
+  const d2 = deliveryOf(harness, extractorTask(harness, 'T2').task_id);
+  assert.equal(d1.callId, d2.callId);
+  assert.equal(d1.worker, d2.worker, '同じ体');
+  assert.deepEqual([d1.via, d1.task_ids.length, d2.via, d2.task_ids.length], ['claim', 1, 'next', 1], '1 回に 1 つの対象の task を受け取る');
+  const t1 = extractorSubmits(harness, 'T1');
+  assert.ok(t1.length === 1 && t1[0].result.ok && t1[0].result.done, `T1 は最初の提出で受理: ${JSON.stringify(t1)}`);
+  assert.deepEqual(t1.flatMap(overlaps), [], '前に受理した T1 に重なりの欠陥を付けない');
+  const t2 = extractorSubmits(harness, 'T2');
+  assert.equal(t2[0].result.ok, false, 'T2 の最初の提出は重なりで差し戻す');
+  assert.ok(overlaps(t2[0]).some((x) => x.includes('性質の id P1') && x.includes('対象 T1')), JSON.stringify(t2[0]));
+});
+test('architecture 洗い出し 段と処理の順序: 1 体に詰めた worker で、T1 の差し戻しと出し直しの後に T2 を受け取り、T2 の差し戻しは受理済みの T1 を変えない', async (t) => {
+  const rounds = { T1: 0, T2: 0 };
+  const hooks = {
+    beforeSubmit: async (_s, { tasks }) => {
+      const task = tasks[0];
+      const tid = ['T1', 'T2'].find((x) => isExtractorOf(task, x));
+      if (!tid) return;
+      rounds[tid] += 1;
+      // 両方とも最初の提出だけ、出所の無い source_ids を足して差し戻させる
+      if (rounds[tid] !== 1) return;
+      const f = join(task.attempt_dir, 'inventory.json');
+      const inv = JSON.parse(readFileSync(f, 'utf8'));
+      inv.properties[0].source_ids.push('E-none1', 'E-none2', 'E-none3');
+      writeFileSync(f, JSON.stringify(inv, null, 2));
+    },
+  };
+  const out = await runScenario(t, { files: TWO_SMALL, request: TWO_TARGETS(), hooks });
+  const { harness } = out;
+  const k1 = extractorTask(harness, 'T1');
+  const k2 = extractorTask(harness, 'T2');
+  assert.equal(deliveryOf(harness, k1.task_id).worker, deliveryOf(harness, k2.task_id).worker);
+  assert.equal(deliveryOf(harness, k2.task_id).via, 'next');
+  const t1 = extractorSubmits(harness, 'T1');
+  assert.deepEqual(t1.map((x) => [x.result.ok, x.result.done]), [[false, false], [true, true]], JSON.stringify(t1));
+  const t2 = extractorSubmits(harness, 'T2');
+  assert.ok(t2.length >= 2 && t2[0].result.ok === false && t2.at(-1).result.done, JSON.stringify(t2));
+  // T2 の提出の応答は T2 の task だけを照合し、T1 の結果を返し直さない
+  const i1 = harness.memory.submits.findIndex((x) => x.task_id === k1.task_id && x.result?.done);
+  assert.ok(harness.memory.submits.findIndex((x) => x.task_id === k2.task_id) > i1, 'T2 の提出は T1 の受理の後');
+  assert.deepEqual(inventoryProducers(out).sort(), [k1.task_id, k2.task_id].sort(), '2 つの対象の inventory を、それぞれの task の成果物として登録する');
+});
+test('architecture 洗い出し 担当の起動: 1 体に詰めた worker で T1 が失敗として閉じても、同じ体が submit の next で T2 を受け取り、T2 は受理される', async (t) => {
+  const hooks = {
+    beforeSubmit: async (_s, { tasks }) => {
+      const task = tasks[0];
+      if (!isExtractorOf(task, 'T1')) return;
+      const ret = JSON.parse(readFileSync(task.result_path, 'utf8'));
+      writeFileSync(task.result_path, JSON.stringify({ ...ret, status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: 'T1 を読めない' }, null, 2));
+    },
+  };
+  const out = await runScenario(t, { files: TWO_SMALL, request: TWO_TARGETS(), hooks });
+  const { harness } = out;
+  const k1 = extractorTask(harness, 'T1');
+  const k2 = extractorTask(harness, 'T2');
+  assert.ok(k2, 'T2 の task を出す');
+  const d2 = deliveryOf(harness, k2.task_id);
+  assert.equal(d2.worker, deliveryOf(harness, k1.task_id).worker);
+  assert.equal(d2.via, 'next');
+  const t1 = extractorSubmits(harness, 'T1');
+  assert.ok(t1.length >= 1 && t1.at(-1).result.ok === false && t1.at(-1).result.done, `T1 は失敗として閉じる: ${JSON.stringify(t1)}`);
+  const t2 = extractorSubmits(harness, 'T2');
+  assert.ok(t2.at(-1).result.ok && t2.at(-1).result.done, JSON.stringify(t2));
+  assert.deepEqual(inventoryProducers(out), [k2.task_id]);
 });
 });

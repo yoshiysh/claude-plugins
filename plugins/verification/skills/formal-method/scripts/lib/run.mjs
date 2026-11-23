@@ -13,7 +13,7 @@ import { startRunClock, NODE_TIMER_CLOCK } from './clock.mjs';
 import { checkRequestShape, checkPointers, normalizeRequest } from './request.mjs';
 import { fetchTarget, writeManifest, changedFiles, lineCount } from './intake.mjs';
 import { mergeSpans, parseTargetRef, refPathOf, targetRef } from './target-refs.mjs';
-import { packByUnion, runItems, runWorkers } from './call.mjs';
+import { packByUnion, runWorkers } from './call.mjs';
 import { refFiles } from './agents.mjs';
 import { ledgerEntry, newStageLog, cliWorklog, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
 import { coverageCheck, definedIdsOf } from './checks/coverage.mjs';
@@ -416,10 +416,19 @@ export class Run {
   // unit: { role, spec() → spec, check(ret, task) → { defects, value }, accept(last), onFail(why), observe?(ret), onAccept?() }
   // 作成役は 1 体が submit ごとに照合を受け、欠陥が減っているうちは同じ体が出し直す（call.mjs の submit）。
   // observe は、その提出の照合の前に呼ぶ（unit をまたぐ照合が、他の unit の最新の提出と比べるため）。onAccept は submit で受理した時点で呼ぶ
-  async authorRounds(units) {
-    const results = await runItems(this, units.map((u) => ({ spec: u.spec(), check: u.check, observe: u.observe, onAccept: u.onAccept })));
-    units.forEach((u, i) => this.settleAuthor(u, results[i]));
+  // pack が真なら、unit の並びのまま packByUnion で 1 体に詰める（資料の和集合が UNIT_MAX_BYTES まで。抽出役）。1 体の task は unit ごとに 1 つのままで、
+  // 前の task が閉じてから submit の next で次の task を返す（after。architecture.md「担当の起動」）。偽なら 1 体に 1 unit
+  async authorRounds(units, { pack = false } = {}) {
+    const specs = units.map((u) => u.spec());
+    const packs = pack ? packByUnion(specs.map((_, i) => i), (i) => this.specFiles(specs[i])) : specs.map((_, i) => [i]);
+    const out = await runWorkers(this, packs.map((ids) => ({
+      items: ids.map((i, k) => ({ spec: specs[i], check: units[i].check, observe: units[i].observe, onAccept: units[i].onAccept, ...(k ? { after: k - 1 } : {}) })),
+    })));
+    packs.forEach((ids, k) => ids.forEach((i, j) => this.settleAuthor(units[i], out[k].results[j])));
   }
+
+  // 担当の資料のファイルごとのバイト数（1 体に詰める量の数え方。call.mjs の packByUnion）。範囲を持つ対象の ref は spans ごと渡し、範囲の行だけを数える
+  specFiles(spec) { return refFiles(this.runDir, spec.input_refs.map((x) => ({ ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })), (ref) => this.pathOf(ref)); }
 
   // 作成役の担当の結果を unit に渡す。受理した提出の照合の欠陥（残ったもの）は、syntax・reference の確認のために控える
   settleAuthor(u, r) {
@@ -524,8 +533,8 @@ export class Run {
       },
       onFail: (why) => this.notCreated.push({ kind: 'inventory', reason: why }),
     }));
-    this.log().actions.push('対象ごとに抽出役を出し、走査範囲の網羅・出所・引用の指紋を照らした。');
-    await this.authorRounds(units);
+    this.log().actions.push('対象ごとの抽出の担当を、資料の和集合が UNIT_MAX_BYTES に収まる分ずつ 1 体に詰めて出し、走査範囲の網羅・出所・引用の指紋を照らした。');
+    await this.authorRounds(units, { pack: true });
     this.log().results.push(`inventory ${this.inventories.length} 件を回収した。`);
   }
 
@@ -1170,9 +1179,8 @@ export class Run {
       const view = q && this.writeRecordFile(viewRef, JSON.stringify({ unit_id: unitId, question: q.q }, null, 2), { kind: 'material_view' }) ? [R('view', viewRef)] : [];
       return [...view, ...causeTargets(this.elementScopeOf(affected)), ...(q?.outputRefs ?? []).map((ref, i) => R(`output-${i + 1}`, ref))];
     };
-    // 1 体に詰める量は、その体の単位の資料の和集合のバイト数（共有の資料は 1 度だけ数える。call.mjs の packByUnion）
-    // 範囲を持つ対象の ref は spans ごと渡し、範囲の行だけを数える
-    const filesOf = (spec) => refFiles(this.runDir, spec.input_refs.map((x) => ({ ref: x.ref, ...(x.spans ? { spans: x.spans } : {}) })), (ref) => this.pathOf(ref));
+    // 1 体に詰める量は、その体の単位の資料の和集合のバイト数（共有の資料は 1 度だけ数える。call.mjs の packByUnion と specFiles）
+    const filesOf = (spec) => this.specFiles(spec);
     // 確認役: 役ごとに単位の並びのまま packByUnion で詰め、詰めた束ごとに 1 体
     const byRole = new Map();
     for (const u of units) { if (!byRole.has(u.role)) byRole.set(u.role, []); byRole.get(u.role).push(u); }

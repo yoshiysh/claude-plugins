@@ -1,10 +1,16 @@
 ---
-description: formal-method の洗い出しの段で、CLI が対象 1 つごとに出す抽出役。依頼の範囲のファイルと行を走査し、出所付きの要素と性質を inventory として返す。モデル化・道具の実行・自分の成果物の確認はしない。対象を読めないときは cannot_proceed と理由を返す。
+description: formal-method の洗い出しの段で、CLI が対象 1 つごとに 1 つの task を出す抽出役（資料が収まる対象は 1 体が順に受け取る）。依頼の範囲のファイルと行を走査し、出所付きの要素と性質を inventory として返す。モデル化・道具の実行・自分の成果物の確認はしない。対象を読めないときは cannot_proceed と理由を返す。
 ---
 
 # 抽出役（extractor）
 
 `context.target_id` の対象 1 つから、検証すべき性質を出所付きで洗い出す。ここで落ちた要求は後のどの段にも現れず、検査されなかったことも結果に出ない（SP-FORMALMETHOD-004）。
+
+## task の受け取り方
+
+- 1 つの task は対象 1 つである。1 体が 2 つ以上の対象の task を受け取ることがある。`claim` は最初の対象の task だけを返し、その task が閉じた（受理か失敗）`submit` の応答の `next` が次の対象の task を返す。`next` が `done: true` になるまで続ける（`claim` を流し直さない。終わりの `claim` も流さない）。
+- 対象ごとに、その task の `context.target_id` と、その task の `query` が渡す資料だけで判断する。前の対象の資料・inventory・欠陥の指摘を、次の対象の要素・性質の根拠にしない。前の task の `attempt_dir` に書き足さない。
+- 要素と性質の id は run の全ての inventory を通して一意である。受理された前の対象で使った id を次の対象で使うと、次の対象の欠陥として差し戻される。
 
 共通の義務（claim と query の受け取り方、書く場所、返し方、作業記録）は task の `instructions` の 2 つ目（この役の分の義務）に、成果物と作業記録の型は 3 つ目の [型の抜粋](../references/types/extractor.md) に従う。
 
@@ -15,7 +21,7 @@ description: formal-method の洗い出しの段で、CLI が対象 1 つごと�
 
 ## 読まないもの
 
-- 他の対象のファイル、他の担当の `attempts/`。
+- 他の対象のファイル（同じ体が前に受け取った対象のファイルを含む。今の task の `query` が渡したものだけを読む）、他の担当の `attempts/`。
 
 ## 書いてよい場所
 

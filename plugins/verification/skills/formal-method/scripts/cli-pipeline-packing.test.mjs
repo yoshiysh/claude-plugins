@@ -3,7 +3,7 @@
 // 起動した担当の数と消費量（SP-FORMALMETHOD-013、artifact-formats.md「性能の記録」の agent_calls）を、担当の harness と PATH の偽の z3 で通して観測する。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { runScenario } from './test-fixtures/pipeline.mjs';
+import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { P, prop, SM_A, SMT_A } from './test-fixtures/pipeline-cases.mjs';
 import { UNIT_MAX_BYTES } from './lib/schemas.mjs';
@@ -44,6 +44,23 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 忠実さの単位 5 件（モ�
   assert.equal(result.status, '完了', JSON.stringify(result.stop_report?.reasons));
   // 確認の段で起動したのは、抽出の確認役 1 体と忠実さの確認役 1 体（反例が無いので原因の分類役は出ない）
   const st = result.performance.agent_calls.stages.find((s) => s.stage === '確認');
+  assert.deepEqual(st.agents, { value: 2, unit: 'count' });
+});
+
+test('SP-FORMALMETHOD-013 architecture 担当の起動: 抽出役は、資料の和集合が UNIT_MAX_BYTES に収まる対象を 1 体に詰め、対象ごとの task を submit の next で順に渡す。収まらない対象は別の体', async (t) => {
+  const request = canonicalRequest({ targets: [{ id: 'T1', location: 'target' }, { id: 'T2', location: 'target2' }, { id: 'T3', location: 'target3' }] });
+  // T1・T2 は小さく、T3 は 1 件で UNIT_MAX_BYTES の半分を超え、T1・T2 の体に足すと収まらない
+  const big = `${SPEC_TEXT}# pad ${'x'.repeat(UNIT_MAX_BYTES)}\n`;
+  const { result, harness } = await runScenario(t, { files: { 'target/spec.md': SPEC_TEXT, 'target2/spec.md': SPEC_TEXT, 'target3/spec.md': big }, request });
+  const calls = harness.memory.calls.filter((c) => c.stage === '洗い出し');
+  assert.equal(calls.length, 1, '洗い出しの呼び出しは 1 回');
+  assert.deepEqual(calls[0].workers.map((w) => w.role), ['extractor', 'extractor'], '抽出役は 2 体（T1・T2 と T3）');
+  const ex = tasksOf(harness, (x) => x.role === 'extractor');
+  const of = (tid) => claimOf(harness, ex.find((x) => x.context.target_id === tid).task_id);
+  assert.equal(of('T1').worker, of('T2').worker);
+  assert.notEqual(of('T1').worker, of('T3').worker);
+  assert.deepEqual([of('T1').via, of('T1').task_ids.length, of('T2').via, of('T2').task_ids.length, of('T3').via], ['claim', 1, 'next', 1, 'claim']);
+  const st = result.performance.agent_calls.stages.find((s) => s.stage === '洗い出し');
   assert.deepEqual(st.agents, { value: 2, unit: 'count' });
 });
 

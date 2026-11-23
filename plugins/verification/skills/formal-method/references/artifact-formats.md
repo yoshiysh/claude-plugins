@@ -948,6 +948,7 @@ TaskContext = {
 | `composition-reviewer` | `composition` | `unit_id` | `composition` |
 | `cause-analyst` | null | `unit_id`・`subject` | `cause-counterexample-<id>`・`cause-combination-<model_id>-<n>`（`n` はその組の `Combinations.cells` の中の 0 から数えた位置を 10 進で書いたもの）・`cause-question-<id>` |
 
+- `extractor` の task は対象 1 つにつき 1 つで、`target_id` はその対象である。1 体の worker が 2 つ以上の対象の task を持つとき（資料の和集合が `UNIT_MAX_BYTES` に収まる対象を詰めたとき）、`claim` は対象の並びの最初の task だけを返し、後の task は前の task が閉じた（受理か失敗）`submit` の `next` で 1 つずつ返る（[architecture.md「担当の起動」](architecture.md#担当の起動)）。
 - `ReviewReturn.perspective` は `context.perspective` と同じ値を返す。
 - 組合せの `unit_id` に状態と出来事の名前を入れないのは、名前が `Id` の文字（英数字・「-」「_」「.」）に合うとは限らないためである。`cells` の順は宣言順で決まる（[形式モデル](#形式モデルと対応sp-005006)の `Combinations`）ので、位置は同じモデルから決定的に決まる。組合せの名前は `context.subject`（`state`・`event`）が持つ。
 - `PartitionsFile.decisions` は、`context.candidates` の全ての id を 1 つずつ持つ。
