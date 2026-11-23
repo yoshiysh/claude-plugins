@@ -40,7 +40,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 ## 書く場所と返し方
 
-- 書くのは `attempt_dir` と `scratch_dir` の中だけである。`scratch_dir` は worker ごとの作業用の領域で、成果物でない生成物（途中の抜き出しなど）を置く。成果物・作業記録・返り値は `attempt_dir` に書く（`scratch_dir` を指す `Ref` は成功に数えられない）。run の状態（`state.json`・`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-029）。`attempt_dir` の外に書いたものは成果物として登録されない。
+- 書くのは `attempt_dir` と `scratch_dir` の中だけである。`scratch_dir` は worker ごとの作業用の領域で、成果物でない生成物（途中の抜き出しなど）を置く。成果物・作業記録・返り値は `attempt_dir` に書く（`scratch_dir` を指す `Ref` は成功に数えられない）。run の状態（`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-029）。`attempt_dir` の外に書いたものは成果物として登録されない。
 - 自分が書く全ての `Ref`（`outputs[].ref`・`record_ref`・`worklog_ref`・`query_ref`・`input_refs` など）は、`context.run_dir` からの相対 path で、`attempts/<task_id>/` で始まるか、`query` が渡した資料を指す。
 - 返り値は `return_schemas[<task の role>]` の形の JSON を `result_path` に書き、`submit_cmd` を流して出す。返り値の `task_id` は task の値、`unit_id` は `context.unit_id`、`perspective` は `context.perspective` をそのまま使う。値が違う返り値は成功に数えられない。
 - Workflow の返り値（担当の最後の応答）で内容を返さない。CLI は応答を読まず、`submit` で受理した `result_path` の返り値だけを使う。

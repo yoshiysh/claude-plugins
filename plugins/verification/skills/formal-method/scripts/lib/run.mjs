@@ -3,10 +3,12 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { sha256Bytes } from './canonical.mjs';
-import { ABLATION_PER_PROPERTY_MAX, MODEL_CHECK_KINDS, STATE_SCHEMA, UNIT_MAX_BYTES } from './schemas.mjs';
+import { ABLATION_PER_PROPERTY_MAX, LEDGER_SCHEMA, MODEL_CHECK_KINDS, UNIT_MAX_BYTES } from './schemas.mjs';
 import { scanSecrets, describeHits } from './secrets.mjs';
 import { writeEvidence } from './storage.mjs';
-import { guardedWrite, SalvagedError } from './store.mjs';
+import { guardedWrite, removeClosedCall, salvageMarked, SalvagedError } from './store.mjs';
+import { LEDGER_REF, NODE_FS, writeLedger } from './publish.mjs';
+import { canonicalJson } from './canonical.mjs';
 import { startRunClock, NODE_TIMER_CLOCK } from './clock.mjs';
 import { checkRequestShape, checkPointers, normalizeRequest } from './request.mjs';
 import { fetchTarget, writeManifest, changedFiles, lineCount } from './intake.mjs';
@@ -53,6 +55,10 @@ export class Run {
     this.stageConfirmed = null;
     this.logs = new Map();
     this.entries = [];
+    // 作成役の出し直しに返した欠陥（台帳の revisions。submit の応答の problems の正本）
+    this.revisions = [];
+    // 閉じた呼び出しのうち、依頼と応答（requests/・responses/）をまだ消していないもの
+    this.closedCalls = [];
     this.unsaved = [];
     this.interrupts = [];
     this.agentFailures = [];
@@ -274,12 +280,30 @@ export class Run {
     }
   }
 
-  writeState() {
-    const state = { schema: STATE_SCHEMA, run_id: this.runId, stage_confirmed: this.stageConfirmed ?? '受付', location: this.location, document_rules: this.docRules ?? null, entries: this.entries };
-    try { guardedWrite(this.runDir, 'state.json', state); } catch (e) {
-      if (e instanceof SalvagedError) throw e;
-      this.saveFailed('worklog', 'state.json', `内部の状態を書けない（${e.code ?? e.message}）`);
+  // 閉じた呼び出しの依頼と応答を消す。次の呼び出しを開くときと集約で呼ぶ（閉じた直後は、client が最後の drain の応答を読み直す）
+  removeClosedExchanges() {
+    for (const callId of this.closedCalls.splice(0)) {
+      for (const x of removeClosedCall(this.runDir, callId)) this.log().failures.push(`閉じた呼び出しの依頼と応答 ${x.path} を消せない（${x.reason}）`);
     }
+  }
+
+  // run の唯一の台帳の内容（artifact-formats.md「記録台帳」）。段ごとの書込みと集約の公開は同じ内容を書く（集約は結果の指紋を足す）
+  ledgerContent() {
+    return {
+      schema: LEDGER_SCHEMA, run_id: this.runId, kind: 'main', stage_confirmed: this.stageConfirmed ?? '受付', location: this.location,
+      document_rules: this.docRules ?? null, revisions: this.revisions, entries: this.entries, registered_result_hash: null,
+    };
+  }
+
+  // 段の確定ごとに台帳を rename で置き換える（salvage の保存済みの範囲は、rename を終えた台帳だけで決まる）。
+  // 書く直前に salvage.mark を確かめる。秘密値の型があるか書けなければ 保存の失敗（段の版なので ref は持たない。集約で公開を試し直す）
+  writeLedger() {
+    if (salvageMarked(this.runDir)) throw new SalvagedError();
+    const content = this.ledgerContent();
+    const hits = scanSecrets(canonicalJson(content));
+    if (hits.length) { this.saveFailed('ledger', null, `段 ${this.stageConfirmed ?? '受付'} の終わりの台帳（${LEDGER_REF}）に秘密値の型を見つけたので書かない: ${describeHits(hits)}`); return; }
+    const out = writeLedger(NODE_FS, this.runDir, content);
+    if (!out.ok) this.saveFailed('ledger', null, `段 ${this.stageConfirmed ?? '受付'} の終わりの台帳（${LEDGER_REF}）を書けない（${out.reason}）`);
   }
 
   // CLI が書く記録。秘密値の型があるか書けなければ 保存の失敗。
@@ -313,7 +337,7 @@ export class Run {
     if (rules) this.writeRecordFile(ref, JSON.stringify(cliWorklog(stage, log, rules, this.targets.map((t) => t.id).join('・') || this.runId), null, 2), { kind: 'worklog' });
     else this.saveFailed('worklog', ref, '文書規約を読めないので、作業記録の document_rules を決められない');
     this.stageConfirmed = stage;
-    this.writeState();
+    this.writeLedger();
   }
 
   notCreatedFor(role, why) { for (const kind of ROLE_OUTPUTS[role] ?? []) this.notCreated.push({ kind, reason: why }); }

@@ -73,6 +73,8 @@ const REGION_CASES = [
   ['正しい 4 つの関数は違反なし', [{ path: 'scripts/lib/store.mjs', src: STORE_REGION_OK }, { path: 'scripts/lib/start.mjs', src: START_OK }], []],
   ['publishRunDir の外で一時の領域を rename する', [{ path: 'scripts/lib/store.mjs', src: STORE_REGION_OK }, { path: 'scripts/lib/start.mjs', src: START_OK }, { path: 'scripts/lib/daemon.mjs', src: 'const tmp = join(root, `.tmp-${id}-${n}`);\nrenameSync(tmp, join(root, id));\n' }], ['publishRunDir の外']],
   ['removeOwnTmp の外でディレクトリを消す', [{ path: 'scripts/lib/store.mjs', src: STORE_REGION_OK }, { path: 'scripts/lib/start.mjs', src: `${START_OK}export function cleanup(d) { rmSync(d, { recursive: true }); }\n` }], ['removeOwnTmp・removeProbeDir の外']],
+  ['閉じた呼び出しの依頼と応答を store.mjs の removeClosedCall で消すのは違反なし', [{ path: 'scripts/lib/store.mjs', src: `${STORE_REGION_OK}export function removeClosedCall(runDir, callId) { for (const d of ['requests', 'responses']) rmSync(join(runDir, d, callId), { recursive: true, force: true }); }\n` }, { path: 'scripts/lib/start.mjs', src: START_OK }], []],
+  ['閉じた呼び出しの依頼と応答を removeClosedCall の外で消す', [{ path: 'scripts/lib/store.mjs', src: STORE_REGION_OK }, { path: 'scripts/lib/start.mjs', src: START_OK }, { path: 'scripts/lib/call.mjs', src: "fs.rmSync(join(runDir, 'requests', callId), { recursive: true, force: true });\n" }], ['removeOwnTmp・removeProbeDir の外']],
   ['run の領域を消す', [{ path: 'scripts/lib/store.mjs', src: STORE_REGION_OK }, { path: 'scripts/lib/start.mjs', src: START_OK }, { path: 'scripts/lib/salvage.mjs', src: 'fs.rmSync(runDir, { recursive: true, force: true });\n' }], ['removeOwnTmp・removeProbeDir の外']],
   ['関数が無い', [{ path: 'scripts/lib/store.mjs', src: '' }, { path: 'scripts/lib/start.mjs', src: '' }], ['publishRunDir が無い', 'removeOwnTmp が無い', 'removeProbeDir が無い']],
 ];
@@ -98,4 +100,26 @@ test('cli-contract 構造の契約: result.json・salvage.mark・salvage-ledger.
 test('cli-contract 構造の契約: 一時の領域の rename は store.mjs の publishRunDir、.tmp-* を消すのは start.mjs の removeOwnTmp、.probe-* を消すのは removeProbeDir の中にだけある', () => {
   const vs = checkRegionContract(sources());
   assert.deepEqual(vs, [], `違反:\n${report(vs)}`);
+});
+
+// 台帳は 1 つのファイル（ledger.json）で、書く関数は publish.mjs の writeLedger だけ（cli-contract「構造の契約」、PR-BPDESIGNEDSKILL-032）。
+// run-daemon の段ごとの書込み（run.mjs）と集約の公開（publishResult）は、どちらも writeLedger を呼ぶ。写しの state.json は無い。
+test('cli-contract 構造の契約: 台帳 ledger.json を書くのは publish.mjs の writeLedger だけで、段ごとの書込みと集約の公開はそれを呼ぶ。state.json を書く呼出しは無い', () => {
+  const files = sources();
+  const WRITE = /\b(atomicWrite|guardedWrite|writeEvidence|writeRecordFile|writeTempFile|writeFileSync|writeFile|renameSync|linkSync|publishOne|publishDeterministic)\s*\(([^;]*)/g;
+  const vs = [];
+  for (const f of files) {
+    for (let m; (m = WRITE.exec(f.src));) {
+      const args = m[2];
+      if (/['"`]ledger\.json['"`]|\bLEDGER_REF\b|['"`]state\.json['"`]/.test(args)) vs.push(`${f.path}:${f.src.slice(0, m.index).split('\n').length} ${m[1]} が台帳か state.json を書いている（writeLedger の外）`);
+    }
+    if (/formal-method\.state\//.test(f.src)) vs.push(`${f.path}: 台帳の写しの state の schema が残っている`);
+  }
+  assert.deepEqual(vs, []);
+  const pub = files.find((f) => f.path.endsWith('scripts/lib/publish.mjs'));
+  const run = files.find((f) => f.path.endsWith('scripts/lib/run.mjs'));
+  assert.match(pub.src, /export function writeLedger\(/);
+  const publishResultBody = pub.src.slice(pub.src.indexOf('export function publishResult('));
+  assert.match(publishResultBody.slice(0, publishResultBody.indexOf('\n}\n')), /\bwriteLedger\(/, 'publishResult は run-daemon の台帳を writeLedger で書く');
+  assert.match(run.src, /\bwriteLedger\(NODE_FS,/, '段ごとの台帳の書込みは writeLedger を呼ぶ');
 });

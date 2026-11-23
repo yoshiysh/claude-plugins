@@ -1,12 +1,12 @@
 // run の領域の排他・状態の保存・salvage（cli-contract.md「起動の手順」4、「生死の判定」「salvage の手順」「構造の契約」）。
 // run.lock は排他作成だけで書き、消すのは releaseOwnLock（nonce の照合の後）だけ。lock を奪う手順も外す手順も持たない。
-import { lstatSync, linkSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, linkSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { randomHex, sha256Bytes, canonicalJson } from './canonical.mjs';
-import { Identity, LockFile, LEDGER_SCHEMA, Result, STATE_SCHEMA, Status, conforms } from './schemas.mjs';
+import { Identity, LockFile, LEDGER_SCHEMA, Result, Status, conforms } from './schemas.mjs';
 import { atomicWrite, fsyncDir, writeTempFile } from './storage.mjs';
 import { livenessOf, startTimeOf, killGroup, UNKNOWN_START_TIME } from './process.mjs';
-import { NODE_FS, publishOne, publishResult } from './publish.mjs';
+import { LEDGER_REF, NODE_FS, publishOne, publishResult, resultForStatus, resultRefOf } from './publish.mjs';
 import { buildSalvageResult, salvageWorklog, secretStopResult } from './result.mjs';
 import { scanSecrets } from './secrets.mjs';
 
@@ -69,11 +69,26 @@ export function readStatus(runDir) {
   } catch { return null; }
 }
 
-export function readState(runDir) {
+// run-daemon の台帳（ledger.json）。salvage は保存済みの範囲（entries）・最後に確定した段・場所・文書規約をここから読む。
+// 無いか読めないか run-daemon の台帳でなければ null（保存済みの範囲は空）。
+export function readLedger(runDir) {
   try {
-    const s = readJsonFile(join(runDir, 'state.json'));
-    return s && typeof s === 'object' && s.schema === STATE_SCHEMA ? s : null;
+    const s = readJsonFile(join(runDir, LEDGER_REF));
+    return s && typeof s === 'object' && s.schema === LEDGER_SCHEMA && s.kind === 'main' ? s : null;
   } catch { return null; }
+}
+
+// 閉じた呼び出しの依頼と応答（requests/<call_id>/・responses/<call_id>/）を消す（cli-contract.md「run の領域の配置」）。
+// 受け渡しの口で記録（RecordKind）でなく、salvage も読まない。run-daemon だけが、呼び出しを閉じた status.json を書いた後に呼ぶ。
+// 消せなくても run は止めない（戻り値は消せなかった path と理由）。
+export function removeClosedCall(runDir, callId) {
+  if (!/^call-\d+$/.test(callId)) return [{ path: callId, reason: '呼び出しの id の形でない' }];
+  const left = [];
+  for (const d of ['requests', 'responses']) {
+    const p = join(runDir, d, callId);
+    try { rmSync(p, { recursive: true, force: true }); } catch (e) { left.push({ path: p, reason: e.code ?? e.message }); }
+  }
+  return left;
 }
 
 // result.json の有無と形。'absent' | { valid: true, result } | { valid: false }
@@ -168,7 +183,8 @@ export function salvage(runDir, { location, readRun = readRunObservation } = {})
   }
   if (d.kind === 'e_busy') return busy(runDir, d.detail);
   if (d.kind === 'result_unreadable') return unreadable(runDir);
-  if (d.step === 'return_result_json') return { ok: true, status: terminalStatus(runDir, published.result, extra) };
+  // 規則 2: 読んで形を確かめた result.json は、本文の代わりに参照で返す（run-daemon の terminal の status.json と同じ形）
+  if (d.step === 'return_result_json') return { ok: true, status: terminalStatus(runDir, resultRefOf(runDir), extra) };
   // 規則 3: 判断に使った同じ観測の terminal の Status を返す
   if (d.step === 'return_status_result') return { ok: true, status: { ...prevStatus, call: null } };
   // 規則 5-1: children/ の記録のうち、pid と開始時刻が一致して生きている group を止める（規則 4 の I/O の誤りでも同じ）
@@ -225,6 +241,6 @@ function publishSalvage(runDir, { location, extra }) {
   const { result: r, ledgerEntries } = buildSalvageResult(runDir, { location, worklog: wlOut.ok ? { hash: sha256Bytes(wlBytes) } : { reason: wlOut.reason } });
   const out = publishResult({ run_dir: runDir, ledger: { name: 'salvage-ledger.json', content: ledgerOf(ledgerEntries) }, result: r });
   if (out.outcome === 'lost_unreadable') return unreadable(runDir);
-  return { ok: true, status: terminalStatus(runDir, out.result, extra) };
+  return { ok: true, status: terminalStatus(runDir, resultForStatus(runDir, out), extra) };
 }
 

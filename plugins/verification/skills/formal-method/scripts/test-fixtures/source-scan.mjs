@@ -179,8 +179,8 @@ export function checkLinkOnly(files, names = LINK_ONLY) {
 // 構造の契約の 2〜4 つ目（cli-contract「構造の契約」）:
 //   一時の領域 .tmp-<run_id>-<nonce>/ を rename するのは store.mjs の publishRunDir だけ。
 //   .tmp-* を消すのは start.mjs の removeOwnTmp だけ、.probe-* を消すのは start.mjs の removeProbeDir だけ。
-// 字句の近似: ディレクトリを消す呼出し（recursive の rm・rmdir）は、removeOwnTmp か removeProbeDir の中にだけあってよい
-// （契約が消してよいディレクトリはこの 2 つだけで、run の領域は消さない）。'.tmp-' で始まる名前（領域の名前の形）を
+// 字句の近似: ディレクトリを消す呼出し（recursive の rm・rmdir）は、removeOwnTmp か removeProbeDir か store.mjs の removeClosedCall の中にだけあってよい
+// （契約が消してよいディレクトリは一時の領域・能力の確認の領域・閉じた呼び出しの依頼と応答だけで、run の領域は消さない）。'.tmp-' で始まる名前（領域の名前の形）を
 // rename する呼出しは publishRunDir の中にだけあってよい。'<file>.tmp-<nonce>' のような一時ファイルの名前は対象にしない。
 const DIR_DELETE = /^(rm|rmSync|rmdir|rmdirSync)$/;
 export function checkRegionContract(files) {
@@ -204,8 +204,8 @@ export function checkRegionContract(files) {
       const fn = innermostFunction(ranges, m.index)?.name ?? null;
       const line = lineOf(f.src, m.index);
       if (DIR_DELETE.test(m[1]) && (/recursive\s*:\s*true/.test(args) || /^rmdir/.test(m[1]))) {
-        if (!(f === start && (fn === 'removeOwnTmp' || fn === 'removeProbeDir'))) {
-          violations.push({ file: f.path, line, rule: `ディレクトリを ${m[1]} で消している（removeOwnTmp・removeProbeDir の外）`, fix: '.tmp-* は start.mjs の removeOwnTmp、.probe-* は removeProbeDir だけで消す。run の領域は消さない' });
+        if (!(f === start && (fn === 'removeOwnTmp' || fn === 'removeProbeDir')) && !(f === store && fn === 'removeClosedCall')) {
+          violations.push({ file: f.path, line, rule: `ディレクトリを ${m[1]} で消している（removeOwnTmp・removeProbeDir の外。store.mjs の removeClosedCall を除く）`, fix: '.tmp-* は start.mjs の removeOwnTmp、.probe-* は removeProbeDir、閉じた呼び出しの requests/・responses/ は store.mjs の removeClosedCall だけで消す。run の領域は消さない' });
         }
       }
       if (/^rename/.test(m[1])) {

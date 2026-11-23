@@ -131,7 +131,7 @@ Manifest = { root: string, files: [{ path: FilePath, abs_path: string, workspace
 
 ## 結果（Result）
 
-`status.json` の `result` と `result.json` の形（`result.json` は `run-daemon` か salvage の、先に公開した方の結果）。SP-003 の項目を全て持つ。`stop_report` だけは、状態が `停止` のときに object、`完了` のときに `null` である（AC-21）。
+`result.json` の形と、`status.json` の `result` が本文を持つときの形（`result.json` は `run-daemon` か salvage の、先に公開した方の結果。公開して確かめた結果なら、`status.json` の `result` は本文の代わりに `result.json` の参照を持つ。[CLI 契約の status.json](cli-contract.md#statusjson)）。SP-003 の項目を全て持つ。`stop_report` だけは、状態が `停止` のときに object、`完了` のときに `null` である（AC-21）。
 
 ```text
 Result = {
@@ -558,7 +558,7 @@ StopCode =
   |---|---|
   | `依頼の不備`・`起動の失敗` | `受付` |
   | `保存の失敗`・`時間の上限`・`内部の誤り` | 起きたときに実行していた段 |
-  | `処理の中断` | `state.json` の最後に確定した段 |
+  | `処理の中断` | 台帳（`ledger.json`）の `stage_confirmed`（最後に確定した段） |
   | `対応できていない組合せ` | `モデル化` |
   | `実行できない検査` | 道具が無い・準備できない（SP-007）なら `計画`、検査が `未実行`・`実行失敗` で終わったなら `実行` |
   | `反例` | `実行` |
@@ -1011,18 +1011,24 @@ Worklog = {
 
 ## 記録台帳
 
-`ledger.json`（`run-daemon` だけが書く）と `salvage-ledger.json`（salvage の追補）。担当は書かない（PR-029）。
+`ledger.json`（`run-daemon` だけが書く）と `salvage-ledger.json`（salvage の追補）。担当は書かない（PR-029）。`ledger.json` は run の唯一の台帳で、写しを持たない（PR-032）。`run-daemon` は段の確定ごとに rename で置き換え、salvage はそれで保存済みの範囲を知る（[CLI 契約の salvage の手順](cli-contract.md#salvage-の手順)）。
 
 ```text
 Ledger = {
-  schema: "formal-method.ledger/1",
+  schema: "formal-method.ledger/2",
   run_id: Id,
   kind: "main" | "salvage",
+  // 次の 4 つは kind: "main" だけが持つ
+  stage_confirmed: Stage,                 // 最後に確定した段（salvage の stop_report.stage）
+  location: "ローカル" | "CI",            // run-daemon の実行場所（salvage の performance.location）
+  document_rules: { ref: Ref, version: Sha256 } | null,   // 適用した文書規約の写し。保存できなかったら null
+  revisions: [{ task_id: Id, submit: integer ≥ 1, stage: Stage,
+                defects: [{ key: string, text: string }]+ }],   // 作成役の出し直しに返した欠陥（submit の応答の problems の正本）
   entries: [{ kind: RecordKind, ref: Ref, hash: Sha256, stage: Stage,
               producer: string,           // "cli"、担当の task_id、又は "salvage"
               model: string | null, effort: string | null, permissions: [string],
               input_refs: [RefHash] }],    // producer が担当の task_id の entry は、その担当の最初の query の時点で取った input_refs の指紋（「ディレクトリの ref の指紋」で展開したもの。意味の確認の materials と同じ値。query を流さなかった担当は []。作業記録を含む全ての記録で同じ）。"cli"・"salvage" の entry は []
-  registered_result_hash: Sha256          // 登録した結果の指紋。結果のファイルが保存されたことは示さない
+  registered_result_hash: Sha256 | null   // 登録した結果の指紋。結果のファイルが保存されたことは示さない。ledger.json の段ごとの版（集約の公開の前）は null
 }
 ```
 

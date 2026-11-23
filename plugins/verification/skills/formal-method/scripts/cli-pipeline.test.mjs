@@ -44,6 +44,42 @@ test('SP-FORMALMETHOD-014 AC-13: 完了の run の記録は台帳に参照と指
   assert.ok(!ledger.entries.some((e) => e.producer !== 'cli' && e.kind === 'ledger'), '担当は台帳を書かない（PR-BPDESIGNEDSKILL-029: 担当は共有の記録台帳へ直接書き込まない）');
 });
 
+test('cli-contract run の領域の配置 PR-BPDESIGNEDSKILL-032: 台帳は ledger.json の 1 つだけで（state.json は無い）、段の確定・場所・文書規約・出し直しの欠陥・entries を持ち、entries は結果の saved と同じ記録を指す', async () => {
+  const { result, status } = await canonicalRun();
+  const dir = status.run_dir;
+  assert.equal(existsSync(join(dir, 'state.json')), false, '台帳の写しの state.json を作らない');
+  const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
+  assert.equal(ledger.schema, 'formal-method.ledger/2');
+  assert.equal(ledger.kind, 'main');
+  assert.equal(ledger.stage_confirmed, '集約');
+  assert.ok(['ローカル', 'CI'].includes(ledger.location), ledger.location);
+  assert.equal(fileHash(join(dir, ledger.document_rules.ref)), ledger.document_rules.version, '文書規約の写しを指す');
+  assert.ok(Array.isArray(ledger.revisions), '出し直しの欠陥は台帳の項目');
+  const fromLedger = ledger.entries.map((e) => `${e.ref} ${e.hash}`).sort();
+  const fromResult = result.records.saved.filter((x) => x.hash !== null).map((x) => `${x.ref} ${x.hash}`).sort();
+  assert.deepEqual(fromLedger, fromResult);
+});
+
+test('cli-contract status.json: 結果を公開した run の terminal の status.json は、結果の本文の代わりに result.json の参照（ref と path）を持ち、その path の結果が正本', async () => {
+  const { result, status } = await canonicalRun();
+  const dir = status.run_dir;
+  assert.deepEqual(status.result, { ref: 'result.json', path: join(dir, 'result.json') }, 'wait の出力は参照');
+  const onDisk = JSON.parse(readFileSync(join(dir, 'status.json'), 'utf8'));
+  assert.deepEqual(onDisk.result, status.result, 'status.json も参照だけを持つ');
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), result);
+  assert.ok(readFileSync(join(dir, 'status.json')).length < 2048, 'status.json は結果の本文を持たない');
+});
+
+test('cli-contract run の領域の配置: 閉じた呼び出しの依頼と応答・終わった道具の process group の記録・出し直しの欠陥のファイルは残らない', async () => {
+  const { status } = await canonicalRun();
+  const dir = status.run_dir;
+  const entries = (d) => (existsSync(join(dir, d)) ? readdirSync(join(dir, d)) : []);
+  assert.deepEqual(entries('requests'), [], '閉じた呼び出しの requests/<call_id>/ は close のときに消す');
+  assert.deepEqual(entries('responses'), [], '閉じた呼び出しの responses/<call_id>/ は close のときに消す');
+  assert.deepEqual(entries('children').filter((n) => n.endsWith('.json')), [], '終わった process group の children/<pgid>.json は消す');
+  assert.equal(existsSync(join(dir, 'revisions')), false, '出し直しの欠陥は台帳の revisions に持つ');
+});
+
 test('artifact-formats 記録台帳 SP-FORMALMETHOD-014: 完了の run の台帳の全ての entry が 9 欄を持ち、担当の entry は tasks.json の model・effort と AGENT_PERMISSIONS、cli の entry は null・null・[]', async () => {
   const { status, harness } = await canonicalRun();
   const dir = status.run_dir;
@@ -97,13 +133,12 @@ test('SP-FORMALMETHOD-012・014 PR-BPDESIGNEDSKILL-028: 担当が指紋と docum
   const dir = status.run_dir;
   assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
   const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
-  const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'));
   const agentLogs = ledger.entries.filter((e) => e.kind === 'worklog' && e.producer !== 'cli');
   assert.ok(agentLogs.length >= 4, JSON.stringify(agentLogs.map((e) => e.ref)));
   for (const e of agentLogs) {
     const w = JSON.parse(readFileSync(join(dir, e.ref), 'utf8'));
     assert.equal(fileHash(join(dir, e.ref)), e.hash, '登録した指紋は補った後のファイル');
-    assert.deepEqual(w.document_rules, state.document_rules, e.ref);
+    assert.deepEqual(w.document_rules, ledger.document_rules, e.ref);
     assert.ok(w.inputs.length > 0, e.ref);
     const fixed = new Map(e.input_refs.map((x) => [x.ref, x]));
     // 補った指紋は、台帳の input_refs（最初の query の時点で固定した指紋）と同じ

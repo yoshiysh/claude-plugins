@@ -1,4 +1,4 @@
-// client のコマンド（cli-contract.md「コマンド」「受け箱」「依頼と応答」「生死の判定」）。client は lock を取らず、state.json を書かない。
+// client のコマンド（cli-contract.md「コマンド」「受け箱」「依頼と応答」「生死の判定」）。client は lock を取らず、台帳と status.json を書かない。
 // close が書くのは受け箱だけ、claim・query・submit が書くのは依頼のファイルだけ、wait と salvage の規則 1〜3 は何も書かない。
 import { linkSync, lstatSync, mkdirSync, readFileSync, unlinkSync, watch } from 'node:fs';
 import { join } from 'node:path';

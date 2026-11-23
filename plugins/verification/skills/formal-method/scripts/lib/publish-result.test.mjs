@@ -47,6 +47,17 @@ function memFs({ files = {}, fail = [], corrupt = [], replace = {} } = {}) {
       lastLinked = finalPath;
       log.push(['linked', finalPath]);
     },
+    // run-daemon の台帳（ledger.json）は段ごとに書き直すので、link でなく rename で置き換える（cli-contract「結果と台帳の保存の失敗」）
+    rename(tmpPath, finalPath) {
+      log.push(['rename', tmpPath, finalPath]);
+      abs(tmpPath, 'rename'); abs(finalPath, 'rename');
+      const f = hit('rename', finalPath); if (f) throw err(f.code);
+      if (!store.has(tmpPath)) throw err('ENOENT');
+      store.set(finalPath, store.get(tmpPath));
+      store.delete(tmpPath);
+      lastLinked = finalPath;
+      log.push(['renamed', finalPath]);
+    },
     fsyncDir(dirPath) {
       log.push(['fsyncDir', dirPath]);
       abs(dirPath, 'fsyncDir');
@@ -76,7 +87,7 @@ function memFs({ files = {}, fail = [], corrupt = [], replace = {} } = {}) {
 // 台帳の公開の成功は、link の成功（linked）か、link が「既にある」で失敗した後の台帳の再読込（指紋が同じなら成功とみなす。
 // cli-contract「公開の手順」）のどちらかの位置とする。
 function ledgerPublishedAt(fs, ledgerName) {
-  const linked = fs.log.findIndex((x) => x[0] === 'linked' && basename(x[1]) === ledgerName);
+  const linked = fs.log.findIndex((x) => (x[0] === 'linked' || x[0] === 'renamed') && basename(x[1]) === ledgerName);
   if (linked >= 0) return linked;
   const exists = fs.log.findIndex((x) => x[0] === 'link_exists' && basename(x[1]) === ledgerName);
   if (exists < 0) return -1;
@@ -100,9 +111,13 @@ function completedR() {
   r.records = { ledger_refs: ['ledger.json'], saved: [{ kind: 'ledger', ref: 'ledger.json', hash: null }, { kind: 'result', ref: 'result.json', hash: null }], unsaved: [] };
   return r;
 }
-const ledgerContent = (name = 'ledger.json') => ({ schema: 'formal-method.ledger/1', run_id: 'R1', kind: name === 'ledger.json' ? 'main' : 'salvage', entries: [], registered_result_hash: null });
+const ledgerContent = (name = 'ledger.json') => (name === 'ledger.json'
+  ? { schema: 'formal-method.ledger/2', run_id: 'R1', kind: 'main', stage_confirmed: '集約', location: 'ローカル', document_rules: null, revisions: [], entries: [], registered_result_hash: null }
+  : { schema: 'formal-method.ledger/2', run_id: 'R1', kind: 'salvage', entries: [], registered_result_hash: null });
 const input = (name = 'ledger.json') => ({ run_dir: RUN, ledger: { name, content: ledgerContent(name) }, result: completedR() });
 const linkedTo = (fs) => fs.log.filter((x) => x[0] === 'link').map((x) => basename(x[2]));
+// 公開した順（link と rename の成功）
+const publishedTo = (fs) => fs.log.filter((x) => x[0] === 'linked' || x[0] === 'renamed').map((x) => basename(x[1]));
 const kindOfLedger = (name) => (name === 'ledger.json' ? 'ledger' : 'salvage_ledger');
 
 function assertRPrime(r, ledgerName, ledgerSaved) {
@@ -126,7 +141,7 @@ function assertRPrime(r, ledgerName, ledgerSaved) {
 }
 
 for (const name of ['ledger.json', 'salvage-ledger.json']) {
-  test(`cli-contract publishResult published（${name}）: 台帳 → 結果の順に link で公開し、R を返す。台帳は公開した結果の指紋を持つ`, async () => {
+  test(`cli-contract publishResult published（${name}）: 台帳 → 結果の順に公開し（run-daemon の台帳は rename、追補台帳と結果は link）、R を返す。台帳は公開した結果の指紋を持つ`, async () => {
     const { publishResult } = await loadPublish();
     const fs = memFs();
     const out = publishResult(input(name), fs);
@@ -134,7 +149,8 @@ for (const name of ['ledger.json', 'salvage-ledger.json']) {
     assert.deepEqual(out.result, completedR());
     assert.equal(out.fault, null);
     assertBoundary(fs, name);
-    assert.deepEqual(linkedTo(fs).filter((n) => n === name || n === 'result.json'), [name, 'result.json'], '台帳が先');
+    assert.deepEqual(publishedTo(fs).filter((n) => n === name || n === 'result.json'), [name, 'result.json'], '台帳が先');
+    assert.deepEqual(linkedTo(fs).filter((n) => n === name), name === 'ledger.json' ? [] : [name], 'run-daemon の台帳は link でなく rename で置き換え、追補台帳は link で作る');
     const resultBytes = fs.store.get(join(RUN, 'result.json'));
     assert.deepEqual(JSON.parse(dec(resultBytes)), completedR());
     assert.equal(JSON.parse(dec(resultBytes)).provisional, false, '公開した result.json は常に provisional: false');
@@ -159,6 +175,36 @@ test('cli-contract publishResult published: 台帳が既にあって指紋が同
   assert.equal(out.fault, null);
   assertBoundary(fs, 'salvage-ledger.json');
   assert.ok(fs.store.has(join(RUN, 'result.json')));
+});
+
+test('cli-contract publishResult published: run-daemon が段ごとに書いた ledger.json があれば、rename で置き換えて結果の指紋を持たせ、結果を公開する（台帳は 1 つのファイル）', async () => {
+  const { publishResult } = await loadPublish();
+  const stageLedger = { ...ledgerContent('ledger.json'), stage_confirmed: '確認' };
+  const fs = memFs({ files: { [join(RUN, 'ledger.json')]: stageLedger } });
+  const out = publishResult(input('ledger.json'), fs);
+  assert.equal(out.outcome, 'published');
+  assertBoundary(fs, 'ledger.json');
+  const ledger = JSON.parse(dec(fs.store.get(join(RUN, 'ledger.json'))));
+  assert.equal(ledger.stage_confirmed, '集約', '段ごとの版を置き換えた');
+  assert.equal(ledger.registered_result_hash, sha(fs.store.get(join(RUN, 'result.json'))));
+});
+
+test('cli-contract writeLedger: 台帳を書く唯一の関数。一時ファイル・rename・ディレクトリの fsync・再読込の照合で書き、失敗は理由で返して一時ファイルを残さない', async () => {
+  const { writeLedger } = await loadPublish();
+  const ok = memFs({ files: { [join(RUN, 'ledger.json')]: { old: true } } });
+  assert.deepEqual(writeLedger(ok, RUN, ledgerContent('ledger.json')), { ok: true });
+  assert.deepEqual(JSON.parse(dec(ok.store.get(join(RUN, 'ledger.json')))), ledgerContent('ledger.json'));
+  assert.deepEqual(ok.log.filter((x) => ['writeTemp', 'rename', 'fsyncDir', 'readFile'].includes(x[0])).map((x) => x[0]), ['writeTemp', 'rename', 'fsyncDir', 'readFile']);
+  assert.deepEqual(ok.violations, []);
+  for (const [op, code] of [['writeTemp', 'ENOSPC'], ['rename', 'EIO'], ['fsyncDir', 'EIO'], ['readFile', 'EIO']]) {
+    const fs = memFs({ fail: [{ op, final: 'ledger.json', code }] });
+    const out = writeLedger(fs, RUN, ledgerContent('ledger.json'));
+    assert.equal(out.ok, false, op);
+    assert.match(out.reason, new RegExp(code), op);
+    assert.deepEqual(fs.tmpLeft(), [], `${op}: 一時ファイルを残さない`);
+  }
+  const bad = memFs({ corrupt: ['ledger.json'] });
+  assert.equal(writeLedger(bad, RUN, ledgerContent('ledger.json')).ok, false, '再読込の指紋が合わなければ失敗');
 });
 
 test('cli-contract publishResult lost: result.json が既にあれば、中身によらず負けとし、既にある結果を読んで返す', async () => {
@@ -280,11 +326,11 @@ for (const [name, opts, outcome, result] of MISMATCH) {
 }
 
 const LEDGER_FAIL = [
-  ['台帳の link が EIO', 'ledger.json', { fail: [{ op: 'link', final: 'ledger.json', code: 'EIO' }] }],
+  ['台帳の rename が EIO', 'ledger.json', { fail: [{ op: 'rename', final: 'ledger.json', code: 'EIO' }] }],
   ['台帳の一時ファイルを書けない', 'ledger.json', { fail: [{ op: 'writeTemp', final: 'ledger.json', code: 'EACCES' }] }],
-  ['台帳の link の後のディレクトリの fsync が I/O の誤り', 'ledger.json', { fail: [{ op: 'fsyncDir', final: 'ledger.json', code: 'EIO' }] }],
+  ['台帳の rename の後のディレクトリの fsync が I/O の誤り', 'ledger.json', { fail: [{ op: 'fsyncDir', final: 'ledger.json', code: 'EIO' }] }],
   ['台帳の再読込の指紋が合わない', 'ledger.json', { corrupt: ['ledger.json'] }],
-  ['run-daemon の台帳が既にあって指紋が違う', 'ledger.json', { files: { [join(RUN, 'ledger.json')]: { other: true } } }],
+  ['salvage の追補台帳の link が EIO', 'salvage-ledger.json', { fail: [{ op: 'link', final: 'salvage-ledger.json', code: 'EIO' }] }],
   ['salvage の追補台帳が既にあって指紋が違い、result.json が無い', 'salvage-ledger.json', { files: { [join(RUN, 'salvage-ledger.json')]: { other: true } } }],
 ];
 for (const [name, ledgerName, opts] of LEDGER_FAIL) {
@@ -304,7 +350,7 @@ for (const [name, ledgerName, opts] of LEDGER_FAIL) {
 
 test('cli-contract publishResult: どの操作がどの誤りを投げても、例外を外へ出さず 6 つの outcome のどれかを返し、完了 は published か published_unverified のときだけ', async () => {
   const { publishResult } = await loadPublish();
-  for (const op of ['writeTemp', 'link', 'fsyncDir', 'readFile']) for (const nm of ['ledger.json', 'result.json']) for (const code of ['EIO', 'EEXIST', 'EACCES']) {
+  for (const op of ['writeTemp', 'link', 'rename', 'fsyncDir', 'readFile']) for (const nm of ['ledger.json', 'result.json']) for (const code of ['EIO', 'EEXIST', 'EACCES']) {
     const fs = memFs({ fail: [{ op, final: nm, code }] });
     let out;
     assert.doesNotThrow(() => { out = publishResult(input(), fs); }, `${op} ${nm} ${code}`);

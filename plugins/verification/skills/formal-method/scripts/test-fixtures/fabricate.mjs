@@ -134,5 +134,5 @@ export function sampleResult(marker = 'fixture') {
 }
 
 export function ledgerFor(runId, resultBytes, kind = 'main') {
-  return { schema: 'formal-method.ledger/1', run_id: runId, kind, entries: [], registered_result_hash: sha256(resultBytes) };
+  return { schema: 'formal-method.ledger/2', run_id: runId, kind, entries: [], registered_result_hash: sha256(resultBytes) };
 }

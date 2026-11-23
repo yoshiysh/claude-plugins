@@ -54,8 +54,7 @@ export const PERSPECTIVES = Object.freeze(['extraction', 'nonformal', 'fidelity'
 export const MEANING_KINDS = Object.freeze([...PERSPECTIVES, 'judgment']);
 export const CAUSES = Object.freeze(['要求の不足', '形式モデルの欠陥', '分類処理の欠陥', '対象が性質を満たさない', '原因未確認']);
 export const RESULT_SCHEMA = 'formal-method.result/2';
-export const STATE_SCHEMA = 'formal-method.state/1';
-export const LEDGER_SCHEMA = 'formal-method.ledger/1';
+export const LEDGER_SCHEMA = 'formal-method.ledger/2';
 export const WORKLOG_SCHEMA = 'formal-method.worklog/1';
 export const STATUS_ACTIONS = Object.freeze(['run_agents', 'working', 'terminal']);
 const RELATIONS = ['形式化', '形式検証でない確認', '範囲外', '対応なし'];
@@ -278,9 +277,11 @@ export const Result = obj({
 export const Identity = obj({ pid: int, started_at: str, nonce: str });
 export const LockFile = obj({ pid: int, started_at: str, nonce: str, role: lit('run-daemon') });
 export const Call = obj({ call_id: str, args_path: str, deadline_wall_ms: int, workflow_script: str });
+// 公開して再読込で確かめた結果は、本文の代わりに result.json の参照で持つ（cli-contract.md「status.json」）
+export const ResultRef = obj({ ref: lit('result.json'), path: str });
 export const Status = obj({
   seq: intGe(0), run_dir: nullable(str), action: lit(...STATUS_ACTIONS),
-  call: nullable(Call), result: nullable(Result), daemon: nullable(Identity),
+  call: nullable(Call), result: nullable(oneOf(ResultRef, Result)), daemon: nullable(Identity),
 });
 
 // ---- 担当の成果物 ----
@@ -369,10 +370,17 @@ export const Worklog = obj({
   actions: str, results: str, grounds: str, failures: arr(str), unconfirmed: arr(str),
   unreadable_inputs: arr(obj({ ref: Ref, reason: str })), document_rules: obj({ ref: Ref, version: Sha256 }),
 });
-export const Ledger = obj({
-  schema: lit(LEDGER_SCHEMA), run_id: Id, kind: lit('main', 'salvage'),
-  entries: arr(obj({ kind: RecordKind, ref: Ref, hash: Sha256, stage: Stage, producer: str, model: nullable(str), effort: nullable(str), permissions: arr(str), input_refs: arr(RefHash) })),
-  registered_result_hash: nullable(Sha256),
-});
+const LedgerEntry = obj({ kind: RecordKind, ref: Ref, hash: Sha256, stage: Stage, producer: str, model: nullable(str), effort: nullable(str), permissions: arr(str), input_refs: arr(RefHash) });
+// run-daemon の台帳（ledger.json）は run の唯一の台帳で、salvage が保存済みの範囲を知るための段の確定・場所・文書規約も持つ。
+// salvage の追補台帳（salvage-ledger.json）は entries と結果の指紋だけ（artifact-formats.md「記録台帳」）
+export const Ledger = oneOf(
+  obj({
+    schema: lit(LEDGER_SCHEMA), run_id: Id, kind: lit('main'), stage_confirmed: Stage, location: lit('ローカル', 'CI'),
+    document_rules: nullable(obj({ ref: Ref, version: Sha256 })),
+    revisions: arr(obj({ task_id: Id, submit: intGe(1), stage: Stage, defects: arr1(obj({ key: str, text: str })) })),
+    entries: arr(LedgerEntry), registered_result_hash: nullable(Sha256),
+  }),
+  obj({ schema: lit(LEDGER_SCHEMA), run_id: Id, kind: lit('salvage'), entries: arr(LedgerEntry), registered_result_hash: nullable(Sha256) }),
+);
 
 export { validate, conforms, any };

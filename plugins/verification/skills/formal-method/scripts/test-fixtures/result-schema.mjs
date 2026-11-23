@@ -258,7 +258,8 @@ export const Identity = obj({ pid: int, started_at: str, nonce: str });
 export const Status = obj({
   seq: intGe(0), run_dir: nullable(str), action: lit('run_agents', 'working', 'terminal'),
   call: nullable(obj({ call_id: str, args_path: str, deadline_wall_ms: int, workflow_script: str })),
-  result: nullable(Result), daemon: nullable(Identity),
+  // 公開して確かめた結果は本文の代わりに result.json の参照（cli-contract「status.json」）
+  result: nullable(oneOf(obj({ ref: lit('result.json'), path: str }), Result)), daemon: nullable(Identity),
 });
 
 export function validate(type, value) {

@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { cli, cliEnv, drive, expectOk, expectRejected, makeWorkspace, removeTree, runCli, skipIfRoot } from './test-fixtures/cli-runner.mjs';
+import { cli, cliEnv, drive, expectOk, expectRejected, makeWorkspace, removeTree, resultOfStatus, runCli, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { runScenario, setupWorkspace, canonicalRequest, readFakeLog } from './test-fixtures/pipeline.mjs';
 import { makeHarness, defaultScenario } from './test-fixtures/agent-harness.mjs';
 import { makeFakeBin, pathWithFake } from './test-fixtures/make-fake-bin.mjs';
@@ -42,9 +42,9 @@ async function killedWhileWaitingForAgents(t) {
 }
 
 describe('cli-recovery', { concurrency: 4 }, () => {
-test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock を握ったまま殺すと、wait・claim は E_STALE、close は受け箱の外を書かず、state.json は最後の内容のまま', async (t) => {
+test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock を握ったまま殺すと、wait・claim は E_STALE、close は受け箱の外を書かず、台帳 ledger.json は最後の内容のまま', async (t) => {
   const { ws, env, status, dir } = await killedWhileWaitingForAgents(t);
-  const stateBefore = existsSync(join(dir, 'state.json')) ? readFileSync(join(dir, 'state.json')) : null;
+  const stateBefore = existsSync(join(dir, 'ledger.json')) ? readFileSync(join(dir, 'ledger.json')) : null;
   expectRejected(await cli('wait', { run_dir: dir, status_seq: status.seq }, { cwd: ws, env }), 'E_STALE');
   const before = snapshotTree(dir);
   // 役の claim は依頼を出す前に呼び出しが開いているかを見て、保持者が終わっていれば E_STALE を返す（依頼のファイルは書かない）
@@ -53,14 +53,15 @@ test('verification-plan 並行テスト SP-FORMALMETHOD-015: run-daemon を lock
   const after = snapshotTree(dir);
   const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);
   assert.ok(changed.every((k) => k === 'inbox' || k.startsWith('inbox/') || k === '.'), `受け箱の外が変わった: ${changed.join()}`);
-  if (stateBefore) assert.ok(readFileSync(join(dir, 'state.json')).equals(stateBefore));
+  if (stateBefore) assert.ok(readFileSync(join(dir, 'ledger.json')).equals(stateBefore));
 });
 
 test('cli-contract salvage 4・5 SP-FORMALMETHOD-015 AC-19: 保持者が死んだ run の salvage は、処理の中断 の停止の結果を、時刻・pid・nonce を含まず決定的に作り、台帳 → result.json の順に 1 つだけ公開する', async (t) => {
   const { ws, env, status, dir } = await killedWhileWaitingForAgents(t);
   const first = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status;
   assert.equal(first.action, 'terminal');
-  const r = first.result;
+  assert.deepEqual(first.result, { ref: 'result.json', path: join(dir, 'result.json') }, '公開した結果は result.json の参照で返す');
+  const r = resultOfStatus(first);
   assert.deepEqual(resultInvariants(r), []);
   assert.equal(r.status, '停止');
   assert.ok(r.stop_report.reasons.some((x) => x.code === '処理の中断'));
@@ -85,7 +86,7 @@ test('cli-contract salvage 4・5 SP-FORMALMETHOD-015 AC-19: 保持者が死ん�
   assert.equal(wl.stage, '集約');
   const before = snapshotTree(dir);
   const again = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status;
-  assert.deepEqual(again.result, r, '2 回目も同じ結果');
+  assert.deepEqual(resultOfStatus(again), r, '2 回目も同じ結果');
   assert.deepEqual(snapshotTree(dir), before, '2 回目は何も書かない');
   // salvage の後、run-daemon は書かない: status.json は terminal でない古いままでよいが、2 つ目の結果は現れない
   assert.deepEqual(readdirSync(dir).filter((n) => /result\.json$/.test(n)), ['result.json'], '結果のファイルは result.json 1 つだけ');
@@ -96,10 +97,10 @@ test('cli-contract 結果と台帳の保存の失敗 公開の負け: 並行に 
   const outs = await Promise.all([0, 1, 2, 3].map(() => cli('salvage', { run_dir: dir }, { cwd: ws, env })));
   const results = [];
   for (const o of outs) {
-    if (o.json?.ok) results.push(o.json.status.result);
+    if (o.json?.ok) results.push(resultOfStatus(o.json.status));
     else { const j = expectRejected(o, 'E_BUSY'); assert.equal(j.detail.holder_role, 'salvage'); assert.equal(j.detail.run_dir, dir); }
   }
-  const final = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const final = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   for (const x of results) assert.deepEqual(x, final);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), final);
   assert.deepEqual(readdirSync(dir).filter((n) => /result\.json$/.test(n)), ['result.json']);
@@ -260,8 +261,8 @@ test('cli-contract 答えの後の停止 AC-10: -model の実行で答えの行�
 
 test('cli-contract 結果と台帳の保存の失敗: salvage の追補台帳の公開が「既にあって指紋が違う」で失敗し result.json が無ければ、結果を公開せず、停止 の R\' を返し、台帳と結果を unsaved に理由付きで載せる', async (t) => {
   const { ws, env, dir } = await killedWhileWaitingForAgents(t);
-  writeFileSync(join(dir, 'salvage-ledger.json'), JSON.stringify({ schema: 'formal-method.ledger/1', run_id: 'other', kind: 'salvage', entries: [], registered_result_hash: `sha256:${'1'.repeat(64)}` }));
-  const r = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  writeFileSync(join(dir, 'salvage-ledger.json'), JSON.stringify({ schema: 'formal-method.ledger/2', run_id: 'other', kind: 'salvage', entries: [], registered_result_hash: `sha256:${'1'.repeat(64)}` }));
+  const r = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   assert.deepEqual(resultInvariants(r), []);
   assert.equal(r.status, '停止');
   assert.equal(existsSync(join(dir, 'result.json')), false, '台帳の公開に失敗したら結果を公開しない');
@@ -274,7 +275,7 @@ test('cli-contract 結果と台帳の保存の失敗: salvage の追補台帳の
   assert.equal(r.provisional, true, '公開されずに返った R\' は仮の結果');
 });
 
-test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon は state.json・status.json・result.json・ledger.json を書かずに終わる（生死の判定を誤らせる偽の ps）', async (t) => {
+test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon は status.json・result.json・ledger.json を書かずに終わる（生死の判定を誤らせる偽の ps）', async (t) => {
   const ws = setupWorkspace();
   const bin = `${ws}-bin`;
   const fakePs = `${ws}-ps`;
@@ -295,7 +296,7 @@ test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon 
   const salvaged = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env: cliEnv({ path: `${fakePs}:${path}` }) }), 'salvage').status;
   assert.equal(salvaged.action, 'terminal');
   assert.ok(existsSync(join(dir, 'salvage.mark')));
-  const watched = ['state.json', 'status.json', 'result.json', 'ledger.json'];
+  const watched = ['status.json', 'result.json', 'ledger.json'];
   const bytes = () => Object.fromEntries(watched.map((n) => [n, existsSync(join(dir, n)) ? readFileSync(join(dir, n)).toString('base64') : null]));
   const before = bytes();
   await harnessSubmit(status, ws, env);
@@ -303,7 +304,7 @@ test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon 
   assert.equal(alive(status.daemon.pid), false, 'run-daemon は終わる');
   assert.deepEqual(bytes(), before, 'salvage.mark の後は何も書かない');
   assert.ok(existsSync(join(dir, 'result.json')), 'salvage が result.json に公開した');
-  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), salvaged.result, 'run の結果は result.json の 1 つ');
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), resultOfStatus(salvaged), 'run の結果は result.json の 1 つ');
   assert.deepEqual(readdirSync(dir).filter((n) => /result\.json$/.test(n)), ['result.json']);
 });
 
@@ -314,13 +315,13 @@ async function harnessSubmit(status, ws, env) {
 
 test('cli-contract 結果と台帳の保存の失敗 公開の負け: salvage が result.json を公開した後に来た salvage は、自分の結果を作らずに既にある result.json を返す', async (t) => {
   const { ws, env, dir } = await killedWhileWaitingForAgents(t);
-  const first = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const first = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   // 既にある結果の中身によらず、それを返す（結果の形に合う別の結果に置き換えて確かめる）
   const other = { ...first, unverified: [...first.unverified, { item: '既にある結果の印', reason: 'テストが置いた' }] };
   const { rmSync } = await import('node:fs');
   rmSync(join(dir, 'result.json'));
   writeFileSync(join(dir, 'result.json'), JSON.stringify(other));
-  const again = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const again = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   assert.deepEqual(again, other);
 });
 
@@ -339,7 +340,7 @@ test('cli-contract status.json は記録に数えない: status.json を書け�
   const { rmSync } = await import('node:fs');
   rmSync(join(dir, 'status.json'));
   mkdirSync(join(dir, 'status.json', 'block'), { recursive: true });
-  const watched = () => Object.fromEntries(['state.json', 'ledger.json', 'result.json'].map((n) => [n, existsSync(join(dir, n)) ? readFileSync(join(dir, n)).toString('base64') : null]));
+  const watched = () => Object.fromEntries(['ledger.json', 'result.json'].map((n) => [n, existsSync(join(dir, n)) ? readFileSync(join(dir, n)).toString('base64') : null]));
   const h = makeHarness(defaultScenario());
   await h.onAgents(status, { cwd: ws, env });
   for (let i = 0; i < 600 && alive(status.daemon.pid); i += 1) await sleep(100);
@@ -347,7 +348,7 @@ test('cli-contract status.json は記録に数えない: status.json を書け�
   const afterDaemon = watched();
   assert.equal(afterDaemon['result.json'], null, 'run-daemon は結果を公開しない');
   expectRejected(await cli('wait', { run_dir: dir, status_seq: status.seq }, { cwd: ws, env }), 'E_STALE');
-  const r = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const r = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   assert.equal(r.status, '停止');
   assert.equal(r.provisional, false, 'salvage が公開した結果は正の結果');
   assert.ok(r.stop_report.reasons.some((x) => x.code === '処理の中断'));
@@ -398,7 +399,7 @@ test('cli-contract 状態を決める順序 SP-FORMALMETHOD-014・015: 集約の
     assert.ok(out.error, '結果を返せないときは誤りの出力が返る');
   }
   // 領域を書けるようにして salvage を呼ぶと、result.json が公開され、正の結果に置き換わる
-  const sv = expectOk(await cli('salvage', { run_dir: lockedDir }, { cwd: ws, env }), 'salvage').status.result;
+  const sv = resultOfStatus(expectOk(await cli('salvage', { run_dir: lockedDir }, { cwd: ws, env }), 'salvage').status);
   assert.equal(sv.provisional, false);
   assert.deepEqual(JSON.parse(readFileSync(join(lockedDir, 'result.json'), 'utf8')), sv);
 });
@@ -426,14 +427,14 @@ test('cli-contract salvage 4: salvage.mark を I/O の誤りで書けなけれ�
   assert.equal(existsSync(join(dir, 'salvage.mark')), false);
   assert.deepEqual(second.result, r, 'R\' は決定的で、何度呼んでも同じ内容');
   // 領域を書けるようにして salvage を呼ぶと、result.json が公開され、それが正の結果になる
-  const final = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const final = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   assert.equal(final.provisional, false);
   assert.ok(existsSync(join(dir, 'result.json')));
   const published = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
   assert.deepEqual(published, final, '正の結果は result.json');
   assert.equal(published.provisional, false);
   assert.deepEqual(resultInvariants(published), []);
-  const again = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const again = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   assert.deepEqual(again, published, '以後は公開された結果を返す');
 });
 
@@ -443,7 +444,7 @@ test('cli-contract wait・salvage 3: 壊れた status.json（JSON でない）�
   rmSync(join(dir, 'status.json'));
   writeFileSync(join(dir, 'status.json'), '{"seq": 9, "action": "termin');
   expectRejected(await cli('wait', { run_dir: dir, status_seq: 0 }, { cwd: ws, env }), 'E_STALE');
-  const r = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const r = resultOfStatus(expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status);
   assert.equal(r.status, '停止');
   assert.ok(r.stop_report.reasons.some((x) => x.code === '処理の中断'));
   assert.ok(existsSync(join(dir, 'salvage.mark')), '規則 4 に進んだ');
@@ -455,14 +456,18 @@ test('cli-contract 仮の結果と正の結果: 結果の公開に失敗した R
   const { ws, env, dir } = await killedWhileWaitingForAgents(t);
   chmodSync(dir, 0o555);
   t.after(() => { try { chmodSync(dir, 0o755); } catch { /* 消し済み */ } });
-  const r1 = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const s1 = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status;
+  assert.equal(s1.result.schema, 'formal-method.result/2', 'result.json が無い仮の結果は、Status が本文を持つ（参照する先が無い）');
+  const r1 = resultOfStatus(s1);
   chmodSync(dir, 0o755);
   assert.deepEqual(resultInvariants(r1), []);
   assert.equal(r1.provisional, true);
   assert.equal(r1.status, '停止');
   assert.ok(r1.records.unsaved.some((u) => u.kind === 'result'));
   assert.equal(existsSync(join(dir, 'result.json')), false);
-  const r2 = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status.result;
+  const s2 = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status;
+  assert.deepEqual(s2.result, { ref: 'result.json', path: join(dir, 'result.json') }, '公開した結果は result.json の参照で返す');
+  const r2 = resultOfStatus(s2);
   assert.deepEqual(resultInvariants(r2), []);
   assert.equal(r2.provisional, false);
   assert.ok(!r2.records.unsaved.some((u) => u.kind === 'result'));

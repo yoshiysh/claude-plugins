@@ -4,7 +4,7 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { cli, cliEnv, expectOk, expectRejected, makeWorkspace, removeTree, skipIfRoot } from './test-fixtures/cli-runner.mjs';
+import { cli, cliEnv, expectOk, expectRejected, makeWorkspace, removeTree, resultOfStatus, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import {
   deadIdentity, liveIdentity, reusedIdentity, makeRunDir, writeLock, writeStatus, statusOf, snapshotTree,
   sampleResult, ledgerFor,
@@ -144,7 +144,7 @@ test('cli-contract salvage 生死の判定 1: ps を使えなくても kill(pid,
   assert.ok(runId);
 });
 
-test('cli-contract salvage 2: result.json があり結果の形に合えば、台帳の指紋・state.json・status.json によらずそれを返し、何も書かない', async (t) => {
+test('cli-contract salvage 2: result.json があり結果の形に合えば、台帳の指紋・status.json によらずそれを返し、何も書かない', async (t) => {
   const { ws, dir, runId, id } = await fixture(t, { holder: 'dead' });
   writeStatus(dir, statusOf(dir, { seq: 4, daemon: id, action: 'working' }));
   const res = sampleResult('published');
@@ -154,7 +154,8 @@ test('cli-contract salvage 2: result.json があり結果の形に合えば、�
   const j = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws }), 'salvage');
   assert.deepEqual(validate(Status, j.status), []);
   assert.equal(j.status.action, 'terminal');
-  assert.deepEqual(j.status.result, res, '台帳の指紋は照合しない');
+  assert.deepEqual(j.status.result, { ref: 'result.json', path: join(dir, 'result.json') }, '公開済みの結果は本文でなく result.json の参照で返す');
+  assert.deepEqual(resultOfStatus(j.status), res, '台帳の指紋は照合しない');
   assert.deepEqual(snapshotTree(dir), before, 'salvage.mark を作らない');
 });
 

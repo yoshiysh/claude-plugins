@@ -327,3 +327,21 @@ test('scheduler の unit: 止めた場合も close が来るまで戻らない',
   const out = await pending;
   assert.deepEqual(out.end, STOP_TIME);
 });
+
+// children/<pgid>.json は salvage が生きている道具の group を止めるための記録（cli-contract「salvage の手順」5-1）。
+// 生きている間は残し、process が終わったら消す（終わった group を止める必要は無い）。
+test('cli-contract Z3 の adapter・run の領域の配置: spawnTool は道具の group を children/<pgid>.json に記録してから入力を渡し、道具が終わったらその記録を消す', async () => {
+  const { mkdtempSync, existsSync, readdirSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnTool } = await import('./process.mjs');
+  const runDir = mkdtempSync(join(tmpdir(), 'fm-children-'));
+  try {
+    const h = spawnTool({ executable: process.execPath, args: ['-e', 'process.stdin.resume(); process.stdin.on("end", () => setTimeout(() => process.exit(0), 300));'], stdin: 'q', runDir });
+    assert.equal(h.startFailure, null);
+    const names = readdirSync(join(runDir, 'children')).filter((n) => /^\d+\.json$/.test(n));
+    assert.equal(names.length, 1, '動いている間は記録がある');
+    await new Promise((resolve) => { h.onClose(resolve); });
+    assert.equal(existsSync(join(runDir, 'children', names[0])), false, '道具が終わったら記録を消す');
+  } finally { rmSync(runDir, { recursive: true, force: true }); }
+});

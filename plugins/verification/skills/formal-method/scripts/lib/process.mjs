@@ -1,8 +1,8 @@
 // 子 process の起動と制御（architecture.md「時計と資源」「保存と排他」のホストに殺されたとき）。
-// 道具は解決した絶対 path と空の環境で、新しい process group として起動し、children/<pgid>.json に記録してから待つ。
+// 道具は解決した絶対 path と空の環境で、新しい process group として起動し、children/<pgid>.json に記録してから待ち、終わったら記録を消す。
 // 常駐メモリと CPU 時間は記録のためだけに標本を取り、標本では止めない。
 import { spawn, execFile, execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { MEMORY_SAMPLE_MS } from './schemas.mjs';
 import { findExecutable } from './adapters/z3.mjs';
@@ -61,11 +61,13 @@ export function spawnTool({ executable, args, stdin, runDir }) {
   const closeCbs = [];
   let closed = false;
   let startFailure = null;
+  let childRecorded = false;
   if (pgid) {
     const startedAt = startTimeOf(pgid) ?? UNKNOWN_START_TIME;
     try {
       mkdirSync(join(runDir, 'children'), { recursive: true });
       atomicWrite(join(runDir, 'children', `${pgid}.json`), JSON.stringify({ pgid, started_at: startedAt }));
+      childRecorded = true;
     } catch (e) {
       startFailure = `道具の process group を children/ に記録できない（${e.code ?? e.message}）`;
       killGroup(pgid, 'SIGKILL');
@@ -95,6 +97,8 @@ export function spawnTool({ executable, args, stdin, runDir }) {
     sampling = false;
     stats.elapsed_ms = Number((process.hrtime.bigint() - stats.started_hr) / 1000000n);
     if (pgid) killGroup(pgid, 'SIGKILL');
+    // 記録は salvage が生きている group を止めるためのもの。group を止めた後は要らないので消す（消せなくても実行の結果は変えない）
+    if (childRecorded) { try { unlinkSync(join(runDir, 'children', `${pgid}.json`)); } catch { /* 残っても salvage は生きていない group を止めない */ } }
     for (const cb of closeCbs) cb(code);
   };
   child.on('close', (code) => finish(code));

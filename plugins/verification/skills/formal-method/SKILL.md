@@ -63,7 +63,7 @@ description: >
 
 次の場合は補わずに、書かれたとおり渡すかを尋ねる: 任意の項目が欠けている、時間の上限が書かれていない、対象に URL と path が混ざっている（`file://` 以外の URI は CLI が取得できない対象として扱う）。
 
-**既に在る run の結果を見たいとき**: 依頼元が `run_dir` を示したら、[呼び方](#cli-の呼び方と-timeout) に従って `wait` を `{"run_dir": "<run_dir>", "status_seq": 0}` で呼び、以後は [手順](#手順) の分岐に従う。`run_dir` が示されていなければ、どの run かを尋ねる。司令塔は保存先のディレクトリを一覧して run を選ばない（どれを選ぶかの規則は CLI に無い）。run の記録を直接読んで結果として示したり、書き換えたりしない。
+**既に在る run の結果を見たいとき**: 依頼元が `run_dir` を示したら、[呼び方](#cli-の呼び方と-timeout) に従って `wait` を `{"run_dir": "<run_dir>", "status_seq": 0}` で呼び、以後は [手順](#手順) の分岐に従う。`run_dir` が示されていなければ、どの run かを尋ねる。司令塔は保存先のディレクトリを一覧して run を選ばない（どれを選ぶかの規則は CLI に無い）。run の記録を直接読んで結果として示したり、書き換えたりしない（読むのは、CLI の出力の `status.result` が参照で示した `result.json` だけ。[結果の提示](#結果の提示)）。
 
 ## CLI の呼び方と timeout
 
@@ -185,9 +185,12 @@ node -e 'setTimeout(() => {}, Math.max(0, Number(process.argv[1]) - Date.now()))
 
 ## 結果の提示
 
-`status.action` が `terminal` のとき、`status.result` が結果の正本である。提示は結果の欄の値を並べて引用するだけで、本文を作らない。結果の構造に無い成功を足さない（SP-FORMALMETHOD-003）。
+`status.action` が `terminal` のとき、結果の正本は次のどちらかである（[CLI 契約の status.json](references/cli-contract.md#statusjson)）。提示は結果の欄の値を並べて引用するだけで、本文を作らない。結果の構造に無い成功を足さない（SP-FORMALMETHOD-003）。
 
-**呼び出し元がスキルのとき**: `status.result` を書き換えずにそのまま返し、`status.run_dir` を添える。仮の結果であることは `provisional` の欄で伝わる。
+- `status.result` が `{"ref": "result.json", "path": ...}`（参照）なら、`path` のファイルが結果の正本である。提示に要る欄だけを取り出して読む。ファイルは 1 行の JSON で数 MB になりうるので、全体を Read しない。例: `node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify({status:r.status,provisional:r.provisional,stop_report:r.stop_report,unverified:r.unverified}))' <path>`。出力の JSON に結果の本文は無い（本文を文脈に入れないため）。
+- `status.result` が結果の本文（`schema` を持つ）なら、それが正本である。仮の結果（`provisional: true`）か、保存を確かめられなかった結果である。
+
+**呼び出し元がスキルのとき**: `status.result` を書き換えずにそのまま返し、`status.run_dir` を添える（参照なら参照のまま返す。呼び出し元が `path` を読む）。仮の結果であることは本文の `provisional` の欄で伝わる。
 
 **人に示すとき**は、次の順に示す。
 

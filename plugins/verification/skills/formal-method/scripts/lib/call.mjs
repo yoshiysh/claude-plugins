@@ -148,6 +148,7 @@ export async function runCall(run, { stage, workers }) {
     const dir = scratchOf(ctx, w);
     try { mkdirSync(dir, { recursive: true }); } catch (e) { run.saveFailed('worklog', relative(run.runDir, dir), `worker の scratch_dir を作れない（${e.code ?? e.message}）`); return notIssued('worker の scratch_dir を作れないので担当を出さなかった'); }
   }
+  run.removeClosedExchanges();
   try {
     for (const d of ['requests', 'responses']) mkdirSync(join(run.runDir, d, callId), { recursive: true });
     guardedWrite(run.runDir, LAUNCHER, launcherText());
@@ -175,6 +176,9 @@ export async function runCall(run, { stage, workers }) {
   writeTasks(ctx, stage);
   recordClose(run, { callId, stage, box, closedBy, rows, tasks: allStates(ctx).length });
   run.writeStatus('working', null);
+  // 依頼と応答は受け渡しの口で、記録ではない。閉じた直後は、最後の drain の応答を client が読み直すので残し、
+  // 次の呼び出しを開くときか集約で消す（cli-contract.md「依頼と応答」「run の領域の配置」）
+  run.closedCalls.push(callId);
   return out;
 }
 
@@ -474,9 +478,9 @@ function submit(ctx, s) {
   s.snapshot = attemptHashes(run, s);
   const remaining = r.defects.map((d) => d.text);
   if (r.defects.length === 0 || s.submits >= SUBMITS_MAX || r.defects.length >= s.prev || run.halted()) return accept(ctx, s, s.last, remaining);
-  const ref = join('revisions', `${s.task.task_id}-${s.submits}-defects.json`);
-  if (!run.writeRecordFile(ref, JSON.stringify({ task_id: s.task.task_id, submit: s.submits, defects: r.defects.map((d) => ({ key: d.key, text: d.text })) }, null, 2), { kind: 'worklog' })) return accept(ctx, s, s.last, remaining);
-  run.log(s.task.context.stage).actions.push(`${s.task.role} の提出 ${s.submits} 回目に欠陥 ${r.defects.length} 件を見つけたので、同じ担当に出し直させた（${ref}）。`);
+  // 出し直しに返した欠陥は台帳の revisions に持つ（submit の応答の problems と同じ中身で、応答は呼び出しを閉じると消す）
+  run.revisions.push({ task_id: s.task.task_id, submit: s.submits, stage: s.task.context.stage, defects: r.defects.map((d) => ({ key: d.key, text: d.text })) });
+  run.log(s.task.context.stage).actions.push(`${s.task.role} の提出 ${s.submits} 回目に欠陥 ${r.defects.length} 件を見つけたので、同じ担当に出し直させた（台帳の revisions）。`);
   s.prev = r.defects.length;
   s.lastCause = `欠陥 ${r.defects.length} 件の出し直しを求めた後、書き換えた成果物が提出されなかった`;
   return result(s, false, remaining);

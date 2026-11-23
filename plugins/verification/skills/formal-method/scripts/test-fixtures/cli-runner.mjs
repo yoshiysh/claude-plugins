@@ -1,7 +1,7 @@
 // 本番と同じ入口（標準入力の JSON 1 つ、標準出力の 1 行の JSON）から formal-method-cli.mjs を呼ぶ。
 // 入力の口は cli-contract.md「呼び方と入力の口」のとおり、各コマンドの標準入力と、PATH・CI・現在のディレクトリだけを使う。
 import { spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, chmodSync, readdirSync, lstatSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, chmodSync, readdirSync, lstatSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -127,6 +127,18 @@ export function expectRejected(r, code, detailReason = undefined) {
   return r.json;
 }
 
+// terminal の Status の結果（cli-contract「status.json」）。result が result.json の参照なら、参照の形を確かめてそのファイルを読む。
+export function resultOfStatus(status) {
+  const r = status.result;
+  if (r && typeof r === 'object' && 'ref' in r && !('schema' in r)) {
+    assert.deepEqual(Object.keys(r).sort(), ['path', 'ref'], '結果の参照は ref と path だけ');
+    assert.equal(r.ref, 'result.json');
+    assert.equal(r.path, join(status.run_dir, 'result.json'));
+    return JSON.parse(readFileSync(r.path, 'utf8'));
+  }
+  return r;
+}
+
 // start から terminal まで進める。run_agents が来たら onAgents(status) を呼ぶ（担当の代わり）。
 // onAgents が無いのに run_agents が来たら失敗にする（受付で止まるはずのケース）。
 export async function drive(workspace, request, { env, onAgents = null, maxSteps = 200, onStatus = null } = {}) {
@@ -149,7 +161,7 @@ export async function drive(workspace, request, { env, onAgents = null, maxSteps
   statuses.push(status);
   for (let step = 0; step < maxSteps; step += 1) {
     if (onStatus) await onStatus(status, statuses);
-    if (status.action === 'terminal') return { status, result: status.result, statuses };
+    if (status.action === 'terminal') return { status, result: resultOfStatus(status), statuses };
     if (status.action === 'run_agents') {
       assert.ok(onAgents, `担当の起動を求められた（受付で止まるはずのケース）: ${JSON.stringify(status.call)}`);
       await onAgents(status);

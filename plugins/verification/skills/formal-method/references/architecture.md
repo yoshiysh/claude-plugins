@@ -136,7 +136,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 
 - `run-daemon` は、run の領域を作る時点から終わりまで、run の lock を持ち続ける。
 - 前景のコマンドは client で、次のことしかしない。
-  - lock を取らない、`state.json` を書かない。
+  - lock を取らない、台帳（`ledger.json`）を書かない。台帳に届くのは CLI のコマンド（担当は `claim`・`query`・`submit`、司令塔は `close`）の依頼を `run-daemon` が処理した結果だけである。
   - 書くのは、受け箱（`inbox/`）と依頼（`requests/`）のファイルの排他作成だけである。
   - 読むのは `status.json` だけである。
 - 段の進行・決定的な照合・検査の実行・集約・保存は、全て `run-daemon` が行う。
@@ -237,7 +237,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - `submit` は、返り値を書いた task（前の照合から attempt の領域が変わったもの。無ければ出し終えていない全ての task）の `result_path` の返り値を照合し（[担当の返り値](artifact-formats.md#担当の返り値)と各段の照合）、task ごとに `{ok, problems, done}` を返す。受理したものは、呼び出しを閉じた後に台帳に足す。期限の後と閉じた後の `submit` は拒む。
   - 担当が見ていない前の `submit` の応答（依頼の公開から `WORKER_CALL_MAX_MS` 近くの後に書いた応答か、書けなかった応答）があり、その後に取った task の attempt の領域が 1 つも変わっていなければ、照合し直さず前の応答をそのまま返す（期限の後でも返す）。前の応答を見た後の同じ提出は、直せなかった提出として照合する（欠陥が減らなければ残った欠陥ごと受理する）。
   - 理由: `no_response` の後に同じ `submit` を流し直すと、照合が 2 度走って提出の回数が増え、作成役は欠陥を見ないまま出し直しの機会を失い、束の worker は返り値を書いていない task まで照合されて `担当の失敗` になる。見た応答の後の同じ提出まで前の応答を返すと、直せない作成役が受理にも失敗にも決まらず、依存つきの task（計画）が出ないまま期限まで待つ。
-- 依頼と応答（正本は `cli-contract.md` の依頼と応答）: client は依頼を `requests/<call_id>/<req_id>.json` に link で公開し、`responses/<call_id>/<req_id>.json` を待つ。`run-daemon` は呼び出しが開いている間、依頼を届いた順に 1 つずつ処理し、応答を `guardedWrite` で書く。
+- 依頼と応答（正本は `cli-contract.md` の依頼と応答）: client は依頼を `requests/<call_id>/<req_id>.json` に link で公開し、`responses/<call_id>/<req_id>.json` を待つ。`run-daemon` は呼び出しが開いている間、依頼を届いた順に 1 つずつ処理し、応答を `guardedWrite` で書く。閉じた呼び出しの依頼と応答は、次の呼び出しを開くときか集約で消す（閉じた直後は client が最後の応答を読み直すので残す）。
   - 理由: 台帳と run の状態を書くのは `run-daemon` だけという規則（[保存と排他](#保存と排他)、`Lock.tla`・salvage の前提）を保ったまま、担当が CLI と直接受け渡せる。照合の関数は `run-daemon` の記憶（前の段の成果物）を前提にしている。
   - 退けた案: 担当が台帳を直接書く（coverage-audit の `ledger.lock` の型）。書き手が増え、lock の引き渡しと salvage の扱いを作り直すことになる。
 - 呼び出しの期限は、担当の呼び出しの期限（`AGENT_BATCH_DEADLINE_MS` と検査に使える期限の早い方）とする。期限までに `close` が届かなければ、`run-daemon` が期限で閉じる。
@@ -316,7 +316,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - **不変の記録**: 証拠は `writeEvidence` で、一時ファイル・fsync・rename・ディレクトリの fsync を通して書く。
   - 同じ path を別の内容で上書きしない。
   - 保存の直前に秘密値の形を走査し、見つかれば書かない。走査の型（秘密鍵など誤検知の少ない 4 つ）の閉じた集合の正本は `cli-contract.md`。対象の写しは作らないので、対象のファイルは run の記録にならず、走査の対象でもない。
-- **状態**: `state.json` は `run-daemon` が rename で置き換える。保存済みの範囲は、rename が終わった `state.json` だけで決まる。
+- **状態**: 台帳 `ledger.json` は `run-daemon` が段の確定ごとに rename で置き換える（書く関数は `writeLedger` の 1 つ）。保存済みの範囲は、rename が終わった `ledger.json` だけで決まる。台帳は run に 1 つで、内部の状態の写し（旧 `state.json`）を持たない（PR-032）。
 - **run の領域の作成と lock**（引き渡しを持たない）:
   1. `start` が、一時の名前（`<root>/.tmp-<run_id>-<nonce>/`）にディレクトリを作り、`request.input.json` を書く（`.tmp-*` を作るのは `start` だけ。`cli-contract.md` の構造の契約）。
   2. `run-daemon` が、その中に `run.lock` を排他作成する。
@@ -329,11 +329,11 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 - **保持者の生死**: 生きているのは、その pid の process があり、その開始時刻が lock の記録と一致する場合だけとする。
   - pid だけで判定しないのは、pid の再利用で、終わった保持者を生きていると誤るためである。
   - `kill(pid, 0)` が「無い」なら死んでいると確定する。開始時刻を読めない場合は、判定できない（`liveness: "unknown"`）として生きている側に扱う。理由: 止まっている側に倒すと、結果が 2 つできることはない。判定できない状態が `LIVENESS_UNKNOWN_MAX` 回続いたら、司令塔は結果を作らずに終える（`ps` が使えない環境で待ち続けないため）。
-- **salvage の印**: `run-daemon` は、`state.json`・`status.json`・結果・台帳を書く直前に、毎回 `salvage.mark` が無いことを確かめる。あれば何も書かずに終わる。
+- **salvage の印**: `run-daemon` は、`status.json`・結果・台帳を書く直前に、毎回 `salvage.mark` が無いことを確かめる。あれば何も書かずに終わる。
   - 生死の判定が正しければ、salvage が動くときに `run-daemon` は終わっている。この確認は、判定が誤った場合の防御である。
-- **salvage の規則**: lock を取らず、`state.json`・`status.json`・`ledger.json` を書かない。規則の正本は `cli-contract.md` の「salvage の手順」で、要点は次のとおり。
+- **salvage の規則**: lock を取らず、`status.json`・`ledger.json` を書かない。規則の正本は `cli-contract.md` の「salvage の手順」で、要点は次のとおり。
   1. lock の保持者が生きていれば `E_BUSY`（役 `run-daemon`）。
-  2. `result.json` があれば、それを返す（`state.json` は判定に使わない）。
+  2. `result.json` があれば、それを返す（台帳は判定に使わない）。
   3. `status.json` が `terminal` なら、その結果を返す。
   4. `salvage.mark`（識別を書いた一時ファイルからの link）で勝者を決める。勝者が生きていれば `E_BUSY`（役 `salvage`）。
   5. 保存済みの範囲だけから決定的に結果を作り、追補台帳 → `result.json` の順に公開する。`result.json` は `run-daemon` と同じ名前で、既にあれば負けとし、既にある結果を返す。
@@ -347,7 +347,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
   - 結果の中では、結果のファイル自身と台帳を参照だけで持ち、指紋を持たせない（指紋が循環するため）。
   - `status.json` は記録に数えない。client への受け渡しの口なので、書けなければ `run-daemon` は終わり、salvage が結果を返す。
 - **ホストに殺されたとき**:
-  - `run-daemon` は自分の process group で動き、道具の process group を起動し、標準入力（query）を渡す前に `children/` に記録する（記録できなければ入力を渡さずに止め、起動の失敗とする。正本は `cli-contract.md` の Z3 の adapter）。
+  - `run-daemon` は自分の process group で動き、道具の process group を起動し、標準入力（query）を渡す前に `children/` に記録し、道具が終わったら記録を消す（記録できなければ入力を渡さずに止め、起動の失敗とする。正本は `cli-contract.md` の Z3 の adapter）。
   - 前景の CLI がホストに殺されても、状態を書く者ではないので何も壊れない。
   - `run-daemon` が殺されたら lock が残り、`wait` は保持者の終了を観測して `E_STALE` を返す。salvage の規則 5-1 が、残った道具の process を止める。
   - 道具は検査ごとの時間の上限（`-T`）を持つので、回収されなくても有限の時間で終わる。
@@ -373,7 +373,7 @@ SP-012 が決定的な検査として求める「反例の再実行」は、反�
 | 依頼を受け付けない（SP-001） | 検証を始めない。対象の取得より前の不備なら、何も取得しない | 結果を保存できれば保存し、`status.json` の `terminal` で返す。`stop_report.stage` は受付 |
 | 時間の上限に達した（SP-010） | 実行中の道具の実行（確認用も含む）を止める。始めていない実行と担当を始めない。開いている呼び出しは期限で閉じる | 集約の段の処理を、得た範囲だけで行う。確認の段より前に達したら確認の段に入らない（意味の確認を作らず、反例と組合せの原因は `原因未確認` で作る）。確認の段の中で達したら、組み立てた unit のうち出さなかったものを `artifact-formats.md` の確認の「担当を出さなかったとき」で扱う |
 | 保存できない記録があった（SP-014） | 新しい書込みを始めない。保存できたものはそのまま残す | 集約の段で結果を作り、保存を 1 度だけ試す。下の「保存先に書けないとき」 |
-| `run-daemon` の内部の誤り | 途中まで書き換えた状態を捨て、前回の `state.json` から集約する | 同上 |
+| `run-daemon` の内部の誤り | 途中まで書き換えた状態を捨て、前回の台帳（`ledger.json`）の範囲から集約する | 同上 |
 
 **全ての段を終えた run の扱い**
 
@@ -844,7 +844,7 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
 
 - 担当（作成役・独立検証者）は、自分の attempt の領域に作業記録を書く。欄は PR-028 の 9 項目（担当、段、対象、入力、実行内容、結果、根拠、失敗、未確認）である。
 - CLI の決定的な処理も担当（`cli`）として、段ごとに同じ欄の作業記録を書く（PR-028 の「担当ごと」）。
-- 記録台帳（`ledger.json`）は CLI だけが書く（PR-029）。各記録の参照・指紋・段・担当・model・effort・渡した資料の参照と指紋を持つ。
+- 記録台帳（`ledger.json`）は CLI だけが書く（PR-029）。各記録の参照・指紋・段・担当・model・effort・渡した資料の参照と指紋と、作成役の出し直しに返した欠陥（`revisions`）を持つ。
 - 同じ内容を複数の記録に正本として書かない（PR-032）。
   - 判定の正本は結果。
   - 検査の生の入出力の正本は `checks/<id>/` の証拠。
@@ -865,7 +865,7 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
 | 7 つのコマンド（司令塔の 4 つと担当の 3 つ）の入力・出力・終了コードと誤りの code（値の正本は `cli-contract.md` の誤りと終了コードの表。ここには写さない） | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担) |
 | `status.json` の形（`seq` は 1 から、`action` の 3 種、`daemon` の識別）と、`start` の `working` の `status_seq: 0` | `cli-contract.md`・`schemas.mjs` | 同上 |
 | 起動の手順、受け箱の公開、依頼と応答、salvage の規則 1〜5、salvage の印、結果と台帳の保存の失敗の表、生死の判定 | `cli-contract.md` | [司令塔と CLI の分担](#司令塔と-cli-の分担)、[保存と排他](#保存と排他) |
-| run の領域の配置: `run.lock`・`state.json`・`status.json`・`inbox/`・`requests/`・`responses/`・`calls/<call_id>/`（`args.json`・`tasks.json`）・`formal-method-cli.mjs`（役の入口）・`revisions/`・`attempts/<task_id>/`（`return.json`・作業記録・成果物）・`checks/<id>/`・`children/`・`result.json`・`report.md`・`ledger.json`・`salvage.mark`・`salvage-ledger.json`・`document-rules/`、root の `index/<run_id>.json` と `.tmp-<run_id>-<nonce>/` | `cli-contract.md` | [保存と排他](#保存と排他) |
+| run の領域の配置: `run.lock`・`status.json`・`inbox/`・`requests/`・`responses/`・`calls/<call_id>/`（`args.json`・`tasks.json`）・`formal-method-cli.mjs`（役の入口）・`attempts/<task_id>/`（`return.json`・作業記録・成果物）・`checks/<id>/`・`children/`・`result.json`・`report.md`・`ledger.json`・`salvage.mark`・`salvage-ledger.json`・`document-rules/`、root の `index/<run_id>.json` と `.tmp-<run_id>-<nonce>/` | `cli-contract.md` | [保存と排他](#保存と排他) |
 | 構造の契約: `run.lock` を消すのは `scripts/lib/store.mjs` の `releaseOwnLock` だけで、nonce の照合の後にだけ消す | `cli-contract.md` | [保存と排他](#保存と排他) |
 | 結果の形（キーの言語、全ての欄、`properties[]`・`models[].behavior`・`decomposition`・`confirmations`・`records`・`stop_report`・`performance`） | `schemas.mjs`（`RESULT`）・`cli-contract.md` | [結果の構造](#結果の構造)、[依存グラフと合成](#依存グラフと合成)、[性能の記録・比較・改善](#性能の記録比較改善) |
 | 検査の終わり方（`end`）の欄と値、`classifyCheck`・`aggregateProperty`・`decideStatus` の入出力 | `schemas.mjs`・`cli-contract.md` | [結果の構造](#結果の構造)、[判定の集約](#判定の集約) |
@@ -960,4 +960,4 @@ SP-FORMALMETHOD-012 の静的な確認の表を、CLI の決定的な確認と�
   - SP-014 の「保存できなかった記録を保存したと示さない」と、SP-015 の「記録を全て保存した」に対する限界である。結果を常に 1 つにすることを優先した。
 - **生死を判定できない環境**: `ps` が使えず、pid が再利用された場合は、生死が分からないまま待つことになる。司令塔は `LIVENESS_UNKNOWN_MAX` 回の後、結果を作らずに「生死を判定できない」誤りとして終える（依頼者の決定。形式検証の `lock-termination`）。この場合、結果は返らない。
 - **仮の結果**: 保存できない状態で返した `停止` の R' は `provisional: true` の仮の結果である。あとで別の salvage が `result.json` を公開すると、受け取った仮の結果と公開された結果が食い違う（形式検証の 4 ケース。生死の誤判定が無くても、`status.json` が読めないだけでも起こる）。依頼者の決定で、公開された `result.json` を正とする。公開される `result.json` は常に 1 つである。
-- **`run-daemon` の異常終了**: 保存の途中で落ちた run は続けない。`salvage` が、rename を終えた `state.json` の範囲だけで停止の結果を作る。
+- **`run-daemon` の異常終了**: 保存の途中で落ちた run は続けない。`salvage` が、rename を終えた台帳 `ledger.json` の範囲だけで停止の結果を作る。

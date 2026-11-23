@@ -275,7 +275,7 @@ test('SP-FORMALMETHOD-001・014 AC-15: 受付で止めた run は、run-daemon �
   assert.deepEqual(onDisk, result, 'status の result と result.json が同じ');
   assert.equal(onDisk.provisional, false, '公開された result.json は正の結果');
   const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8'));
-  assert.equal(ledger.schema, 'formal-method.ledger/1');
+  assert.equal(ledger.schema, 'formal-method.ledger/2');
   assert.equal(ledger.kind, 'main');
   assert.equal(ledger.registered_result_hash, fileHash(join(dir, 'result.json')));
   assert.deepEqual(readdirSync(join(ws, RUNS)).filter((n) => n.startsWith('.tmp-') || n.startsWith('.probe-')), [], '一時の領域と能力の確認の領域が残らない');

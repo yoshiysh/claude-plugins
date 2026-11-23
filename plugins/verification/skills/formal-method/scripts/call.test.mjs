@@ -37,7 +37,7 @@ function makeRun(t, { deadlineMs = 60000 } = {}) {
   mkdirSync(join(runDir, 'targets', 'T1', 'files'), { recursive: true });
   writeFileSync(join(runDir, 'request.json'), '{"note":"request"}\n');
   writeFileSync(join(runDir, 'targets', 'T1', 'files', 'spec.md'), '# spec\n');
-  writeFileSync(join(runDir, 'state.json'), '{}\n');
+  writeFileSync(join(runDir, 'ledger.json'), '{}\n');
   const identity = { pid: process.pid, started_at: startTimeOf(process.pid), nonce: 'abc123' };
   writeFileSync(join(runDir, 'run.lock'), JSON.stringify({ ...identity, role: 'run-daemon' }));
   const run = new Run({ runDir, runId: 'run1', root, workspace: root, nonce: 'abc123', identity });
@@ -104,7 +104,7 @@ test('cli-contract 依頼と応答 SP-FORMALMETHOD-012 AC-04 query: 担当の外
   const c2 = await workerCall('claim', { ...base, worker: 'w02' });
   assert.equal(c1.ok, true);
   assert.deepEqual(Object.keys(c1.tasks[0].context).sort(), ['candidates', 'model_id', 'perspective', 'property_ids', 'run_dir', 'stage', 'subject', 'target_id', 'unit_id'], 'claim は資料を渡さない');
-  const outside = await workerCall('query', { ...base, worker: 'w01', task_id: c1.tasks[0].task_id, refs: ['state.json'] });
+  const outside = await workerCall('query', { ...base, worker: 'w01', task_id: c1.tasks[0].task_id, refs: ['ledger.json'] });
   assert.deepEqual([outside.ok, outside.code, outside.detail.reason], [false, 'E_CALL', 'outside_task']);
   const other = await workerCall('query', { ...base, worker: 'w01', task_id: c2.tasks[0].task_id });
   assert.deepEqual([other.code, other.detail.reason], ['E_CALL', 'outside_task']);
@@ -144,6 +144,34 @@ test('cli-contract 依頼と応答 SP-FORMALMETHOD-015 AC-19 submit: 閉じた�
   assert.equal(out[0].ok, false);
   assert.match(out[0].cause, new RegExp(`${call.call_id}.*${c.tasks[0].task_id}.*claim したまま submit しなかった`));
   assert.deepEqual(run.agentFailures.map((x) => [x.code, x.stage, x.detail]), [['担当の失敗', '確認', out[0].cause]]);
+});
+
+test('cli-contract 依頼と応答 run の領域の配置: 閉じた呼び出しの requests/<call_id>/ と responses/<call_id>/ は、閉じた直後は client が応答を読み直せるよう残し、次の呼び出しを開くときに消す（受け渡しの口で、記録ではない）', async (t) => {
+  const run = makeRun(t);
+  const p = callOf(run, '確認', [{ spec: reviewSpec() }]);
+  const call = await waitOpen(run.runDir);
+  const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
+  const c = await workerCall('claim', base);
+  writeReview(c.tasks[0]);
+  assert.equal((await workerCall('submit', base)).results[0].ok, true);
+  assert.ok(existsSync(join(run.runDir, 'requests', call.call_id)) && existsSync(join(run.runDir, 'responses', call.call_id)), '開いている間は依頼と応答がある');
+  closeWith(run, call.call_id, agentsOf(1));
+  const out = await p;
+  assert.equal(out[0].ok, true);
+  assert.equal(readStatus(run.runDir).action, 'working', '呼び出しを閉じた status を書いた');
+  assert.ok(existsSync(join(run.runDir, 'responses', call.call_id)), '閉じた直後は、最後の drain の応答を client が読み直せる');
+  const late = await workerCall('claim', base);
+  assert.deepEqual([late.code, late.detail.reason], ['E_CALL', 'call_closed']);
+  const p2 = callOf(run, '確認', [{ spec: reviewSpec() }]);
+  const call2 = await waitOpen(run.runDir);
+  assert.notEqual(call2.call_id, call.call_id);
+  assert.equal(existsSync(join(run.runDir, 'requests', call.call_id)), false, '次の呼び出しを開くとき、閉じた呼び出しの依頼を消す');
+  assert.equal(existsSync(join(run.runDir, 'responses', call.call_id)), false, '次の呼び出しを開くとき、閉じた呼び出しの応答を消す');
+  assert.ok(existsSync(join(run.runDir, 'requests', call2.call_id)), '開いた呼び出しの置き場は残す');
+  close({ run_dir: run.runDir, call_id: call2.call_id, timed_out: true });
+  await p2;
+  run.removeClosedExchanges();
+  assert.equal(existsSync(join(run.runDir, 'responses', call2.call_id)), false, '集約と同じく、最後の呼び出しの分も消せる');
 });
 
 test('cli-contract 依頼と応答 SP-FORMALMETHOD-015 AC-19 submit: 期限の後の submit は受理せず E_CALL で拒み、その担当は 担当の失敗 になる', async (t) => {
@@ -200,7 +228,9 @@ test('architecture 修正の巡: 作成役が 1 回目の提出で欠陥を返�
   writeAuthor(c.tasks[0], 1);
   const r1 = (await workerCall('submit', base)).results[0];
   assert.deepEqual([r1.ok, r1.done, r1.problems], [false, false, ['欠陥 0', '欠陥 1']]);
-  assert.ok(existsSync(join(run.runDir, 'revisions', `${c.tasks[0].task_id}-1-defects.json`)), '出し直しの欠陥を記録する');
+  assert.deepEqual(run.revisions, [{ task_id: c.tasks[0].task_id, submit: 1, stage: 'モデル化', defects: defects(2).map((d) => ({ key: d.key, text: d.text })) }], '出し直しの欠陥を台帳の revisions に記録する');
+  assert.deepEqual(run.ledgerContent().revisions, run.revisions, '台帳の内容に載る');
+  assert.equal(existsSync(join(run.runDir, 'revisions')), false, '欠陥を別のファイルに書かない');
   // 同じ worker の claim は同じ task を返す（新しい task を出さない）
   assert.equal((await workerCall('claim', base)).tasks[0].task_id, c.tasks[0].task_id);
   writeAuthor(c.tasks[0], 2);
@@ -504,7 +534,7 @@ test('SP-FORMALMETHOD-015 cli-contract 依頼と応答: 応答の待ちの上限
   const again = await workerCall('submit', base);
   assert.deepEqual(again, first, '流し直しは前の応答と同じ');
   assert.equal(n, 1, '流し直しは照合し直さない');
-  assert.ok(existsSync(join(run.runDir, 'revisions', `${c.tasks[0].task_id}-1-defects.json`)));
+  assert.deepEqual(run.revisions.map((x) => [x.task_id, x.submit]), [[c.tasks[0].task_id, 1]]);
   // 前の応答を見た後の同じ提出は、直せなかった提出として照合し、欠陥が減らないので残った欠陥ごと受理する（2 回目の提出）
   const third = (await workerCall('submit', base)).results[0];
   assert.deepEqual([third.ok, third.done, third.remaining.length, n], [true, true, 2, 2]);
@@ -536,7 +566,7 @@ test('SP-FORMALMETHOD-012 cli-contract 依頼と応答 query: refs の .. と . 
   const base = { run_dir: run.runDir, call_id: call.call_id, worker: 'w01' };
   const c = await workerCall('claim', base);
   const q = (refs) => workerCall('query', { ...base, task_id: c.tasks[0].task_id, refs });
-  for (const ref of ['targets/T1/files/../../../state.json', 'targets/T1/files/../manifest.json', '../run1/state.json', join(run.runDir, 'state.json')]) {
+  for (const ref of ['targets/T1/files/../../../ledger.json', 'targets/T1/files/../manifest.json', '../run1/ledger.json', join(run.runDir, 'ledger.json')]) {
     const r = await q([ref]);
     assert.deepEqual([r.ok, r.detail?.reason], [false, 'outside_task'], ref);
   }

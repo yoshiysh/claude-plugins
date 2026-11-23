@@ -6,7 +6,7 @@ import { canonicalJson, sha256Bytes } from './canonical.mjs';
 import { scanSecrets } from './secrets.mjs';
 import { AGENT_BATCH_DEADLINE_MS, MODEL_CHECK_KINDS, STATIC_KINDS, TOOL_TIME_LIMIT_MAX_S, RESULT_SCHEMA, WORKLOG_SCHEMA, STAGES } from './schemas.mjs';
 import { emptyPerformance, salvagePerformance } from './performance.mjs';
-import { readState } from './store.mjs';
+import { readLedger } from './store.mjs';
 import { hashFile } from './storage.mjs';
 import { ledgerEntry, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
 import { reason, orderReasons, stopReport } from './stop-report.mjs';
@@ -80,17 +80,17 @@ export function secretStopResult(result, { location, why, ledgerName = 'ledger.j
 
 // ---- salvage（cli-contract.md「salvage の手順」5） ----
 
-// 適用した文書規約。state.json に無ければ今の規約の版で参照を作り、その写しが run の領域に無いことを unconfirmed で示す。
+// 適用した文書規約。台帳（ledger.json）に無ければ今の規約の版で参照を作り、その写しが run の領域に無いことを unconfirmed で示す。
 function docRulesOf(runDir, state) {
   if (state && state.document_rules) return { rules: state.document_rules, note: null };
   const version = sha256Bytes(readFileSync(DOC_RULES_PATH));
   const ref = docRulesRefOf(version);
   let present = false;
   try { present = hashFile(join(runDir, ref)) === version; } catch { present = false; }
-  return { rules: { ref, version }, note: present ? null : `state.json に適用した文書規約が無く、今の規約の写し ${ref} も run の領域に無い` };
+  return { rules: { ref, version }, note: present ? null : `台帳（ledger.json）に適用した文書規約が無く、今の規約の写し ${ref} も run の領域に無い` };
 }
 
-// state.json が数える範囲で、再読込の指紋が一致する記録だけを残す。
+// 台帳（ledger.json）が数える範囲で、再読込の指紋が一致する記録だけを残す。
 function verifiedEntries(runDir, state) {
   const saved = [];
   const lost = [];
@@ -103,7 +103,7 @@ function verifiedEntries(runDir, state) {
 }
 
 export function salvageWorklog(runDir) {
-  const state = readState(runDir);
+  const state = readLedger(runDir);
   const { saved } = verifiedEntries(runDir, state);
   const doc = docRulesOf(runDir, state);
   return {
@@ -111,7 +111,7 @@ export function salvageWorklog(runDir) {
     inputs: saved.map((e) => ({ ref: e.ref, hash: e.hash })),
     actions: 'run.lock の保持者が終わった run について、rename まで終えた記録を再読込して指紋を照合し、停止 の結果を作った。',
     results: `保存済みの記録 ${saved.length} 件から、処理の中断 の結果を作った。`,
-    grounds: 'state.json が数える範囲で再読込の指紋が一致した記録だけを使った。',
+    grounds: '台帳（ledger.json）が数える範囲で再読込の指紋が一致した記録だけを使った。',
     failures: [], unconfirmed: ['run-daemon が保存する前に持っていた判定は失われた', ...(doc.note ? [doc.note] : [])], unreadable_inputs: [],
     document_rules: doc.rules,
   };
@@ -122,7 +122,7 @@ const savedRecord = (e) => ({ kind: e.kind, ref: e.ref, hash: e.hash });
 // 保存済みの範囲だけから 処理の中断 の結果を作る。unpublished なら公開しない R'（規則 4 の I/O の誤り）。
 // 戻り値: { result, ledgerEntries }（ledgerEntries は追補台帳の entry。unpublished なら null）
 export function buildSalvageResult(runDir, { location, unpublished = false, worklog = null }) {
-  const state = readState(runDir);
+  const state = readLedger(runDir);
   const stage = state && STAGES.includes(state.stage_confirmed) ? state.stage_confirmed : '受付';
   const loc = state && (state.location === 'CI' || state.location === 'ローカル') ? state.location : location;
   const { saved, lost } = verifiedEntries(runDir, state);
