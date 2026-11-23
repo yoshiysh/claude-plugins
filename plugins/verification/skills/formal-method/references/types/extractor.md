@@ -80,6 +80,8 @@ Inventory = {
 }
 ```
 
+- **網羅の照合**（洗い出しの照合）: どの性質の `source_ids` にも無い要素と、依頼の範囲の本文にある、その対象で定義されない ID の参照（`external_dependencies` の `id` にも `text` にも無いもの）は `other` の欠陥とする。ID の参照の決め方は [architecture.md「静的な確認」](../architecture.md#静的な確認)の作成役の照合への前倒し。
+
 ## 担当の返り値
 
 `attempts/<task_id>/return.json`（claim の Task の `result_path`）。担当はここに書いてから `submit` を流す。Workflow の返り値に内容を書かない（`run-daemon` は返り値を読まない）。

@@ -223,7 +223,7 @@ ModelFile = {
 Clause = {                                 // 性質の query の節（トップレベルの assert 1 つ）
   name: Id,                                // その assert の :named の名前
   role: "rule" | "premise" | "goal",       // 出所の規則・前提・性質の否定
-  source_ids: [Id],                        // inventory の要素の id。rule は 1 つ以上
+  source_ids: [Id],                        // inventory の要素の id。rule と、basis が 作成役の仮定 の premise は 1 つ以上
   basis: "出所の文" | "外部の依存" | "作成役の仮定" | null,   // premise は非 null
   external_dependency_id: Id | null,       // basis が 外部の依存 のときだけ非 null。inventory の external_dependencies[].id
   note: string

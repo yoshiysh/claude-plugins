@@ -747,6 +747,8 @@ Inventory = {
 }
 ```
 
+- **網羅の照合**（洗い出しの照合）: どの性質の `source_ids` にも無い要素と、依頼の範囲の本文にある、その対象で定義されない ID の参照（`external_dependencies` の `id` にも `text` にも無いもの）は `other` の欠陥とする。ID の参照の決め方は [architecture.md「静的な確認」](architecture.md#静的な確認)の作成役の照合への前倒し。
+
 ### model（モデル作成役）
 
 ```text
@@ -768,7 +770,7 @@ ModelFile = {
 Clause = {                                 // 性質の query の節（トップレベルの assert 1 つ）
   name: Id,                                // その assert の :named の名前
   role: "rule" | "premise" | "goal",       // 出所の規則・前提・性質の否定
-  source_ids: [Id],                        // inventory の要素の id。rule は 1 つ以上
+  source_ids: [Id],                        // inventory の要素の id。rule と、basis が 作成役の仮定 の premise は 1 つ以上
   basis: "出所の文" | "外部の依存" | "作成役の仮定" | null,   // premise は非 null
   external_dependency_id: Id | null,       // basis が 外部の依存 のときだけ非 null。inventory の external_dependencies[].id
   note: string
@@ -789,6 +791,7 @@ StateMachine = {
 - `goals[].property_id` は、同じ `ModelFile` の `properties[].id` に実在する参照である。モデル化の照合で確かめ、無ければ `reference` の区分の欠陥（修正の巡の対象）とする。対象外として飛ばさない。理由: 目標への経路は、その性質の検査で確かめる（`Paths.targets[].property_id`）。指す性質が無い目標を飛ばすと、確かめていない目標が結果から消える。修正の巡の後も残れば、その目標は `Paths.targets` に載せず、`Paths.unverified` に理由「目標の性質が無い」で載せる。
 - query のファイル（`.smt2`）は、[担当の成果物](#担当の成果物)の `.smt2` の規則と節の名前の規則に従う。性質の query は「出所の規則と前提と性質の否定」で `expected: "unsat"`、sanity の query は `sat` を期待する。SMT の記号の名前は `variables[].id` と同じにする。
 - **節の照合**（モデル化の照合）: `clauses` の名前の重なりと `goal` の無い性質は `other`、出所の無い `rule`・`basis` の無い `premise`・`basis` と `external_dependency_id` の食い違いは `syntax`、inventory の要素に無い `source_ids`・inventory の `external_dependencies` に無い `external_dependency_id`・query で宣言されていない `assurance.scope_variables` は `reference` の欠陥とする。
+  - 確認の段で見つかる型の前倒し（[architecture.md「静的な確認」](architecture.md#静的な確認)の作成役の照合への前倒し）として、`rule` にも `goal` の項にも現れない `assurance.scope_variables`、`goal` の項にだけ現れる記号、`basis: "作成役の仮定"` で `source_ids` の空の `premise`、モデルの性質が扱う inventory の性質の出所の要素でそのモデルのどの `source_ids` にも対応表の行にも無いものは `other` の欠陥とする。
 - 古い形（`formal-method.model/1`、`clauses` の無い性質）は形の違い（`syntax`）として拒む（後方互換性を持たない。`docs/guidelines/agent-work.md`「最小の成果を同じファイルで育てる」）。
 
 ### mapping（モデル作成役）

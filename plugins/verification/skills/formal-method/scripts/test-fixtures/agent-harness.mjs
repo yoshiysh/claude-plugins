@@ -143,7 +143,7 @@ export function smtQuery(label, d, body = null) {
 }
 
 // 性質の query の節（artifact-formats「model」の clauses と :named の規則）。1 行に 1 つのトップレベルの assert を、現れた順に
-// p.roles（既定: 最後を goal、他を rule）の役で名付ける。名前は <mp>-<役の頭文字><番号>。rule と goal の source_ids は p.clauseSources（既定 [E-<p.id>]）。
+// p.roles（既定: 最後を goal、他を rule）の役で名付ける。名前は <mp>-<役の頭文字><番号>。rule と goal（と作成役の仮定の前提）の source_ids は p.clauseSources（既定 [E-<p.id>]）。
 // 偽の z3 の指示 fake-core（既定: rule と goal の名前。p.fakeCore で変える）を先頭に置き、静的な確認の query（節を切り取ったもの）の答えを決める。
 // mutate なら最初の rule の項を (not …) に変える（変異は名前を保ち、規則の節を変える。agents/plan-author.md）。
 export function namedClauses(text, mp, p, { mutate = false } = {}) {
@@ -159,7 +159,9 @@ export function namedClauses(text, mp, p, { mutate = false } = {}) {
     if (mutate && role === 'rule' && !mutated) { term = `(not ${term})`; mutated = true; }
     lines[i] = `(assert (! ${term} :named ${name}))`;
     const basis = role === 'premise' ? (p.premiseBasis?.[name] ?? '作成役の仮定') : null;
-    clauses.push({ name, role, source_ids: role === 'premise' ? [] : (p.clauseSources ?? [`E-${p.id}`]), basis, external_dependency_id: basis === '外部の依存' ? (p.externalDependencyId ?? 'X1') : null, note: `harness の ${role} の節` });
+    // 作成役の仮定の前提は、どの要素についての仮定かを出所で示す（既定は規則と同じ。p.premiseSources で変える）。他の前提は出所を持たない
+    const sources = role !== 'premise' ? (p.clauseSources ?? [`E-${p.id}`]) : basis === '作成役の仮定' ? (p.premiseSources ?? p.clauseSources ?? [`E-${p.id}`]) : [];
+    clauses.push({ name, role, source_ids: sources, basis, external_dependency_id: basis === '外部の依存' ? (p.externalDependencyId ?? 'X1') : null, note: `harness の ${role} の節` });
   });
   const core = p.fakeCore ? p.fakeCore(clauses) : clauses.filter((c) => c.role !== 'premise').map((c) => c.name);
   // p.fakeAnswers(clauses) → [[残す節の名前の並び, 答え]]: 切り取った実行ごとの答え（偽の z3 の fake-answers。core より先に見る）

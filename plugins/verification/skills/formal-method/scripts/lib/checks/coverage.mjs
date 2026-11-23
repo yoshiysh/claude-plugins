@@ -6,7 +6,8 @@ import { defect, linesOf } from './common.mjs';
 // otherPropertyIds・otherElementIds: 他の対象の inventory の性質・要素の id → その対象の id（どちらも run の全ての inventory を通して一意）
 // scope: 依頼の範囲（Map<FilePath, Span[] | null>。null はファイルの全体。run.mjs の requestScopeOf）。覆うべきものは依頼の範囲だけで、
 // 範囲の外のファイル・行は求めない（抽出役には範囲だけを渡すので、範囲の外を unread にさせない）。null なら全てのファイルの全体
-export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(), otherElementIds = new Map(), scope = null } = {}) {
+// requestIds: 依頼の目標・既知の要求の id。otherDefinedIds: run の他の対象で定義された ID（definedIdsOf）。どちらも外の ID の参照に数えない
+export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(), otherElementIds = new Map(), scope = null, requestIds = new Set(), otherDefinedIds = new Set() } = {}) {
   const shapeErrs = validate(Inventory, inv);
   if (shapeErrs.length) return [defect('syntax', 'inventory-shape', `inventory の形に合わない: ${shapeErrs.slice(0, 3).join('; ')}`)];
   const out = [];
@@ -31,10 +32,7 @@ export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(
       if (!s || s.to > n) { out.push(defect('other', `scan-span:${f.path}:${e.span}`, `${f.path} の span ${e.span} が行数 ${n} を超える`)); continue; }
       for (let i = s.from; i <= s.to; i += 1) covered.add(i);
     }
-    // 覆うべき行: 依頼の範囲の span の行（行数を超える部分は無い行として切る）。範囲が無ければファイルの全ての行
-    const need = [];
-    if (want) for (const sp of want) { const s = parseSpan(sp); if (s) for (let i = s.from; i <= Math.min(s.to, n); i += 1) need.push(i); }
-    else for (let i = 1; i <= n; i += 1) need.push(i);
+    const need = scopeLines(want, n);
     if (need.some((i) => !covered.has(i))) out.push(defect('other', `scan-lines:${f.path}`, want ? `${f.path} の依頼の範囲（${want.join(', ')}）の全ての行を覆わない` : `${f.path} の全ての行を覆わない`));
   }
   const ids = new Set();
@@ -67,6 +65,68 @@ export function coverageCheck(runDir, inv, target, { otherPropertyIds = new Map(
     propIds.add(p.id);
     for (const s of p.source_ids) if (!ids.has(s)) out.push(defect('reference', `property-source:${p.id}:${s}`, `性質 ${p.id} の出所 ${s} が要素に無い`));
     if (!p.formalizable && p.nonformal_reason === null) out.push(defect('other', `property-nonformal:${p.id}`, `形式化できない性質 ${p.id} に理由が無い`));
+  }
+  // 確認の段の抽出の確認で見つかる型を、抽出役が検査の前に直せるよう照合でも返す（抽出の確認役の観点は残す）
+  const bound = new Set(inv.properties.flatMap((p) => p.source_ids));
+  for (const e of inv.elements) if (!bound.has(e.id)) out.push(defect('other', `element-unbound:${e.id}`, `要素 ${e.id} がどの性質の source_ids にも無い（要素から性質を作るか、形式化できない性質として結ぶ）`));
+  const own = new Set([...ids, ...propIds, ...inv.external_dependencies.map((d) => d.id), ...otherPropertyIds.keys(), ...otherElementIds.keys(), ...requestIds, ...otherDefinedIds]);
+  for (const r of externalReferences(target, text, scope, own)) {
+    if (inv.external_dependencies.some((d) => mentions(d.text, r.id))) continue;
+    out.push(defect('other', `external-reference:${r.id}`, `本文 ${r.file}:L${r.line} の ID の参照 ${r.id} が、この対象で定義されず、external_dependencies にも無い（外の文書・要求への依存なら external_dependencies に書く）`));
+  }
+  return out;
+}
+
+// 覆うべき行: 依頼の範囲の span の行（行数を超える部分は無い行として切る）。範囲が無ければファイルの全ての行
+function scopeLines(want, n) {
+  const need = [];
+  if (want) for (const sp of want) { const s = parseSpan(sp); if (s) for (let i = s.from; i <= Math.min(s.to, n); i += 1) need.push(i); }
+  else for (let i = 1; i <= n; i += 1) need.push(i);
+  return need;
+}
+
+// ---- 本文の ID の参照（外の依存の書き漏らし） ----
+// ID の形: 大文字で始まる語を - でつなぎ（2 つ以上の区切り）、最後の区切りに数字を含む（SP-FORMALMETHOD-012・PR-LOOP-021・AC-04）。
+// 偽の陽性を避けるため、規則は狭くとる:
+// - 対象が定義する ID（見出しの行の先頭の語、表の行の最初の列）から ID の形（区切りごとの 字・数・混じり の並び）を拾い、同じ形の参照だけを数える。
+//   区切りが 2 つの形は、定義した ID と頭の語も同じときだけ数える（AC-04 を定義しても UTF-8・SHA-256 を数えない）。対象が ID を定義しなければ数えない
+// - 対象・run の他の対象が定義する ID、inventory の id（要素・性質・外部の依存、他の対象の分を含む）、依頼の id は数えない
+// - 依頼の範囲の行だけを読み、external_dependencies の id か文がその ID を含めば書いてあるとする
+const ID_RE = /(?<![A-Za-z0-9_./-])[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+(?![A-Za-z0-9_-])/g;
+const idsIn = (line) => (line.match(ID_RE) ?? []).filter((id) => /\d/.test(id.slice(id.lastIndexOf('-') + 1)));
+const DEFINITION_RES = [/^#{1,6}\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)(?![A-Za-z0-9_-])/, /^\|\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*\|/];
+const shapeOf = (id) => id.split('-').map((x) => (/^[A-Z]+$/.test(x) ? 'L' : /^\d+$/.test(x) ? 'D' : 'M')).join('-');
+const mentions = (text, id) => idsIn(text).includes(id) || text.split(/[^A-Za-z0-9_-]+/).includes(id);
+const fileText = (f) => (f.text && f.bytes ? Buffer.from(f.bytes).toString('utf8') : null);
+
+// 対象のテキストのファイルの全ての行で、定義の位置（見出し・表の最初の列）にある ID
+export function definedIdsOf(target) {
+  const out = new Set();
+  for (const f of target.files) {
+    const t = fileText(f);
+    if (t === null) continue;
+    for (const l of linesOf(t)) for (const re of DEFINITION_RES) { const m = l.match(re); if (m && idsIn(m[1]).length) out.add(m[1]); }
+  }
+  return out;
+}
+
+function externalReferences(target, text, scope, exclude) {
+  const defined = definedIdsOf(target);
+  const shapes = [...defined].map((d) => ({ shape: shapeOf(d), head: d.split('-')[0], parts: d.split('-').length }));
+  if (!shapes.length) return [];
+  const looksLike = (id) => { const sh = shapeOf(id); const head = id.split('-')[0]; return shapes.some((x) => x.shape === sh && (x.parts >= 3 || x.head === head)); };
+  const out = [];
+  const seen = new Set();
+  for (const f of target.files) {
+    if (scope && !scope.has(f.path)) continue;
+    const t = text(f.path);
+    if (t === null || !f.text) continue;
+    const lines = linesOf(t);
+    for (const n of scopeLines(scope ? scope.get(f.path) : null, lines.length)) for (const id of idsIn(lines[n - 1])) {
+      if (seen.has(id) || defined.has(id) || exclude.has(id) || !looksLike(id)) continue;
+      seen.add(id);
+      out.push({ id, file: f.path, line: n });
+    }
   }
   return out;
 }

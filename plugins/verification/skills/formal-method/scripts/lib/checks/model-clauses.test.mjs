@@ -11,7 +11,7 @@ const PREFIX = 'attempts/t1/';
 const QUERY = '(declare-const x Int)\n(declare-const y Int)\n(assert (! (>= x 0) :named R1))\n(assert (! (>= y 0) :named A1))\n(assert (! (not (>= (+ x y) 0)) :named G1))\n(check-sat)\n';
 const CLAUSES = [
   { name: 'R1', role: 'rule', source_ids: ['E1'], basis: null, external_dependency_id: null, note: '出所の規則' },
-  { name: 'A1', role: 'premise', source_ids: [], basis: '作成役の仮定', external_dependency_id: null, note: '前提' },
+  { name: 'A1', role: 'premise', source_ids: ['E1'], basis: '作成役の仮定', external_dependency_id: null, note: '前提' },
   { name: 'G1', role: 'goal', source_ids: ['E1'], basis: null, external_dependency_id: null, note: '性質の否定' },
 ];
 
@@ -27,14 +27,14 @@ function model({ clauses = CLAUSES, scopeVariables = ['x'] } = {}) {
   };
 }
 
-function check(t, { query = QUERY, ...over } = {}) {
+function check(t, { query = QUERY, rows = [], refsOver = {}, ...over } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'fm-clauses-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, PREFIX), { recursive: true });
   writeFileSync(join(dir, PREFIX, 'model.json'), JSON.stringify(model(over)));
-  writeFileSync(join(dir, PREFIX, 'mapping.json'), JSON.stringify({ schema: 'formal-method.mapping/1', model_id: 'M1', rows: [] }));
+  writeFileSync(join(dir, PREFIX, 'mapping.json'), JSON.stringify({ schema: 'formal-method.mapping/1', model_id: 'M1', rows }));
   writeFileSync(join(dir, PREFIX, 'P1.smt2'), query);
-  const refs = { elementIds: new Set(['E1']), propertyIds: new Set(['P1']), goalIds: new Set(), knownRequirementIds: new Set(), targetIds: new Set(['T1']), externalDependencyIds: new Set(['X1']) };
+  const refs = { elementIds: new Set(['E1']), propertyIds: new Set(['P1']), goalIds: new Set(), knownRequirementIds: new Set(), targetIds: new Set(['T1']), externalDependencyIds: new Set(['X1']), ...refsOver };
   const outputs = [{ kind: 'model', ref: `${PREFIX}model.json` }, { kind: 'mapping', ref: `${PREFIX}mapping.json` }];
   return modelCheck(dir, outputs, { prefix: PREFIX, eligible: new Set(['P1']), refs }).defects;
 }
@@ -142,4 +142,56 @@ test('SP-FORMALMETHOD-012 AC-22: define-fun-rec・define-funs-rec の本体も�
   assert.deepEqual(sharedDefinitions(q('(f 2)', '(>= x 0)', '(not (f 1))'), CLAUSES), [{ name: 'f', roles: ['goal', 'rule'] }]);
   assert.deepEqual(sharedDefinitions(q('(g 2)', '(h 1)', '(not (>= x 0))'), CLAUSES).map((d) => d.name).sort(), ['g', 'h'], '相互再帰は互いを通して両方の役に届く');
   assert.deepEqual(sharedDefinitions(q('(f 2)', '(g 1)', '(not (>= x 0))'), CLAUSES), [], '1 つの役だけが参照する定義は数えない');
+});
+
+// ---- 確認の段の静的な確認・忠実さの確認で見つかる型の前倒し（作成役が検査の前に直す機会。確認の段の判定は残す） ----
+const without = (defects, ...prefixes) => assert.ok(!defects.some((d) => prefixes.some((p) => d.key.startsWith(p))), `欠陥にしない: ${keys(defects).join(' / ')}`);
+
+test('SP-FORMALMETHOD-005・012 AC-22: 範囲として扱う変数が出所の規則にも性質の否定にも現れなければ、モデル化の照合の欠陥（other。確認の段の scope_variables と同じ判定）', (t) => {
+  // y は前提 A1 にだけ現れる（規則 R1 にも否定 G1 にも無い）
+  const q = QUERY.replace('(not (>= (+ x y) 0))', '(not (>= x 0))');
+  has(check(t, { query: q, scopeVariables: ['x', 'y'] }), 'other', 'scope-variable-unused:y');
+  without(check(t, { scopeVariables: ['x', 'y'] }), 'scope-variable-unused');
+});
+
+test('SP-FORMALMETHOD-012: 作成役の仮定の前提に source_ids が無ければ、モデル化の照合の欠陥（other）。外部の依存・出所の文の前提には求めない', (t) => {
+  const bare = CLAUSES.map((c) => (c.name === 'A1' ? { ...c, source_ids: [] } : c));
+  has(check(t, { clauses: bare }), 'other', 'clause-premise-source:A1');
+  const external = CLAUSES.map((c) => (c.name === 'A1' ? { ...c, source_ids: [], basis: '外部の依存', external_dependency_id: 'X1' } : c));
+  assert.deepEqual(keys(check(t, { clauses: external })), []);
+});
+
+test('SP-FORMALMETHOD-005・012: 性質の否定にしか現れない変数（規則・前提・define-fun の本体のどこにも無い）は、モデル化の照合の欠陥（other）', (t) => {
+  const q = QUERY.replace('(declare-const y Int)', '(declare-const y Int)\n(declare-const z Int)').replace('(not (>= (+ x y) 0))', '(not (>= (+ x y z) 0))');
+  has(check(t, { query: q }), 'other', 'goal-only-variable:z');
+});
+
+test('SP-FORMALMETHOD-005・012 偽の陽性: 任意の添字の定数（関数・配列の引数としてだけ否定に現れる）、define-fun の本体に現れる変数、束縛の変数は欠陥にしない', (t) => {
+  const fn = '(declare-fun a (Int) Int)\n(declare-const k Int)\n(declare-const x Int)\n(assert (! (forall ((j Int)) (>= (a j) 0)) :named R1))\n(assert (! (>= x 0) :named A1))\n(assert (! (not (>= (a k) 0)) :named G1))\n(check-sat)\n';
+  without(check(t, { query: fn, scopeVariables: [] }), 'goal-only-variable');
+  const arr = '(declare-const m (Array Int Int))\n(declare-const k Int)\n(declare-const x Int)\n(assert (! (forall ((j Int)) (>= (select m j) 0)) :named R1))\n(assert (! (>= x 0) :named A1))\n(assert (! (not (>= (select m k) 0)) :named G1))\n(check-sat)\n';
+  without(check(t, { query: arr, scopeVariables: [] }), 'goal-only-variable');
+  const def = '(declare-const x Int)\n(declare-const y Int)\n(define-fun big () Bool (> y 9))\n(assert (! (>= x 0) :named R1))\n(assert (! (=> big (>= x 1)) :named A1))\n(assert (! (not (>= (+ x y) 0)) :named G1))\n(check-sat)\n';
+  without(check(t, { query: def }), 'goal-only-variable');
+  const bound = '(declare-const x Int)\n(assert (! (>= x 0) :named R1))\n(assert (! (<= x 8) :named A1))\n(assert (! (not (forall ((y Int)) (>= (+ x (* y y)) 0))) :named G1))\n(check-sat)\n';
+  without(check(t, { query: bound }), 'goal-only-variable');
+});
+
+// 性質の出所の要素が、どの節の source_ids にも、対応表の行にも無い（omission の一部）
+const ELEMENTS = new Map([['E1', { target_id: 'T1', file: 'spec.md', span: 'L2-L2' }], ['E2', { target_id: 'T1', file: 'spec.md', span: 'L3-L4' }]]);
+const omissionRefs = { elementIds: new Set(['E1', 'E2']), inventoryPropertySources: new Map([['P1', ['E1', 'E2']]]), elementSources: ELEMENTS };
+test('SP-FORMALMETHOD-004・005: モデルの性質が扱う inventory の性質の出所の要素が、そのモデルのどの節の source_ids にも対応表の行にも無ければ、モデル化の照合の欠陥（other）', (t) => {
+  const d = check(t, { refsOver: omissionRefs });
+  has(d, 'other', 'omission:M1:E2');
+  without(d, 'omission:M1:E1');
+});
+
+test('SP-FORMALMETHOD-004・005 偽の陽性: 対応表の行（範囲の重なる location・その対象の target）か節・遷移・入出力の契約の source_ids にあれば、出所の要素を落としたとしない', (t) => {
+  const row = (source) => ({ source, property_id: 'P1', model_element: 'P1', relation: '範囲外', reason: '扱わない' });
+  without(check(t, { refsOver: omissionRefs, rows: [row({ kind: 'location', target_id: 'T1', file: 'spec.md', span: 'L4-L6' })] }), 'omission');
+  without(check(t, { refsOver: omissionRefs, rows: [row({ kind: 'location', target_id: 'T1', file: 'spec.md' })] }), 'omission');
+  without(check(t, { refsOver: omissionRefs, rows: [row({ kind: 'target', id: 'T1' })] }), 'omission');
+  without(check(t, { refsOver: omissionRefs, clauses: CLAUSES.map((c) => (c.name === 'A1' ? { ...c, source_ids: ['E2'] } : c)) }), 'omission');
+  // 重ならない行・他のファイルの行・依頼の目標の行は覆わない
+  has(check(t, { rows: [row({ kind: 'location', target_id: 'T1', file: 'spec.md', span: 'L5-L6' }), row({ kind: 'location', target_id: 'T1', file: 'other.md' }), row({ kind: 'goal', id: 'G1' })], refsOver: { ...omissionRefs, goalIds: new Set(['G1']) } }), 'other', 'omission:M1:E2');
 });

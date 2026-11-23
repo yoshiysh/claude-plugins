@@ -16,14 +16,14 @@ import { mergeSpans, parseTargetRef, refPathOf, targetRef } from './target-refs.
 import { packByUnion, runItems, runWorkers } from './call.mjs';
 import { refFiles } from './agents.mjs';
 import { ledgerEntry, newStageLog, cliWorklog, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
-import { coverageCheck } from './checks/coverage.mjs';
+import { coverageCheck, definedIdsOf } from './checks/coverage.mjs';
 import { modelCheck, matrixGen } from './checks/model.mjs';
 import { buildGraph, deriveCandidates } from './checks/graph.mjs';
 import { partitionCheck } from './checks/compose.mjs';
 import { planCheck, defectiveElements, checkGaps } from './checks/plan.mjs';
-import { ablate, clauseGroups, clauseShapeProblem, namedTerms } from './checks/ablation.mjs';
+import { ablate, clauseGroups, clauseShapeProblem, namedTerms, scopeVariableGaps } from './checks/ablation.mjs';
 import { noSuitableTool } from './adapters/index.mjs';
-import { parseForms, symbolsOf } from './sexpr.mjs';
+import { parseForms } from './sexpr.mjs';
 import { ConfirmationIds, confirmationResult, verdictOf, reviewUnits, causeUnitId, judgmentAnswers, TRUNCATED } from './checks/det.mjs';
 import { classifyCheck } from './verdict.mjs';
 import { readRunText, defect } from './checks/common.mjs';
@@ -492,6 +492,7 @@ export class Run {
     };
     const idsOf = (data, key) => new Set((Array.isArray(data?.[key]) ? data[key] : []).map((x) => x && x.id).filter((id) => typeof id === 'string'));
     const blames = (tid, other) => other !== tid && (accepted.has(other) || order.get(other) < order.get(tid));
+    const requestIds = new Set([...(this.request?.goals ?? []), ...(this.request?.known_requirements ?? [])].map((x) => x.id));
     const otherIds = (tid, key) => new Map([...latestIds].filter(([id]) => blames(tid, id)).flatMap(([id, ids]) => [...ids[key]].map((x) => [x, id])));
     const units = this.targets.map((t) => ({
       role: 'extractor',
@@ -506,7 +507,8 @@ export class Run {
         if (outs.length !== 1) return { defects: [defect('other', 'inventory-count', `inventory が ${outs.length} 個（ちょうど 1 つ）`)], value: null };
         const inv = readInventory(ret);
         if (!inv) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
-        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: otherIds(t.id, 'properties'), otherElementIds: otherIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id) });
+        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: otherIds(t.id, 'properties'), otherElementIds: otherIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id),
+          requestIds, otherDefinedIds: new Set(this.targets.filter((x) => x.id !== t.id).flatMap((x) => [...definedIdsOf(x)])) });
         return { defects, value: inv };
       },
       accept: (last) => {
@@ -549,6 +551,8 @@ export class Run {
           knownRequirementIds: new Set((this.request?.known_requirements ?? []).map((k) => k.id)),
           targetIds: new Set(this.targets.map((t) => t.id)),
           externalDependencyIds: new Set(this.inventories.flatMap((i) => i.data.external_dependencies.map((d) => d.id))),
+          inventoryPropertySources: new Map(this.inventoryProperties().map((p) => [p.id, p.source_ids])),
+          elementSources: new Map(this.inventories.flatMap((i) => i.data.elements.map((e) => [e.id, e.source]))),
         };
         const c = modelCheck(this.runDir, ret.outputs, { prefix, eligible: eligibleSet, refs });
         return { defects: c.defects, value: c };
@@ -1035,16 +1039,10 @@ export class Run {
       const base = { id: this.confIds.next('scope_variables'), kind: 'scope_variables', property_ids: [...this.parentsOf(info.p.id)], model_property_id: info.p.id, plan_id: c.id,
         item: `範囲として扱う変数（検査 ${c.id}）`, materials: materials(this.exec.get(c.id) ?? {}) };
       if (text === null) { det({ ...base, result: '成り立たない', reason: '検査の入力を読めない' }); continue; }
-      let declared;
-      let used;
-      try {
-        declared = new Set(z3.declaredSymbols(text).map((d) => d.name));
-        const terms = namedTerms(text);
-        const names = info.p.clauses.filter((x) => x.role === 'rule' || x.role === 'goal').map((x) => x.name);
-        used = new Set(names.flatMap((n) => (terms.has(n) ? symbolsOf(terms.get(n)) : [])));
-      } catch (e) { det({ ...base, result: '成り立たない', reason: `検査の入力を S 式として読めない（${e.message}）` }); continue; }
-      const notDeclared = vars.filter((v) => !declared.has(v));
-      const notUsed = vars.filter((v) => declared.has(v) && !used.has(v));
+      // 判定はモデル化の照合と同じ scopeVariableGaps（モデル化の照合は性質の query で、ここは検査の入力をつないだもので照らす）
+      let gaps;
+      try { gaps = scopeVariableGaps(text, info.p.clauses, vars); } catch (e) { det({ ...base, result: '成り立たない', reason: `検査の入力を S 式として読めない（${e.message}）` }); continue; }
+      const { notDeclared, notUsed } = gaps;
       const bad = [...(notDeclared.length ? [`宣言されていない: ${notDeclared.join(', ')}`] : []), ...(notUsed.length ? [`出所の規則にも性質の否定にも現れない: ${notUsed.join(', ')}`] : [])];
       det({ ...base, result: bad.length ? '成り立たない' : '成り立つ',
         reason: bad.length ? `範囲として扱う変数のうち、${bad.join('。')}（保証が範囲を超えている）` : vars.length ? `範囲として扱う変数 ${vars.join(', ')} は全て宣言され、出所の規則か性質の否定に現れる` : '範囲として扱う変数が無い' });

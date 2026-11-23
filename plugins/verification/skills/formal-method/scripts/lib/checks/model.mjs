@@ -1,13 +1,15 @@
 // モデル化の照合（architecture.md「段と処理の順序」のモデル化）: 形・対応表・query の構文の検査（shapeCheck・mappingCheck）、
 // 状態×出来事の組合せの分類（matrixGen）、経路（pathsCheck）、図の導出と突き合わせ（deriveDiagram・diagramDiff）。
 import { MappingFile, ModelFile, validate } from '../schemas.mjs';
-import { declaredSymbols, smtViolations } from '../adapters/z3.mjs';
-import { sharedDefinitions, topAsserts } from './ablation.mjs';
+import { smtViolations } from '../adapters/z3.mjs';
+import { goalOnlyVariables, scopeVariableGaps, sharedDefinitions, topAsserts } from './ablation.mjs';
+import { parseSpan } from '../schemas.mjs';
 import { defect, readRunJson, readRunText } from './common.mjs';
 
 // モデル作成役の返り値の outputs を照らす。prefix は attempt の領域の Ref の接頭辞、eligible は対象にした inventory の性質の id。
 // refs は id と参照の一覧がモデル化の照合とする参照の実在の集合: { elementIds（inventory の要素）, propertyIds（inventory の性質）,
-// goalIds・knownRequirementIds・targetIds（依頼）, externalDependencyIds（inventory の external_dependencies） }。
+// goalIds・knownRequirementIds・targetIds（依頼）, externalDependencyIds（inventory の external_dependencies） }。加えて
+// inventoryPropertySources（inventory の性質の id → source_ids）と elementSources（要素の id → source）があれば、出所の要素の落としを照らす。
 export function modelCheck(runDir, outputs, { prefix, eligible, refs = null }) {
   const defects = [];
   const models = [];
@@ -36,6 +38,7 @@ export function modelCheck(runDir, outputs, { prefix, eligible, refs = null }) {
     if (sm) defects.push(...stateMachineDefects(id, sm, refs, new Set(m.data.properties.map((p) => p.id))));
     if (refs) for (const c of m.data.io_contracts) for (const sid of c.source_ids) if (!refs.elementIds.has(sid)) defects.push(defect('reference', `io-source:${id}:${c.id}:${sid}`, `モデル ${id} の入出力の契約 ${c.id} の出所 ${sid} が inventory の要素に無い`));
     if (refs) defects.push(...mappingDefects(id, maps[0].data.rows, refs));
+    if (refs?.inventoryPropertySources && refs.elementSources) defects.push(...omissionDefects(id, m.data, maps[0].data.rows, refs));
     for (const p of m.data.properties) {
       if (mpIds.has(p.id)) defects.push(defect('other', `mp-dup:${p.id}`, `モデルの性質の id ${p.id} が重なる`));
       mpIds.add(p.id);
@@ -73,6 +76,8 @@ function clauseDefects(p, text, refs) {
     seen.add(c.name);
     if (c.role === 'rule' && c.source_ids.length === 0) add('syntax', `clause-rule-source:${c.name}`, `規則の節 ${c.name} に source_ids が無い（1 つ以上）`);
     if (c.role === 'premise' && c.basis === null) add('syntax', `clause-premise-basis:${c.name}`, `前提の節 ${c.name} に basis が無い`);
+    // 作成役の仮定は、どの要素についての仮定かを出所で示す（出所の無い仮定が結論を支えると、確認の段の判断を要する項目が成り立たない）
+    if (c.role === 'premise' && c.basis === '作成役の仮定' && c.source_ids.length === 0) add('other', `clause-premise-source:${c.name}`, `前提の節 ${c.name} は basis が 作成役の仮定 なのに source_ids が無い（どの要素についての仮定かを 1 つ以上）`);
     if ((c.basis === '外部の依存') !== (c.external_dependency_id !== null)) add('syntax', `clause-external:${c.name}`, `節 ${c.name} の external_dependency_id は basis が 外部の依存 のときだけ非 null`);
     if (refs) for (const sid of c.source_ids) if (!refs.elementIds.has(sid)) add('reference', `clause-source:${c.name}:${sid}`, `節 ${c.name} の出所 ${sid} が inventory の要素に無い`);
     if (refs?.externalDependencyIds && c.external_dependency_id !== null && !refs.externalDependencyIds.has(c.external_dependency_id)) add('reference', `clause-external-ref:${c.name}`, `節 ${c.name} の external_dependency_id ${c.external_dependency_id} が inventory の external_dependencies に無い`);
@@ -91,10 +96,13 @@ function clauseDefects(p, text, refs) {
   }
   for (const name of seen) if (!named.has(name)) add('reference', `clause-assert:${name}`, `節 ${name} の assert が query ${p.query_ref} に無い`);
   for (const d of sharedDefinitions(text, p.clauses)) add('other', `clause-shared-definition:${d.name}`, `query ${p.query_ref} の define-fun ${d.name} は本体に宣言した記号を含み、役の違う節（${d.roles.join('・')}）が参照する（節を役ごとに切り取れない。本体を節に書くか、役ごとに定義を分ける）`);
+  // 確認の段の静的な確認（scope_variables）と忠実さの確認（vacuity）で見つかる型を、作成役が検査の前に直せるよう照合でも返す（確認の段の判定は残す）
   if (p.assurance.kind === '範囲を限った検査') {
-    const declared = new Set(declaredSymbols(text).map((d) => d.name));
-    for (const v of p.assurance.scope_variables) if (!declared.has(v)) add('reference', `scope-variable:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} で宣言されていない`);
+    const { notDeclared, notUsed } = scopeVariableGaps(text, p.clauses, p.assurance.scope_variables);
+    for (const v of notDeclared) add('reference', `scope-variable:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} で宣言されていない`);
+    for (const v of notUsed) add('other', `scope-variable-unused:${v}`, `範囲として扱う変数 ${v} が query ${p.query_ref} の出所の規則にも性質の否定にも現れない（保証が範囲を超える）`);
   }
+  for (const v of goalOnlyVariables(text, p.clauses)) add('other', `goal-only-variable:${v}`, `query ${p.query_ref} の記号 ${v} が性質の否定にだけ現れ、規則・前提のどれにも縛られない（性質が空虚か、規則・前提の書き漏らし）`);
   return out;
 }
 
@@ -142,6 +150,32 @@ function mappingDefects(id, rows, refs) {
     const s = r.source;
     const ok = s.kind === 'goal' ? refs.goalIds.has(s.id) : s.kind === 'known_requirement' ? refs.knownRequirementIds.has(s.id) : refs.targetIds.has(s.kind === 'target' ? s.id : s.target_id);
     if (!ok) out.push(defect('reference', `map-source:${id}:${i}`, `対応表 ${id} の行 ${i} の出所（${s.kind}）が依頼に無い`));
+  }
+  return out;
+}
+
+// モデルの性質が扱う inventory の性質の出所の要素のうち、そのモデルのどの節・遷移・禁止・入出力の契約の source_ids にも、対応表の行にも無いもの
+// （出所の要求を黙って落としたもの）。対応表の行は、location ならファイルが同じで範囲（span が無ければ全体）が要素の範囲と重なるもの、target なら
+// その対象を指すものを、要素に触れたとみなす（範囲外・対応なしの行も、落としを明示した行として数える）。goal・known_requirement の行は要素を指さない。
+function omissionDefects(id, model, rows, refs) {
+  const sm = model.state_machine;
+  const cited = new Set([...model.properties.flatMap((p) => p.clauses.flatMap((c) => c.source_ids)),
+    ...(sm ? [...sm.transitions, ...sm.forbidden].flatMap((x) => x.source_ids) : []), ...model.io_contracts.flatMap((c) => c.source_ids)]);
+  const overlaps = (a, b) => { const x = parseSpan(a); const y = parseSpan(b); return Boolean(x && y && x.from <= y.to && y.from <= x.to); };
+  const touches = (src) => rows.some((r) => {
+    const s = r.source;
+    if (s.kind === 'target') return s.id === src.target_id;
+    if (s.kind !== 'location') return false;
+    return s.target_id === src.target_id && s.file === src.file && (s.span === undefined || overlaps(s.span, src.span));
+  });
+  const out = [];
+  const seen = new Set();
+  for (const p of model.properties) for (const ip of p.inventory_property_ids) for (const e of refs.inventoryPropertySources.get(ip) ?? []) {
+    if (seen.has(e) || cited.has(e)) continue;
+    seen.add(e);
+    const src = refs.elementSources.get(e);
+    if (!src || touches(src)) continue;
+    out.push(defect('other', `omission:${id}:${e}`, `モデル ${id} が扱う inventory の性質 ${ip} の出所 ${e} が、そのモデルのどの節・遷移・入出力の契約の source_ids にも対応表の行にも無い（落とすなら対応表に 範囲外 か 対応なし の行を書く）`));
   }
   return out;
 }
