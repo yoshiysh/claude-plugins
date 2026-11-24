@@ -428,11 +428,11 @@ test('ingest: 起動の記録の stage・wave・model・effort を台帳に取�
 
 // ---------------- 線（UNIT_MAX_BYTES）は役の文脈の大きさから ----------------
 
-test('線: roles.json の単位を読む役は context_tokens を持ち、既定は 200000（線は × 1/4 × 2 バイト = UNIT_MAX_BYTES の 100000）', async () => {
+test('線: roles.json の単位を読む役は context_tokens を持ち、既定は 1000000（線は × 1/4 × 2 バイト = UNIT_MAX_BYTES の 500000）', async () => {
   const { UNIT_MAX_BYTES } = await import('./ledger-core.mjs')
-  for (const r of READERS) assert.equal(ROLES[r].context_tokens, 200000, `${r} の context_tokens`)
-  assert.equal(Math.min(...READERS.map((r) => ROLES[r].context_tokens)) / 4 * 2, 100000)
-  assert.equal(UNIT_MAX_BYTES, 100000, '既定の線')
+  for (const r of READERS) assert.equal(ROLES[r].context_tokens, 1000000, `${r} の context_tokens`)
+  assert.equal(Math.min(...READERS.map((r) => ROLES[r].context_tokens)) / 4 * 2, 500000)
+  assert.equal(UNIT_MAX_BYTES, 500000, '既定の線')
 })
 
 // 計画の段と全文レビューを通し、ファイルの段の最初の波の行の数を返す。
@@ -447,7 +447,7 @@ async function fileRows(t, files, tokens) {
 }
 const TWO = { 'a.md': sizedDoc('a', 1500), 'b.md': sizedDoc('b', 1500) }
 test('線: 単位を読む役の context_tokens の最小値から線が決まり、roles の上書きで詰め合わせの数が変わる（単位を読まない役の値は効かない）', async (t) => {
-  assert.equal((await fileRows(t, TWO, null)).rows, 1, '既定の線（100000 バイト）なら 1 つの詰め合わせ')
+  assert.equal((await fileRows(t, TWO, null)).rows, 1, '既定の線（500000 バイト）なら 1 つの詰め合わせ')
   assert.equal((await fileRows(t, TWO, { file_reader: 4000 })).rows, 2, 'file_reader 4000 token → 2000 バイトの線で 2 つ')
   assert.equal((await fileRows(t, TWO, { confirmer: 4000 })).rows, 2, '確認役が最小なら確認役の値で決まる（線は 1 本）')
   assert.equal((await fileRows(t, TWO, { planner: 4000 })).rows, 1, '計画役は単位を読まないので線に効かない')

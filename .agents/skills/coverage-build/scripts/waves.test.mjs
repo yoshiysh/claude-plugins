@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { C } from './build-core.mjs'
+import { C, UNIT_MAX_BYTES } from './build-core.mjs'
 import {
   AUDIT_ROLES, AUDIT_ROLE_NAMES, ROLES, act, archResult, auditStateOf, claimArgv, cli, driveScript, goalResult, isAuditStage, runsOf, setup, stageGroup, wavesOf, workerLoop,
 } from './board-fixture.mjs'
@@ -330,11 +330,13 @@ test(`時間の区切り: 呼び出しを開いてからの経過が timeoutMs �
   assert.equal(r.steps[1].launches[0].role, 'architect', '次の呼び出しは止まった所の次の担当から')
 })
 
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
 test(`行の数の区切り: 呼び出しで出した行の和は maxAgents（${C.LIMITS.maxAgents}）以下に収め、超えるときは halt。続きは次の呼び出しが進める`, async (t) => {
   const { repo, state } = setup(t)
   const N = C.LIMITS.maxAgents + 5
   // 1 体に 1 単位しか詰められない大きさの doc の単位を N 個（詳細設計の詰め合わせが N 行になる）。
-  const big = `${'大きい文書の本文の行です。'.repeat(20)}\n`.repeat(200)
+  const big = `${'大きい文書の本文の行です。'.repeat(20)}\n`.repeat(200 * S)
   mkdirSync(path.join(repo, 'docs'), { recursive: true })
   for (let i = 1; i <= N; i++) writeFileSync(path.join(repo, 'docs', `big-${i}.md`), big)
   const units = (cover) => Array.from({ length: N }, (_, i) => ({ id: `U${i + 1}`, kind: 'doc', title: `文書 ${i + 1}`, responsibility: '使い方を書く', paths: [`docs/big-${i + 1}.md`], tests: [], test_uses: [], depends_on: [], covers: cover }))

@@ -14,11 +14,11 @@ return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, 
 export const MAX_ATTEMPTS = 2
 // 1 体に詰める単位の、読むファイルの本文のバイト数（UTF-8）の上限。「1 体の文脈に収まらない」を判じる唯一の線で、詳細設計・テスト・実装の役が
 // 何単位を 1 体で受け持つかをこれだけで決める（設計 docs/design/coverage-ledger-method.md「モデルと費用」の起動の原則。coverage-audit の UNIT_MAX_BYTES と同じ考え方の線）。
-// 根拠: 役のモデル（roles.json の sonnet・opus）の文脈は 200k token。指示・目標・台帳から引く入力・出力・推論に 3/4 を残し、単位のファイルの本文には
-// 1/4（50k token）までを当てる。token あたりのバイト数は、日本語（1 字 3 バイト）で 2〜3 バイト、英語・コードで 3〜4 バイトと置き、少ない側の 2 バイトで
-// 見積もる: 50k × 2 = 100,000 バイト。比率は実測していない（run の記録の token で見直す）。
+// 根拠: 役のモデル（roles.json の sonnet・opus）の文脈を 1M token と置く。指示・目標・台帳から引く入力・出力・推論に 3/4 を残し、単位のファイルの本文には
+// 1/4（250k token）までを当てる。token あたりのバイト数は、日本語（1 字 3 バイト）で 2〜3 バイト、英語・コードで 3〜4 バイトと置き、少ない側の 2 バイトで
+// 見積もる: 250k × 2 = 500,000 バイト。比率と、Workflow の役が 1M の文脈で走ることは実測していない（run の記録の token で見直す）。
 // build の自分の役は、まだ roles.json の context_tokens から導かず、この値を使う（検査の役の線は coverage-audit の lineOf が導く）。
-export const UNIT_MAX_BYTES = 100000
+export const UNIT_MAX_BYTES = 500000
 export const DRY_ROUNDS = 2 // 振り返りで新しい原因が受理されない周がこの回数続いたら止める
 export const RETRO_MAX_ROUNDS = 2 // 1 回の振り返りの周の上限
 const MAX_FAIL_STREAK = 2 // 提出が 1 件も無い呼び出し（全ての役が欠けた・担当に手を付けずに返った）がこの回数続いたら止める

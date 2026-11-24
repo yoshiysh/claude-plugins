@@ -569,9 +569,9 @@ const AUDIT_COMMON = `
 `
 // 担当を取って出す手順。query の許し方で 2 の文が変わる（ファイルの段と振り返りは他の役の書き込みを読まず、独立に読む。全文レビューは目標と読む範囲だけを引く）。
 const STEP_QUERY = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。事実の id で細部を引き直すときは --fact <事実の id> を足す（何度でもよい）。原文は写しで開く。索引の行・担当の unit・事実・指摘の場所が持つ写しの file を、start から end の行の範囲のうち要る箇所だけ Read で開く（対象の本体は開かない）'
-const STEP_INPUTS = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。--fact は付けない（この段は他の役の書き込みを読まず、CLI も拒む）。inputs の units の単位ごとに、写しの file を start から end の行の範囲の全文で Read で読む（offset=start, limit=end - start + 1。対象の本体は開かない）'
+const STEP_INPUTS = '入力を query で引く。命令は claim と同じ --state・--call・--worker に --task <担当の id> を足した query（例: node … query --state … --call … --worker … --task <id>）。--fact は付けない（この段は他の役の書き込みを読まず、CLI も拒む）。inputs の units の単位ごとに、写しの file を start から end の行の範囲の全文で Read で読む（offset=start, limit=end - start + 1。1 回の Read に収まらなければ、範囲を前から分けて続けて読み、全文を読む。対象の本体は開かない）'
 const STEP_BATCH = '取った全ての担当の入力を、1 回の query で引く。命令は claim と同じ --state・--call・--worker に、担当ごとの --task <担当の id> を全て足した query（例: node … query --state … --call … --worker … --task <id1> --task <id2>）。出力の tasks は --task の順に担当ごとの入力（--task が 1 つなら 1 件の形のまま）。事実の id で細部を引き直すときは --fact <事実の id> を足す（何度でもよい）。原文は写しで開く。事実・指摘の場所・単位の索引が持つ写しの file を、start から end の行の範囲のうち判定に要る箇所だけ Read で開く（対象の本体は開かない）'
-const STEP_NONE = 'その担当の unit の file を、start から end の行の範囲だけ Read で読む（offset=start, limit=end - start + 1）。この段は query を流さない（他の役の書き込みを読まず、独立に読む。CLI も拒む）'
+const STEP_NONE = 'その担当の unit の file を、start から end の行の範囲だけ Read で読む（offset=start, limit=end - start + 1。1 回の Read に収まらなければ、範囲を前から分けて続けて読み、全文を読む）。この段は query を流さない（他の役の書き込みを読まず、独立に読む。CLI も拒む）'
 const auditLoop = (w, waveId, query) => `
 ### 担当を取る命令（この行をそのまま Bash で流す。出力は JSON）
 ${claimLine(w, waveId)}

@@ -93,7 +93,7 @@ test('claim（ファイルの段）: 担当は詰め合わせの単位ごとに 
 })
 
 // 1 つで UNIT_MAX_BYTES の半分を超える 3 つのファイル（どの 2 つも 1 つの詰め合わせに収まらない）。
-const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
+const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 * core.UNIT_MAX_BYTES / 100000 }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
 test('claim: 詰め合わせが分かれると行も分かれ、並べて流した claim は互いに違う単位を返す（lock で直列にする）', async (t) => {
   const BIG = { 'a.md': bigDoc('A'), 'b.md': bigDoc('B'), 'c.md': bigDoc('C') }
   for (const x of Object.values(BIG)) assert.ok(Buffer.byteLength(x) * 2 > core.UNIT_MAX_BYTES && Buffer.byteLength(x) < core.UNIT_MAX_BYTES)

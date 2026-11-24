@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { MAX_ATTEMPTS } from './ledger-core.mjs'
+import { MAX_ATTEMPTS, UNIT_MAX_BYTES } from './ledger-core.mjs'
 import { agentStages, driveScript, project, scriptAgent, status } from './blackboard-fixture.mjs'
 import { sizedDoc } from './launch-fixture.mjs'
 import { FR_STAGE, frAct, frFacts, frFinding, frStatus, loc } from './full-review-fixture.mjs'
@@ -14,8 +14,10 @@ import { FR_STAGE, frAct, frFacts, frFinding, frStatus, loc } from './full-revie
 const plain = (n) => `# ${n}\n\n## 節\n${n} の節は主張を一つだけ述べる本文の行である。\n`
 const QA = '文書A の節は主張を一つだけ述べる本文の行である。'
 const SMALL = { 'a.md': plain('文書A'), 'b.md': plain('文書B') }
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
 // 読む範囲は a.md だけ（a+b が UNIT_MAX_BYTES を超える）。d.md は範囲の外。
-const BIG = { 'a.md': sizedDoc('a', 60000), 'b.md': sizedDoc('b', 50000), 'd.md': sizedDoc('d', 5000) }
+const BIG = { 'a.md': sizedDoc('a', 60000 * S), 'b.md': sizedDoc('b', 50000 * S), 'd.md': sizedDoc('d', 5000 * S) }
 const FR_A = 'FR-再開で読んだ指摘'
 // 読む範囲の最初の単位（a.md）の、見出しでも空でもない最初の本文の行を引く指摘。
 const bodyLine = (u) => readFileSync(u.file, 'utf8').split('\n').slice(u.start - 1, u.end).find((l) => l.trim() && !/^#/.test(l))
@@ -54,7 +56,7 @@ test('lost: complete で止まった後に範囲の外の単位だけが変わ�
   const r1 = await run(state, failing(good(), { throwIn: [FR_STAGE] }))
   assert.equal(r1.stop.stop, 'complete', JSON.stringify(r1.stop))
   assert.equal(frStatus(status(state)).cause, 'lost')
-  writeFileSync(paths['d.md'], sizedDoc('d', 5000).replace('line 000001:', 'line 00000X:'))
+  writeFileSync(paths['d.md'], sizedDoc('d', 5000 * S).replace('line 000001:', 'line 00000X:'))
   const r2 = await run(state, good())
   assert.equal(r2.stop.stop, 'complete', JSON.stringify(r2.stop))
   assert.equal(frSteps(r2).length, 1, `新しい回で全文レビューを読み直す: ${agentStages(r2.steps)}`)
@@ -72,7 +74,7 @@ test('rejected: 照合に落ち続けた全文レビューは、blocked（failur
   const r2 = await run(state, good())
   assert.equal(r2.stop.stop, 'complete', JSON.stringify(r2.stop))
   assert.equal(frSteps(r2).length, 0, `照合の失敗は再開で戻さない: ${agentStages(r2.steps)}`)
-  writeFileSync(paths['d.md'], sizedDoc('d', 5000).replace('line 000001:', 'line 00000X:'))
+  writeFileSync(paths['d.md'], sizedDoc('d', 5000 * S).replace('line 000001:', 'line 00000X:'))
   const r3 = await run(state, good())
   assert.equal(r3.stop.stop, 'complete', JSON.stringify(r3.stop))
   assert.equal(frSteps(r3).length, 0, '範囲の外の単位だけが変わった新しい回でも戻さない')

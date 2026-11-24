@@ -101,7 +101,7 @@ test('単位の境目（境目の無い所）: 宣言も見出しも無い大き
 })
 
 test('振り返りの単位: 全ての段の出来事を 1 つの並びにし、多数の出来事は本文が UNIT_MAX_BYTES に収まるよう行の境目で分ける', () => {
-  const filler = 'の読みが返らなかった出来事の説明を長く書いた本文である'.repeat(20)
+  const filler = 'の読みが返らなかった出来事の説明を長く書いた本文である'.repeat(20 * UNIT_MAX_BYTES / 100000)
   const events = Array.from({ length: 300 }, (_, i) => ({ id: `E1-${i + 1}`, cycle: 1, stage: 'review', kind: 'missing_read', text: i === 7 ? `二行に渡る出来事 ${i}\n続きの行` : `枡 ${i} ${filler}` }))
   const ra = retroAssets({ cycle: 1, events })
   assert.ok(ra.length > 1, '上限を超える出来事は分ける')

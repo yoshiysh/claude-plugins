@@ -96,7 +96,7 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
    起動数の上限は段の始まり（init か、`kept` でない reframe）から、周の上限は今の回の始まりから数える。印の無い台帳・`--phase` の無い reframe・照合を通らない項目・読めない対象は、台帳を変えずに拒否する。
 
    1 回の呼び出しは、段ごとの波を順に流す（下の「Workflow を呼ぶ」）。波の起動数は段で決まり、呼び出しの中の全ての波の和を `meta.limits.maxAgents` と残りの起動数の予算に収める。
-   - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。詰め合わせの線は、単位を読む役の `roles.json` の `context_tokens` の最小値から導く（既定 200k token で 100KB。references/ledger.md）。収まらない分は次の波か呼び出しで読む。
+   - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。詰め合わせの線は、単位を読む役の `roles.json` の `context_tokens` の最小値から導く（既定 1M token で 500KB。references/ledger.md）。収まらない分は次の波か呼び出しで読む。
    - 全体の段: 開いた意図のある役（判定役・確認役）ごとに `workers` 体。既定は 1 体（`scripts/ledger-core.mjs` の `DEFAULT_CONFIG`）で、1 体が claim を繰り返して意図を束で取って処理する。`CLI config --state <stateDir> --workers N` が変えるのはこの数だけ（役の組の数 2 × `workers` が `meta.limits.maxAgents` を超える値は拒否する。行の合計は残りの起動数の予算にも収め、予算が足りないときは判定役の組を先に起動する）。
    - 計画の段: 計画役 1 体、観点の検証役 1 体。
    - 全文レビュー: いつも 1 体（`--workers` によらない）。

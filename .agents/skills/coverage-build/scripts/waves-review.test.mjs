@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { cli as auditCli, fileResult } from '../../coverage-audit/scripts/blackboard-fixture.mjs'
+import { UNIT_MAX_BYTES } from '../../coverage-audit/scripts/ledger-core.mjs'
 import { act, archResult, auditPos, auditStateOf, claimArgv, cli, driveScript, isAuditStage, setup, specResult, walkTo } from './board-fixture.mjs'
 
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
@@ -22,10 +23,12 @@ const ingest = (state, call, agents) => {
 }
 const agentOf = (row, wave, ok = true) => ({ role: row.role, label: `${row.role}-${row.id}`, model: row.model, effort: row.effort, ok, stage: row.stage, wave })
 
-// update で、線（100KB）を超える 2 つの対象を持つ台帳（現状の検査のファイルの段が 4 行の波になる）。auditMax は検査の起動数の上限。
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
+// update で、線を超える 2 つの対象を持つ台帳（現状の検査のファイルの段が 4 行の波になる）。auditMax は検査の起動数の上限。
 async function bigUpdate(t, { auditMax = null } = {}) {
   const { d, repo } = setup(t, { mode: 'update' })
-  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(160)
+  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(160 * S)
   for (const f of ['x.md', 'y.md']) writeFileSync(path.join(repo, 'src', f), big)
   const state = path.join(d, 'state-big')
   const r = cli('init', '--state', state, '--mode', 'update', '--repo', repo, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'),
@@ -126,7 +129,7 @@ for (const c of [
 
 test('3. 順序の門: 詳細設計の 2 行の波で、ある行の単位が試行の上限で stuck になっても、兄弟の行が取って書いた単位は受理される（黙って捨てない）', async (t) => {
   const { repo, state } = setup(t)
-  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(120)
+  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(120 * S)
   mkdirSync(path.join(repo, 'docs'), { recursive: true })
   writeFileSync(path.join(repo, 'docs', 'big1.md'), big)
   writeFileSync(path.join(repo, 'docs', 'big2.md'), big)
@@ -201,7 +204,7 @@ test('5. 検査の上限: build の config で検査の上限（--audit-max-agen
 
 test('B. 現状の検査を止まった時点で閉じた後、同じ build の呼び出しで設計レビューへ段が変わっても、閉じた呼び出しの起動の記録・calls・agent_missing を設計レビューの段に数えず、build の振り返りに同じ欠けを 2 件入れない', async (t) => {
   const { d, repo } = setup(t, { mode: 'update' })
-  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(160)
+  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(160 * S)
   for (const f of ['x.md', 'y.md']) writeFileSync(path.join(repo, 'src', f), big)
   const state = path.join(d, 'state-b')
   assert.equal(cli('init', '--state', state, '--mode', 'update', '--repo', repo, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'),

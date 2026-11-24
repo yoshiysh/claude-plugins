@@ -70,7 +70,7 @@ SKILL.md の手順の裏で、何がどこで決まるか。値と判定の正�
 
 ## 単位と観点と持ち越し
 
-- 線: 「1 体の文脈に収まらない」を判じる唯一の線は、単位を読む役（`READER_ROLES`: file_reader・full_reviewer・global_judge・confirmer）の `roles.json` の `context_tokens` の最小値から `context_tokens × 1/4 × 2` バイトで導く（`lineOf`）。大きいファイルを分ける処理も、全ての詰め合わせも、この 1 本を使う。規模による分岐は置かない。既定は 200k token の 100,000 バイト（`UNIT_MAX_BYTES`）。上げるのは、1 回の入力の token と、単位を大きくしても指摘と照合の拒否が落ちないことを実測で確かめてから（変えるのは roles.json）。
+- 線: 「1 体の文脈に収まらない」を判じる唯一の線は、単位を読む役（`READER_ROLES`: file_reader・full_reviewer・global_judge・confirmer）の `roles.json` の `context_tokens` の最小値から `context_tokens × 1/4 × 2` バイトで導く（`lineOf`）。大きいファイルを分ける処理も、全ての詰め合わせも、この 1 本を使う。規模による分岐は置かない。既定は 1M token の 500,000 バイト（`UNIT_MAX_BYTES`）。比率と、役が 1M の文脈で走ることは実測していない。run の記録の 1 回の入力の token と、指摘・照合の拒否が落ちていないかで見直す（変えるのは roles.json）。
 - 単位: 対象のファイル 1 つを 1 単位にし、id はファイルの path にする。本文のバイト数が線を超えるファイルだけを、構造の境目で同格の単位に分け、ファイルを隙間なく覆う（`splitAssets`）。細かく切ると文脈が落ち、無意味な指摘が増えるため。
   - Markdown は最も上の階層の見出しの境目で分けて上限まで詰め、1 つの節で収まらなければ下の階層の見出しで分ける。code fence の中の `#` は見出しにしない。
   - JS・MJS はトップレベルの文の境目（宣言の直前のコメントを含む）で分けて詰める。

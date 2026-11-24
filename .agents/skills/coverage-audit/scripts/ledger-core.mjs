@@ -19,8 +19,8 @@ const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数
 // 線は、単位を読む役（READER_ROLES）の roles.json の context_tokens の最小値から 1 つの式で導く（lineOf）。大きいファイルを分ける処理も、全ての詰め合わせも、この 1 本を使う。
 // 式: 指示・観点・目標・台帳から引く事実・出力・推論に 3/4 を残し、単位の本文には 1/4 までを当てる。token あたりのバイト数は前提として、
 // 英語・コードで 3〜4 バイト、日本語（1 字 3 バイト）で 2〜3 バイトと置き、記号の多い本文も見込んで少ない側の 2 バイトで見積もる: context_tokens × 1/4 × 2。
-// 既定は 200k token の 100,000 バイト（UNIT_MAX_BYTES）。比率は実測していない（run の記録の token で見直す。値を変えるのは roles.json）。
-export const UNIT_MAX_BYTES = 100000
+// 既定は 1M token の 500,000 バイト（UNIT_MAX_BYTES）。比率と、Workflow の役が 1M の文脈で走ることは実測していない（run の記録の token で見直す。値を変えるのは roles.json）。
+export const UNIT_MAX_BYTES = 500000
 export const READER_ROLES = ['file_reader', 'full_reviewer', 'global_judge', 'confirmer']
 const bytesOfTokens = (n) => Math.floor((n / 4) * 2)
 export function lineOf(L) {

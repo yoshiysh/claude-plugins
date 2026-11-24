@@ -6,6 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { UNIT_MAX_BYTES } from './ledger-core.mjs'
 import { behave, claimedTasks, cli, drive, project, status, unitLines, usable, rowsOf, readArgs } from './blackboard-fixture.mjs'
 import { planAct } from './plan-roles.mjs'
 
@@ -30,8 +31,10 @@ test('H1: ファイルの段は文脈に収まる分の単位を 1 体に詰め�
   assert.deepEqual([...per.values()].map((x) => x.size), [3], `1 体が詰め合わせの 3 単位を読む: ${JSON.stringify([...per].map(([w, x]) => [w, [...x]]))}`)
 })
 
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
 // 1 つで UNIT_MAX_BYTES の半分を超える本文（どの 2 つも 1 つの詰め合わせに収まらない）。
-const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
+const bigDoc = (n) => `# ${n}\n\n${Array.from({ length: 700 * S }, (_, i) => `- ${n} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
 test('H1: ファイルの段の起動数（詰め合わせの数）は残りの予算（max-agents-total）に収め、残りの詰め合わせは次の呼び出しに回す', async (t) => {
   const { state } = project(t, { 'a.md': bigDoc('A'), 'b.md': bigDoc('B'), 'c.md': bigDoc('C') })
   // 計画の段（計画役 1 体・観点の検証役 1 体）と全文レビュー（1 体）を済ませる（3 体）。

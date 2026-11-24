@@ -6,15 +6,17 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { C, MAX_ATTEMPTS } from './ledger-core.mjs'
+import { C, MAX_ATTEMPTS, UNIT_MAX_BYTES } from './ledger-core.mjs'
 import { withLock } from './ledger-cli.mjs'
 import { CLI, behave, cli, drive, fileResult, project, shellWords, status, tmp, workerLoop, readArgs, rowsOf, claimFor, claimArgvFor } from './blackboard-fixture.mjs'
 import { passPlan } from './plan-roles.mjs'
 
 const doc = (name) => `# ${name}\n\n## 節\n${name} の節は主張を一つだけ述べる本文の行である。\n二行目も ${name} の主張を補う本文の行として置く。\n`
 const files = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`d${i}.md`, doc(`文書${i}`)]))
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
 // 1 つで UNIT_MAX_BYTES の半分を超える文書（どの 2 つも 1 つの詰め合わせに収まらないので、文書ごとに 1 つの詰め合わせ・1 体になる）。
-const bigDoc = (name) => `${doc(name)}${Array.from({ length: 700 }, (_, i) => `- ${name} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
+const bigDoc = (name) => `${doc(name)}${Array.from({ length: 700 * S }, (_, i) => `- ${name} の本文の ${String(i).padStart(4, '0')} 行目は、詰め合わせを分ける大きさを作るための行である。`).join('\n')}\n`
 const bigFiles = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`d${i}.md`, bigDoc(`文書${i}`)]))
 // 利用者の観点を渡し、目標を照合済みにした台帳。観点を渡しても計画役は足す観点の提案として流れるので、提案しない偽の計画役で計画の段を通し、
 // 次の next がファイルの段になる所まで進める。

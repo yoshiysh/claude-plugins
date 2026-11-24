@@ -4,10 +4,10 @@
 // 束の形（claim・query・submit・same_location・束の量の測り方）は batch-fixture.mjs の 1 か所に置く。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cpSync } from 'node:fs'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { MAX_ATTEMPTS, UNIT_MAX_BYTES } from './ledger-core.mjs'
-import { behave, cli, driveScript, project, run, scriptAgent, status, rowsOf, stageOf } from './blackboard-fixture.mjs'
+import { MAX_ATTEMPTS, READER_ROLES } from './ledger-core.mjs'
+import { behave, cli, driveScript, project, run, scriptAgent, status, rowsOf, stageOf, tmp } from './blackboard-fixture.mjs'
 import { act, launchesOf } from './launch-fixture.mjs'
 import { confirmedIds, frAct, frFinding, loc } from './full-review-fixture.mjs'
 import {
@@ -72,8 +72,16 @@ test('1. claim（確認役）: c 行の claim は、開いた確認の意図を�
 // 量の上限の対象: 1 つの単位に、義務の項目ごとに大きい保証を書く。開くのは目標の判定の意図（G1・G2・AC1）だけ。
 const QS = 'この文書は大きな保証の束を一つの行で述べる本文の行である。'
 const PAD = 1500
+// 束の量の上限は線（lineOf）。fixture の大きさを既定の値から切り離すため、単位を読む役の文脈を 200k token に固定し、線を 100,000 バイトにする。
+const LINE = 100000
+const ROLES = JSON.parse(readFileSync(new URL('./roles.json', import.meta.url), 'utf8'))
+function lineRoles(t) {
+  const f = path.join(tmp(t), 'roles-line.json')
+  writeFileSync(f, JSON.stringify(Object.fromEntries(READER_ROLES.map((r) => [r, { ...ROLES[r], context_tokens: (LINE / 2) * 4 }]))))
+  return f
+}
 async function sizedGlobal(t, counts) {
-  const { state } = project(t, { 'a.md': `# A\n\n## 保証\n${QS}\n` })
+  const { state } = project(t, { 'a.md': `# A\n\n## 保証\n${QS}\n` }, { extra: ['--roles', lineRoles(t)] })
   const a = act({ facts: () => ({ guarantees: bigGuarantees(QS, counts, PAD), bind: false }) })
   const { args } = await toGlobal(state, a)
   const open = openOf(state, G_KINDS)
@@ -84,22 +92,22 @@ async function sizedGlobal(t, counts) {
 }
 const bundlesOf = (rec, itemOf) => rec.claims.map((c) => intentIds(c).map((id) => itemOf[id]))
 
-test('1. claim の量: 束で query が返す量（basis・related・索引）の和が UNIT_MAX_BYTES に収まる所まで、意図の並びで前から詰める（next-fit）', async (t) => {
+test('1. claim の量: 束で query が返す量（basis・related・索引）の和が LINE に収まる所まで、意図の並びで前から詰める（next-fit）', async (t) => {
   const { state, a, args, bytes, itemOf, w } = await sizedGlobal(t, { G1: 20, G2: 20, AC1: 20 })
   // 前提: 2 件の和は上限の 9 割以下、3 件の和は上限の 1.1 倍以上（測り方の細部で境目が揺れない余白）。
-  assert.ok(bytes.G1 + bytes.G2 <= UNIT_MAX_BYTES * 0.9 && bytes.G1 + bytes.G2 + bytes.AC1 >= UNIT_MAX_BYTES * 1.1, `前提の大きさ: ${JSON.stringify(bytes)}`)
+  assert.ok(bytes.G1 + bytes.G2 <= LINE * 0.9 && bytes.G1 + bytes.G2 + bytes.AC1 >= LINE * 1.1, `前提の大きさ: ${JSON.stringify(bytes)}`)
   const rec = await batchWorker(state, args, w, a)
   assert.deepEqual(bundlesOf(rec, itemOf).slice(0, 2), [['G1', 'G2'], ['AC1']], `束の列: ${JSON.stringify(bundlesOf(rec, itemOf))}`)
 })
 
-test('1. claim の量: 1 件だけで UNIT_MAX_BYTES を超える意図は単独の束にし、次の意図から新しい束を詰める', async (t) => {
+test('1. claim の量: 1 件だけで LINE を超える意図は単独の束にし、次の意図から新しい束を詰める', async (t) => {
   const { state, a, args, bytes, itemOf, w } = await sizedGlobal(t, { G1: 60, G2: 15, AC1: 15 })
-  assert.ok(bytes.G1 >= UNIT_MAX_BYTES * 1.1 && bytes.G2 + bytes.AC1 <= UNIT_MAX_BYTES * 0.9, `前提の大きさ: ${JSON.stringify(bytes)}`)
+  assert.ok(bytes.G1 >= LINE * 1.1 && bytes.G2 + bytes.AC1 <= LINE * 0.9, `前提の大きさ: ${JSON.stringify(bytes)}`)
   const rec = await batchWorker(state, args, w, a)
   assert.deepEqual(bundlesOf(rec, itemOf).slice(0, 2), [['G1'], ['G2', 'AC1']], `束の列: ${JSON.stringify(bundlesOf(rec, itemOf))}`)
 })
 
-test('1. claim の量: 複数の意図の束では、固定した測り方の量の和が UNIT_MAX_BYTES 以下（束の query の出力で測る）', async (t) => {
+test('1. claim の量: 複数の意図の束では、固定した測り方の量の和が LINE 以下（束の query の出力で測る）', async (t) => {
   const { state, args, w } = await sizedGlobal(t, { G1: 20, G2: 20, AC1: 20 })
   const c = claimOf(state, args, w)
   assert.ok(c.tasks.length >= 2, `束で取る（2 件以上）: ${c.tasks.length}`)
@@ -107,7 +115,7 @@ test('1. claim の量: 複数の意図の束では、固定した測り方の量
   assert.equal(q.code, 0, JSON.stringify(q).slice(0, 300))
   assert.ok(Array.isArray(q.tasks), `束の query は tasks を返す: ${Object.keys(q)}`)
   const total = q.tasks.reduce((n, e) => n + entryBytes(e), 0)
-  assert.ok(total <= UNIT_MAX_BYTES, `束の量: ${total}`)
+  assert.ok(total <= LINE, `束の量: ${total}`)
 })
 
 test('1. claim の分け方は決定的: 同じ対象を別の台帳で回すと、同じ束の列（意図の id）になる。同じ台帳の写しでも同じ', async (t) => {
@@ -242,9 +250,9 @@ test('4. closeCall: その呼び出しで 1 件以上出した worker の取り�
 })
 
 test('4. closeCall（今も通る守り）: 1 件の束を取って 1 件も出さなかった worker の取り残しは、試行を 1 つ足す', async (t) => {
-  // G1 は 1 件で UNIT_MAX_BYTES を超えるので、最初の束は [G1] の 1 件になる。
+  // G1 は 1 件で LINE を超えるので、最初の束は [G1] の 1 件になる。
   const { state, args, w, bytes, itemOf } = await sizedGlobal(t, { G1: 60, G2: 15, AC1: 15 })
-  assert.ok(bytes.G1 >= UNIT_MAX_BYTES * 1.1, `前提の大きさ: ${JSON.stringify(bytes)}`)
+  assert.ok(bytes.G1 >= LINE * 1.1, `前提の大きさ: ${JSON.stringify(bytes)}`)
   const held = intentIds(claimOf(state, args, w))
   assert.deepEqual(held.map((id) => itemOf[id]), ['G1'], '前提: 1 件の束')
   assert.equal(ingestOk(state, args).code, 0)
@@ -254,13 +262,13 @@ test('4. closeCall（今も通る守り）: 1 件の束を取って 1 件も出�
 
 // ---------------- 4'. 束を取って 0 件のまま閉じた呼び出し（時間切れ）: 束の上限を半分にして詰め直す ----------------
 // 対象: 目標の判定の意図 3 件（各 約 21KB）。最初の束は 3 件（約 62KB）。半分（約 31KB）の上限では [G1] の 1 件、
-// 戻した上限（UNIT_MAX_BYTES）では [G2, AC1]（約 41KB。半分の上限を超える）になる。
+// 戻した上限（LINE）では [G2, AC1]（約 41KB。半分の上限を超える）になる。
 const SHRINK = { G1: 10, G2: 10, AC1: 10 }
 async function shrinkGlobal(t) {
   const o = await sizedGlobal(t, SHRINK)
   const { G1, G2, AC1 } = o.bytes
   const half = (G1 + G2 + AC1) / 2
-  assert.ok(G1 <= half * 0.9 && G1 + G2 >= half * 1.1 && G2 + AC1 >= half * 1.1 && G1 + G2 + AC1 <= UNIT_MAX_BYTES * 0.9, `前提の大きさ: ${JSON.stringify(o.bytes)}`)
+  assert.ok(G1 <= half * 0.9 && G1 + G2 >= half * 1.1 && G2 + AC1 >= half * 1.1 && G1 + G2 + AC1 <= LINE * 0.9, `前提の大きさ: ${JSON.stringify(o.bytes)}`)
   return o
 }
 // 判定役が束を取り、1 件も出さないまま呼び出しを閉じる（時間切れ）。取った束の項目の列を返す。1 回目の呼び出しは開いたものを使う。
@@ -325,7 +333,7 @@ test("4'. 時間切れの束: 束が 1 件まで縮んだ後、1 件の束で 0 
   for (const [id, item] of Object.entries(itemOf)) if (item !== 'G1') assert.ok(!L.intent_attempts[id] || L.intent_attempts[id].n === 0, `${item} は試行に数えない`)
 })
 
-test("4'. 時間切れの束: その種類で 1 件以上の提出があった呼び出しの後は、束の上限を UNIT_MAX_BYTES に戻す", async (t) => {
+test("4'. 時間切れの束: その種類で 1 件以上の提出があった呼び出しの後は、束の上限を LINE に戻す", async (t) => {
   const { state, a, args, itemOf } = await shrinkGlobal(t)
   zeroClose(state, itemOf, args)
   // 縮めた束（[G1]）を出して閉じる。

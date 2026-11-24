@@ -253,12 +253,14 @@ test('6. 独立（全文レビュー）: 次の run の全文レビューは、�
 // ---------------- 7. 大きい対象 ----------------
 
 // 並びの順で前から詰める（next-fit）。a+b は収まり、c を足すと超える。前に戻って詰める first-fit なら d も最初の組に入る（a+b+d も収まる）。
-const SIZES = { 'a.md': 40000, 'b.md': 50000, 'c.md': 30000, 'd.md': 5000 }
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
+const SIZES = { 'a.md': 40000 * S, 'b.md': 50000 * S, 'c.md': 30000 * S, 'd.md': 5000 * S }
 const BIG = Object.fromEntries(Object.entries(SIZES).map(([n, b]) => [n, sizedDoc(n.replace('.md', ''), b)]))
 const bigLine = (n) => BIG[n].split('\n')[2]
 
 test('7. 大きい対象: 全文レビューは並びの順で前から UNIT_MAX_BYTES までを読み、読まなかった単位は status で開示し、網羅とカバレッジに数えない', async (t) => {
-  assert.ok(SIZES['a.md'] + SIZES['b.md'] < UNIT_MAX_BYTES - 5000 && SIZES['a.md'] + SIZES['b.md'] + SIZES['c.md'] > UNIT_MAX_BYTES && SIZES['a.md'] + SIZES['b.md'] + SIZES['d.md'] < UNIT_MAX_BYTES)
+  assert.ok(SIZES['a.md'] + SIZES['b.md'] < UNIT_MAX_BYTES - 5000 * S && SIZES['a.md'] + SIZES['b.md'] + SIZES['c.md'] > UNIT_MAX_BYTES && SIZES['a.md'] + SIZES['b.md'] + SIZES['d.md'] < UNIT_MAX_BYTES)
   const { state } = project(t, BIG)
   let n = 0
   const a = frAct({

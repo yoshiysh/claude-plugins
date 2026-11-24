@@ -198,13 +198,15 @@ test('4. 観点の検証の欠陥: 計画の段（planner）に戻し、直し�
 // ---------------- 5. ファイルの段の詰め合わせ ----------------
 
 // 並びの順に前から詰める（next-fit）。a+b は上限を超え、b+c+d は収まる。a+c+d も収まるので、前に戻って詰める first-fit とは結果が違う。
-const SIZES = { 'a.md': 60000, 'b.md': 50000, 'c.md': 30000, 'd.md': 5000 }
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
+const SIZES = { 'a.md': 60000 * S, 'b.md': 50000 * S, 'c.md': 30000 * S, 'd.md': 5000 * S }
 const BIG = Object.fromEntries(Object.entries(SIZES).map(([n, b]) => [n, sizedDoc(n.replace('.md', ''), b)]))
 const bundlesOf = (calls) => workersOf(calls.filter((c) => c.stage === 'file')).map((w) => sorted(w.tasks.filter((k) => k.kind === 'file').map((k) => base(k.unit)))).filter((b) => b.length).map((b) => [...new Set(b)]).sort((x, y) => (x[0] < y[0] ? -1 : 1))
 
 test('5. 詰め合わせ: 並びの順で前から UNIT_MAX_BYTES まで決定的に詰め、詰め合わせ 1 つを 1 体が読む。別の台帳でも同じ組になる', async (t) => {
   for (const [n, b] of Object.entries(SIZES)) assert.ok(Math.abs(Buffer.byteLength(BIG[n]) - b) < 200, n)
-  assert.ok(SIZES['a.md'] + SIZES['b.md'] > UNIT_MAX_BYTES && SIZES['b.md'] + SIZES['c.md'] + SIZES['d.md'] < UNIT_MAX_BYTES - 5000)
+  assert.ok(SIZES['a.md'] + SIZES['b.md'] > UNIT_MAX_BYTES && SIZES['b.md'] + SIZES['c.md'] + SIZES['d.md'] < UNIT_MAX_BYTES - 5000 * S)
   const runOnce = async () => {
     const { state } = project(t, BIG)
     const r = await driveUntil(state, smallAct(), { until: (c) => c.stage === 'file' })
