@@ -259,13 +259,29 @@ test('ingest: 起動の記録の model・effort が台帳の波の記録と違�
 test('書き換えた next_wave を拒む: 役が返り値の波の id を書き換えると、その波の役の claim は終了状態 2 で拒まれ、台帳は壊れず、次の呼び出しから complete まで進む', async (t) => {
   const { state } = setup(t)
   let tampered = 0
-  const tamper = (ret) => (ret.next_wave_id != null && !tampered++ ? { ...ret, next_wave_id: Number(ret.next_wave_id) + 100 } : ret)
+  const tamper = (ret) => { if (ret.next_wave_id == null || tampered) return ret; tampered++; return { ...ret, next_wave_id: Number(ret.next_wave_id) + 100 } }
   const r = await driveScript(state, act(), { maxSteps: 4, tamper })
   assert.equal(tampered, 1)
   const rejected = r.launches.filter((x) => x.rec && x.rec.claims[0] && (x.rec.claims[0].out || x.rec.claims[0]).code === 2)
   assert.ok(rejected.length >= 1, `書き換えた波の役の claim が拒まれる: ${JSON.stringify(r.launches.map((x) => x.wave))}`)
   assert.equal(r.stop && r.stop.stop, 'complete', JSON.stringify(r.stop))
   assert.equal(r.steps.length, 2, '書き換えで止まった呼び出しの続きは、次の呼び出しが同じ台帳から進める')
+})
+
+test('検査の役の起動の記録: model・effort・stage・ok を、build の台帳に加えて coverage-audit の台帳の agents にも入れ、coverage-audit の calls の起動数も少なく数えない', async (t) => {
+  const { state } = setup(t)
+  const r = await driveScript(state, act(), { maxSteps: 3 })
+  assert.equal(r.stop && r.stop.stop, 'complete', JSON.stringify(r.stop))
+  const launched = r.launches.filter((x) => isAuditStage(x.stage))
+  assert.ok(launched.length > 0)
+  const AL = JSON.parse(readFileSync(path.join(auditStateOf(state), 'ledger.json'), 'utf8'))
+  // coverage-audit の台帳の段は、coverage-audit の段の名前（audit: の前置きを除く）。
+  const key = (role, model, effort, stage, ok) => `${role}|${model}|${effort}|${stage}|${ok}`
+  const want = launched.map((x) => key(x.role, x.model, x.effort, String(x.stage).slice('audit:'.length), true)).sort()
+  const got = (AL.agents || []).map((a) => key(a.role, a.model, a.effort, a.stage, !!a.ok)).sort()
+  assert.deepEqual(got, want, `coverage-audit の台帳の起動の記録: ${JSON.stringify(AL.agents)}`)
+  const counted = (AL.calls || []).reduce((n, c) => n + (c.agents || 0), 0)
+  assert.equal(counted, launched.length, `coverage-audit の calls の起動数: ${JSON.stringify(AL.calls)}`)
 })
 
 // ---------------- 9. 会計と区切り ----------------

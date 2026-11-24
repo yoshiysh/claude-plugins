@@ -37,13 +37,18 @@ export const defaultUnits = (cover) => [
 export const archOf = (q, units = defaultUnits(arr(q.cover_ids))) => ({ units, inputs_read: arr(q.input_paths).map((p) => ({ path: p, quotes: [firstLine(p)] })), inputs_not_read: [], questions: [], contracts: [], copies: [] })
 
 // 役の既定の結果。q は query の inputs。
+// やり直し（query の causes がある）の担当は、戻ってきた原因を本文に書き足す（直しで中身が変わる）。本物の coverage-audit は中身の変わらない
+// 単位の読みと指摘を持ち越すので、中身が同じままのやり直しは同じ指摘を受けて周の上限で止まる。直しを模すには中身を変える。
+// 原因の文（出来事の id を含む）を書くので、周ごとに中身が変わる。
+export const redoMark = (q) => (arr(q.causes).length ? `直し（${arr(q.causes).map((c) => String(c).replace(/\s+/g, ' ').slice(0, 40)).join(' / ')}）: 戻ってきた原因を除くように直した。` : '')
 export function defaultResult(role, q) {
   if (role === 'goal_checker') return { outcomes: [{ outcome: '依頼の全体', quotes: [{ source: 'request', quote: q.request }], items: q.item_ids }] }
   if (role === 'architect') return archOf(q)
-  if (role === 'unit_designer') return { unit_id: q.unit.id, spec: '入力を受け取り、決まった値を返す。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
+  if (role === 'unit_designer') return { unit_id: q.unit.id, spec: `入力を受け取り、決まった値を返す。${redoMark(q)}`, acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
   if (role === 'test_writer' || role === 'implementer') {
     const head = role === 'test_writer' ? 'tests' : 'implement'
-    for (const p of q.paths) { mkdirSync(path.dirname(path.join(q.repo, p)), { recursive: true }); writeFileSync(path.join(q.repo, p), `// ${head} ${p}\nexport const value = 2\n`) }
+    const mark = redoMark(q)
+    for (const p of q.paths) { mkdirSync(path.dirname(path.join(q.repo, p)), { recursive: true }); writeFileSync(path.join(q.repo, p), `// ${head} ${p}\nexport const value = 2\n${mark ? `// ${mark}\n` : ''}`) }
     return { unit_id: q.unit.id, written: q.paths, notes: '', unresolved: [] }
   }
   if (role === 'retro_planner') return { intents: [] }

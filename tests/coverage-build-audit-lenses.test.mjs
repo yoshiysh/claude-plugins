@@ -143,7 +143,8 @@ test('coverage-build の経路: 設計レビュー → 直し → 設計レビ�
   const round = { n: 0 }
   // 直しの設計（2 回目の U1 の詳細設計）は本文を変える。
   let designs = 0
-  const agent = cb.mockAgent({ 'design-U1': () => { designs += 1; return designs > 1 ? { unit_id: 'U1', spec: '入力を受け取り、決まった値を返す。直しで境界の扱いを足した。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] } : undefined } })
+  // 書き換え（波の形）: U2 は直さない単位（依存の直しで担当が回っても、中身を変えずに同じ設計を出す）。読みを持ち越す単位として残す。
+  const agent = cb.mockAgent({ 'design-U2': (p, o) => cb.defaultResult('unit_designer', { ...o.inputs, causes: [] }), 'design-U1': () => { designs += 1; return designs > 1 ? { unit_id: 'U1', spec: '入力を受け取り、決まった値を返す。直しで境界の扱いを足した。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] } : undefined } })
   const statuses = []
   // 本物の coverage-audit を流す。保証は義務に結ばない（目標の判定は単位の索引と載せなかった事実から判定する）。
   // 1 回目: U1 に指摘、目標は U1 の保証で支える。2 回目: U1 に指摘（fix）、目標は U1 を読み直したので開き直り、変わらない U2 の抜けを足す（missed）。

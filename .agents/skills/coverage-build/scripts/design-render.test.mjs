@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C, MAX_ATTEMPTS } from './build-core.mjs'
-import { auditStatus, cli, drive, mockAgent, setup } from './test-harness.mjs'
+import { auditStatus, cli, drive, mockAgent, redoMark, setup } from './test-harness.mjs'
 
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
 const firstLine = (f) => readFileSync(f, 'utf8').split('\n').find((l) => l.trim().length >= 14) || readFileSync(f, 'utf8').trim()
@@ -63,6 +63,8 @@ const designOf = (tweak = {}) => (p, opts) => {
   const id = /^design-(U\d+)/.exec(opts.label)[1]
   const r = SPECS[id]()
   if (tweak[id]) tweak[id](r)
+  // 書き換え（波の形）: やり直しの担当は中身を変える（本物の coverage-audit は中身の同じ単位の指摘を持ち越す）。
+  r.spec = `${r.spec}${redoMark(opts.inputs)}`
   return r
 }
 const agentOf = ({ archMut, tweak } = {}) => mockAgent({ architect: arch(archMut), design: designOf(tweak) })
@@ -356,22 +358,18 @@ test('L.arch が無い台帳（方式設計の前）は拒否しない', (t) => 
 
 // ---------------- 7. 設計レビューへの --link と frame ----------------
 // 書き換え（波の形）: 検査の入力は argv で返さず、CLI が同じ process で coverage-audit の台帳を init・reframe する。
-// 偽の検査の計画役が担当を取るたびに（検査の 1 回ごとに）、検査の台帳の段・link・目標の冒頭の文を残す。findingOnce なら最初の設計レビューで U1.md に指摘を 1 件出す。
+// 検査の 1 回ごとに（偽の検査の役が最初の担当を取る時点で audit が 1 回呼ばれる）、検査の台帳の段・link・目標の冒頭の文を残す。
+// 同じ段で観点の手続きが同じ reframe は計画をやり直さない（kept）ので、計画役の担当では数えない。findingOnce なら最初の設計レビューで U1.md に指摘を 1 件出す。
 function recorder(state, seen, { findingOnce = false } = {}) {
   let n = 0
-  const key = new Set()
-  const auditOver = {
-    plan: () => {
-      const AL = JSON.parse(readFileSync(path.join(state, 'audit', 'state', 'ledger.json'), 'utf8'))
-      const k = JSON.stringify([AL.phase, AL.phase_start])
-      if (!key.has(k)) { key.add(k); seen.push({ phase: AL.phase, link: AL.link ?? null, goal: AL.goal.text }) }
-      return undefined
-    },
+  const audit = (phase) => {
+    const AL = JSON.parse(readFileSync(path.join(state, 'audit', 'state', 'ledger.json'), 'utf8'))
+    seen.push({ phase: AL.phase, link: AL.link ?? null, goal: AL.goal.text })
+    return findingOnce && phase === 'design' && n++ === 0
+      ? auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] })
+      : auditStatus({ phase })
   }
-  const audit = (phase) => (findingOnce && phase === 'design' && n++ === 0
-    ? auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] })
-    : auditStatus({ phase }))
-  return { audit, auditOver }
+  return { audit }
 }
 
 test('設計レビュー: init と reframe で link に C.LINK_PATTERN を置き、実装レビューでは置かない', async (t) => {

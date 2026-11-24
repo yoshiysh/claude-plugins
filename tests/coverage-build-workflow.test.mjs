@@ -92,7 +92,7 @@ test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の�
   assert.ok(called.length >= 4)
   assert.ok(['design', 'tests', 'implement'].every((k) => called.some((s) => s.step === k)), '書かない段と書く段の両方を通る')
   // 書き換え（波の形）: 1 つの呼び出しが複数の波（step）を流すので、tokens は呼び出しごとに比べる。
-  const perCall = [...new Map(called.map((s) => [s.args.callId, s.res.tokens])).values()]
+  const perCall = [...new Map(called.map((s) => [s.call || s.args.callId, s.res.tokens])).values()]
   assert.equal(consumed.length, perCall.length)
   assert.deepEqual(perCall, consumed, 'tokens は呼び出しの中で増えた分')
   assert.ok(consumed.some((c) => c > 0))

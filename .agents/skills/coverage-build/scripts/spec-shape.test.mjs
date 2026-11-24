@@ -410,7 +410,8 @@ test('詳細設計の役の prompt: 語の一覧は <checks> 区間の VAGUE_WOR
   assert.ok(region.includes('なるべく'), '区間に語がある')
   const edited = `${STEP_SRC.slice(0, start)}${region.replaceAll('なるべく', 'ほどほどに')}${STEP_SRC.slice(end)}`
   const body = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', edited.replace(/^export const meta = /, 'const meta = '))
-  const args = { state: '/x/state', callId: 'c1', stage: 'design', workers: [{ id: 'd1', role: 'unit_designer', model: 'm', effort: 'low' }] }
+  // 書き換え（波の形）: args は最初の波だけを持つ { state, callId, wave: { id, rows } }。
+  const args = { state: '/x/state', callId: 'c1', wave: { id: 1, rows: [{ id: 'd1', role: 'unit_designer', model: 'm', effort: 'low', stage: 'design' }] } }
   const prompts = []
   const agent = async (prompt) => { prompts.push(prompt); return null }
   const parallel = (ts) => Promise.all(ts.map((x) => Promise.resolve().then(x).catch(() => null)))

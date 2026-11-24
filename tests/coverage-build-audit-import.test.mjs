@@ -213,12 +213,15 @@ function groupRetroAgent(basis, layer = '設計') {
 const TWO_IN_G1 = [{ claim: '指摘A: 値の決め方が書かれていない', groups: ['G1-GS'] }, { claim: '指摘B: 約束の行が写されていない', groups: ['G1-GS'] }]
 
 test('P14-3: basis に群の id を書いた事実は、その群の全ての出来事を覆う。1 件ずつ挙げなくても振り返りを終えて route へ進み、全ての出来事が事実の層で戻る', async (t) => {
-  const { state } = await afterDesignReview(t, TWO_IN_G1, [G1], { agent: groupRetroAgent(GS), maxSteps: 7 })
+  const { state, steps } = await afterDesignReview(t, TWO_IN_G1, [G1], { agent: groupRetroAgent(GS), maxSteps: 7 })
   const L = ledgerOf(state)
   assert.equal(L.intents.length, 1, '群の id を根拠にした意図を台帳に受ける')
   assert.equal(L.intents[0].status, 'accepted')
   assert.deepEqual(L.facts.map((f) => f.basis), [[GS]])
-  assert.equal(L.retro.rounds, 1)
+  // 書き換え（波の形）: route は claim の時点の advance で走るので、検証役の波が尽きた claim の中で振り返りを閉じて route まで済む
+  // （L.retro は route が戻す）。1 巡で終えたことは、計画役の step が 1 つで、次の next が retro を返さないことで確かめる。
+  assert.equal(steps.filter((s) => s.task === 'plan').length, 1, '計画役は 1 巡だけ')
+  assert.deepEqual(L.routes.map((r) => r.event).sort(), ['E1', 'E2'], 'route は呼び出しの中（claim の advance）で済み、next を待たない')
   const n = cli('next', '--state', state)
   assert.notEqual(n.step, 'retro', `E1・E2 は群 ${GS} を辿る事実で覆われているので 1 巡で終える: ${JSON.stringify(n)}`)
   const R = ledgerOf(state)
@@ -263,7 +266,9 @@ test('P14-3: CLI の submit は台帳の群の id で照らす。台帳に無い
 test('P14-4: 出来事の id・件数・kind・層・単位は、群があっても無くても同じ（groups の欄だけが増える）', async (t) => {
   const a = await afterDesignReview(t)
   const b = await afterDesignReview(t, THREE.map((f) => ({ claim: f.claim })), [])
-  const shape = (x) => ledgerOf(x.state).events.map((e) => [e.id, e.stage, e.kind, e.layer, e.unit, e.test, e.text.replaceAll(x.state, '<state>'), e.ref.replaceAll(x.state, '<state>')])
+  // 書き換え（波の形）: ref は本物の coverage-audit の事実の id（対象の絶対 path を含む hash）なので、run ごとに値が違う。形（F<hex>）だけを比べる。
+  const refShape = (ref) => (/^F[0-9a-f]+$/.test(String(ref)) ? 'F<hex>' : ref)
+  const shape = (x) => ledgerOf(x.state).events.map((e) => [e.id, e.stage, e.kind, e.layer, e.unit, e.test, e.text.replaceAll(x.state, '<state>'), refShape(e.ref)])
   const withG = ledgerOf(a.state)
   const plain = ledgerOf(b.state)
   assert.deepEqual(shape(a), shape(b))

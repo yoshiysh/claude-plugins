@@ -110,7 +110,8 @@ test('設計の欠陥は単位と依存する単位を設計からやり直し�
   assert.ok(redo.every((x) => x.inputs.previous && x.inputs.previous.endsWith(`${x.inputs.unit.id}.md`)), '前の設計は path で渡る')
   const text = JSON.stringify(designs[1].args)
   assert.ok(!text.includes('入力を受け取り'), '前の設計の本文は args に無い')
-  assert.deepEqual(Object.keys(designs[1].args).sort(), ['callId', 'stage', 'state', 'workers'])
+  // 書き換え（波の形）: drive の step の args は波ごとの見え方（行と波の id）。本物の args の key は blackboard.test.mjs の B4 が照らす。
+  assert.deepEqual(Object.keys(designs[1].args).sort(), ['callId', 'stage', 'state', 'wave', 'workers'])
   const L = ledger(state)
   assert.equal(L.units.U1.rounds, 1)
   assert.equal(L.cycle, 2)
@@ -588,11 +589,15 @@ const marks = (L) => ({
   audits: Object.fromEntries(Object.entries(L.audits).map(([k, a]) => [k, a.imported])),
 })
 // 止まるまで 1 手ずつ進め、止まる直前の（route を流す next の前の）台帳を返す。
+// before は、止まる直前の step を流す前の台帳。書き換え（波の形）: route は claim の時点の advance で走るので、最後の波の役の claim の中で
+// route が済み、その呼び出しの後の next が止まる。止まる next だけを流した回（step が無い）は、1 つ前の回の前の台帳を before にする。
 async function driveToStop(state, agentFn, opts) {
+  let prev = null
   for (let i = 0; i < 80; i++) {
     const before = ledger(state)
     const r = await drive(state, agentFn, { ...opts, maxSteps: 1 })
-    if (r.stop) return { ...r, before }
+    if (r.stop) return { ...r, before: r.steps.length || !prev ? before : prev }
+    prev = before
   }
   throw new Error('止まらない')
 }
@@ -871,8 +876,14 @@ const planTwo = (p, o) => (o.inputs.events.some((e) => e.kind === 'finding') ? {
 
 test('H2: 環境の失敗（実行役が手を付けて提出せずに返る）が続いて閉じた意図は undecided（退けたのではない）になり、blocked（failure）から再開すると待ちに戻って確かめ直す', async (t) => {
   const { state } = setup(t)
+  // 書き換え（波の形）: fail_streak は呼び出し全体で数える（前の波に進みのある呼び出しは数えない）。環境の失敗が続く形として、
+  // 計画役が意図を出した後は、実行役と計画役の両方が手を付けて提出せずに返る（進みの無い呼び出しが続く）。
   let fail = true
-  const agent = mockAgent({ 'retro-plan': planTwo, 'retro-exam': () => (fail ? null : supportedExam(state)) })
+  let planned = false
+  const agent = mockAgent({
+    'retro-plan': (p, o) => { if (fail && planned) return null; const r = planTwo(p, o); if (r) planned = true; return r },
+    'retro-exam': () => (fail ? null : supportedExam(state)),
+  })
   const audit = implFindingOnce(state)
   const first = await drive(state, agent, { audit })
   assert.equal(first.stop.stop, 'blocked', JSON.stringify(first.stop))

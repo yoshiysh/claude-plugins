@@ -56,8 +56,9 @@ test('取り込み: 試行の上限で判定できなかった意図（undecided
   const { state } = cb.setup(t)
   const target = { id: null }
   const goal = (task) => { if (target.id && task.intent.id !== target.id) return undefined; target.id = task.intent.id; return null }
-  const { steps } = await cb.drive(state, cb.mockAgent(), { audit: () => null, auditOver: { facts: markFacts, goal }, maxSteps: 4 })
-  assert.equal(steps.at(-1) && steps.at(-1).step, 'audit', JSON.stringify(steps.map((s) => s.step)))
+  // 判定役が提出せずに返る波は呼び出しを閉じる（環境の失敗）ので、検査は次の呼び出しへ続く。設計レビューを取り込むまで流す。
+  const { steps } = await cb.drive(state, cb.mockAgent(), { audit: () => null, auditOver: { facts: markFacts, goal }, maxSteps: 12 })
+  assert.ok(buildOf(state).audits.design, `設計レビューを取り込む: ${JSON.stringify(steps.map((s) => s.step))}`)
   assert.ok(target.id, '目標の意図を判定しなかった')
   assert.ok(buildOf(state).events.some((e) => String(e.text).includes(target.id)), '判定できなかった意図を探索グラフの出来事として残す')
 })

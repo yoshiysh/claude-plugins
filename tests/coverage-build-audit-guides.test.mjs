@@ -58,3 +58,18 @@ for (const [stage, role] of Object.entries(STAGE_ROLE)) {
     assert.deepEqual([b.opts.model, b.opts.effort], [AUDIT_ROLES[role].model, AUDIT_ROLES[role].effort])
   })
 }
+
+// 検査の役の prompt の全体（共通の前提・担当を取る命令・手順・返り値・結果の形）: build-step.js が写しとして持つ AUDIT_COMMON・STEP_*・auditLoop も、
+// coverage-audit.js と同じ文であること。同じ行（段だけ build の側は audit:<段>）から作った 2 つの prompt は、CLI の入口の path（build-cli.mjs と
+// ledger-cli.mjs）と、段の名前の audit: の前置きを除いて一致する。
+const normalize = (prompt, stage) => prompt.replace(/\/(build|ledger)-cli\.mjs/g, '/<CLI>').replaceAll(`audit:${stage}`, stage)
+for (const [stage, role] of Object.entries(STAGE_ROLE)) {
+  test(`検査の役の prompt の全体（${stage}）: build-step.js と coverage-audit.js は、CLI の入口の path と段の前置きを除いて同じ文`, async () => {
+    const row = (st) => ({ id: 'w1', role, model: AUDIT_ROLES[role].model, effort: AUDIT_ROLES[role].effort, stage: st })
+    const [a] = await promptsOf(AUDIT_WF, [row(stage)])
+    const [b] = await promptsOf(BUILD_STEP, [row(`audit:${stage}`)])
+    assert.ok(a && b, `両方の source が ${stage} の役を起動する`)
+    assert.ok(a.prompt.includes('/ledger-cli.mjs') && b.prompt.includes('/build-cli.mjs'), 'それぞれの CLI の入口を使う')
+    assert.equal(normalize(b.prompt, stage), normalize(a.prompt, stage))
+  })
+}
