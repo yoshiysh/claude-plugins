@@ -20,7 +20,7 @@ SKILL.md の手順の裏で、何がどこで決まるか。値と判定の正�
 |---|---|---|
 | ボード | `stateDir/build.json`。設計の写しの `design/`・検査の `audit/`・check の `checks/`・呼び出しの args の `call-<call_id>.json`・役の結果の `results/<call_id>/<worker>/`・ヒントの `hints.jsonl`・役の入口の `build-cli.mjs` は別ファイル | 目標・基準・制約・単位・開いた呼び出しと担当（`pending`）・レビューの取り込み・出来事・意図・原因・戻した層・人間に返したもの・起動の記録 |
 | 知識源 | Workflow source `scripts/build-step.js` の 1 つが起動する役（`scripts/roles.json`）と coverage-audit | 取った担当の判断か生成だけ。ボードは `claim`・`query`・`submit` を通してだけ読み書きする |
-| 制御 | `scripts/build-cli.mjs`。呼び出し側が流す `next`・`ingest`・`import-audit`・`run-checks` と、役が流す `claim`・`query`・`submit` | 次の 1 手と起動する役の決定、提出の照合と受け入れ、層への戻し、止める判定 |
+| 制御 | `scripts/build-cli.mjs`。呼び出し側が流す `next`・`ingest`・`run-checks` と、役（検査の役を含む）が流す `claim`・`query`・`submit`。検査は coverage-audit の `scripts/ledger-cli.mjs` の関数を同じ process で流す | 次の波と起動する役の決定、提出の照合と受け入れ、層への戻し、検査の台帳の init・reframe と取り込み、止める判定 |
 
 ボードを書くのは CLI だけで、並べて動く役の `claim`・`submit` は `stateDir/build.lock` で直列にする。役の prompt は CLI の置き場を args で受けない（args の形は SKILL.md の「Workflow を呼ぶ」）ので、最初の `claim` は `stateDir/build-cli.mjs` で流す。この入口は本物の CLI を絶対 path で import して流すだけで、判断も照合も持たない。CLI は init と next のたびに入口を書き直す（plugin の置き場が変わっても古い path が残らないため）。2 回目からの `query`・`submit` は、`claim` が返す `submit_cmd`（本物の CLI の絶対 path）から作る。
 
@@ -29,11 +29,11 @@ SKILL.md の手順の裏で、何がどこで決まるか。値と判定の正�
 | 段 | LLM がすること | script がすること |
 |---|---|---|
 | init | なし | 目標・基準・制約の各項目に引用があり、引用が依頼文か決定の記録に逐語であるか（`readGoalFiles`）。通らなければ台帳を作らない |
-| design | 別の呼び出しで、目標の照合（依頼文と決定の記録が求める成果を引用つきで挙げ、受け止める項目の id を付ける）、方式設計（単位・持つファイル・依存・効く基準、単位をまたぐ約束の決定表 `contracts`、写し `copies`、テストの前提 `test_uses`）、単位ごとの詳細設計（仕様・受け入れ・振る舞い `behaviors`・分け方 `partitions`・ケース・前提 `premises`・確かめていない前提 `unverified`・決めきらない語を残す箇所 `allowed_optional`）。後の役は前の役の出力を `query` で引く | `submit` で照らす。照合役の成果の引用の実在・項目の id の実在、受け止められていない成果を人間に返す（`checkGoalMap`・`goalGaps`）。方式設計は `checkArch` が、`ARCH_INVARIANTS`（`<checks>` 区間）の不変条件に加え、単位の id・相対 path・依存の循環・全ての基準と制約の受け皿（基準と制約が 0 件なら目標の項目を受け皿にする。`coverIds`）・入力ごとの読んだ証拠の引用（本文に逐語か）・contracts（id の形、作る単位と使う単位の実在と依存の閉包、行の値の重複）・copies（一致を照らすテストがどれかの単位の tests か test_uses にあるか）・test_uses（逆向きの依存が無いか）を照らす。詳細設計は `checkSpec` が、仕様の行数の上限（`MAX_SPEC_LINES`）・code の単位のケースに加え、振る舞いと受け入れ・境界の行の結び、受け入れとケースの結び（code の単位）、分け方の全ての値をケースが覆うか、前提の path と引用（読めるファイルの本文に逐語か）、`VAGUE_WORDS` の語が allowed_optional の引用の外に無いかを照らす。id の形は `<checks>` 区間の定数から作る。設計の写し（方式設計 1 枚と単位ごとに 1 枚）を台帳から書き、方式設計の写しには不変条件・境界の表・写しの表を、単位の写しには振る舞い・ケースの結び・分け方・前提を描く。単位の設計の hash（`designHash`）は詳細設計の欄と、その単位が作るか使う境界の約束を含み、変わればテストと実装をやり直す |
+| design | 別の波で、目標の照合（依頼文と決定の記録が求める成果を引用つきで挙げ、受け止める項目の id を付ける）、方式設計（単位・持つファイル・依存・効く基準、単位をまたぐ約束の決定表 `contracts`、写し `copies`、テストの前提 `test_uses`）、単位ごとの詳細設計（仕様・受け入れ・振る舞い `behaviors`・分け方 `partitions`・ケース・前提 `premises`・確かめていない前提 `unverified`・決めきらない語を残す箇所 `allowed_optional`）。後の役は前の役の出力を `query` で引く | `submit` で照らす。照合役の成果の引用の実在・項目の id の実在、受け止められていない成果を人間に返す（`checkGoalMap`・`goalGaps`）。方式設計は `checkArch` が、`ARCH_INVARIANTS`（`<checks>` 区間）の不変条件に加え、単位の id・相対 path・依存の循環・全ての基準と制約の受け皿（基準と制約が 0 件なら目標の項目を受け皿にする。`coverIds`）・入力ごとの読んだ証拠の引用（本文に逐語か）・contracts（id の形、作る単位と使う単位の実在と依存の閉包、行の値の重複）・copies（一致を照らすテストがどれかの単位の tests か test_uses にあるか）・test_uses（逆向きの依存が無いか）を照らす。詳細設計は `checkSpec` が、仕様の行数の上限（`MAX_SPEC_LINES`）・code の単位のケースに加え、振る舞いと受け入れ・境界の行の結び、受け入れとケースの結び（code の単位）、分け方の全ての値をケースが覆うか、前提の path と引用（読めるファイルの本文に逐語か）、`VAGUE_WORDS` の語が allowed_optional の引用の外に無いかを照らす。id の形は `<checks>` 区間の定数から作る。設計の写し（方式設計 1 枚と単位ごとに 1 枚）を台帳から書き、方式設計の写しには不変条件・境界の表・写しの表を、単位の写しには振る舞い・ケースの結び・分け方・前提を描く。単位の設計の hash（`designHash`）は詳細設計の欄と、その単位が作るか使う境界の約束を含み、変わればテストと実装をやり直す |
 | audit | coverage-audit が検査する（目標の照合は流さない） | 検査の目標・依頼・決定の記録・基準・制約・対象と、init か reframe の引数を書く。取り込みで、検査が終わったか、渡した後に対象が変わっていないか、指摘の引用が今の本文にあるか、指摘の path から単位とテストかを決める |
-| tests・implement | 担当の単位ごとに受け持ちのファイルを書く | 書いてよい path を担当ごとに `query` の `paths` で渡す。`submit` で、書くはずのファイルの欠けと、実装の担当によるテストの変更を照らす（受け持ちの外の変更の扱いは SKILL.md の「Workflow を呼ぶ」）。呼び出しを閉じるときに、その呼び出しで受理したテストの `tests_hash` を今の中身で取り直す（同じ呼び出しの後の担当が共有の fixture を直すことがあるため）。書かない段の呼び出しで単位の持つファイルが変わったら、その単位の `tests_for`・`impl_for` を無効にし、変わったファイルを単位の `tainted` に記録する。書く段の担当がそのファイルを書き直すまで、その提出を受理しない（書かない段の役が書いた中身を、受理した成果物として通さないため）。方式設計の呼び出しで新しく単位に持たせたファイルは、開いた時の hash（`before`）で照らしていないので、`before` に無く、今あり、mtime が呼び出しを開いた時刻（`pending` の `opened_at`）以後なら、その呼び出しの中で書かれたとみなす（`freshFile`）。そのときも同じく単位を `tainted` にしてテストと実装を無効にし、`write_outside` の出来事を残す。implement は、依存先が実装済みの単位だけを `claim` で渡す。呼び出しを開いた時に揃っていなかった単位も、同じ呼び出しの中で依存先が受理されれば渡る。揃った単位を 1 つも持たない詰め合わせの体は起動しない。tests の段は依存を見ない |
+| tests・implement | 担当の単位ごとに受け持ちのファイルを書く | 書いてよい path を担当ごとに `query` の `paths` で渡す。`submit` で、書くはずのファイルの欠けと、実装の担当によるテストの変更を照らす（受け持ちの外の変更の扱いは SKILL.md の「Workflow を呼ぶ」）。波を締めるときに、その波で受理したテストの `tests_hash` を今の中身で取り直す（同じ呼び出しの後の担当が共有の fixture を直すことがあるため）。書かない段の呼び出しで単位の持つファイルが変わったら、その単位の `tests_for`・`impl_for` を無効にし、変わったファイルを単位の `tainted` に記録する。書く段の担当がそのファイルを書き直すまで、その提出を受理しない（書かない段の役が書いた中身を、受理した成果物として通さないため）。方式設計の呼び出しで新しく単位に持たせたファイルは、開いた時の hash（`before`）で照らしていないので、`before` に無く、今あり、mtime が呼び出しを開いた時刻（`pending` の `opened_at`）以後なら、その呼び出しの中で書かれたとみなす（`freshFile`）。そのときも同じく単位を `tainted` にしてテストと実装を無効にし、`write_outside` の出来事を残す。implement は、依存先が実装済みの単位だけを `claim` で渡す。呼び出しを開いた時に揃っていなかった単位も、同じ呼び出しの中で依存先が受理されれば渡る。揃った単位を 1 つも持たない詰め合わせの体は起動しない。tests の段は依存を見ない |
 | checks | なし | 利用者が init で固定した argv だけを shell を通さずに実行し、exit code と出力を記録する |
-| retro | 別の呼び出しで、計画役が意図を出し、実行役が意図を確かめ、別のモデルの検証役が受理を決める | 意図の根拠の id の実在（台帳の id）、結論の形、証拠の引用（振り返りの読めるファイルの中に逐語か）、意図の状態、巡の上限と乾き（「振り返りの探索グラフ」） |
+| retro | 別の波で、計画役が意図を出し、実行役が意図を確かめ、別のモデルの検証役が受理を決める | 意図の根拠の id の実在（台帳の id）、結論の形、証拠の引用（振り返りの読めるファイルの中に逐語か）、意図の状態、巡の上限と乾き（「振り返りの探索グラフ」） |
 | route | なし | 出来事ごとの層を決め、単位の設計・テスト・実装のやり直しか、人間への返しにする（次節） |
 
 静的な照合と結果の形の正本は `scripts/build-step.js` の `// <checks>` 区間だけで、CLI（`build-core.mjs`）は同じ文を読み込んで `submit` で照らす（runner の source は import できないので、写しを持たずに 1 か所にするため）。Workflow の本体は役の結果を受け取らず、照合・やり直し・次に起動する役の判定をしない。拒んだ提出の出し直しは SKILL.md の「役とモデル」。目標の照合の静的な部分（`// <goalmap>`）は coverage-audit の Workflow source と同じ文を置き、一致は `tests/coverage-build-goalmap.test.mjs` が照らす（2 つのスキルは互いのファイルを読まないので、片方から読み込まずに同じ文の小さい関数にした）。
@@ -71,27 +71,26 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 | `accepted`・`refuted`・`unclear` | 確かめて閉じた（`refuted` は退けた） | なし |
 | `undecided` | 担当が `MAX_ATTEMPTS` 回受理されず、判定できずに開示して閉じた。退けた意図と区別し、計画役の `query` の `tried` にもこの状態のまま載る。閉じる前の状態を `undecided_from` に残す | 振り返りは止めずに進む。blocked（failure）からの再開で試行が上限を下回れば `undecided_from` に戻る（「記録と持ち越し」） |
 
-1 巡は、計画役の 1 回の呼び出しと、その計画役が出した意図が全て閉じるまでの呼び出しから成る。`next` は `queued` の意図があれば実行役の呼び出しを、`examined` の意図があれば検証役の呼び出しを返し、どちらも無いときだけ次の巡か終わりを決める（呼び出しの分け方は SKILL.md の「手順」）。巡の乾きは、その巡の意図が全て閉じた時点（`settleRetro`）で数え、その巡で原因が 1 つも受理されなければ 1 進め、受理されれば 0 に戻す。計画役には件数も例も与えない。原因は、実行役の引用が読めるファイルに逐語であり、別のモデルの検証役が受理したものだけ。振り返りは、レビューか check の失敗の後に、まだ振り返っていない全ての段の出来事を対象に始める。巡の意図が全て閉じた後に、全ての出来事が原因に辿られたか、`DRY_ROUNDS` 巡続けて新しい原因が受理されないか、`RETRO_MAX_ROUNDS` 巡なら終わる。終わったら層への戻しを決める。
+1 巡は、計画役の 1 つの波と、その計画役が出した意図が全て閉じるまでの波から成る。CLI は `queued` の意図があれば実行役の波を、`examined` の意図があれば検証役の波を決め、どちらも無いときだけ次の巡か終わりを決める（波の分け方は SKILL.md の「手順」）。巡の乾きは、その巡の意図が全て閉じた時点（`settleRetro`）で数え、その巡で原因が 1 つも受理されなければ 1 進め、受理されれば 0 に戻す。計画役には件数も例も与えない。原因は、実行役の引用が読めるファイルに逐語であり、別のモデルの検証役が受理したものだけ。振り返りは、レビューか check の失敗の後に、まだ振り返っていない全ての段の出来事を対象に始める。巡の意図が全て閉じた後に、全ての出来事が原因に辿られたか、`DRY_ROUNDS` 巡続けて新しい原因が受理されないか、`RETRO_MAX_ROUNDS` 巡なら終わる。終わったら層への戻しを決める。
 
 計画役の `query` の入力には、まだ振り返っていない出来事（それぞれが属す coverage-audit の束ねの群の id を持つ）と、群の見出し（id・層・根本原因。`audit_groups`。下の「coverage-audit との口」）を載せる。同じ欠陥の言い換えを別々の根拠として数えないため。意図と原因の根拠（basis）には、出来事と原因の id に加えて群の id を書け、群の id を根拠にした原因はその群の全ての出来事を辿る。根拠の id は `submit` が台帳の id で照らす。
 
 ## coverage-audit との口
 
 - 台帳の置き場: coverage-audit の台帳は `stateDir/audit/state` の 1 つに固定する（段や入力で置き場を分けない）。段ごとの入力は `stateDir/audit/in/<段>/` に書く。
-- 渡すもの: goal.md（先頭に検査の段を述べる文）・request.md・decisions.md・criteria.md・constraints.md・lenses.json と、対象のファイルの一覧と、それらを並べた引数。受け入れ基準は制約と取り違えないよう criteria.md で渡し、実装レビューでは単位ごとの受け入れ（`U<n>A<m>`）も基準に入る。lenses.json は段ごとの観点で、正本は build-cli.mjs の `AUDIT_FRAMES`（段の冒頭の文と同じ所に置く）。coverage-audit はこの観点に、仕組みの標準の観点と計画役の提案を足して読む。`next` の audit の欄には、次のどちらか 1 つを載せる。
+- 流し方: CLI が coverage-audit の CLI（`scripts/ledger-cli.mjs`）の `main` を同じ process で流す（子プロセスにしない）。path の照合は同じファイルの `framePathProblems` を import して使い、写しを持たない。検査の役の `claim`・`query`・`submit` はこの CLI が受け、`--call`・`--worker`・`--wave` を coverage-audit の呼び出し・行・波に直して渡す（行の id は build の呼び出しの中で重ならない `q<段の頭><番号>`）。lock は `build.lock` を持ったまま `audit/state/ledger.lock` を取る。
+- 渡すもの: goal.md（先頭に検査の段を述べる文）・request.md・decisions.md・criteria.md・constraints.md・lenses.json と、対象のファイルの一覧と、参照（`--context`。どの段も入力、update の設計レビューはそれに加えて update の対象）。受け入れ基準は制約と取り違えないよう criteria.md で渡し、実装レビューでは単位ごとの受け入れ（`U<n>A<m>`）も基準に入る。lenses.json は段ごとの観点で、正本は build-cli.mjs の `AUDIT_FRAMES`（段の冒頭の文と同じ所に置く）。coverage-audit はこの観点に、仕組みの標準の観点と計画役の提案を足して読む。
 
-  | 台帳 | 欄 | coverage-audit がすること |
-  |---|---|---|
-  | 無い | `init_argv`（照合済みの印 `--goal-checked coverage-build` と `--phase <段>` を含む） | 台帳を作る。目標の照合は流さない |
-  | ある | `reframe_argv`（`--phase <段>` を含み、印は渡さない） | 印を残したまま、目標・基準・制約・決定の記録・観点・対象と段を差し替える。同じ段で手続きが同じなら（`kept`）内容の変わった単位だけを、それ以外は全ての単位を読み直す |
-  | あり、同じ段・同じ入力で返した argv を流した後で、取り込みの前 | `framed: true`（引数なし） | coverage-audit の `next` を続ける |
+  | 検査の台帳 | CLI がすること（その段の最初の波を作る時点） |
+  |---|---|
+  | 無い | 照合済みの印 `--goal-checked coverage-build` と `--phase <段>` で init する。coverage-audit は目標の照合を流さない |
+  | ある、枠（段・対象・参照・渡すファイルの中身）が控え（`audit_frame`）と違う | 開いたままの検査の呼び出しを閉じてから、印を残したまま reframe で差し替える。同じ段で手続きが同じなら（`kept`）内容の変わった単位だけを、それ以外は全ての単位を読み直す |
+  | ある、同じ段・同じ枠で取り込みの前 | 差し替えない（途中の検査と、coverage-audit の `answer` で足した `A<n>` を消さないため）。coverage-audit の `next` が続きの波を返す |
 
-  「台帳がある」は、coverage-audit が init で書く段の位置のファイル（`<audit.state>/phase.json`）があることで判じる。coverage-audit の台帳（`ledger.json`）は読まない。
-
-  design の段の `init_argv`・`reframe_argv` だけが、`--link` に `LINK_PATTERN`（`<checks>` 区間。境界の行・受け入れ・振る舞いの id の型）を持つ。coverage-audit はこの id の型で静的な検査を流し、範囲で書いた参照（例: `X1-1〜X1-3`）を 1 件ずつに展開して、どの設計の写しにも無い id を指摘の判定にかける。ほかの段では渡さないので、reframe で coverage-audit の link は null に戻る。
-
-  `framed` を返すのは、検査の途中で `next` を流し直したときに reframe で途中の検査と coverage-audit の `answer` で足した `A<n>` を消さないため。渡した段と入力は `audit_frame` に残し、取り込みで消す。`reframe_argv` を返すときは `phase.json` の `phase_start`（段の始まり。coverage-audit が init と reframe のたびに書き直し、`kept` の reframe でも `reframes` の数が増える）も `audit_frame` に控え、同じ段・同じ入力の間は最初の控えを保つ。`phase_start` が控えから変わる（reframe が流れた）までは `reframe_argv` を返し直す。`phase.json` が読めない・`phase_start` が無い・控えが分からないときは `framed` にしない（誤っても余分な reframe になるだけで、reframe を飛ばさない）。`init_argv` の後は、`phase.json` ができて段が合えば `framed` になる。`framed` を返す `next` は控えを書き換えない。answer で制約（`A<n>`）が足されたときや、単位ごとの受け入れが変わったときは入力が変わるので、同じ台帳を reframe して検査し直す。
-- 受け取るもの: coverage-audit が止まったときに書く `<audit.state>/status-<段>.json`（中身は coverage-audit の `status` の出力と同じ）。`import-audit` がこの path を自分で読み、司令塔は status の出力を写さない。ファイルが無ければ（coverage-audit が止まる前）拒否する。status は段ごとに分かれ、上の階層（確かめた指摘・検証不能・参考・見られなかった単位・束ね・出来事・判定できなかった意図）は今の段のもので、出ていった段は `phases` に残る。取り込みは上の階層だけを読み、`status.phase` が待っている段と違えば拒否して台帳を変えない。写しを `stateDir/audit/<段>-status.json` に置き、振り返りの読めるファイルに入れる。
+  design の段だけが `--link` に `LINK_PATTERN`（`<checks>` 区間。境界の行・受け入れ・振る舞いの id の型）を持つ。coverage-audit はこの id の型で静的な検査を流し、範囲で書いた参照（例: `X1-1〜X1-3`）を 1 件ずつに展開して、どの設計の写しにも無い id を指摘の判定にかける。ほかの段では渡さないので、reframe で coverage-audit の link は null に戻る。控えは取り込みで消すので、次にその段を検査するときは reframe する。answer で制約（`A<n>`）が足されたときや、単位ごとの受け入れが変わったときは枠が変わるので、同じ台帳を reframe して検査し直す。
+- 検査の呼び出し: coverage-audit の `next` が開いた呼び出しの波を、build の波として次の波に記録する。起動しなかった波の検査の呼び出しは閉じずに残し（会計に数えない）、次の呼び出しが同じ波から続ける。build の `ingest` は、起動した波を持つ検査の呼び出しを、その波の起動の記録（coverage-audit の行の label・段・波に直したもの）で閉じる。検査が止まる印（`halt`）を返し、build の区切りに当たらなければ、CLI はその場で検査の呼び出しを閉じ（この時点では起動の記録が無いので、起動の記録は build の `agents` にだけ残る）、coverage-audit の `next` で止まった検査を受け取る。
+- 受け取るもの: 検査が止まったときに coverage-audit が書く `<audit.state>/status-<段>.json`（中身は coverage-audit の `status` の出力と同じ）を CLI が読み、`importAudit` に渡す。complete と、上の層の指摘・検証不能だけの needs_input を取り込み、それ以外は取り込まずに `audit_halt` に残して止める（「止める条件」）。status は段ごとに分かれ、上の階層（確かめた指摘・検証不能・参考・見られなかった単位・束ね・出来事・判定できなかった意図）は今の段のもので、出ていった段は `phases` に残る。取り込みは上の階層だけを読み、`status.phase` が検査の段と違えば拒否する。検査に渡した後に対象が変わっていれば取り込まず、coverage-audit の `next` に変わった単位を読み直させる。写しを `stateDir/audit/<段>-status.json` に置き、振り返りの読めるファイルに入れる。
+- 外した段: `--audit-phases`（init・config）に無い段は検査せず、済んだものとして進める。外した段は status と停止の報告の `skipped_audits` に段ごとの理由つきで出す。
 - 出来事: 照合済みの印のある coverage-audit の台帳は振り返りの単位を作らず、検査の中の出来事を status の `events` で返す。取り込みはそれを `audit_internal`（進め方）の出来事として受け、`audit_events_seen` で 1 回だけにする。試行の上限で判定できずに閉じた意図（status の `undecided`）も、出来事に意図の id が出ていなければ `audit_internal` の出来事にする。振り返りの探索グラフはこのスキルの 1 つだけ。
 - 指摘の結び付け: 確かめた指摘は 1 つ以上の path（`paths`）を持ち、引用は先頭の path の本文にある。`findingPath` が先頭の path を取り、設計の写しなら単位、実装なら持ち主の単位とテストかを決める。参考（目標・受け入れ基準に結べない気づき）は指摘にせず `audits.<段>.references` に、coverage-audit の run の指標（`metrics`）は `audits.<段>.metrics` に残す。確かめた指摘の `groups`（coverage-audit の束ねの群）は、周と段を前に付けた id（`c<周>:<段>:<群の id>`）にして出来事の `groups` に載せ、群の根本原因と層は `audit_groups` に 1 回だけ置く。coverage-audit の群の id は段の始まりごとに数え直されるので、周をまたぐと同じ id が別の群を指すため。
 
@@ -102,8 +101,9 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 | stop | 条件 |
 |---|---|
 | blocked（cause: input） | 入力か対象のファイルが読めなくなった |
-| blocked（cause: failure） | 提出が 1 件も無い呼び出し（全ての役が欠けたか、担当を出さずに返った）が `MAX_FAIL_STREAK` 回続いた／実装の残った単位があるのに依存が揃わない |
+| blocked（cause: failure） | どの波にも提出が 1 件も無い呼び出し（全ての役が欠けたか、担当を出さずに返った）が `MAX_FAIL_STREAK` 回続いた／実装の残った単位があるのに依存が揃わない |
 | limit | 起動数が `max_agents_total` に達した |
+| blocked・limit・needs_input（`audit` を持つ） | 検査（coverage-audit）が取り込めない形で止まった（利用者への問い・試行の上限・計画の欠陥・blocked・limit）。`audit` に検査の段・停止の種類・理由・status の path・答える id（`ids`）を載せる。`next` のたびに検査の台帳から止まった理由を読み直す |
 | needs_input | 依頼文・決定の記録が求める成果を、どの項目も受け止めていない（`goal_gaps`）／試行の上限（`MAX_ATTEMPTS`）まで欠けた段か単位がある／人間に返した欠陥がある（やり直しを当てると周が上限を超える `cycles#<周>` を含む）／利用者への質問がある |
 | complete | create・update: 全ての単位を設計・実装し、check（指定があれば）と両方のレビューを今の中身で通し、戻す欠陥が無い。review: 対象を検査し、戻す先を決めた |
 
@@ -117,14 +117,14 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 
 - 起動ごとに役・label・指定した model・effort・成否（`agents`）、呼び出しごとに起動数・欠け・提出の数・token（`calls`）。`ingest` は `--result` のファイル（Workflow の返り値）から `agents` と `tokens` だけを読んで呼び出しを閉じ、役の出力は運ばない（役の出力は `submit` で台帳に入っている）。token は Workflow source が本体の始めと返す直前に読んだ `budget.spent()` の差（この呼び出しの消費量）で、どちらかが読めなければ（runner など）null と理由を残す。`budget.spent()` が何を数えるか（司令塔・担当の入力・出力のどれか）は確かめていないので、同じ経路の差どうしだけを比べる。
 - 台帳は run をまたいで残る。`next` のたびに設計の写しと対象の hash を取り直し、レビューと check は、取り込んだときの hash と今の hash が違う段だけをやり直す。人が実装のファイルを直した後の `next` は、check と実装レビューだけを流す。
-- 試行の回数・単位のやり直しの回数・周の数は台帳にあり、再開しても 0 に戻らない。試行に数える担当（SKILL.md の「役とモデル」）は、呼び出しの担当の `touched`（query か submit があった）で見分け、手を付けずに終わった担当は数えずに次の呼び出しへ渡す。
+- 試行の回数・単位のやり直しの回数・周の数は台帳にあり、再開しても 0 に戻らない。試行に数える担当（SKILL.md の「役とモデル」）は、波の担当の `touched`（query か submit があった）で見分け、手を付けずに終わった担当は数えずに次の波か呼び出しへ渡す。段ごとの会計（出さなかった担当の試行・環境の失敗の印 `env_attempts`）は波の境目（次の波の最初の `claim` と `ingest`）で締め、起動されなかった波（`claim` が 1 回も無い波）は数えない。`fail_streak` は、どの波にも提出が無かった呼び出しだけを数える。
 - blocked（failure）から再開した `next` は、提出の無い呼び出しで数えた試行（段と単位は `env_attempts`、意図は `env_tries`）を戻し、それで上限を下回った `undecided` の意図を `undecided_from` の状態に戻す。止めた原因を直した後に、環境の失敗の分で担当を失わないため。
 
 ## 設計の型から変えた点
 
 このリポジトリの Workflow の設計の型（`docs/design/skill-design-patterns.md`）から、次の点を変えている。
 
-- 運搬役を置かない。状態を書くのは CLI だけという点は守り、役が `claim`・`query`・`submit` で CLI を直接流す（内容を返り値と args で運ばない）。1 回の Workflow は 1 段の 1 回の呼び出しだけを流し、ループは台帳と `next` が持つ。運搬役の失敗・写し違いの欠陥を作らないため（coverage-audit と同じ。設計は `docs/design/coverage-ledger-method.md` の「台帳と見たの記録」）。
+- 運搬役を置かない。状態を書くのは CLI だけという点は守り、役が `claim`・`query`・`submit` で CLI を直接流す（内容を返り値と args で運ばない）。1 回の Workflow は、CLI が台帳に記録した次の波がある間、波を順に流す。役が返すのは CLI が記録した次の波の印（`next_wave` の id と行）か止まる印（`halt`）だけで、CLI が次の `claim` で台帳の記録に照らす（制御の印は内容でないので、運搬役にならない）。運搬役の失敗・写し違いの欠陥を作らないため（coverage-audit と同じ。設計は `docs/design/coverage-ledger-method.md` の「台帳と見たの記録」）。
 - 状態の寿命を 1 run でなく、run をまたぐものにする（利用者の決定）。
 - 探索グラフは、作る作業の形ではなく振り返りに使う。作る作業は試すものの集合（単位）が方式設計で決まるので、設計と実装の段の並びは固定集合の反復型で、戻りは層への戻しだけ。
 - 計画役（方式設計）は 1 体。独立な 2 案と統合は置かず、方式設計の検証は script の静的な検査と coverage-audit の設計レビューに任せる。
@@ -134,7 +134,7 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 
 - 単位が持つファイル以外への書き込み（どの単位にも持たれない path）。git の作業ツリーの照合は持たないので、見えない。
 - 同じ呼び出しの Workflow を並べて 2 回流したとき、先に受理された担当の受け持ちのファイルを、もう一方の体が後から書き直すこと。2 つの run は同じ worker の id を使い、`claim` はその id に出し終えていない担当を返すので、両方の体が同じ担当を受け持つ。受け持ちの中の変更は書いてよい集合に入るので、呼び出しを閉じるときにも見えない。
-- 方式設計の呼び出しで新しく単位に持たせたファイルのうち、呼び出しを開いたのと同じミリ秒に書かれたものと、mtime を保ったまま書かれたもの。呼び出しの中で書かれたかを mtime と `opened_at` で判じるため（作業ツリーの全体の hash は控えない）、見分けられない。
+- 方式設計の波で新しく単位に持たせたファイルのうち、波を起動したのと同じミリ秒に書かれたものと、mtime を保ったまま書かれたもの。波の中で書かれたかを mtime と波の開始の時刻（`started`）で判じるため（作業ツリーの全体の hash は控えない）、見分けられない。
 - 目標の照合役が挙げた成果が、依頼文と決定の記録の全てを尽くしているか（引用と id は照らすが、挙げ漏れは LLM に依る）。利用者の言葉そのものに手段が書かれていれば、引用は通る。
 - coverage-audit の中身（読む役は 1 つの単位〔ファイル。大きすぎるファイルだけを構造の境目で分けたもの〕の全文を、渡した観点の全てで読む。ファイルをまたぐ食い違いは、coverage-audit の全体の段が、読む役の書いた保証と前提の主語から作る意図で照らす。主語として書かれなかった関係は照らされない）。
 - 詳細設計の前提に、入力・対象・単位が持つファイルのどれでもない既存のファイルは引けない。そうした前提は確かめていない前提（`unverified`）に、崩れたときの扱いと共に書く。入力に渡すかは呼ぶ側（`--input`）が決める。
