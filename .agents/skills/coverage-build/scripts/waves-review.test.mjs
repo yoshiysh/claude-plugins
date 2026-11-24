@@ -196,3 +196,43 @@ test('5. 検査の上限: build の config で検査の上限（--audit-max-agen
   const r2 = await driveScript(state, act({ arch: { units: 'chain' } }), { maxSteps: 4 })
   assert.equal(r2.stop && r2.stop.stop, 'complete', JSON.stringify(r2.stop))
 })
+
+// ---------------- B. 閉じた検査の呼び出しの起動の記録は、その呼び出しの段に数える ----------------
+
+test('B. 現状の検査を止まった時点で閉じた後、同じ build の呼び出しで設計レビューへ段が変わっても、閉じた呼び出しの起動の記録・calls・agent_missing を設計レビューの段に数えず、build の振り返りに同じ欠けを 2 件入れない', async (t) => {
+  const { d, repo } = setup(t, { mode: 'update' })
+  const big = `${'大きい既にある本文の行です。'.repeat(20)}\n`.repeat(160)
+  for (const f of ['x.md', 'y.md']) writeFileSync(path.join(repo, 'src', f), big)
+  const state = path.join(d, 'state-b')
+  assert.equal(cli('init', '--state', state, '--mode', 'update', '--repo', repo, '--goal', path.join(d, 'goal.md'), '--request', path.join(d, 'request.md'),
+    '--target', path.join(repo, 'src', 'x.md'), '--target', path.join(repo, 'src', 'y.md')).code, 0)
+  // 現状の検査のファイルの段の 1 行は、担当を出し終えた後に返らない（起動の記録は ok: false）。兄弟の行が次の波を運び、検査は complete まで進む。
+  // 同じ呼び出しで方式設計・詳細設計の後に設計レビューの計画役の波まで流し、その次の波を起動せずに呼び出しを閉じる（設計レビューの途中で ingest）。
+  let failed = null
+  let dropped = false
+  const phaseNow = () => (auditPos(state) || {}).phase
+  const r1 = await driveScript(state, act({ arch: { units: 'chain' } }), {
+    maxSteps: 1,
+    failAgent: (e) => { if (!failed && e.stage === 'audit:file' && phaseNow() === 'baseline') { failed = e.label; return true } return false },
+    tamper: (ret, e) => { if (!dropped && e.stage === 'audit:plan' && phaseNow() === 'design') { dropped = true; return { notes: [] } } return ret },
+  })
+  assert.ok(failed && dropped, `現状の検査の行を落とし、設計レビューの途中で閉じた: ${r1.launches.map((x) => x.stage)}`)
+  const AL = auditLedger(state)
+  assert.equal(AL.phase, 'design')
+  const lost = AL.agents.findIndex((a) => !a.ok)
+  assert.ok(lost >= 0, `検査の台帳に落ちた起動の記録がある: ${JSON.stringify(AL.agents)}`)
+  const baselineCall = AL.agents[lost].call_id
+  const mine = AL.agents.map((a, i) => [a, i]).filter(([a]) => a.call_id === baselineCall)
+  assert.ok(mine.every(([, i]) => i < AL.phase_start.agents), `閉じた現状の検査の呼び出しの起動の記録を、設計レビューの起動数（phase_start.agents ${AL.phase_start.agents} から後）に数えない: ${JSON.stringify(mine.map(([a, i]) => [i, a.stage, a.ok]))}`)
+  const call = (AL.calls || []).find((c) => c.call_id === baselineCall)
+  assert.ok(call, '閉じた呼び出しの calls は残る')
+  assert.notEqual(call.cycle, AL.phase_start.cycle, `閉じた呼び出しの calls は設計レビューの段（周 ${AL.phase_start.cycle}）に数えない: ${JSON.stringify(call)}`)
+  assert.ok(!AL.events.slice(AL.phase_start.events).some((e) => e.kind === 'agent_missing'), `設計レビューの段の出来事に、現状の検査の欠けを入れない: ${JSON.stringify(AL.events.slice(AL.phase_start.events))}`)
+  assert.equal(AL.fail_streak, 0)
+  // 続けて complete まで進めても、build の振り返りに同じ欠けの agent_missing は 1 件（build のものと、検査の audit_internal の写しの 2 件にしない）。
+  const r2 = await driveScript(state, act({ arch: { units: 'chain' } }), { maxSteps: 4 })
+  assert.equal(r2.stop && r2.stop.stop, 'complete', JSON.stringify(r2.stop))
+  const L = ledger(state)
+  const missing = L.events.filter((e) => e.kind === 'agent_missing' || (e.kind === 'audit_internal' && /agent_missing/.test(e.text)))
+  assert.equal(missing.length, 1, `同じ欠けを 1 件だけ: ${JSON.stringify(missing.map((e) => [e.kind, e.text]))}`)
+})

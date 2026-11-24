@@ -345,7 +345,8 @@ export async function runScript(file, args, agentFn, { budget } = {}) {
 // 返すのは { stop, steps, launches }。steps の要素は { step, next, args, argsText, res, ingest, launches }（audit・checks の段は { step, phase, ingest }）。
 // launches は起動した 1 体ごとの { label, model, effort, prompt, claim, call, worker, wave, role, stage, rec, error, ret }。
 // tamper(ret, entry) は役の返り値を書き換える（書き換えた next_wave を拒むテスト）。auditOver は検査の役の planAct に渡す。
-export async function driveScript(state, a, { audit = null, auditOver = {}, maxSteps = 40, tamper = null, onLaunch = null } = {}) {
+// failAgent(entry) が真なら、その役は担当を流し終えた後に返り値を返さない（Workflow は起動の記録を ok: false にする）。
+export async function driveScript(state, a, { audit = null, auditOver = {}, maxSteps = 40, tamper = null, onLaunch = null, failAgent = null } = {}) {
   const steps = []
   const launches = []
   const roles = new Map()
@@ -374,6 +375,7 @@ export async function driveScript(state, a, { audit = null, auditOver = {}, maxS
     let ret = retOf(entry.rec)
     if (tamper) ret = tamper(ret, entry) ?? ret
     entry.ret = ret
+    if (failAgent && failAgent(entry)) { entry.failed = true; return null }
     return ret
   }
   for (let i = 0; i < maxSteps; i++) {
