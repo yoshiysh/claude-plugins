@@ -102,7 +102,7 @@ export function withLock(dir, fn) {
       if (Date.now() - t0 >= LOCK_WAIT_MS) {
         throw new Fail(age > LOCK_STALE_MS
           ? `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（mtime が ${LOCK_STALE_MS / 1000} 秒より前で、落ちた process の lock が残っている可能性がある。この台帳を使っている CLI が動いていないことを確かめてから、${file} を手で消して流し直す）`
-          : `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`)
+          : `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`, { busy: true })
       }
       Atomics.wait(nap, 0, 0, LOCK_SLEEP_MS)
     }
@@ -1505,7 +1505,8 @@ export function main(argv) {
     if (!f) throw new Fail(`使い方: ledger-cli.mjs <init|reframe|next|ingest|status|hint|answer|config|claim|query|submit> --state DIR ...（未知のコマンド: ${cmd}）`)
     return { code: 0, output: f(o) }
   } catch (e) {
-    if (e instanceof Fail) return { code: 2, output: { ok: false, error: e.message, ...e.extra } }
+    // lock の待ちが切れた（busy）は終了状態 3（台帳は変えていない。同じ命令を流し直せばよい）。ほかの拒否は終了状態 2。
+    if (e instanceof Fail) return { code: e.extra && e.extra.busy ? 3 : 2, output: { ok: false, error: e.message, ...e.extra } }
     return { code: 1, output: { ok: false, error: String(e && e.stack || e) } }
   }
 }

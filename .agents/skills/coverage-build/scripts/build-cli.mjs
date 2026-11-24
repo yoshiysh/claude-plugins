@@ -16,11 +16,13 @@ import { closeCall as auditCloseCall, framePathProblems, load as auditLoad, main
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = path.dirname(HERE)
-// どの段も同じ 1 つの Workflow source（役は全て result_path を書いて submit を流すので、書かない run を分ける理由が無い）。
+// どの段も同じ 1 つの Workflow source（書く役と書かない役を同じ波の列に並べる理由は references/ledger.md の「設計の型から変えた点」）。
 const WORKFLOW = path.join(HERE, 'build-step.js')
 const CHECK_TIMEOUT_MS = 1800000
 
 class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }
+// lock の待ちが切れた拒否（終了状態 3）。台帳は変えておらず、同じ命令を流し直せば続きから進む。
+class Busy extends Fail { constructor(msg, extra = {}) { super(msg, { ...extra, busy: true }) } }
 const MULTI = ['input', 'target', 'check', 'task', 'fact']
 const KNOWN = {
   init: ['state', 'mode', 'repo', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'input', 'target', 'check', 'roles', 'max-cycles', 'max-agents-total', 'max-unit-rounds', 'audit-phases'],
@@ -113,7 +115,7 @@ function withLock(dir, fn) {
       if (Date.now() - t0 >= LOCK_WAIT_MS) {
         throw new Fail(age > LOCK_STALE_MS
           ? `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（mtime が ${LOCK_STALE_MS / 1000} 秒より前で、落ちた process の lock が残っている可能性がある。この台帳を使っている CLI が動いていないことを確かめてから、${file} を手で消して流し直す）`
-          : `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`)
+          : `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`, { busy: true })
       }
       Atomics.wait(nap, 0, 0, LOCK_SLEEP_MS)
     }
@@ -139,16 +141,22 @@ function withLock(dir, fn) {
   }
 }
 // 役の claim・query・submit の lock の待ち。claim は次の波を作るときに、検査の台帳の init・reframe・next（対象の全ての読み直しと写し）と取り込みを
-// lock の中で流すので、対象が大きいと LOCK_WAIT_MS（withLock の 1 回の待ち）を超えうる。超えて拒むと役は担当を出さずに終わる（提出を失う）ので、
-// 役のコマンドは、lock が取れない Fail だけを、1 体の時間の上限（agentTimeoutMs）まで取り直す。
-const WORKER_LOCK_WAIT_MS = C.LIMITS.agentTimeoutMs
-const LOCK_BUSY = '台帳の lock を '
+// lock の中で流すので、対象が大きいと withLock の 1 回の待ち（LOCK_WAIT_MS）を超えうる。待ちは、役の Bash のコマンドが流れられる時間（既定の上限 2 分）に
+// 収める WORKER_LOCK_WAIT_MS まで取り直し、切れたら終了状態 3（台帳は変えていない。役は同じ命令を流し直す）で返す（拒んで担当を失わせない）。
+// lock が空くまでは自分で待ち、空いた時だけ withLock を流すので、内側の withLock の待ちは取り合いに負けたときだけ（その分だけ上限を越えうるので、上限は 2 分から 20 秒を残す）。
+// 環境変数 COVERAGE_BUILD_LOCK_WAIT_MS（ミリ秒）は、テストで待ちの全体を短くする口。
+export const WORKER_LOCK_WAIT_MS = 90000
+const workerLockWait = () => { const v = Number(process.env.COVERAGE_BUILD_LOCK_WAIT_MS); return Number.isFinite(v) && v > 0 ? Math.min(v, WORKER_LOCK_WAIT_MS) : WORKER_LOCK_WAIT_MS }
 function withWorkerLock(dir, fn) {
+  const wait = workerLockWait()
+  const file = path.join(dir, 'build.lock')
   const t0 = Date.now()
   for (;;) {
-    try { return withLock(dir, fn) } catch (e) {
-      if (!(e instanceof Fail) || !e.message.startsWith(LOCK_BUSY) || Date.now() - t0 >= WORKER_LOCK_WAIT_MS) throw e
+    if (!existsSync(file)) {
+      try { return withLock(dir, fn) } catch (e) { if (!(e instanceof Fail) || !(e.extra && e.extra.busy) || e instanceof Busy) throw e }
     }
+    if (Date.now() - t0 >= wait) throw new Busy(`lock の待ちが切れた（${wait}ms 待っても ${file} を取れない。他の process が台帳を書いている）。台帳は変えていない（取った担当は失われない）。同じ命令を流し直す`)
+    Atomics.wait(nap, 0, 0, LOCK_SLEEP_MS)
   }
 }
 const abs = (L, rel) => path.join(L.repo, rel)
@@ -220,6 +228,7 @@ const AUDIT_FRAMES = {
 // coverage-audit の CLI のコマンドを同じ process で流す（子プロセスにしない）。終了状態 0 以外は理由を付けて Fail にする（build の台帳は変えない）。
 function audit(cmd, argv, what = cmd) {
   const r = auditMain([cmd, ...argv])
+  if (r.code === 3) throw new Busy(`lock の待ちが切れた（検査の台帳の lock: ${r.output && r.output.error}）。台帳は変えていない（取った担当は失われない）。同じ命令を流し直す`)
   if (r.code !== 0) throw new Fail(`coverage-audit の ${what} が拒んだ: ${r.output && r.output.error}`, { audit: r.output })
   return r.output
 }
@@ -274,29 +283,39 @@ function closeOpenAudit(L, dir, P) {
   if (P) for (const c of P.audit_calls || []) if (c.call === call) c.closed = true
 }
 // 検査が止まった（coverage-audit の claim が halt を返した）呼び出しを、その波で claim した行が全て done を受け取った後に閉じる。
-// 会計（coverage-audit の closeCall）は今締め、起動の記録（agents・calls・fail_streak）は Workflow の成否が分かる build の ingest で入れる
-// （その時に使う呼び出しの記録を entry.closed_call に控える）。coverage-audit の ingest を 2 つに分けて流すだけで、中身は変えない。
-function closeStoppedAudit(dir, entry) {
+// coverage-audit の ingest と同じ順（recordCall → closeCall）で、その呼び出しの段のうちに起動の記録（agents・calls・fail_streak）と会計を締める
+// （段が変わった後に記録を入れると、新しい段の起動数・周・出来事に数えてしまうため）。この時点で Workflow の成否は分からないので、
+// claim した行を返った（ok）として入れ、build の ingest が Workflow の起動の記録の成否に直す（patchStoppedAudit）。中身は coverage-audit の関数のまま。
+function closeStoppedAudit(dir, P, entry) {
   const state = auditState(dir)
+  const agents = P.launched.filter((x) => x.audit && x.audit.call === entry.call).flatMap((W) => W.workers.filter((w) => (W.claimed || []).includes(w.id))
+    .map((w) => ({ role: w.role, label: `${w.role}-${W.audit.ids[w.id]}`, model: w.model, effort: w.effort, ok: true, stage: auditStageOf(w.stage), wave: W.audit.wave })))
   auditWithLock(state, () => {
     const AL = auditLoad(state)
     const AP = AL.pending
     if (!AP || AP.call_id !== entry.call) return
-    entry.closed_call = { call_id: AP.call_id, step: AP.step, launched: AP.launched, prev_submits: AP.prev_submits, submits: AP.submits, reported: AP.reported || [], progressed: !!AP.progressed, claims: AP.claims, accepted: AP.accepted, wave_id: AP.wave_id }
+    const cur = agents.filter((a) => String(a.wave) === String(AP.wave_id))
+    const waveFailed = auditNoProgress(AP, cur)
+    auditRecordCall(AL, AP, { agents, tokens: null }, !AP.progressed && waveFailed)
     AL.hints_read.push(...(AP.hints || []))
-    auditCloseCall(AL, { env: auditNoProgress(AP, []), lost: false })
+    auditCloseCall(AL, { env: waveFailed, lost: false })
     auditSave(state, AL)
+    entry.recorded_at = { call: AP.call_id }
   })
   entry.closed = true
 }
-// 閉じた検査の呼び出しの起動の記録を、coverage-audit の台帳に入れる（coverage-audit の recordCall。build の ingest が流す）。
-function recordStoppedAudit(dir, entry, agents) {
+// 閉じた検査の呼び出しの起動の記録の成否を、Workflow の起動の記録（build の ingest が受けたもの）に直す。記録の位置（段）は変えず、新しい記録・出来事は足さない
+// （欠けの出来事は build の台帳の agent_missing に 1 件だけ残る）。
+function patchStoppedAudit(dir, entry, agents) {
   const state = auditState(dir)
   auditWithLock(state, () => {
     const AL = auditLoad(state)
-    const CP = entry.closed_call
-    const cur = agents.filter((a) => a.wave == null || String(a.wave) === String(CP.wave_id))
-    auditRecordCall(AL, CP, { agents, tokens: null }, !CP.progressed && auditNoProgress(CP, cur))
+    for (const a of agents) {
+      const x = AL.agents.find((y) => y.call_id === entry.call && y.label === a.label && String(y.wave) === String(a.wave))
+      if (x) x.ok = !!a.ok
+    }
+    const c = AL.calls.find((y) => y.call_id === entry.call)
+    if (c) c.failed = AL.agents.filter((y) => y.call_id === entry.call && !y.ok).length
     auditSave(state, AL)
   })
   entry.recorded = true
@@ -767,7 +786,7 @@ function cmdIngest(o) {
     recordCall(L, P, r, allFailed)
     L.hints_read.push(...P.hints)
     for (const c of P.audit_calls || []) {
-      if (c.closed && (c.recorded || !c.closed_call)) continue
+      if (c.closed && (c.recorded || !c.recorded_at)) continue
       const waves = P.launched.filter((x) => x.audit && x.audit.call === c.call)
       if (!waves.length) continue
       const mine = ag.flatMap((a) => {
@@ -776,7 +795,7 @@ function cmdIngest(o) {
         const row = W.workers.find((w) => `${w.role}-${w.id}` === a.label) || W.workers.find((w) => w.role === a.role)
         return row ? [{ role: a.role, label: `${a.role}-${W.audit.ids[row.id]}`, model: a.model, effort: a.effort, ok: a.ok, stage: auditStageOf(a.stage) ?? auditStageOf(row.stage), wave: W.audit.wave }] : []
       })
-      if (c.closed) { recordStoppedAudit(dir, c, mine); continue }
+      if (c.closed) { patchStoppedAudit(dir, c, mine); continue }
       const st = audit('status', ['--state', auditState(dir)])
       if (!st.pending || st.pending.call_id !== c.call) continue
       auditIngest(dir, c.call, mine)
@@ -899,7 +918,7 @@ function auditClaim(L, dir, P, w) {
       const waiting = ((cur && cur.claimed) || []).filter((id) => !P.done_rows.includes(id))
       if (!waiting.length) {
         const entry = (P.audit_calls || []).find((x) => x.call === A.call)
-        if (entry && !entry.closed) closeStoppedAudit(dir, entry)
+        if (entry && !entry.closed) closeStoppedAudit(dir, P, entry)
         out = nextWaveOf(L, dir, P, advance(L, dir))
       }
     }
@@ -1149,7 +1168,7 @@ export function main(argv) {
     if (!f) throw new Fail(`使い方: build-cli.mjs <${Object.keys(KNOWN).join('|')}> --state DIR ...（未知のコマンド: ${cmd}）`)
     return { code: 0, output: f(o) }
   } catch (e) {
-    if (e instanceof Fail) return { code: 2, output: { ok: false, error: e.message, ...e.extra } }
+    if (e instanceof Fail) return { code: e.extra && e.extra.busy ? 3 : 2, output: { ok: false, error: e.message, ...e.extra } }
     return { code: 1, output: { ok: false, error: String((e && e.stack) || e) } }
   }
 }

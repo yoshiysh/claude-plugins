@@ -294,7 +294,7 @@ const LOCK_AGES = [
   { name: '生きた lock（mtime が 60 秒より新しい）', content: String(process.pid), ageSec: 0, maxCycles: '9', stale: false },
   { name: '古い lock（mtime が 60 秒より前）', content: 'x', ageSec: 120, maxCycles: '6', stale: true },
 ]
-test('lock: 生きた lock でも古い lock でも消さず、待つ時間が上限（10 秒）を超えたら Fail（終了状態 2）で、台帳を変えない。古い lock のときだけ手で消す案内を出す', { timeout: 60000 }, async (t) => {
+test('lock: 生きた lock でも古い lock でも消さず、待つ時間が上限（10 秒）を超えたら 終了状態 3（流し直す）で、台帳を変えない。古い lock のときだけ手で消す案内を出す', { timeout: 60000 }, async (t) => {
   const cases = await Promise.all(LOCK_AGES.map(async (c) => {
     const { state } = await qsetup(t)
     const lock = path.join(state, 'ledger.lock')
@@ -310,7 +310,7 @@ test('lock: 生きた lock でも古い lock でも消さず、待つ時間が�
   }))
   cases.forEach((c, i) => {
     const { r, took } = outs[i]
-    assert.equal(r.code, 2, `${c.name}: ${JSON.stringify(r)}`)
+    assert.equal(r.code, 3, `${c.name}: ${JSON.stringify(r)}`) // lock の待ちが切れた（流し直す）
     assert.ok(took >= 9000, `${c.name}: 上限まで待つ（${took} ms）`)
     assert.ok(took < 30000, `${c.name}: 上限を超えて待たない（${took} ms）`)
     assert.equal(bytes(c.state), c.before, `${c.name}: 台帳を変えない`)

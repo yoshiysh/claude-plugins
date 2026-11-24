@@ -337,6 +337,7 @@ const loop = (w, waveId, query) => `
 node ${sq(cliOf(A.state))} claim --state ${sq(A.state)} --call ${sq(A.callId)} --worker ${sq(w.id)} --wave ${sq(waveId)} --model ${sq(w.model)} --effort ${sq(w.effort)} --stage ${sq(w.stage)}
 ### 手順
 1. 取る命令を流す。出力が done: true なら、手順を終えて返り値を返す（下の「返り値」）。命令が終了状態 2 で拒まれたら（呼び出しが閉じた・波の記録と合わないなど）、error を notes に書いて終える。
+   どの命令（claim・query・submit）も、終了状態 3 で返ったら（lock の待ちが切れた）、同じ命令を流し直す（担当は失われない）。
 2. ${query === 'batch' ? STEP_BATCH : `出力の tasks の担当ごとに、${query === 'inputs' ? STEP_INPUTS : query ? STEP_QUERY : STEP_NONE}`}。
 3. 担当の kind の節（下の「結果の形」）に従って判断し、結果の JSON を担当の result_path に Write ツールで書く。
 4. ${query === 'batch' ? '取った全ての担当の result_path を書いてから、claim の出力の submit_cmd を 1 回だけ Bash で流す（担当ごとに流さない。やり取りの回数を増やすと、そのたびに伸びた文脈を読み直す）。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当。' : '担当の result_path に書けたら、その都度 claim の出力の submit_cmd をそのまま Bash で流す（全ての担当を書き終えるのを待たない。時間の上限に当たっても、出した担当は台帳に残る）。出力の results は出した担当ごとの判定、missing はまだ結果のファイルが無い担当（後で書いて流し直せばよい）。'}

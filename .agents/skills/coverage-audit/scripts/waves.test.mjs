@@ -4,7 +4,7 @@
 // 時刻の差し替えは環境変数 COVERAGE_AUDIT_NOW_MS（ミリ秒。claim・next が読む今の時刻）を使う。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C } from './ledger-core.mjs'
 import {
@@ -384,6 +384,19 @@ test('halt の種類: claim の done の halt は halt_kind（stop・time・rows
     await driveScript(state, scriptAgent(noProposalAct({ facts: () => ({ bind: false }) }), log), { maxSteps: 1 })
     assert.ok(kindsOf(log).length && kindsOf(log).every((k) => k === 'rows'), JSON.stringify(kindsOf(log)))
   }
+})
+
+// lock の待ちが切れたとき: 終了状態 3 で返し、台帳を変えない（役は「呼び出しが閉じた」終了状態 2 と区別し、同じ命令を流し直す）。
+test('lock の待ちが切れた命令は終了状態 3 で返し、台帳を変えない。lock が空いた後に同じ命令を流し直せば通る', async (t) => {
+  const { state } = project(t, FILES)
+  const lock = path.join(state, 'ledger.lock')
+  writeFileSync(lock, 'other-process-token')
+  const before = ledgerBytes(state)
+  const r = cli('next', '--state', state)
+  assert.equal(r.code, 3, JSON.stringify(r))
+  assert.equal(ledgerBytes(state), before, '台帳を変えない')
+  rmSync(lock)
+  assert.equal(cli('next', '--state', state).code, 0)
 })
 
 // ---------------- ingest の起動の記録 ----------------
