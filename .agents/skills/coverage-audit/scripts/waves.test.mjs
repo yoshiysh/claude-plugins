@@ -11,7 +11,7 @@ import {
   ROLES, argOf, behave, claimArgv, cli, cliArgvOf, driveScript, launchesOf, nextWaveOf, project, readArgs, rowsOf, runScript, scriptAgent, status, tmp, wavesOf, workerLoop,
 } from './blackboard-fixture.mjs'
 import { sizedDoc, standalone } from './launch-fixture.mjs'
-import { noProposalAct, planAct } from './plan-roles.mjs'
+import { noProposal, noProposalAct, planAct } from './plan-roles.mjs'
 
 const QA = 'この文書は台帳の lock を取ってから書き込むことを保証する。'
 const QB = 'この文書は lock が書き込みを直列にすることを前提にする。'
@@ -300,7 +300,7 @@ test(`時間の区切り: 呼び出しを開いてからの経過が timeoutMs �
   const T0 = 1_800_000_000_000
   setNow(t, T0)
   let bumped = false
-  const a = noProposalAct({ facts: FACTS, plan: (q) => { if (!bumped) { bumped = true; setNow(t, T0 + CALL_BUDGET_MS + 1) } return undefined } })
+  const a = noProposalAct({ facts: FACTS, plan: (q) => { if (!bumped) { bumped = true; setNow(t, T0 + CALL_BUDGET_MS + 1) } return noProposal(q) } })
   const log = []
   const r = await driveScript(state, scriptAgent(a, log), { maxSteps: 3 })
   assert.ok(bumped)
@@ -312,7 +312,7 @@ test(`時間の区切り: 呼び出しを開いてからの経過が timeoutMs �
   assert.match(String(end.reason), /時間|経過|timeoutMs/)
   assert.equal(r.stop && r.stop.stop, 'complete', JSON.stringify(r.stop))
   assert.equal(r.steps.length, 2, '続きは次の呼び出し 1 回で complete まで')
-  assert.equal(wavesOf([r.steps[1]], log.slice(first.flatMap((w) => w.rows).length))[0].stage, 'full_review', '次の呼び出しは止まった所の次の段から')
+  assert.equal(wavesOf([r.steps[1]], log)[0].stage, 'full_review', '次の呼び出しは止まった所の次の段から')
 })
 
 test(`行の数の区切り: 呼び出しで出した行の和は maxAgents（${C.LIMITS.maxAgents}）以下に収め、超えるときは halt。続きは次の呼び出しが読む`, async (t) => {
@@ -335,7 +335,7 @@ test(`行の数の区切り: 呼び出しで出した行の和は maxAgents（${
   const ends = file1[0].rows.map((x) => x.claims.at(-1)).filter((c) => c && c.done && (c.halt || c.next_wave))
   assert.ok(ends.length >= 1 && ends.every((c) => c.halt), `行の和が上限に達したら halt: ${JSON.stringify(ends.slice(0, 2))}`)
   assert.ok(r.steps.length >= 2, '続きの呼び出し')
-  const w2 = wavesOf([r.steps[1]], log.slice(w1.reduce((k, w) => k + w.rows.length, 0)))
+  const w2 = wavesOf([r.steps[1]], log)
   assert.equal(w2[0].stage, 'file', '次の呼び出しは残りの単位を読む')
   assert.equal(w2[0].rows.length, n - file1[0].rows.length)
 })

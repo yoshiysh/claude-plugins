@@ -501,7 +501,8 @@ test('plan_defects の id: P1 から連番で付き、計画のやり直しで�
   const { stop } = await drive(state, planAct({ unit_verify: (q) => verifyAll(q, (l, k) => k === 'Q3:0') }), { onCall: recordDefects(state, rec) })
   assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
   const all = [...new Set(rec.flatMap((r) => r.defects.map((d) => d.id)))]
-  assert.ok(all.length >= 3, JSON.stringify(all))
+  // 計画の 2 版（PLAN_ROUNDS = 1 のやり直し 1 回）の検証のそれぞれで新しい欠陥ができる。
+  assert.ok(all.length >= 2, JSON.stringify(all))
   assert.deepEqual(all.map((id) => Number(id.slice(1))), all.map((_, i) => i + 1), `新しい欠陥へ次の番号を付ける: ${JSON.stringify(all)}`)
   const q3 = rec.find((r) => r.defects.length).defects[0]
   assert.deepEqual([q3.unit_id, q3.kind, q3.goal_id, q3.part], ['X1', 'Q3', 'G1', '対象の文書の見落としを確かめた指摘の一覧'])

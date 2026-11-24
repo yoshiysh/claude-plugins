@@ -323,7 +323,9 @@ export function launchesOf(steps, log) {
     const nw = x.rec && x.rec.next_wave
     if (nw) for (const r of nw.rows || []) rows.set(key(call, nw.id, r.id), r)
   }
-  return log.map((x) => {
+  // 渡した steps の呼び出しの役だけを並べる（log は全ての呼び出しの役を持つことがある）。
+  const calls = new Set(steps.map((s) => s.args.callId))
+  return log.filter((x) => calls.has(argOf(x.claim, 'call'))).map((x) => {
     const call = argOf(x.claim, 'call')
     const worker = argOf(x.claim, 'worker')
     const wave = argOf(x.claim, 'wave') ?? null

@@ -60,12 +60,15 @@ function run(argv, { shell = null } = {}) {
 
 // ---------------- workers の行と config --workers ----------------
 
-test('workers: ファイルの段は詰め合わせ 1 つに 1 体で、行は詰め合わせの数（workers の設定に縛られない）。既定の workers は 1。行は {id, role, model, effort} だけ', async (t) => {
+test('workers: ファイルの段は詰め合わせ 1 つに 1 体で、行は詰め合わせの数（workers の設定に縛られない）。既定の workers は 1。行は {id, role, model, effort, stage} だけ', async (t) => {
   const five = await qsetup(t, { n: 5, workers: null })
   assert.equal(ledger(five.state).config.workers, 1)
-  const rows = rowsOf(review(five.state).args)
+  const fiveArgs = review(five.state).args
+  const rows = rowsOf(fiveArgs)
   assert.equal(rows.length, 1, '小さい 5 単位は 1 つの詰め合わせ（1 体）')
-  assert.ok(rows.every((w) => JSON.stringify(Object.keys(w).sort()) === JSON.stringify(['effort', 'id', 'model', 'role'])))
+  // 行の key: 波の行は段（stage）も持つ（実装の前の形は {id, role, model, effort}）。
+  const keys = fiveArgs.wave ? ['effort', 'id', 'model', 'role', 'stage'] : ['effort', 'id', 'model', 'role']
+  assert.ok(rows.every((w) => JSON.stringify(Object.keys(w).sort()) === JSON.stringify(keys)), JSON.stringify(rows))
   const three = await qsetup(t, { n: 3, workers: null, big: true })
   const big = rowsOf(review(three.state).args)
   assert.equal(big.length, 3, '詰め合わせが 3 つなら workers 1 でも 3 体')

@@ -10,14 +10,23 @@ export const C = new Function(`${BLOCK}
 return { LIMITS, LAYERS, SEVERITIES, norm, fenceMask, quoteProblem, unitKey, unitText, checkGoals, checkPlan, checkUnitVerdict, unitDefects, checkGroups, UPPER, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
 
 export const MAX_ATTEMPTS = 2 // 同じ単位・担当・段の欠け（返らない・照合に落ちる）の上限。run をまたいで数える
-const PLAN_ROUNDS = 2 // 観点の検証の欠陥を直す計画のやり直しの上限
+// 観点の検証の欠陥を直す計画のやり直しの上限。計画 1 版目 → 検証 → 2 版目 → 検証でまだ欠陥なら、3 版目を作らずに利用者に返す（2 巡）。
+// 2 巡で終わらないのは、目標の書き方か観点の作り方の誤りを疑う印（docs/design/skill-design-patterns.md の原則）。
+const PLAN_ROUNDS = 1
 const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数続いたら止める
-// 単位の本文のバイト数（UTF-8）の上限。「1 体の文脈に収まらない」を判じる唯一の線で、規模による分岐や調整した数値の線をほかに置かない
-// （設計 docs/design/coverage-ledger-method.md の決定 9・11）。モデルの文脈の容量から決める物理的な上限として扱う（この定数で判じる形は利用者の承認済み）。
-// 根拠: 読む役のモデル（roles.json の sonnet・opus）の文脈は 200k token。指示・観点・目標・台帳から引く事実・出力・推論に 3/4 を残し、
-// 単位の本文には 1/4（50k token）までを当てる。token あたりのバイト数は前提として、英語・コードで 3〜4 バイト、日本語（1 字 3 バイト）で
-// 2〜3 バイトと置き、記号の多い本文も見込んで少ない側の 2 バイトで見積もる: 50k × 2 = 100,000 バイト。比率は実測していない（run の記録の token で見直す）。
+// 単位の本文のバイト数（UTF-8）の上限（線）。「1 体の文脈に収まらない」を判じる唯一の線で、規模による分岐や調整した数値の線をほかに置かない
+// （設計 docs/design/coverage-ledger-method.md の決定 9・11）。モデルの文脈の容量から決める物理的な上限として扱う（この式で判じる形は利用者の承認済み）。
+// 線は、単位を読む役（READER_ROLES）の roles.json の context_tokens の最小値から 1 つの式で導く（lineOf）。大きいファイルを分ける処理も、全ての詰め合わせも、この 1 本を使う。
+// 式: 指示・観点・目標・台帳から引く事実・出力・推論に 3/4 を残し、単位の本文には 1/4 までを当てる。token あたりのバイト数は前提として、
+// 英語・コードで 3〜4 バイト、日本語（1 字 3 バイト）で 2〜3 バイトと置き、記号の多い本文も見込んで少ない側の 2 バイトで見積もる: context_tokens × 1/4 × 2。
+// 既定は 200k token の 100,000 バイト（UNIT_MAX_BYTES）。比率は実測していない（run の記録の token で見直す。値を変えるのは roles.json）。
 export const UNIT_MAX_BYTES = 100000
+export const READER_ROLES = ['file_reader', 'full_reviewer', 'global_judge', 'confirmer']
+const bytesOfTokens = (n) => Math.floor((n / 4) * 2)
+export function lineOf(L) {
+  const ns = READER_ROLES.map((r) => L && L.roles && L.roles[r] && L.roles[r].context_tokens).filter((n) => Number.isFinite(n) && n > 0)
+  return ns.length ? bytesOfTokens(Math.min(...ns)) : UNIT_MAX_BYTES
+}
 // workers: 全体の段の 1 回の呼び出しで、役（判定役・確認役）ごとに起動する体数の上限（開いた意図の数より多くは起動しない）。
 // 既定は 1 体で、1 体が claim を繰り返して意図を順に処理する（設計「モデルと費用」の起動の原則）。--workers は上書きとして残す。
 // max_cycles: 今の回の始まりから数えた周の上限（安全網）。run の中の周は 1 つで、周を足すのは止まった後に対象が変わって読み直す回だけ。
@@ -50,14 +59,14 @@ export const rangeHash = (text, start, end) => sha(rangeText(text, start, end)).
 // - 境目の無い所（見出しの無い節・宣言の無い大きい文・その他のファイル）: 空行の境目、それでも収まらなければ行の境目で分ける。位置は c<n>。
 // 同じ位置は ~<k> で分ける。位置を行番号でなく構造から決めるので、大きさを変えない書き換えでは、書き換えた単位の外の id と hash は変わらない。
 // 大きさが変わる書き換えは、前から詰めるので後ろの単位の境目を動かしうる（id と hash が変わり読み直す側に倒れる。費用だけの損）。
-export function splitAssets(rel, text) {
+export function splitAssets(rel, text, max = UNIT_MAX_BYTES) {
   const lines = text.split('\n')
   const size = byteSizer(lines)
-  if (size(0, lines.length) <= UNIT_MAX_BYTES) {
+  if (size(0, lines.length) <= max) {
     if (!text.trim()) return []
     return [{ id: rel, path: rel, heading: '', trail: [], kind: 'file', start: 1, end: lines.length, text, hash: sha(text).slice(0, 16) }]
   }
-  const groups = /\.(md|markdown)$/i.test(rel) ? mdGroups(lines, size) : /\.m?js$/i.test(rel) ? jsGroups(lines, size) : plainGroups(lines, 0, lines.length, size, '', { n: 1 })
+  const groups = /\.(md|markdown)$/i.test(rel) ? mdGroups(lines, size, max) : /\.m?js$/i.test(rel) ? jsGroups(lines, size, max) : plainGroups(lines, 0, lines.length, size, '', { n: 1 }, max)
   const used = new Map()
   return groups.map((g) => {
     let id = `${rel}#${g.key}`
@@ -76,17 +85,17 @@ function byteSizer(lines) {
   return (s, e) => (e > s ? pre[e] - pre[s] - 1 : 0)
 }
 // 境目で切った隣り合う片（{ start, end, ...}）を、上限まで前から詰めて単位にする。収まらない片は sub(片) が返す単位の列にそのまま置き換え、前後と詰めない。
-function pack(pieces, size, sub) {
+function pack(pieces, size, sub, max = UNIT_MAX_BYTES) {
   const out = []
   let cur = null
   for (const p of pieces) {
-    if (size(p.start, p.end) > UNIT_MAX_BYTES) {
+    if (size(p.start, p.end) > max) {
       if (cur) out.push(cur)
       cur = null
       out.push(...sub(p))
       continue
     }
-    if (cur && size(cur.start, p.end) <= UNIT_MAX_BYTES) { cur.end = p.end; continue }
+    if (cur && size(cur.start, p.end) <= max) { cur.end = p.end; continue }
     if (cur) out.push(cur)
     cur = { ...p }
   }
@@ -95,15 +104,15 @@ function pack(pieces, size, sub) {
 }
 const blank = (l) => !l.trim()
 // 境目の無い範囲: 空行の後の行を境目にして詰め、1 段落でも収まらなければ行ごとに詰める（1 行で上限を超える行は、その行だけの単位にする）。
-function plainGroups(lines, start, end, size, prefix, seq) {
+function plainGroups(lines, start, end, size, prefix, seq, max = UNIT_MAX_BYTES) {
   const at = (s, e) => ({ key: `${prefix}c${seq.n++}`, kind: 'lines', start: s, end: e })
   const paras = []
   for (let i = start, s = start; i < end; i++) if (i + 1 === end || (blank(lines[i]) && !blank(lines[i + 1] ?? ''))) { paras.push({ start: s, end: i + 1 }); s = i + 1 }
-  const byLine = (p) => pack(Array.from({ length: p.end - p.start }, (_, k) => ({ start: p.start + k, end: p.start + k + 1 })), size, (x) => [x])
-  return pack(paras, size, byLine).map((g) => at(g.start, g.end))
+  const byLine = (p) => pack(Array.from({ length: p.end - p.start }, (_, k) => ({ start: p.start + k, end: p.start + k + 1 })), size, (x) => [x], max)
+  return pack(paras, size, byLine, max).map((g) => at(g.start, g.end))
 }
 
-function mdGroups(lines, size) {
+function mdGroups(lines, size, max) {
   const fenced = C.fenceMask(lines)
   const heads = []
   const stack = []
@@ -127,12 +136,12 @@ function mdGroups(lines, size) {
     const inner = heads.filter((h) => h.i > s && h.i < e)
     if (!inner.length) {
       const h = headAt.get(s)
-      return plainGroups(lines, s, e, size, h ? `${h.key}/` : '', seq)
+      return plainGroups(lines, s, e, size, h ? `${h.key}/` : '', seq, max)
     }
     const lv = Math.min(...inner.map((h) => h.lv))
     const cuts = [s, ...inner.filter((h) => h.lv === lv).map((h) => h.i), e]
     const pieces = cuts.slice(0, -1).map((c, k) => ({ start: c, end: cuts[k + 1] })).filter((p) => p.end > p.start)
-    return pack(pieces, size, (p) => split(p.start, p.end))
+    return pack(pieces, size, (p) => split(p.start, p.end), max)
   }
   return split(0, lines.length).map(label)
 }
@@ -219,26 +228,28 @@ export function jsHeads(lines) {
   return heads
 }
 // トップレベルの文の境目で分けて詰める。1 つの文だけで収まらなければ、その文を空行・行の境目で分ける。
-function jsGroups(lines, size) {
+function jsGroups(lines, size, max) {
   const heads = jsHeads(lines)
   const seq = { n: 1 }
   const pieces = heads.map((h, k) => ({ start: h.start, end: k + 1 < heads.length ? heads[k + 1].start : lines.length, key: h.name || `c${seq.n++}`, kind: h.kind }))
-  return pack(pieces, size, (p) => plainGroups(lines, p.start, p.end, size, `${p.key}/`, { n: 1 }))
+  return pack(pieces, size, (p) => plainGroups(lines, p.start, p.end, size, `${p.key}/`, { n: 1 }, max), max)
 }
 
 export const readGoalFiles = C.readGoalFiles
 export const goalIds = (L) => [...L.goal.items, ...L.criteria, ...L.constraints].map((c) => c.id)
 export const goalSources = (L) => C.citeSources({ request: L.request, ...(L.decisions != null ? { decisions: L.decisions } : {}) })
 
-export function newLedger({ goal, goalItems, checkedBy = null, phase = null, link = null, request, decisions = null, criteria = [], constraints, targets, lenses, config, roles, seeds }) {
+export function newLedger({ goal, goalItems, checkedBy = null, phase = null, link = null, request, decisions = null, criteria = [], constraints, targets, contexts = [], repo = null, lenses, config, roles, seeds }) {
   return {
     // phase: 呼ぶ側の段（coverage-build の design・impl など）。phase_start: 今の段の始まりの周・起動数・出来事の数（上限と status の今の段はここから数える）。
     // phase_records: reframe で出ていった段の status の節（findings・groups・events）。
     // link: 関係する単位を結ぶ語の正規表現（文字列か null）。枠の一部で、init と reframe が置く（静的な検査に渡す。単位 3）。
     // assets: 単位（id → path・範囲・hash・写し・状態・試行・受理した読み）。facts: ファイルの段が足した事実（足すだけ。今の根拠は単位の受理した読みから導く）。
     version: 2, rev: 0, cycle: 1, phase, link, phase_start: { cycle: 1, agents: 0, events: 0 }, phase_records: {}, goal: { text: goal, items: goalItems, checked: !!checkedBy, checked_by: checkedBy, problems: [] }, request, decisions, criteria, constraints,
-    config: { ...DEFAULT_CONFIG, ...config }, roles, targets, seeds: seeds || [],
-    call_seq: 0, plan: null, plan_rounds: 0, plan_defects: [], plan_seq: 0, plan_problems: [], verified_units: [], answers: [], answered: [],
+    // contexts: 参照だけの資産のファイル（--context）。網羅に数えず、判定役・確認役・全文レビューの索引に載せる。repo: 目標の本文の path を照らす基準。
+    config: { ...DEFAULT_CONFIG, ...config }, roles, targets, contexts, repo, seeds: seeds || [],
+    // wave_seq: 波の id の連番（呼び出しをまたいで増やす）。target_gaps: 計画役が no_target を付けた Q3 の欠陥（部分を受け持てる単位が対象に無い）。
+    call_seq: 0, wave_seq: 0, plan: null, plan_rounds: 0, plan_defects: [], plan_seq: 0, plan_problems: [], target_gaps: [], verified_units: [], answers: [], answered: [],
     lenses: [...(lenses || []).map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...STANDARD_LENSES.map((l) => ({ ...l, origin: 'standard' })), ...RETRO_LENSES.map((l) => ({ ...l, origin: 'skill', retro: true }))],
     attempts: {}, env_attempts: {}, fail_streak: 0,
     // retro_findings: 振り返りの指摘（対象の指摘・事実・意図・群に入れない。status の retro に出す）。retro_made: 振り返りの単位を作った周。
@@ -264,7 +275,7 @@ function resetUnit(a) {
 // lenses を渡すと、利用者の観点をそれに差し替える（観点の組の版が変わる。単位はどのみち全て読み直しになる）。
 export function startPhase(L, phase, { lenses = null } = {}) {
   Object.assign(L, {
-    phase, plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], plan_skipped: false, verified_units: [], answers: [], answered: [],
+    phase, plan: null, plan_rounds: 0, plan_defects: [], plan_problems: [], target_gaps: [], plan_skipped: false, verified_units: [], answers: [], answered: [],
     attempts: {}, env_attempts: {}, fail_streak: 0, pending: null, stopped: null, intent_attempts: {}, full_review: null,
   })
   L.lenses = L.lenses.filter((l) => l.origin === 'skill' || l.origin === 'user' || l.origin === 'standard')
@@ -284,6 +295,8 @@ export function startPhase(L, phase, { lenses = null } = {}) {
 export const phaseEvents = (L) => L.events.slice(L.phase_start.events)
 
 export const targetLenses = (L) => L.lenses.filter((l) => !l.retro)
+// 検査の対象の単位（振り返りの単位と、参照だけの単位（--context）を除く）。網羅・読む単位・全文レビューの範囲はこれだけを数える。
+export const isTarget = (a) => !!a && !a.retro && !a.context
 // 単位に渡す観点: 振り返りの単位は振り返りの観点、他の単位は対象の観点の全て（観点は一覧で全ての役に渡し、当てる単位を選ばない）。
 export const lensesFor = (L, a) => (a && a.retro ? L.lenses.filter((l) => l.retro) : targetLenses(L))
 // 観点の組の版: 渡す観点の id・名前・手続き。持ち越しは単位の hash とこの版がどちらも前と同じときだけ。
@@ -298,7 +311,9 @@ export function refresh(L, units, { partial = false } = {}) {
   const changes = { added: [], stale: [], gone: [] }
   for (const u of units) {
     const a = L.assets[u.id]
-    const meta = { path: u.path, heading: u.heading, trail: u.trail || [], kind: u.kind, start: u.start, end: u.end, hash: u.hash, snap: u.snap, ...(u.text != null ? { bytes: Buffer.byteLength(u.text, 'utf8') } : {}), ...(u.retro ? { retro: true } : {}) }
+    const meta = { path: u.path, heading: u.heading, trail: u.trail || [], kind: u.kind, start: u.start, end: u.end, hash: u.hash, snap: u.snap, ...(u.text != null ? { bytes: Buffer.byteLength(u.text, 'utf8') } : {}), ...(u.retro ? { retro: true } : {}), ...(u.context ? { context: true } : {}) }
+    // 参照（context）から対象に変わった単位は印を外す。
+    if (a && !u.context) delete a.context
     if (!a) {
       L.assets[u.id] = { ...meta }
       resetUnit(L.assets[u.id])
@@ -413,7 +428,7 @@ export function staticFacts(L) {
   if (L.link == null) return []
   const one = new RegExp(L.link, 'g')
   const range = new RegExp(`(${L.link})\\s*[〜~～]\\s*(${L.link})`, 'g')
-  const texts = Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => [id, a, unitTextOf(L, id) || ''])
+  const texts = Object.entries(L.assets).filter(([, a]) => isTarget(a)).map(([id, a]) => [id, a, unitTextOf(L, id) || ''])
   const present = new Set()
   for (const [, , t] of texts) for (const m of t.replace(range, ' ').matchAll(one)) present.add(m[0])
   const out = new Map()
@@ -438,7 +453,7 @@ export function staticFacts(L) {
 // ファイルの段の今の根拠の事実（単位の受理した読みが足した事実）。
 export const fileFacts = (L) => L.facts.filter((f) => f.origin === 'file' && (() => { const a = L.assets[f.unit]; return a && !a.retro && a.read && a.read.id === f.read })())
 // 今の読みの組（無いことの判定の根拠）: どれかの単位の読みが変われば、無いことの判定を開き直す。
-export const readsSig = (L) => sha(JSON.stringify(Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => [id, a.read ? a.read.id : null]).sort())).slice(0, 16)
+export const readsSig = (L) => sha(JSON.stringify(Object.entries(L.assets).filter(([, a]) => isTarget(a)).map(([id, a]) => [id, a.read ? a.read.id : null]).sort())).slice(0, 16)
 
 // 台帳から、今の根拠の事実・意図（状態つき）・確定した指摘を導く。
 export function board(L) {
@@ -633,12 +648,25 @@ export const planWanted = (L) => !L.plan_skipped
 export const planAnswerKinds = ['question', 'plan_defect']
 // ファイルの段で読む単位: 読みの無い（unseen）・試行が上限に届いていない対象の単位（対象から外すファイルは、対象の指定から外す）。
 const unread = (a) => a.state === 'unseen' && a.attempts < MAX_ATTEMPTS
-export const todoUnits = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro && unread(a)).map(([id]) => id)
+export const todoUnits = (L) => Object.entries(L.assets).filter(([, a]) => isTarget(a) && unread(a)).map(([id]) => id)
 // 振り返りの段で読む単位（出来事の写し）。対象の単位に数えない。
 export const retroTodo = (L) => Object.entries(L.assets).filter(([, a]) => a.retro && unread(a)).map(([id]) => id)
 
-// 詰め合わせ: 単位の並び（ids の順）で前から、本文のバイト数の和が UNIT_MAX_BYTES に収まる所まで 1 つの担当に詰める（next-fit。前に戻って詰めない）。
-// 上限は大きいファイルを分ける基準と同じ 1 つで、新しい線を置かない（設計「段の構成」、決定 9・11・16）。bytesOf(id) は単位の本文のバイト数。
+// 詰め合わせ: 単位の並び（ids の順）で前から、本文のバイト数の和が線（max。lineOf）に収まる所まで 1 つの担当に詰める（next-fit。前に戻って詰めない）。
+// 線は大きいファイルを分ける基準と同じ 1 つで、新しい線を置かない（設計「段の構成」、決定 9・11・16）。bytesOf(id) は単位の本文のバイト数。
+export function packUnitsTo(ids, bytesOf, max) {
+  const out = []
+  let cur = null
+  for (const id of ids) {
+    const n = bytesOf(id)
+    if (cur && cur.bytes + n <= max) { cur.ids.push(id); cur.bytes += n; continue }
+    cur = { ids: [id], bytes: n }
+    out.push(cur)
+  }
+  return out.map((x) => x.ids)
+}
+// 既定の線（UNIT_MAX_BYTES）の詰め合わせ。coverage-build の build-core.mjs が同じ本文を写す（一致は tests/coverage-build-audit-copies.test.mjs が照らす）ので、
+// 本文を packUnitsTo に寄せずに残す。この台帳の詰め合わせは、役の文脈の大きさから導く線で packUnitsTo を使う。
 export function packUnits(ids, bytesOf) {
   const out = []
   let cur = null
@@ -658,15 +686,18 @@ export const FULL_REVIEW = 'full_review'
 const unitOrder = (L) => {
   const at = new Map(L.targets.map((p, i) => [p, i]))
   const pos = (a) => (at.has(a.path) ? at.get(a.path) : L.targets.length)
-  return Object.entries(L.assets).filter(([, a]) => !a.retro).sort(([, x], [, y]) => pos(x) - pos(y) || x.start - y.start).map(([id]) => id)
+  return Object.entries(L.assets).filter(([, a]) => isTarget(a)).sort(([, x], [, y]) => pos(x) - pos(y) || x.start - y.start).map(([id]) => id)
 }
-const unitBytes = (L, id) => { const a = L.assets[id]; return Number.isInteger(a.bytes) ? a.bytes : Buffer.byteLength(unitTextOf(L, id) || '', 'utf8') }
+// 参照だけの単位（--context）の id。全文レビューと判定役の索引に context: true で載り、指摘の場所に引ける。
+export const contextUnits = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro && a.context).map(([id]) => id)
+export const unitBytes = (L, id) => { const a = L.assets[id]; return Number.isInteger(a.bytes) ? a.bytes : Buffer.byteLength(unitTextOf(L, id) || '', 'utf8') }
 // 目標の版: 全文レビューの query が返す目標の欄（冒頭の文・項目・基準・制約）。観点は入れない（観点が変わっただけでは読み直さない）。
 const goalVersion = (L) => sha(JSON.stringify([L.goal.text, ...[L.goal.items, L.criteria, L.constraints].map((xs) => xs.map((x) => [x.id, x.text]))])).slice(0, 12)
-// 読む範囲: 単位の並びで前から UNIT_MAX_BYTES に収まる所まで（ファイルの段の最初の詰め合わせと同じ packUnits）。sig は範囲の単位の指紋と目標の版。
+// 読む範囲: 単位の並びで前から線に収まる所まで（ファイルの段の最初の詰め合わせと同じ packUnits）。sig は範囲の単位の指紋と目標の版（参照があれば参照の指紋も）。
 export function fullReviewScope(L) {
-  const range = packUnits(unitOrder(L), (id) => unitBytes(L, id))[0] || []
-  return { range, sig: sha(JSON.stringify([range.map((id) => [id, L.assets[id].hash]), goalVersion(L)])).slice(0, 16) }
+  const range = packUnitsTo(unitOrder(L), (id) => unitBytes(L, id), lineOf(L))[0] || []
+  const ctx = contextUnits(L).sort().map((id) => [id, L.assets[id].hash])
+  return { range, sig: sha(JSON.stringify([range.map((id) => [id, L.assets[id].hash]), goalVersion(L), ...(ctx.length ? [ctx] : [])])).slice(0, 16) }
 }
 // 記録を今の範囲に合わせる（sig が変われば試行と読みを捨てて作り直す。前の読みの事実は記録に残し、今の根拠から外れる）。
 export function syncFullReview(L) {
@@ -689,7 +720,7 @@ export function fullReviewStatus(L) {
 }
 
 export function coverage(L) {
-  const live = Object.entries(L.assets).filter(([, a]) => !a.retro)
+  const live = Object.entries(L.assets).filter(([, a]) => isTarget(a))
   const by = (s) => live.filter(([, a]) => a.state === s).map(([id]) => id)
   return { units: live.length, seen: by('seen').length, disclosed: by('disclosed'), pending: by('unseen') }
 }
@@ -725,8 +756,16 @@ export function decide(L, { missingTargets = [] } = {}) {
   // 目標の照合は計画役が担う（照合済みでなければ、計画の段を流す）。
   if (!L.goal.checked) return { step: 'plan' }
   const newAnswers = L.answers.filter((a) => !L.answered.includes(a.id) && planAnswerKinds.includes(a.target_kind))
+  // 計画役が no_target を付けた Q3 の欠陥（部分を受け持てる単位が対象に無い）: 計画をやり直さずに返す。P<n> に答えると計画の段を 1 巡回す。
+  const gaps = (L.target_gaps || []).filter((g) => !L.answers.some((a) => a.id === g.id))
+  if (gaps.length) return stop('needs_input', ['観点の検証の欠陥のうち、目標の部分を受け持てる単位が対象に無いもの（no_target）がある。目標か対象を直すか、P<n> に直し方・受け入れ方を答える'], { target_gaps: gaps })
   if (planWanted(L)) {
-    if (L.plan_defects.length && L.plan_rounds >= PLAN_ROUNDS && !newAnswers.length) return stop('needs_input', [`計画の欠陥が計画のやり直し ${PLAN_ROUNDS} 回で消えない`], { plan_defects: L.plan_defects })
+    if (L.plan_defects.length && L.plan_rounds >= PLAN_ROUNDS && !newAnswers.length) {
+      return stop('needs_input', [
+        `計画の欠陥が計画のやり直し ${PLAN_ROUNDS} 回（計画 ${PLAN_ROUNDS + 1} 版とその検証の ${PLAN_ROUNDS + 1} 巡）で消えない。${PLAN_ROUNDS + 1} 巡で終わらなかったので、目標の書き方か、スキルの観点の作り方を疑う`,
+        ...L.plan_defects.map((d) => `${d.id}: ${d.claim}${d.quote ? `（検証の答えの引用: ${d.quote}）` : ''}`),
+      ], { plan_defects: L.plan_defects })
+    }
     if (!L.plan || L.plan_defects.length || newAnswers.length) return { step: 'plan' }
     const lenses = L.plan.lenses || []
     // 観点の検証（Q1〜Q3）を通っていない観点を検証する（観点が変わらなければ検証し直さない）。当てる単位を選ばないので、観点の精査（N1・N2）は持たない。
@@ -764,7 +803,7 @@ export function decide(L, { missingTargets = [] } = {}) {
   return stop('complete', ['全ての単位を見たか見られなかった理由を開示し、開いた意図が 0 になった'], { disclosed: cov.disclosed })
 }
 
-// 振り返りの単位: まだ振り返っていない出来事を、全ての段にわたって 1 行 1 件で並べ、本文が UNIT_MAX_BYTES に収まるよう行の境目で前から詰めて単位に分ける。
+// 振り返りの単位: まだ振り返っていない出来事を、全ての段にわたって 1 行 1 件で並べ、本文が線（lineOf）に収まるよう行の境目で前から詰めて単位に分ける。
 // 単位は振り返りの役 1 体が全て読む（収まらない分だけ詰め合わせが増える）。本文は呼び出し側が写しに書く。
 export function retroAssets(L) {
   const ev = L.events.filter((e) => !e.retro)
@@ -772,7 +811,7 @@ export function retroAssets(L) {
   if (!ev.length) return []
   const lines = ev.map((e) => `[${e.id}] (${e.stage}/${e.kind}) ${String(e.text).replace(/\s*\n\s*/g, ' / ')}`)
   const size = byteSizer(lines)
-  const chunks = pack(lines.map((_, k) => ({ start: k, end: k + 1 })), size, (x) => [x])
+  const chunks = pack(lines.map((_, k) => ({ start: k, end: k + 1 })), size, (x) => [x], lineOf(L))
   return chunks.map((c, n) => {
     const text = lines.slice(c.start, c.end).join('\n')
     const id = `retro:c${L.cycle}${chunks.length > 1 ? `/c${n + 1}` : ''}`
@@ -784,7 +823,7 @@ export function retroAssets(L) {
 // 持ち越した読み: 今の回の始まりより前の周に受理し、そのまま残っている読み。新しく読んだ単位と分けて数える。
 export const carriedRead = (L, a) => !!(a && a.state === 'seen' && a.read && a.read.cycle < (L.round_start ?? 1))
 export function readCounts(L) {
-  const live = Object.entries(L.assets).filter(([, a]) => !a.retro && a.state === 'seen')
+  const live = Object.entries(L.assets).filter(([, a]) => isTarget(a) && a.state === 'seen')
   const carried = live.filter(([, a]) => carriedRead(L, a)).map(([id]) => id)
   return { fresh: live.length - carried.length, carried: carried.length, carried_units: carried }
 }

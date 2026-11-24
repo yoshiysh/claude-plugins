@@ -55,7 +55,8 @@ async function auditGoalPrompt(t, text = src(AUDIT_WF)) {
   const n = auditHarness.cli('next', '--state', state)
   assert.equal(n.step, 'plan', JSON.stringify(n))
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  assert.deepEqual(args.workers.map((w) => w.role), ['planner'])
+  // 最初の波の行（args.wave.rows。実装の前の形は args.workers）。
+  assert.deepEqual((args.wave ? args.wave.rows : args.workers).map((w) => w.role), ['planner'])
   const log = []
   // 役は起動の prompt を残すだけ（台帳と読み書きしない）。prompt に載る規則の文だけを見る。
   const agentFn = async (prompt, opts) => { log.push({ label: opts.label, prompt }); return { notes: [] } }

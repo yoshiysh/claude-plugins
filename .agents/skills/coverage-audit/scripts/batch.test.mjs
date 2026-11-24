@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { cpSync } from 'node:fs'
 import path from 'node:path'
 import { MAX_ATTEMPTS, UNIT_MAX_BYTES } from './ledger-core.mjs'
-import { behave, cli, driveScript, project, run, scriptAgent, status, rowsOf } from './blackboard-fixture.mjs'
+import { behave, cli, driveScript, project, run, scriptAgent, status, rowsOf, stageOf } from './blackboard-fixture.mjs'
 import { act, launchesOf } from './launch-fixture.mjs'
 import { confirmedIds, frAct, frFinding, loc } from './full-review-fixture.mjs'
 import {
@@ -173,7 +173,7 @@ test('2. query（今も通る守り）: ファイルの段の担当は、--task 
   for (let i = 0; i < 10; i++) {
     const n = cli('next', '--state', state)
     const args = argsOf(n)
-    if (args.stage === 'file') {
+    if (stageOf(args) === 'file') {
       const w = rowsOf(args)[0]
       const c = claimOf(state, args, w)
       assert.ok(c.tasks.length >= 2, `前提: ファイルの段の詰め合わせ: ${c.tasks.length}`)

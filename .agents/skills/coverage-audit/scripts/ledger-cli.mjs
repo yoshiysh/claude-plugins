@@ -7,20 +7,21 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   ALIAS_ANSWERS, C, CONFIDENCES, MAX_ATTEMPTS, VERDICTS, addEvent, board, calibration, checkFileResult, coverage, currentFindings, decide, factsOf, goalIds, goalSources,
-  lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, packUnits, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, retroTodo, sha, splitAssets,
-  startPhase, staticFacts, unitTextOf, carriedRead, provenance, runMetrics, FULL_REVIEW, syncFullReview, fullReviewStatus, UNIT_MAX_BYTES, sameLocationPairs,
+  lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, retroTodo, sha, splitAssets,
+  startPhase, staticFacts, unitTextOf, carriedRead, provenance, runMetrics, FULL_REVIEW, syncFullReview, fullReviewStatus, sameLocationPairs,
+  isTarget, lineOf, contextUnits, unitBytes, packUnitsTo,
 } from './ledger-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WORKFLOW = path.join(HERE, 'coverage-audit.js')
 
 class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }
-const MULTI = ['target', 'fact', 'task']
+const MULTI = ['target', 'context', 'fact', 'task']
 const KNOWN = {
-  init: ['state', 'goal', 'request', 'decisions', 'criteria', 'goal-checked', 'target', 'constraints', 'lenses', 'roles', 'seeds', 'max-cycles', 'max-agents-total', 'phase', 'link'],
-  reframe: ['state', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'target', 'phase', 'link', 'lenses'],
+  init: ['state', 'goal', 'request', 'decisions', 'criteria', 'goal-checked', 'target', 'context', 'repo', 'constraints', 'lenses', 'roles', 'seeds', 'max-cycles', 'max-agents-total', 'phase', 'link'],
+  reframe: ['state', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'target', 'context', 'repo', 'phase', 'link', 'lenses'],
   next: ['state'], ingest: ['state', 'call', 'result'], status: ['state'], hint: ['state', 'text'], answer: ['state', 'id', 'text', 'file'], config: ['state', 'max-cycles', 'max-agents-total', 'workers'],
-  claim: ['state', 'call', 'worker'], submit: ['state', 'call', 'worker'], query: ['state', 'call', 'worker', 'task', 'fact'],
+  claim: ['state', 'call', 'worker', 'wave', 'model', 'effort', 'stage'], submit: ['state', 'call', 'worker'], query: ['state', 'call', 'worker', 'task', 'fact'],
 }
 function parse(argv) {
   const o = { _: [] }
@@ -64,6 +65,11 @@ function load(dir) {
   if (!L.intent_attempts) throw new Fail(`台帳の形式が古い（全体の段の意図の試行を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!Array.isArray(L.retro_findings) || Object.hasOwn(L, 'lateral_types')) throw new Fail(`台帳の形式が古い（横展開の型と束ねの反証を持ち、振り返りの指摘を対象の指摘と分けない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   if (!Object.hasOwn(L, 'full_review')) throw new Fail(`台帳の形式が古い（全文レビューの記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  if (L.pending && L.pending.wave_id === undefined) throw new Fail(`台帳の形式が古い（開いた呼び出しが波の記録を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
+  // 波の連番・参照・no_target の欄は、無い台帳では空から始める（形式の互換のため。持つ中身は変えない）。
+  if (!Number.isInteger(L.wave_seq)) L.wave_seq = 0
+  if (!Array.isArray(L.contexts)) L.contexts = []
+  if (!Array.isArray(L.target_gaps)) L.target_gaps = []
   return L
 }
 function writeAtomic(file, text) {
@@ -72,7 +78,7 @@ function writeAtomic(file, text) {
   writeFileSync(tmp, text)
   renameSync(tmp, file)
 }
-// 役が最初の claim を流す入口（stateDir/ledger-cli.mjs）。args は {state, callId, stage, workers} だけ（B4）で CLI の置き場を運べないので、
+// 役が最初の claim を流す入口（stateDir/ledger-cli.mjs）。args は {state, callId, wave} だけ（B4）で CLI の置き場を運べないので、
 // Workflow script は stateDir の下のこの名前を prompt に書く。中身は本物の CLI を絶対パスで import して流すだけで、判断も照合も持たない。
 // plugin の置き場が変わっても古い path が残らないよう、init と next のたびに書き直す。
 export const LAUNCHER = 'ledger-cli.mjs'
@@ -153,17 +159,46 @@ function writeSnap(dir, text) {
   if (!existsSync(file) || sha(read(file)).slice(0, 16) !== name) writeAtomic(file, text)
   return file
 }
-// 対象のファイルを今の内容で単位にし、同じ内容を写しに書く。消えた・読めない対象は返す（単位 0 件で完了にしない）。
+// 対象と参照（--context）のファイルを今の内容で単位にし、同じ内容を写しに書く。消えた・読めないファイルは返す（単位 0 件で完了にしない）。
+// 大きいファイルを分ける線は、詰め合わせと同じ lineOf（単位を読む役の文脈の大きさから導く 1 本）。参照の単位は context の印を持つ。
 function currentAssets(L, dir) {
   const missing = []
   const assets = []
-  for (const f of L.targets) {
+  const max = lineOf(L)
+  for (const [f, ctx] of [...L.targets.map((x) => [x, false]), ...(L.contexts || []).map((x) => [x, true])]) {
     if (!existsSync(f)) { missing.push(f); continue }
     const text = read(f)
     const snap = writeSnap(dir, text)
-    assets.push(...splitAssets(f, text).map((a) => ({ ...a, snap })))
+    assets.push(...splitAssets(f, text, max).map((a) => ({ ...a, snap, ...(ctx ? { context: true } : {}) })))
   }
   return { assets, missing }
+}
+// 目標・基準・制約の本文の path の照合。path の形の語（/ を含み、拡張子で終わる語）が repo を基準に実在するファイルを指すのに、
+// --target にも --context にも無ければ、問題の文を返す（書かれた語をそのまま載せる）。実在しない path は照らさない。
+const PATH_TOKEN = /[A-Za-z0-9_.~/-]+/g
+const pathWords = (text) => [...new Set((String(text ?? '').match(PATH_TOKEN) || []).map((w) => w.replace(/\.+$/, '')).filter((w) => w.includes('/') && /[^/.]\.[A-Za-z0-9]+$/.test(w)))]
+function framePathProblems(g, { repo, targets, contexts }) {
+  const real = (p) => { try { return realpathSync(p) } catch { return path.resolve(p) } }
+  const allowed = new Set([...targets, ...contexts].map(real))
+  const out = []
+  for (const [what, items] of [['目標', g.goal], ['受け入れ基準', g.criteria], ['制約', g.constraints]]) {
+    for (const it of items || []) for (const w of pathWords(it.text)) {
+      const p = path.resolve(repo, w)
+      let file = false
+      try { file = statSync(p).isFile() } catch { continue }
+      if (file && !allowed.has(real(p))) out.push(`${what} ${it.id} の本文の path ${w} は repo（${repo}）に実在するのに、--target にも --context にも無い（対象に足すか、参照として --context に渡すか、本文から外す）`)
+    }
+  }
+  return out
+}
+// 参照（--context）のファイル。読めないものと、対象と重なるものは拒む。
+function contextsOf(o, targets) {
+  const contexts = (o.context || []).map((p) => path.resolve(p))
+  const missing = contexts.filter((p) => !existsSync(p))
+  if (missing.length) throw new Fail('読めない参照（--context）がある（台帳は作っていない・変えていない）', { stop: 'blocked', cause: 'input', missing })
+  const both = contexts.filter((p) => targets.includes(p))
+  if (both.length) throw new Fail(`--target と --context に同じファイルがある: ${both.join(', ')}`)
+  return contexts
 }
 
 // 段の名前（呼ぶ側の段。coverage-build は baseline・design・impl・review を渡す）。status の phases の key になる。
@@ -194,6 +229,8 @@ function cmdInit(o) {
   if (!targets.length) throw new Fail('--target が要る')
   const missing = targets.filter((p) => !existsSync(p))
   if (missing.length) throw new Fail('読めない対象がある（台帳は作っていない。直して init をやり直す）', { stop: 'blocked', cause: 'input', missing })
+  const contexts = contextsOf(o, targets)
+  const repo = path.resolve(o.repo ?? process.cwd())
   const lenses = readLenses(o)
   const roles = { ...JSON.parse(read(path.join(HERE, 'roles.json'))), ...(o.roles ? JSON.parse(read(o.roles)) : {}) }
   const config = posInts(o, [['max-cycles', 'max_cycles'], ['max-agents-total', 'max_agents_total']])
@@ -204,10 +241,11 @@ function cmdInit(o) {
   const link = linkOf(o)
   const text = frameText(o)
   const g = readGoalFiles(text, { checkedBy })
-  if (g.problems.length) throw new Fail('目標・基準・制約に、引用の照合を通らない項目がある（台帳は作っていない。直して init をやり直す）', { problems: g.problems })
+  const pp = framePathProblems(g, { repo, targets, contexts })
+  if (g.problems.length || pp.length) throw new Fail('目標・基準・制約に、引用か path の照合を通らない項目がある（台帳は作っていない。直して init をやり直す）', { problems: [...g.problems, ...pp] })
   const L = newLedger({
     goal: text.goal, goalItems: g.goal, checkedBy, phase, link, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints,
-    targets, lenses, config, roles, seeds: o.seeds ? JSON.parse(read(o.seeds)).map((s) => ({ ...s, path: abs(s.path) })) : [],
+    targets, contexts, repo, lenses, config, roles, seeds: o.seeds ? JSON.parse(read(o.seeds)).map((s) => ({ ...s, path: abs(s.path) })) : [],
   })
   checkWorkers(L.config)
   withLock(dir, () => {
@@ -216,7 +254,7 @@ function cmdInit(o) {
     savePhase(dir, L)
     writeLauncher(dir)
   })
-  return { ok: true, state: dir, phase, targets: targets.length, criteria: L.criteria.length, constraints: L.constraints.length, goal_checked_by: checkedBy, hint: `ヒントは node ${path.join(HERE, 'ledger-cli.mjs')} hint --state ${dir} --text "..." で足せる（実行中も止まっている間も）` }
+  return { ok: true, state: dir, phase, targets: targets.length, contexts: contexts.length, criteria: L.criteria.length, constraints: L.constraints.length, goal_checked_by: checkedBy, hint: `ヒントは node ${path.join(HERE, 'ledger-cli.mjs')} hint --state ${dir} --text "..." で足せる（実行中も止まっている間も）` }
 }
 
 // 利用者（呼ぶ側）の観点のファイル（--lenses）。無ければ空。形（id・name・procedure）を照らす。
@@ -248,15 +286,18 @@ function cmdReframe(o) {
     if (!targets.length) throw new Fail('--target が要る')
     const missing = targets.filter((p) => !existsSync(p))
     if (missing.length) throw new Fail('読めない対象がある（台帳は変えていない）', { stop: 'blocked', cause: 'input', missing })
+    const contexts = contextsOf(o, targets)
+    const repo = path.resolve(o.repo ?? L.repo ?? process.cwd())
     const text = frameText(o)
     const g = readGoalFiles(text, { checkedBy: L.goal.checked_by })
-    if (g.problems.length) throw new Fail('目標・基準・制約に、引用の照合を通らない項目がある（台帳は変えていない）', { problems: g.problems })
+    const pp = framePathProblems(g, { repo, targets, contexts })
+    if (g.problems.length || pp.length) throw new Fail('目標・基準・制約に、引用か path の照合を通らない項目がある（台帳は変えていない）', { problems: [...g.problems, ...pp] })
     // --lenses があれば、新しい段の利用者の観点に差し替える（呼ぶ側が段ごとに観点を渡す）。無ければ今の利用者の観点を保つ。
     const lenses = o.lenses ? readLenses(o) : null
     const from = L.phase
     const before = procedureSig(L)
     const sec = phaseSection(L)
-    Object.assign(L, { goal: { ...L.goal, text: text.goal, items: g.goal, problems: [] }, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints, targets, link })
+    Object.assign(L, { goal: { ...L.goal, text: text.goal, items: g.goal, problems: [] }, request: text.request, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints, targets, contexts, repo, link })
     if (lenses) L.lenses = [...lenses.map((l) => ({ id: l.id, name: l.name, procedure: l.procedure, origin: 'user' })), ...L.lenses.filter((l) => l.origin !== 'user')]
     // 同じ段で手続き（観点・目標・基準・制約・決定の記録・link）が同じ reframe は、全てを読み直しにしない（設計「再レビューと持ち越し」）。
     // 対象の差し替えは次の next の refresh が指紋で読み直す単位を決め、止まった後なら新しい回を始める（prior と持ち越しが効く）。
@@ -277,11 +318,12 @@ function cmdReframe(o) {
   })
 }
 
-// ---------------- 呼び出し（next が開き、ingest が閉じる） ----------------
-// args は {state, callId, stage, workers} だけにする（B4）。担当が読む文は args にも prompt にも載せず、役が claim と query で台帳から引く（B1）。
-// 1 つの呼び出しの worker は全て同時に起動されるので、前の役の提出を読む役（観点の検証役・確認役）は次の呼び出しに置く。
+// ---------------- 呼び出し（next が開き、波を claim が進め、ingest が閉じる） ----------------
+// args は {state, callId, wave} だけにする（B4。wave は最初の波 {id, rows}）。担当が読む文は args にも prompt にも載せず、役が claim と query で台帳から引く（B1）。
+// 1 つの波の行は全て同時に起動されるので、前の役の提出を読む役（観点の検証役・確認役）は次の波に置く。波の担当が尽きると、claim が台帳の状態から
+// 次の波を決めて記録し（next_wave）、Workflow script がその行で次の波を起動する。止まる条件・時間・行の数の区切りでは、claim が halt を返す。
 // 段・担当の種類から役の名前への対応は、ここと stageTasks・INTENT_ROLE の 1 か所に置く。役のモデルと effort の組は roles.json だけが持ち、
-// next が workers の行に写す（Workflow script は行の値を使い、役の名前で分岐しない）。
+// CLI が波の行に写す（Workflow script は行の値を使い、役の名前で分岐しない）。
 const FILE_ROLE = 'file_reader'
 // 全文レビューの役（ファイルの段の読む役と別の役。いつも 1 体）。
 const FR_ROLE = 'full_reviewer'
@@ -323,26 +365,27 @@ function checkWorkers(config) {
 }
 // 段ごとの worker の行と、行に結んだ担当。ファイルの段と振り返りの担当は詰め合わせ（bundles）で行に結び、worker が claim で詰め合わせの単位を取る。
 // 計画の段の担当は行に 1 つずつ結ぶ。akey は試行を数える鍵（stuck の id）。bytesOf(id) は単位の本文のバイト数（詰め合わせに使う）。
-function stageTasks(L, d, bytesOf) {
-  const one = (id, role, task) => ({ rows: [{ id, role }], tasks: [{ ...task, worker: id }] })
-  if (d.step === 'global') return { ...globalRows(L, board(L)), tasks: [] }
-  // ファイルの段と振り返りは、文脈に収まる分の単位を 1 体に詰める（設計「段の構成」、決定 16）。詰め合わせの数が起動数で、maxAgents と残りの予算に収める。残りは次の呼び出しで読む。
+// cap は行の数の上限（1 以上）、idOf(tag) は呼び出しの中で重ならない行の id を返す。
+function stageTasks(L, d, bytesOf, { cap, idOf }) {
+  const one = (tag, role, task) => { const id = idOf(tag); return { rows: [{ id, role }], tasks: [{ ...task, worker: id }] } }
+  if (d.step === 'global') return { ...globalRows(L, board(L), cap, idOf), tasks: [] }
+  // ファイルの段と振り返りは、文脈に収まる分の単位を 1 体に詰める（設計「段の構成」、決定 16）。詰め合わせの数が起動数で、cap（maxAgents と残りの予算）に収める。残りは次の波か呼び出しで読む。
   if (d.step === 'file' || d.step === 'retro') {
-    const packs = packUnits(d.units, bytesOf).slice(0, Math.max(1, Math.min(C.LIMITS.maxAgents, budgetLeft(L))))
+    const packs = packUnitsTo(d.units, bytesOf, lineOf(L)).slice(0, Math.max(1, cap))
     const tag = d.step === 'file' ? 'f' : 'r'
-    const rows = packs.map((_, i) => ({ id: `${tag}${i + 1}`, role: d.step === 'file' ? FILE_ROLE : RETRO_ROLE }))
+    const rows = packs.map(() => ({ id: idOf(tag), role: d.step === 'file' ? FILE_ROLE : RETRO_ROLE }))
     return { rows, tasks: [], bundles: Object.fromEntries(rows.map((r, i) => [r.id, packs[i]])) }
   }
   // 全文レビュー: 読む範囲を 1 体が読む（--workers によらない）。担当は観点を持たない。
-  if (d.step === FULL_REVIEW) return one('fr1', FR_ROLE, { id: `${FULL_REVIEW}:${L.full_review.sig.slice(0, 12)}`, kind: FULL_REVIEW })
+  if (d.step === FULL_REVIEW) return one('fr', FR_ROLE, { id: `${FULL_REVIEW}:${L.full_review.sig.slice(0, 12)}`, kind: FULL_REVIEW })
   if (d.step === 'plan') {
     const answers = L.answers.filter((a) => !L.answered.includes(a.id) && planAnswerKinds.includes(a.target_kind)).map((a) => a.id)
-    return one('p1', 'planner', { id: 'plan', kind: 'plan', akey: 'plan', goalCheck: !L.goal.checked, again: !!L.plan, defectCount: L.plan ? L.plan_defects.length : 0, answerIds: answers })
+    return one('p', 'planner', { id: 'plan', kind: 'plan', akey: 'plan', goalCheck: !L.goal.checked, again: !!L.plan, defectCount: L.plan ? L.plan_defects.length : 0, defectKinds: L.plan ? L.plan_defects.map((x) => x.kind) : [], answerIds: answers })
   }
   // 観点の検証: 計画の版を担当にし、確かめていない観点の全てを 1 体が見る。
   const byId = new Map(((L.plan && L.plan.lenses) || []).map((u) => [u.id, u]))
   const keys = Object.fromEntries(d.lenses.map((id) => [id, C.unitKey(byId.get(id))]))
-  return one('uv1', 'unit_verifier', { id: `unit_verify:${sha(JSON.stringify(keys)).slice(0, 12)}`, kind: 'unit_verify', lenses: d.lenses, keys, akey: 'unit_verify' })
+  return one('uv', 'unit_verifier', { id: `unit_verify:${sha(JSON.stringify(keys)).slice(0, 12)}`, kind: 'unit_verify', lenses: d.lenses, keys, akey: 'unit_verify' })
 }
 
 // ---------------- 全体の段（意図） ----------------
@@ -350,28 +393,30 @@ function stageTasks(L, d, bytesOf) {
 // 判定役 1 体が判定役の全ての種類の意図を順に処理し、確認役 1 体が確認の意図と、確認が全て閉じた後の束ねの意図を取る（起動の原則）。
 const INTENT_ROLE = { alias: 'global_judge', subject: 'global_judge', finding: 'global_judge', premise: 'global_judge', goal: 'global_judge', confirm: 'confirmer', group: 'confirmer' }
 const INTENT_ROWS = [['g', ['alias', 'subject', 'finding', 'premise', 'goal']], ['c', ['confirm', 'group']]]
-// 今の段の残りの予算（起動数）。1 回の呼び出しの起動数をこれに収める（少なくとも 1）。
-const budgetLeft = (L) => Math.max(1, L.config.max_agents_total - (L.agents.length - L.phase_start.agents))
-// 全体の段の行: 開いた意図のある種類の組ごとに、min(workers, 開いた意図の数) 体（既定は 1 体）。行の合計は min(maxAgents, 残りの予算) 以下にする。
+// 今の段の残りの予算（起動数）。開いた呼び出しで既に出した行も引く。budgetLeft は呼び出しの最初の波に使い、少なくとも 1。
+const budgetRemain = (L) => L.config.max_agents_total - (L.agents.length - L.phase_start.agents) - (L.pending ? L.pending.rows_total || 0 : 0)
+const budgetLeft = (L) => Math.max(1, budgetRemain(L))
+// 全体の段の行: 開いた意図のある種類の組ごとに、min(workers, 開いた意図の数) 体（既定は 1 体）。行の合計は cap（maxAgents と残りの予算）以下にする。
 // 予算は INTENT_ROWS の順（g が先、c が後）に開いた意図のある組へ 1 行ずつ割り当て、余りを各組の上限まで足す。予算が尽きた組はこの呼び出しでは 0 行で、
-// 開いた意図は次の呼び出しに回る（起動数が上限に達すれば decide が limit で止め、開いた意図を停止に載せる）。
-// 呼び出しの中で受理された事実から増えた意図は、行のある組なら同じ呼び出しで取る（確認役は確認に続けて束ねを取る）。
-function globalRows(L, B) {
+// 開いた意図は次の波か呼び出しに回る（起動数が上限に達すれば decide が limit で止め、開いた意図を停止に載せる）。
+// 波の中で受理された事実から増えた意図は、行のある組なら同じ波で取る（確認役は確認に続けて束ねを取る）。行の無い組の意図は次の波が取る。
+function globalRows(L, B, cap, idOf) {
   const open = B.intents.filter((i) => i.state === 'open')
   const want = INTENT_ROWS.map(([, ks]) => Math.min(L.config.workers, open.filter((i) => ks.includes(i.kind)).length))
-  let left = Math.min(C.LIMITS.maxAgents, budgetLeft(L))
+  let left = cap
   const got = want.map((w) => { const n = w > 0 && left > 0 ? 1 : 0; left -= n; return n })
   for (let j = 0; j < got.length; j++) { const n = Math.min(want[j] - got[j], left); got[j] += n; left -= n }
   const rows = []
   const kinds = {}
   INTENT_ROWS.forEach(([tag, ks], j) => {
-    for (let k = 1; k <= got[j]; k++) { rows.push({ id: `${tag}${k}`, role: INTENT_ROLE[ks[0]] }); kinds[`${tag}${k}`] = ks }
+    for (let k = 1; k <= got[j]; k++) { const id = idOf(tag); rows.push({ id, role: INTENT_ROLE[ks[0]] }); kinds[id] = ks }
   })
   return { rows, kinds }
 }
 const intentTaskId = (intent, call) => `${intent}@${call}`
 // 目標の判定の担当に渡す単位の索引（id・path・写しの範囲）。義務に結ばれた事実が無くても、役が写しを開いて引用し、抜けの場所を書けるようにする。
-const unitIndex = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => ({ id, path: a.path, file: a.snap, start: a.start, end: a.end }))
+// 参照（--context）の単位も context: true の印で載せる（網羅に数えないが、引用の根拠にできる）。
+const unitIndex = (L) => Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => ({ id, path: a.path, file: a.snap, start: a.start, end: a.end, ...(a.context ? { context: true } : {}) }))
 // query が返す載せなかった事実の id の上限（B6: 要約は上限と宣言を持つ）。超えた分の件数は omitted_more で宣言する。
 const OMITTED_IDS_MAX = 200
 // 全体の段と確認の担当は観点の一覧を使わない（観点はファイルの段の読みの手続き）ので、担当に載せない。
@@ -399,7 +444,7 @@ function intentEntry(L, B, it, tid, pairs) {
     ...(it.kind === 'goal' ? { units: unitIndex(L) } : {}), ...(same.length ? { same_location: same } : {}),
   }
 }
-// 束の量: query が返す根拠・関係する事実・単位の索引のバイト数（設計「全体の段と確認」。上限は UNIT_MAX_BYTES で、新しい線を置かない）。
+// 束の量: query が返す根拠・関係する事実・単位の索引のバイト数（設計「全体の段と確認」。上限は線（lineOf）で、新しい線を置かない）。
 const entryBytes = (e) => Buffer.byteLength(JSON.stringify({ basis: e.basis, related: e.related, ...(e.units ? { units: e.units } : {}) }))
 // 意図の試行: 根拠の鍵が変われば数え直す。上限で判定できなかった意図（undecided）として理由つきで閉じる。
 function bumpIntent(L, it, reason, stage = 'global') {
@@ -548,6 +593,52 @@ function cmdNext(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => next(dir))
 }
+// 今の時刻（ミリ秒）。環境変数 COVERAGE_AUDIT_NOW_MS があればその値（テストで呼び出しの経過を差し替える）。next と claim がその都度読む。
+const nowMs = () => { const v = process.env.COVERAGE_AUDIT_NOW_MS; return v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : Date.now() }
+// 呼び出しの時間の区切り: 開いてからの経過がこれを超えたら、新しい波を起動せずに終える（残りの 1 体の時間の上限を残す）。
+const CALL_BUDGET_MS = C.LIMITS.timeoutMs - C.LIMITS.agentTimeoutMs
+// 段の間の決定的な遷移（周を開く・計画の提案を飛ばす・全文レビューの記録を合わせる・振り返りの単位を作る）を流し、次の 1 手か停止を決める。
+// next（呼び出しを開くとき）と claim（波の担当を渡すか、次の波を決めるとき）が同じこの関数を流す。first は最初の周回の決定の前に 1 度だけ流す。
+function advance(L, dir, { missing = [], first = null } = {}) {
+  for (let i = 0; ; i++) {
+    openCycle(L)
+    skipStuckPlan(L)
+    if (i === 0 && first) first()
+    syncFullReview(L)
+    const d = decide(L, { missingTargets: missing })
+    if (d.stop || d.step !== 'retro') return d
+    // 振り返り: coverage-build から渡された台帳（照合済みの印）は振り返りを作らず、済みの印だけを付ける（agent を起動しない）。
+    // 単独のときは、周ごとに 1 回だけ、まだ振り返っていない出来事の写しを単位にし（対象の単位に数えない）、読む単位が無くなったら済みの印を付ける。
+    if (L.goal.checked_by !== 'coverage-build' && L.retro_made !== L.cycle) {
+      L.retro_made = L.cycle
+      refresh(L, retroAssets(L).map((a) => ({ ...a, snap: writeSnap(dir, a.text) })), { partial: true })
+    }
+    d.units = L.goal.checked_by === 'coverage-build' ? [] : retroTodo(L)
+    if (d.units.length) return d
+    L.retro_cycles.push(L.cycle)
+  }
+}
+// 波の欄（開いた呼び出しの今の波）。呼び出しの欄（call_id・opened_at・rows_total・launched など）と分けて差し替える。
+const WAVE_KEYS = ['wave_id', 'step', 'workers', 'tasks', 'kinds', 'intent_claims', 'bundles', 'file_taken', 'claims', 'submits', 'accepted', 'worker_submits', 'done_rows', 'stale', 'sig']
+// 決定（d）から波を作る（id は記録するときに付ける）。行の id は呼び出しの中で重ならない連番。sig は段・役・担当の組の指紋（同じ波を記録し直さない）。
+function makeWave(L, P, d, cap) {
+  const { rows, tasks, kinds, bundles } = stageTasks(L, d, (id) => unitBytes(L, id), { cap, idOf: (tag) => `${tag}${++P.row_seq}` })
+  const workers = rows.map((r) => ({ id: r.id, role: r.role, model: L.roles[r.role].model, effort: L.roles[r.role].effort, stage: d.step }))
+  const sig = sha(JSON.stringify([d.step, rows.map((r) => r.role), bundles ? rows.map((r) => bundles[r.id]) : null, tasks.map((t) => t.id)])).slice(0, 16)
+  return { step: d.step, workers, tasks, ...(kinds ? { kinds, intent_claims: {} } : {}), ...(bundles ? { bundles } : {}), claims: 0, submits: 0, accepted: 0, done_rows: [], sig }
+}
+// 全文レビューにはヒントを渡さない（目標と読む範囲だけ）。ヒントはほかの段の波が読む（呼び出しで読んだヒントは ingest が既読にする）。
+function addHints(L, dir, P, step) {
+  if (step === FULL_REVIEW) return
+  for (const h of hints(dir)) if (!L.hints_read.includes(h.id) && !P.hints.includes(h.id)) P.hints.push(h.id)
+}
+// 波を起動した（呼び出しを開いたか、記録した次の波の最初の claim が来た）ものとして今の波にする。行の数を呼び出しの和に足す。
+function launchWave(P, W) {
+  for (const k of WAVE_KEYS) delete P[k]
+  Object.assign(P, W)
+  P.rows_total += W.workers.length
+  P.launched.push({ id: W.wave_id, step: W.step, workers: W.workers })
+}
 function next(dir) {
   const L = load(dir)
   writeLauncher(dir)
@@ -560,7 +651,7 @@ function next(dir) {
     const changes = refresh(L, assets)
     L.static = staticFacts(L)
     save(dir, L)
-    return { step: P.step, call_id: P.call_id, workflow: WORKFLOW, args_path: P.args_path, estimate_agents: P.workers.length, limits: C.LIMITS, cycle: P.cycle, coverage: coverage(L), changes }
+    return { step: P.launched[0].step, call_id: P.call_id, workflow: WORKFLOW, args_path: P.args_path, estimate_agents: P.launched[0].workers.length, limits: C.LIMITS, cycle: P.cycle, coverage: coverage(L), changes }
   }
   // blocked（failure）の後の next は、原因を直した再開として扱い、連続の数と環境の失敗に数えた試行を戻す。
   if (L.stopped && L.stopped.stop === 'blocked' && L.stopped.cause === 'failure') {
@@ -571,64 +662,46 @@ function next(dir) {
     reopenLostFullReview(L)
   }
   const { assets, missing } = currentAssets(L, dir)
-  // 単位の本文のバイト数（詰め合わせに使う）。今の対象の単位は列挙した本文から、それ以外（振り返りの単位）は写しから数える。
-  const sizes = new Map(assets.map((a) => [a.id, Buffer.byteLength(a.text, 'utf8')]))
-  const bytesOf = (id) => (sizes.has(id) ? sizes.get(id) : Buffer.byteLength(unitTextOf(L, id) || '', 'utf8'))
   const changes = refresh(L, assets)
   L.static = staticFacts(L)
   // 止まった後に対象が変わったら、読み直しの新しい回を始める（設計「再レビューと持ち越し」）。今の回より前の周の読みは持ち越しになり、
   // 今回変わらなかった単位の前の読みの印（prior）は消す（前の回で変わった印を、次の回の出どころに持ち込まない）。
-  let newRound = !!L.stopped && (changes.added.length + changes.stale.length + changes.gone.length) > 0
+  const newRound = !!L.stopped && (changes.added.length + changes.stale.length + changes.gone.length) > 0
   const touched = new Set([...changes.added, ...changes.stale])
-  for (;;) {
-    openCycle(L)
-    skipStuckPlan(L)
-    if (newRound) {
+  const d = advance(L, dir, {
+    missing,
+    first: () => {
+      if (!newRound) return
       L.round_start = L.cycle
       for (const [id, a] of Object.entries(L.assets)) if (!touched.has(id)) delete a.prior
       reopenLostFullReview(L)
-      newRound = false
-    }
-    syncFullReview(L)
-    const d = decide(L, { missingTargets: missing })
-    if (d.stop) {
-      L.stopped = { ...d, cycle: L.cycle }
-      // run の記録: 止まるたびに 1 件（同じ呼び出しの数のまま同じ停止を返し直すときは足さない）。
-      L.run_records = L.run_records || []
-      const last = L.run_records.at(-1)
-      if (!last || last.call_seq !== L.call_seq || last.stop !== d.stop) L.run_records.push({ call_seq: L.call_seq, stop: d.stop, ...runMetrics(L) })
-      save(dir, L)
-      // どの停止でも、status と同じ中身を stateDir/status-<段>.json に書く（呼ぶ側は status の出力を写さず、このファイルを path で読む）。
-      writeAtomic(statusPath(dir, L), JSON.stringify(statusOf(L)))
-      return { ...d, changes, coverage: coverage(L), status_path: statusPath(dir, L), next_args: d.stop === 'complete' ? null : { state: dir } }
-    }
-    // 振り返り: coverage-build から渡された台帳（照合済みの印）は振り返りを作らず、済みの印だけを付ける（agent を起動しない）。
-    // 単独のときは、周ごとに 1 回だけ、まだ振り返っていない出来事の写しを単位にし（対象の単位に数えない）、読む単位が無くなったら済みの印を付ける。
-    if (d.step === 'retro') {
-      if (L.goal.checked_by !== 'coverage-build' && L.retro_made !== L.cycle) {
-        L.retro_made = L.cycle
-        const ras = retroAssets(L)
-        for (const a of ras) sizes.set(a.id, Buffer.byteLength(a.text, 'utf8'))
-        refresh(L, ras.map((a) => ({ ...a, snap: writeSnap(dir, a.text) })), { partial: true })
-      }
-      d.units = L.goal.checked_by === 'coverage-build' ? [] : retroTodo(L)
-      if (!d.units.length) { L.retro_cycles.push(L.cycle); continue }
-    }
-    // 全文レビューにはヒントを渡さない（目標と読む範囲だけ）。ヒントは後の段の呼び出しが読む。
-    const unread = d.step === FULL_REVIEW ? [] : hints(dir).filter((h) => !L.hints_read.includes(h.id))
-    const { rows, tasks, kinds, bundles } = stageTasks(L, d, bytesOf)
-    L.call_seq += 1
-    const callId = sha(`${dir}|${L.call_seq}|${d.step}|${L.cycle}|${L.rev}`).slice(0, 12)
-    const workers = rows.map((r) => ({ id: r.id, role: r.role, model: L.roles[r.role].model, effort: L.roles[r.role].effort }))
-    const args = { state: dir, callId, stage: d.step, workers }
-    const argsPath = path.join(dir, `call-${callId}.json`)
-    writeAtomic(argsPath, JSON.stringify(args))
-    // 止まっている間だけ status のファイルがある形にする（呼ぶ側が前の停止の status を取り込まない）。
-    rmSync(statusPath(dir, L), { force: true })
-    L.pending = { call_id: callId, step: d.step, args_path: argsPath, workers, tasks, ...(kinds ? { kinds, intent_claims: {} } : {}), ...(bundles ? { bundles } : {}), hints: unread.map((h) => h.id), cycle: L.cycle, events_at: L.events.length, claims: 0, submits: 0, accepted: 0 }
+    },
+  })
+  if (d.stop) {
+    L.stopped = { ...d, cycle: L.cycle }
+    // run の記録: 止まるたびに 1 件（同じ呼び出しの数のまま同じ停止を返し直すときは足さない）。
+    L.run_records = L.run_records || []
+    const last = L.run_records.at(-1)
+    if (!last || last.call_seq !== L.call_seq || last.stop !== d.stop) L.run_records.push({ call_seq: L.call_seq, stop: d.stop, ...runMetrics(L) })
     save(dir, L)
-    return { step: d.step, call_id: callId, workflow: WORKFLOW, args_path: argsPath, estimate_agents: workers.length, limits: C.LIMITS, cycle: L.cycle, coverage: coverage(L), changes }
+    // どの停止でも、status と同じ中身を stateDir/status-<段>.json に書く（呼ぶ側は status の出力を写さず、このファイルを path で読む）。
+    writeAtomic(statusPath(dir, L), JSON.stringify(statusOf(L)))
+    return { ...d, changes, coverage: coverage(L), status_path: statusPath(dir, L), next_args: d.stop === 'complete' ? null : { state: dir } }
   }
+  L.call_seq += 1
+  const callId = sha(`${dir}|${L.call_seq}|${d.step}|${L.cycle}|${L.rev}`).slice(0, 12)
+  const argsPath = path.join(dir, `call-${callId}.json`)
+  // 呼び出しの記録: 開いた時刻（時間の区切り）・出した行の和（行の数の区切り）・起動した波・行の id の連番。今の波の欄は launchWave が置く。
+  const P = { call_id: callId, args_path: argsPath, opened_at: nowMs(), cycle: L.cycle, events_at: L.events.length, hints: [], rows_total: 0, row_seq: 0, launched: [], waves_closed: 0, prev_submits: 0, next: null }
+  L.pending = P
+  addHints(L, dir, P, d.step)
+  launchWave(P, { ...makeWave(L, P, d, Math.min(C.LIMITS.maxAgents, budgetLeft(L))), wave_id: ++L.wave_seq })
+  const args = { state: dir, callId, wave: { id: P.wave_id, rows: P.workers } }
+  writeAtomic(argsPath, JSON.stringify(args))
+  // 止まっている間だけ status のファイルがある形にする（呼ぶ側が前の停止の status を取り込まない）。
+  rmSync(statusPath(dir, L), { force: true })
+  save(dir, L)
+  return { step: d.step, call_id: callId, workflow: WORKFLOW, args_path: argsPath, estimate_agents: P.workers.length, limits: C.LIMITS, cycle: L.cycle, coverage: coverage(L), changes }
 }
 
 const bump = (L, k, env) => {
@@ -639,9 +712,10 @@ const clear = (L, k) => { delete L.attempts[k] }
 const stageOf = (a) => (a && a.retro ? 'retro' : 'file')
 // 単位を読む段（ファイルの段と振り返り）。claim は詰め合わせの単位を返し、query を拒む。
 const READ_STEPS = ['file', 'retro']
-// 開いた呼び出しを閉じる。取ったまま提出されなかった単位は試行に数えて取りを外し、上限で理由つきの disclosed にする。
-// 提出されなかった計画の段の担当は、その鍵の試行に数える（env なら環境の失敗にも数え、blocked（failure）からの再開で戻す）。
-function closeCall(L, { env = false, lost = false } = {}) {
+// 今の波の会計を締める（波の境目: 次の波の最初の claim と、呼び出しを閉じる ingest）。取ったまま提出されなかった単位は試行に数えて取りを外し、
+// 上限で理由つきの disclosed にする。提出されなかった計画の段の担当は、その鍵の試行に数える（env なら環境の失敗にも数え、blocked（failure）からの再開で戻す）。
+// 段が変わって使わなくした波（stale）の担当は、staleWave が手放し済みなので数えない。
+function closeWave(L, { env = false, lost = false } = {}) {
   const P = L.pending
   if (!P) return
   for (const [id, a] of Object.entries(L.assets)) {
@@ -657,7 +731,7 @@ function closeCall(L, { env = false, lost = false } = {}) {
     }
   }
   for (const t of P.tasks || []) {
-    if (t.done) continue
+    if (t.done || t.void) continue
     // 全文レビュー: 試行は全文レビューの記録で数える（計画の段の stuck にしない）。返らなかったか試行の上限なら、読まなかったとして開示して先へ進む。
     if (t.kind === FULL_REVIEW) {
       const fr = L.full_review
@@ -675,7 +749,7 @@ function closeCall(L, { env = false, lost = false } = {}) {
   // - 1 件も出さなかった役が 2 件以上の束を持っていたら、試行に数えずに手放し、その役の種類の次の束の上限をその束の量の半分にする
   //   （1 回だけの submit では時間切れがほぼ 0 件の提出で起きるので、同じ束を繰り返して全てを判定できなかった意図にしない）。
   // - 1 件の束で 0 件のまま閉じたときだけ試行に数え、上限で判定できなかった意図として閉じる。
-  // その種類で 1 件以上の提出があった呼び出しの後は、束の上限を UNIT_MAX_BYTES に戻す。
+  // その種類で 1 件以上の提出があった呼び出しの後は、束の上限を線（lineOf）に戻す。
   if (P.step === 'global') {
     const B = board(L)
     const sent = (wid) => ((P.worker_submits || {})[wid] || 0) > 0
@@ -698,16 +772,89 @@ function closeCall(L, { env = false, lost = false } = {}) {
       bumpIntent(L, it, '取ったまま提出されなかった')
     }
   }
+}
+// 呼び出しを閉じる（ingest）。今の波の会計を締め、記録したまま起動されなかった次の波は捨てる（会計に数えない。次の next が作り直す）。
+function closeCall(L, opts = {}) {
+  closeWave(L, opts)
   L.pending = null
 }
+// 記録した次の波の最初の claim: 今の波の会計を締めてから、次の波を今の波にする。境目まで来た波は、役が担当を尽くして次の波の印を受け取ったので、
+// 進みのあった波として扱う（環境の失敗に数えない）。
+// 次の波が振り返りで、締めた会計が出来事を足したなら、振り返りの単位を作り直す（その周の出来事を全て振り返りに入れる。単位は記録の時点で作ったため）。
+// 詰め合わせが行より増えた分は、次の波が読む。
+function promote(L, dir) {
+  const P = L.pending
+  const at = L.events.length
+  closeWave(L)
+  P.waves_closed += 1
+  P.prev_submits += P.submits || 0
+  if (P.next.step === 'retro' && L.events.length > at && L.goal.checked_by !== 'coverage-build') {
+    for (const [id, a] of Object.entries(L.assets)) if (a.retro && a.state === 'unseen' && !a.claim) delete L.assets[id]
+    for (const e of L.events) if (e.retro === L.cycle) delete e.retro
+    L.retro_made = null
+    const d = advance(L, dir)
+    const packs = d.step === 'retro' ? packUnitsTo(d.units, (id) => unitBytes(L, id), lineOf(L)) : []
+    P.next.bundles = Object.fromEntries(P.next.workers.map((w, i) => [w.id, packs[i] || []]))
+  }
+  launchWave(P, P.next)
+  P.next = null
+}
+// 段が変わった（記録した波の段が、その時の decide の段と合わない）波を使わなくする。まだ取られていない担当と取りを、試行に数えずに手放す
+// （順序の門。前の段の担当を、段が変わった後に渡さない）。
+function staleWave(L) {
+  const P = L.pending
+  if (P.stale) return
+  P.stale = true
+  for (const a of Object.values(L.assets)) if (a.claim && a.claim.call === P.call_id) a.claim = null
+  for (const t of P.tasks || []) if (!t.done) { t.done = true; t.void = true }
+  for (const c of Object.values(P.intent_claims || {})) c.done = true
+  P.file_taken = Object.fromEntries(P.workers.map((w) => [w.id, true]))
+}
+// 単位を取れるか（読みの無い、取られていない、試行が上限に届いていない対象の単位）。
+const claimable = (a) => !!a && !a.claim && a.state === 'unseen' && a.attempts < MAX_ATTEMPTS
+// 今の波に、まだ done を受け取っていない行が取れる担当が残っているか（残っていれば、その行が取るので次の波を決めない）。
+function pendingWork(L, P) {
+  if (P.stale) return false
+  const live = P.workers.filter((w) => !P.done_rows.includes(w.id))
+  if (!live.length) return false
+  if (READ_STEPS.includes(P.step)) return live.some((w) => !(P.file_taken || {})[w.id] && ((P.bundles || {})[w.id] || []).some((k) => claimable(L.assets[k])))
+  if (P.step === 'global') {
+    const open = board(L).intents.filter((i) => i.state === 'open' && !P.intent_claims[i.id])
+    return live.some((w) => open.some((i) => (P.kinds[w.id] || []).includes(i.kind)))
+  }
+  return live.some((w) => (P.tasks || []).some((t) => t.worker === w.id && !t.done && !t.claimed))
+}
+// 次の波を決めて記録する（波の担当が尽きたときの claim の done に載せる）。止まる条件・時間・行の数の区切りでは halt を返す（新しい波を起動させない）。
+// 行の数は maxAgents − この呼び出しで出した行と、残りの予算に収める。同じ中身の波を既に記録していれば、それを返す（中身が変われば新しい id で記録し直す）。
+function nextWaveOf(L, dir, P, d) {
+  const halt = (reason) => ({ halt: true, reason })
+  if (d.stop) return halt(`台帳が止まる条件に当たった（${d.stop}: ${(d.reasons || []).join(' / ')}）。新しい波は起動しない。呼ぶ側は ingest の後の next で結果を受け取る`)
+  const elapsed = nowMs() - P.opened_at
+  if (elapsed > CALL_BUDGET_MS) return halt(`呼び出しを開いてからの経過 ${elapsed}ms が、時間の区切り timeoutMs − agentTimeoutMs（${CALL_BUDGET_MS}ms）を超えた。新しい波は起動しない。続きは次の呼び出しが進める`)
+  const remain = budgetRemain(L)
+  const cap = Math.min(C.LIMITS.maxAgents - P.rows_total, remain)
+  if (cap <= 0) return halt(remain <= 0 ? `今の段の起動数が上限 ${L.config.max_agents_total} に達した。新しい波は起動しない。next が止まる理由を返す` : `この呼び出しで出した行の和 ${P.rows_total} が上限 maxAgents ${C.LIMITS.maxAgents} に達した。新しい波は起動しない。続きは次の呼び出しが進める`)
+  const W = makeWave(L, P, d, cap)
+  if (!P.next || P.next.sig !== W.sig) { addHints(L, dir, P, d.step); P.next = { ...W, wave_id: ++L.wave_seq } }
+  return { next_wave: { id: P.next.wave_id, rows: P.next.workers } }
+}
 
+// 起動の記録を台帳に取り込む（段と波の印つき）。model・effort・段が台帳の波の記録と違う起動と、記録に無い波の起動は、欠けとして出来事に残す
+// （その起動の提出は、claim が台帳の行と照らして既に拒んでいる）。
 function recordCall(L, P, res, failed) {
   const ag = Array.isArray(res.agents) ? res.agents : []
-  for (const a of ag) L.agents.push({ call_id: P.call_id, cycle: L.cycle, stage: P.step, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
+  for (const a of ag) {
+    L.agents.push({ call_id: P.call_id, cycle: L.cycle, stage: a.stage ?? P.step, wave: a.wave ?? null, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
+    if (a.wave == null) continue
+    const W = P.launched.find((x) => String(x.id) === String(a.wave))
+    const row = W && (W.workers.find((w) => `${w.role}-${w.id}` === a.label) || W.workers.find((w) => w.role === a.role))
+    if (!row) addEvent(L, a.stage || P.step, 'launch_mismatch', `${a.label}（${a.model}/${a.effort}）: 起動の記録の波 ${a.wave} の行が、台帳の起動した波の記録に無い`, a.label)
+    else if (row.model !== a.model || row.effort !== a.effort || (a.stage != null && row.stage !== a.stage)) addEvent(L, row.stage, 'launch_mismatch', `${a.label}: 起動の記録（${a.stage}/${a.model}/${a.effort}）が台帳の波 ${a.wave} の行（${row.stage}/${row.model}/${row.effort}）と違う`, a.label)
+  }
   const tokens = typeof res.tokens === 'number' && Number.isFinite(res.tokens) ? res.tokens : null
-  L.calls.push({ call_id: P.call_id, cycle: L.cycle, step: P.step, agents: ag.length, failed: ag.filter((a) => !a.ok).length, submits: P.submits, tokens, tokens_note: tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'この呼び出しの budget.spent() の差' })
+  L.calls.push({ call_id: P.call_id, cycle: L.cycle, step: P.launched[0].step, stages: P.launched.map((x) => x.step), waves: P.launched.length, agents: ag.length, failed: ag.filter((a) => !a.ok).length, submits: P.prev_submits + (P.submits || 0), tokens, tokens_note: tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'この呼び出しの budget.spent() の差' })
   L.fail_streak = failed ? L.fail_streak + 1 : 0
-  for (const a of ag) if (!a.ok) addEvent(L, P.step, 'agent_missing', `${a.label}（${a.model}/${a.effort}）が返らなかったか不正な出力だった`, a.label)
+  for (const a of ag) if (!a.ok) addEvent(L, a.stage || P.step, 'agent_missing', `${a.label}（${a.model}/${a.effort}）が返らなかったか不正な出力だった`, a.label)
 }
 
 // native Workflow の tasks の .output（返り値を result に包んだ形）も、そのまま受け付ける。包みの判定は coverage-build の build-cli.mjs と同じ。
@@ -740,14 +887,20 @@ function ingest(dir, o) {
   const res = unwrap(JSON.parse(read(need(o, 'result'))))
   const r = res && typeof res === 'object' ? res : {}
   const ag = Array.isArray(r.agents) ? r.agents : []
+  // 記録した次の波が起動されたのに、どの行も claim しなかった（起動の記録にその波がある）なら、その波を今の波にしてから締める
+  // （起動されたのに claim しない行は試行に数える。起動の記録の無い波は、起動されなかったので数えない）。
+  if (P.next && ag.some((a) => a.wave != null && String(a.wave) === String(P.next.wave_id))) promote(L, dir)
+  // 今の波（最後に起動した波）の起動の記録。波の印の無い記録は今の波のものとして読む。
+  const cur = ag.filter((a) => a.wave == null || String(a.wave) === String(P.wave_id))
   // 環境の失敗に数えるのは、進みが無かった呼び出しだけ（設計「モデルと費用」の起動の原則: 1 体の時間の上限に当たった残りは次の呼び出しが取る）。
+  // 波ごとに数を戻すので、今の波で判じる（境目まで来た前の波には進みがあり、最後の波が進まなければ数える）:
   // - 全体の段: claim も受理も 0（worker が起動されなかった）。読む段（ファイルの段・振り返り）: submit が 0。計画の段: 全ての役が欠け、受理が 0。
-  // 進みのあった呼び出しで返らなかった役は、取ったまま出していない担当の試行に数えるだけにする（closeCall）。
-  const allFailed = noProgress(P, ag)
+  // 進みのあった呼び出しで返らなかった役は、取ったまま出していない担当の試行に数えるだけにする（closeWave）。
+  const allFailed = noProgress(P, cur)
   recordCall(L, P, r, allFailed)
   L.hints_read.push(...P.hints)
   const rejected = L.events.slice(P.events_at).filter((e) => e.kind.startsWith('rejected_')).map((e) => e.text)
-  closeCall(L, { env: allFailed, lost: ag.some((a) => !a.ok) })
+  closeCall(L, { env: allFailed, lost: cur.some((a) => !a.ok) })
   save(dir, L)
   return { ok: true, cycle: L.cycle, coverage: coverage(L), ...(rejected.length ? { rejected } : {}), next: 'next を流す' }
 }
@@ -782,65 +935,97 @@ function fileTask(L, dir, call, w, id) {
 }
 const boundTask = (dir, call, t) => ({ id: t.id, kind: t.kind, result_path: resultPath(dir, call, t.worker, t.id), ...(t.lenses ? { lenses: t.lenses } : {}) })
 
-// claim: ファイルの段と振り返りは、行に結んだ詰め合わせの単位を全て取る（出し終えていない単位を持っていれば、それだけを同じ形で返す）。
-// 全体の段は、自分の種類の開いた意図を束で取る（量は query が返す入力のバイト数の和で UNIT_MAX_BYTES まで）。計画の段は、行に結んだ担当を返す。
-// 取る物が無ければ done。返す前に結果の path の古いファイルを消す。
+// claim: 波の行の担当を返す。--wave・--model・--effort・--stage は Workflow script が行の値を埋めた命令で、台帳の波の記録と照らす
+// （違えば終了状態 2 で拒み、台帳を変えない。役が返り値の印を書き換えても、空の起動か早い停止になるだけ）。
+// - 記録した次の波の最初の claim は波の境目: 今の波の会計を締めてから、次の波を今の波にする。前の波の行の claim は done だけを返す。
+// - 順序の門: 波の段が、その時の decide の段と合わなければ、担当を渡さない（その波の取られていない担当を手放す）。
+// - ファイルの段と振り返りは、行に結んだ詰め合わせの単位を全て取る（出し終えていない単位を持っていれば、それだけを同じ形で返す）。
+//   全体の段は、自分の種類の開いた意図を束で取る（量は query が返す入力のバイト数の和で線まで）。計画の段は、行に結んだ担当を返す。
+// 取る物が無ければ done。波のどの行にも取られていない担当が無くなった時点の done には、次の波（next_wave）か止まる印（halt と reason）を載せる。
+// 返す前に結果の path の古いファイルを消す。
 function cmdClaim(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => {
     const L = load(dir)
-    const w = pendingWorker(L, o)
+    const call = need(o, 'call')
+    const worker = need(o, 'worker')
+    const wave = need(o, 'wave')
+    const got = { model: need(o, 'model'), effort: need(o, 'effort'), stage: need(o, 'stage') }
     const P = L.pending
-    const call = P.call_id
+    if (!P) throw new Fail(`開いた呼び出しが無い（呼び出し ${call} は閉じた。worker を終える）`)
+    if (call !== P.call_id) throw new Fail(`呼び出しが違う: 今は ${P.call_id}、受け取ったのは ${call}（前の呼び出しは閉じた。worker を終える）`)
+    const at = String(P.wave_id) === wave ? 'current' : P.next && String(P.next.wave_id) === wave ? 'next' : P.launched.some((x) => String(x.id) === wave) ? 'old' : null
+    if (!at) throw new Fail(`台帳に記録の無い波: ${wave}（この呼び出しの波は ${[...P.launched.map((x) => x.id), ...(P.next ? [P.next.wave_id] : [])].join('・')}。返り値の次の波の印は書き換えずに返す）`)
+    const rows = at === 'current' ? P.workers : at === 'next' ? P.next.workers : P.launched.find((x) => String(x.id) === wave).workers
+    const w = rows.find((x) => x.id === worker)
+    if (!w) throw new Fail(`波 ${wave} の行に無い worker: ${worker}`)
+    const bad = Object.keys(got).filter((k) => got[k] !== w[k])
+    if (bad.length) throw new Fail(`claim の行の値が台帳の波 ${wave} の記録と違う: ${bad.map((k) => `--${k} ${got[k]}（記録は ${w[k]}）`).join('・')}`)
+    // 前の波の行: その波は締めたので、担当を渡さない。
+    if (at === 'old') return { ok: true, done: true }
+    if (at === 'next') promote(L, dir)
     P.claims += 1
-    let tasks = null
-    if (READ_STEPS.includes(P.step)) {
-      // 1 worker は 1 つの呼び出しで、行に結んだ詰め合わせの単位だけを読む。最初の claim で詰め合わせの単位を全て取り、
-      // 出し終えていない単位があればそれだけを返し、全て出し終えた（受理か開示）後の claim は done を返す（同じ文脈で詰め合わせの外の単位を読ませない）。
-      P.file_taken = P.file_taken || {}
-      if (!P.file_taken[w.id]) {
-        P.file_taken[w.id] = true
-        for (const k of (P.bundles && P.bundles[w.id]) || []) { const a = L.assets[k]; if (a && !a.claim && a.state === 'unseen' && a.attempts < MAX_ATTEMPTS) a.claim = { call, worker: w.id } }
+    const tasks = takeTasks(L, dir, w, advance(L, dir))
+    if (tasks) {
+      save(dir, L)
+      for (const task of tasks) {
+        mkdirSync(path.dirname(task.result_path), { recursive: true })
+        rmSync(task.result_path, { force: true })
       }
-      const ids = Object.keys(L.assets).filter((k) => L.assets[k].claim && L.assets[k].claim.call === call && L.assets[k].claim.worker === w.id)
-      if (ids.length) tasks = ids.map((id) => fileTask(L, dir, call, w, id))
-    } else if (P.step === 'global') {
-      // 出し終えていない意図を持っていればそれだけを返す（新しい意図を混ぜない）。無ければ自分の種類の開いた意図を、意図の並びの順で前から、
-      // query が返す入力の量の和が UNIT_MAX_BYTES に収まる所まで束で取る（next-fit。1 件だけで超える意図は単独の束。設計の決定 16）。
-      const B = board(L)
-      const ids = []
-      for (const k of Object.keys(P.intent_claims).filter((x) => P.intent_claims[x].worker === w.id && !P.intent_claims[x].done)) {
-        const it = B.byId.get(k)
-        if (!it || it.state !== 'open') P.intent_claims[k].done = true
-        else ids.push(k)
-      }
-      if (!ids.length) {
-        // 上限は、前の呼び出しで束を取って 0 件のまま閉じた役の種類なら、その束の量の半分（closeCall が台帳に置く）。無ければ UNIT_MAX_BYTES。
-        const cap = (L.bundle_caps || {})[w.role] ?? UNIT_MAX_BYTES
-        const pairs = sameLocationPairs(B.facts.values())
-        let bytes = 0
-        for (const it of B.intents.filter((i) => i.state === 'open' && (P.kinds[w.id] || []).includes(i.kind) && !P.intent_claims[i.id])) {
-          const n = entryBytes(intentEntry(L, B, it, intentTaskId(it.id, call), pairs))
-          if (ids.length && bytes + n > cap) break
-          ids.push(it.id)
-          bytes += n
-          // 意図ごとの量を取りの記録に置く（0 件のまま閉じた束の量を closeCall が足し直す）。
-          P.intent_claims[it.id] = { worker: w.id, done: false, bytes: n }
-        }
-      }
-      if (ids.length) tasks = ids.map((id) => intentTask(L, dir, call, w, B.byId.get(id)))
-    } else {
-      const t = P.tasks.find((x) => x.worker === w.id && !x.done)
-      if (t) { t.claimed = true; tasks = [boundTask(dir, call, t)] }
+      return { ok: true, tasks, submit_cmd: submitCmd(dir, P.call_id, w) }
     }
+    if (!P.done_rows.includes(w.id)) P.done_rows.push(w.id)
+    const out = pendingWork(L, P) ? {} : nextWaveOf(L, dir, P, advance(L, dir))
     save(dir, L)
-    if (!tasks) return { ok: true, done: true }
-    for (const task of tasks) {
-      mkdirSync(path.dirname(task.result_path), { recursive: true })
-      rmSync(task.result_path, { force: true })
-    }
-    return { ok: true, tasks, submit_cmd: submitCmd(dir, call, w) }
+    return { ok: true, done: true, ...out }
   })
+}
+// 今の波の行 w に渡す担当（無ければ null）。d はその時の decide（順序の門に使う）。
+function takeTasks(L, dir, w, d) {
+  const P = L.pending
+  const call = P.call_id
+  if (d.stop || d.step !== P.step) { staleWave(L); return null }
+  if (READ_STEPS.includes(P.step)) {
+    // 1 worker は 1 つの波で、行に結んだ詰め合わせの単位だけを読む。最初の claim で詰め合わせの単位を全て取り、
+    // 出し終えていない単位があればそれだけを返し、全て出し終えた（受理か開示）後の claim は done を返す（同じ文脈で詰め合わせの外の単位を読ませない）。
+    P.file_taken = P.file_taken || {}
+    if (!P.file_taken[w.id]) {
+      P.file_taken[w.id] = true
+      for (const k of (P.bundles && P.bundles[w.id]) || []) { const a = L.assets[k]; if (claimable(a)) a.claim = { call, worker: w.id } }
+    }
+    const ids = Object.keys(L.assets).filter((k) => L.assets[k].claim && L.assets[k].claim.call === call && L.assets[k].claim.worker === w.id)
+    return ids.length ? ids.map((id) => fileTask(L, dir, call, w, id)) : null
+  }
+  if (P.step === 'global') {
+    // 出し終えていない意図を持っていればそれだけを返す（新しい意図を混ぜない）。無ければ自分の種類の開いた意図を、意図の並びの順で前から、
+    // query が返す入力の量の和が線に収まる所まで束で取る（next-fit。1 件だけで超える意図は単独の束。設計の決定 16）。
+    const B = board(L)
+    const ids = []
+    for (const k of Object.keys(P.intent_claims).filter((x) => P.intent_claims[x].worker === w.id && !P.intent_claims[x].done)) {
+      const it = B.byId.get(k)
+      if (!it || it.state !== 'open') P.intent_claims[k].done = true
+      else ids.push(k)
+    }
+    if (!ids.length) {
+      // 上限は、前の呼び出しで束を取って 0 件のまま閉じた役の種類なら、その束の量の半分（closeWave が台帳に置く）。無ければ線（lineOf）。
+      const cap = (L.bundle_caps || {})[w.role] ?? lineOf(L)
+      const pairs = sameLocationPairs(B.facts.values())
+      let bytes = 0
+      for (const it of B.intents.filter((i) => i.state === 'open' && (P.kinds[w.id] || []).includes(i.kind) && !P.intent_claims[i.id])) {
+        const n = entryBytes(intentEntry(L, B, it, intentTaskId(it.id, call), pairs))
+        if (ids.length && bytes + n > cap) break
+        ids.push(it.id)
+        bytes += n
+        // 意図ごとの量を取りの記録に置く（0 件のまま閉じた束の量を closeWave が足し直す）。
+        P.intent_claims[it.id] = { worker: w.id, done: false, bytes: n }
+      }
+    }
+    return ids.length ? ids.map((id) => intentTask(L, dir, call, w, B.byId.get(id))) : null
+  }
+  const t = P.tasks.find((x) => x.worker === w.id && !x.done)
+  if (!t) return null
+  t.claimed = true
+  return [boundTask(dir, call, t)]
 }
 
 // query: 担当が読む入力を台帳から引く（B1）。ファイルの段と振り返りの担当は拒む（他の役の書き込みを読まず、独立に読む）。
@@ -887,10 +1072,12 @@ function cmdQuery(o) {
 const item = (c) => ({ id: c.id, text: c.text })
 // 全体の段の外の担当は、--task を 1 つだけ受ける。
 const oneTask = (tids) => { if (tids.length !== 1) throw new Fail(`この段の担当は --task を 1 つだけ受ける: ${tids.length} 個`); return tids[0] }
-// 全文レビューの入力: 目標（冒頭の文・項目・基準・制約）と、読む範囲の単位（id・path・写しの file と範囲）。観点・索引・ヒント・事実は載せない。
+// 全文レビューの入力: 目標（冒頭の文・項目・基準・制約）と、読む範囲の単位（id・path・写しの file と範囲）。参照（--context）の単位は context: true で足す
+// （読む範囲に数えないが、引用の根拠にできる）。観点・索引・ヒント・事実は載せない。
 const fullReviewInputs = (L) => ({
   goal: L.goal.text, items: L.goal.items.map(item), criteria: L.criteria.map(item), constraints: L.constraints.map(item),
-  units: L.full_review.range.map((id) => { const a = L.assets[id]; return { id, path: a.path, file: a.snap, start: a.start, end: a.end } }),
+  units: [...L.full_review.range.map((id) => { const a = L.assets[id]; return { id, path: a.path, file: a.snap, start: a.start, end: a.end } }),
+    ...contextUnits(L).map((id) => { const a = L.assets[id]; return { id, path: a.path, file: a.snap, start: a.start, end: a.end, context: true } })],
 })
 // 索引: 1 行 1 単位（id・写し・範囲・見出しの経路・種類・先頭の数語）。計画役と観点の検証役が手続きの当たる所を見る。
 const INDEX_HEAD_WORDS = 8
@@ -899,7 +1086,7 @@ function indexRows(L, ids = null) {
   const texts = new Map()
   const textOf = (f) => { if (!texts.has(f)) texts.set(f, read(f)); return texts.get(f) }
   const head = (a) => Array.from(C.norm(rangeText(textOf(a.snap), a.start, a.end)).split(' ').slice(0, INDEX_HEAD_WORDS).join(' ')).slice(0, INDEX_HEAD_CHARS).join('').trim()
-  return Object.entries(L.assets).filter(([id, a]) => !a.retro && (!ids || ids.includes(id))).map(([id, a]) => ({ id, file: a.snap, start: a.start, end: a.end, trail: (a.trail || []).join(' > '), kind: a.kind, head: head(a) }))
+  return Object.entries(L.assets).filter(([id, a]) => isTarget(a) && (!ids || ids.includes(id))).map(([id, a]) => ({ id, file: a.snap, start: a.start, end: a.end, trail: (a.trail || []).join(' > '), kind: a.kind, head: head(a) }))
 }
 function inputsOf(L, dir, t) {
   const base = { goal: L.goal.text, items: L.goal.items.map(item), criteria: L.criteria.map(item), constraints: L.constraints.map(item), hints: hintsOf(dir, L.pending.hints) }
@@ -957,7 +1144,7 @@ function cmdSubmit(o) {
     if (results.length) {
       P.submits += results.length
       P.accepted = (P.accepted || 0) + results.filter((x) => x.ok).length
-      // 役ごとの提出の数（受理か拒否かを問わない）。取ったまま出さなかった意図の数え方に使う（closeCall）。
+      // 役ごとの提出の数（受理か拒否かを問わない）。取ったまま出さなかった意図の数え方に使う（closeWave）。
       P.worker_submits = { ...(P.worker_submits || {}), [w.id]: ((P.worker_submits || {})[w.id] || 0) + results.length }
       save(dir, L)
     }
@@ -1031,7 +1218,7 @@ function fullReviewProblems(L, rep, range) {
 // 落ちた提出は試行に数えて出し直させ、上限に達したら読まなかったとして開示する。
 function submitFullReview(L, t, w, rep) {
   const fr = L.full_review
-  const p = fullReviewProblems(L, rep, fr.range)
+  const p = fullReviewProblems(L, rep, [...fr.range, ...contextUnits(L)])
   if (p.length) {
     fr.attempts += 1
     addEvent(L, FULL_REVIEW, 'rejected_full_review', `${t.id}: ${p.join(' / ')}`, t.id)
@@ -1074,7 +1261,7 @@ function submitBound(L, t, rep) {
       const g = C.checkGoalMap(rep, goalIds(L), goalSources(L))
       if (g.length) return reject('rejected_plan', g.map((x) => `目標の照合: ${x}`))
     }
-    const p = planProblems(rep, { ...ctx, ...(t.again ? { defectCount: t.defectCount } : {}) })
+    const p = planProblems(rep, { ...ctx, ...(t.again ? { defectCount: t.defectCount, defectKinds: t.defectKinds } : {}) })
     if (p.length && t.tries < MAX_ATTEMPTS) { addEvent(L, 'plan', 'rejected_plan', `${t.id}: ${p.join(' / ')}`, t.id); return { problems: p, dropped: false } }
     clear(L, t.akey)
     t.done = true
@@ -1085,6 +1272,12 @@ function submitBound(L, t, rep) {
       if (!L.goal.checked) { addEvent(L, 'plan', 'goal_gaps', `目標の照合で、受け止める項目の無い成果が ${L.goal.problems.length} 件ある。この回の計画は使わない`); return { problems: [], dropped: false } }
     }
     if (L.plan) L.plan_rounds += 1
+    // no_target を付けた Q3 の欠陥（部分を受け持てる単位が対象に無い）は、計画をやり直さずに呼ぶ側へ返す（decide が needs_input の target_gaps にする）。
+    L.target_gaps = t.again ? (Array.isArray(rep.defect_responses) ? rep.defect_responses : []).filter((x) => x && x.action === 'no_target').map((x) => {
+      const d = L.plan_defects[x.defect_index]
+      return d ? { id: d.id, goal_id: d.goal_id ?? null, lens: d.unit_id || null, reason: x.reason, quote: d.quote } : null
+    }).filter(Boolean) : []
+    for (const g of L.target_gaps) addEvent(L, 'plan', 'target_gap', `${g.id}（${g.lens} の ${g.goal_id}）: 部分を受け持てる単位が対象に無い（${g.reason}）`, g.id)
     L.plan_defects = []
     L.plan = { lenses: rep.lenses, questions: rep.questions, constraint_map: rep.constraint_map }
     // 受理した計画の観点は観点の検証を通す（前に提案なしで進めた印を外す。目標の照合をやり直して計画が入ったとき、検証を飛ばさない）。
@@ -1154,7 +1347,7 @@ const publicFact = (L, f) => {
 // 単位の一覧（振り返りの単位を除く）。disclosed は見られなかった理由（reason）を持つ。
 // carried は持ち越した読み（今の回より前の周に受理した読み）の印。
 function unitsOf(L) {
-  return Object.entries(L.assets).filter(([, a]) => !a.retro).map(([id, a]) => ({ id, path: a.path, file: a.snap, start: a.start, end: a.end, hash: a.hash, state: a.state, ...(a.state === 'disclosed' ? { reason: a.reason } : {}), ...(carriedRead(L, a) ? { carried: true } : {}) }))
+  return Object.entries(L.assets).filter(([, a]) => isTarget(a)).map(([id, a]) => ({ id, path: a.path, file: a.snap, start: a.start, end: a.end, hash: a.hash, state: a.state, ...(a.state === 'disclosed' ? { reason: a.reason } : {}), ...(carriedRead(L, a) ? { carried: true } : {}) }))
 }
 // 止まったときに書く status のファイル。段が無い台帳（呼ぶ側が段を渡さない）は status.json。
 export const statusPath = (dir, L) => path.join(dir, L.phase ? `status-${L.phase}.json` : 'status.json')
@@ -1171,10 +1364,12 @@ function statusOf(L) {
   return {
     // 上の階層の findings・groups・events は今の段のもの。phases は段ごとの節（出ていった段は phase_records の写し）。
     phase: L.phase, phases: { ...L.phase_records, ...(L.phase ? { [L.phase]: sec } : {}) },
-    cycle: L.cycle, stopped: L.stopped || null, pending: L.pending ? { call_id: L.pending.call_id, step: L.pending.step } : null, coverage: coverage(L), units: unitsOf(L),
+    cycle: L.cycle, stopped: L.stopped || null, pending: L.pending ? { call_id: L.pending.call_id, step: L.pending.step, wave: L.pending.wave_id } : null, coverage: coverage(L), units: unitsOf(L),
+    // 参照（--context）の単位。網羅・skip・全文レビューの範囲に数えない。
+    context: contextUnits(L).map((id) => { const a = L.assets[id]; return { id, path: a.path, file: a.snap, start: a.start, end: a.end } }),
     // 全文レビューの読んだ単位と読まなかった単位（網羅と別の一覧。skip・coverage に数えない）。
     full_review: fullReviewStatus(L),
-    skip: Object.entries(L.assets).filter(([, a]) => a.state === 'disclosed').map(([id, a]) => ({ unit: id, reason: a.reason })),
+    skip: Object.entries(L.assets).filter(([, a]) => isTarget(a) && a.state === 'disclosed').map(([id, a]) => ({ unit: id, reason: a.reason })),
     // 今の根拠の事実（ファイルの段の指摘の候補・保証・前提・参考）。指摘の候補は全体の段の判定を通るまで findings に入らない。
     facts: facts.map((f) => publicFact(L, f)), references: [...facts.filter((f) => f.type === 'reference').map((f) => ({ id: f.id, unit: f.unit, path: f.path, claim: f.claim, quote: f.quote, origin: f.origin })), ...B.findings.references],
     // 全体の段の意図（根拠の事実の id と状態）と、判定できずに開示して閉じた意図（理由つき）。
@@ -1216,7 +1411,9 @@ function answer(dir, o) {
     const itemsText = (xs) => xs.map((c) => `- ${c.id}: ${c.text}${c.cites.map((q) => ` 〔${q.source}: ${q.quote}〕`).join('')}`).join('\n')
     const text = { goal: L.goal.text, request: L.request, decisions: L.decisions, criteria: itemsText(L.criteria), constraints: itemsText(L.constraints), [id]: ['goal', 'decisions'].includes(id) ? body.trim() : body }
     const g = readGoalFiles(text)
-    if (g.problems.length) throw new Fail(`直した ${id} が引用の照合を通らない（台帳は変えていない）`, { problems: g.problems })
+    // 目標・基準・制約の本文の path は、init の --repo（無ければ init の cwd）を基準に照らす。
+    const pp = framePathProblems(g, { repo: L.repo ?? process.cwd(), targets: L.targets, contexts: L.contexts || [] })
+    if (g.problems.length || pp.length) throw new Fail(`直した ${id} が引用か path の照合を通らない（台帳は変えていない）`, { problems: [...g.problems, ...pp] })
     Object.assign(L, { goal: { text: text.goal, items: g.goal, checked: false, checked_by: null, problems: [] }, decisions: text.decisions, criteria: g.criteria, constraints: g.constraints })
     // 目標の照合は計画役が担うので、計画の段の試行を戻す（照合の外れで stuck になっていても、直した目標で照合し直せる）。
     clear(L, 'plan')
@@ -1228,7 +1425,7 @@ function answer(dir, o) {
   const text = need(o, 'text')
   const isQ = ((L.plan && L.plan.questions) || []).some((q) => q.id === id)
   // 計画の欠陥（P<n>）への回答は、計画の質問への回答と同じく決定の記録と制約にし、計画からやり直す。指せるのは今の欠陥だけ。
-  const isP = !isQ && L.plan_defects.some((d) => d.id === id)
+  const isP = !isQ && (L.plan_defects.some((d) => d.id === id) || (L.target_gaps || []).some((g) => g.id === id))
   const known = isQ || isP || L.findings[id] || board(L).groups.some((g) => g.id === id) || id.startsWith('attempts:')
   if (!known) throw new Fail(`台帳に無い id: ${id}`)
   if (id.startsWith('attempts:')) clear(L, id.slice('attempts:'.length))
