@@ -454,6 +454,17 @@ test('全件失敗から再開: 全ての役が欠けた呼び出しで増えた
   assert.equal(again.stop.stop, 'complete', JSON.stringify(again.stop))
 })
 
+test('全件失敗から再開: 再開の後も全ての役が欠け続ければ、再び blocked（cause: failure）で止まる', async (t) => {
+  const { state } = setup(t)
+  const dead = await drive(state, async () => null)
+  assert.equal(dead.stop.stop, 'blocked', `前提: ${JSON.stringify(dead.stop)}`)
+  assert.equal(dead.stop.cause, 'failure')
+  const again = await drive(state, async () => null)
+  assert.ok(again.steps.length >= 1, `前提: 再開で呼び出しを開き直した: ${JSON.stringify(again.stop)}`)
+  assert.equal(again.stop.stop, 'blocked', `再開の後も失敗が続けば blocked で止まる: ${JSON.stringify(again.stop)}`)
+  assert.equal(again.stop.cause, 'failure')
+})
+
 test('answer: 回答から作る制約の id は、既にある目標・基準・制約の id と重ならない', async (t) => {
   const { d, state } = setup(t, { checks: [['node', '-e', 'process.exit(3)']] })
   const { stop } = await drive(state, mockAgent())

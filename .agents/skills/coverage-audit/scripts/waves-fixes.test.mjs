@@ -234,6 +234,47 @@ test('環境の失敗の印は波ごと: 環境の失敗が続けば blocked で
   assert.deepEqual(again.stop.coverage.disclosed, [], '開示を抱えたまま complete に進まない')
 })
 
+// 再開の戻しは、blocked（failure）の直後の next の 1 回だけ。再開の後に開いた呼び出しが閉じた後の next では戻さない。
+const readerDown = () => noProposalAct({ facts: FACTS, file: () => { throw new Error('読む役が落ちた') } })
+async function blockedByFailure(t) {
+  const { state } = project(t, ONE)
+  const first = await driveScript(state, scriptAgent(readerDown(), []), { maxSteps: 8 })
+  assert.equal(first.stop && first.stop.stop, 'blocked', `前提: 環境の失敗が続けば blocked: ${JSON.stringify(first.stop).slice(0, 300)}`)
+  assert.equal(first.stop.cause, 'failure')
+  return state
+}
+const fileUnit = (L) => Object.values(L.assets).find((x) => !x.retro && !x.context)
+
+test('再開の戻しは一度だけ: 再開の後の呼び出しが環境の失敗で閉じたら、次の next は fail_streak と環境の失敗の試行を戻さない', async (t) => {
+  const state = await blockedByFailure(t)
+  const once = await driveScript(state, scriptAgent(readerDown(), []), { maxSteps: 1 })
+  assert.equal(once.steps.length, 1, '前提: 再開で呼び出しを 1 回開いて閉じた')
+  const before = ledger(state)
+  assert.equal(before.fail_streak, 1, `前提: 再開の後の進みの無い呼び出しを数えた: ${before.fail_streak}`)
+  assert.equal(fileUnit(before).env_attempts, 1, `前提: 環境の失敗の試行を数えた: ${JSON.stringify(fileUnit(before))}`)
+  const n = cli('next', '--state', state)
+  assert.equal(n.code, 0)
+  const after = ledger(state)
+  assert.equal(after.fail_streak, 1, '再開の後の next では、再開の後に数えた fail_streak を戻さない')
+  assert.equal(fileUnit(after).env_attempts, 1, '再開の後の next では、再開の後に数えた環境の失敗の試行を戻さない')
+  assert.equal(fileUnit(after).attempts, fileUnit(before).attempts, '再開の後の next では、単位の試行を減らさない')
+})
+
+test('再開の後も環境の失敗が続けば、予算の上限まで回らずに再び blocked（cause: failure）で止まる', async (t) => {
+  const state = await blockedByFailure(t)
+  const r = await driveScript(state, scriptAgent(readerDown(), []), { maxSteps: 8 })
+  assert.equal(r.stop && r.stop.stop, 'blocked', `再開の後も環境の失敗が続けば blocked で止まる（${r.steps.length} 回の呼び出しで止まらなかった）: ${JSON.stringify(r.stop).slice(0, 300)}`)
+  assert.equal(r.stop.cause, 'failure')
+})
+
+test('呼び出しが開いている間の status の stopped は、前の停止（blocked）を示さない', async (t) => {
+  const state = await blockedByFailure(t)
+  const n = cli('next', '--state', state)
+  assert.equal(n.code, 0)
+  assert.ok(n.call_id && !n.stop, `前提: 再開で呼び出しを開いた: ${JSON.stringify(n).slice(0, 200)}`)
+  assert.equal(status(state).stopped, null, '開いた呼び出しがある間は止まっていない')
+})
+
 // ---------------- 2（2 回目の検証）. 振り返りの単位を作り直すときの端のケース ----------------
 
 // 振り返りが 2 波以上に分かれる場面（テスト 7 と同じ）を流す。abandon(ids) が真の単位は読まずに取り残す。
