@@ -10,7 +10,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { C, UNIT_MAX_BYTES } from './build-core.mjs'
 import {
-  AUDIT_ROLES, AUDIT_ROLE_NAMES, ROLES, act, archResult, auditStateOf, claimArgv, cli, driveScript, goalResult, isAuditStage, runsOf, setup, stageGroup, wavesOf, workerLoop,
+  AUDIT_ROLES, AUDIT_ROLE_NAMES, ROLES, act, archResult, argOf, auditStateOf, claimArgv, cli, cliArgvOf, driveScript, goalResult, isAuditStage, runScript, runsOf, setup, stageGroup, wavesOf, workerLoop,
 } from './board-fixture.mjs'
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), 'build-cli.mjs')
@@ -475,4 +475,150 @@ test('道具: ファイルの段の提出が照合に落ち続ける単位は（
   assert.equal(r.stop && r.stop.stop, 'complete', JSON.stringify(r.stop))
   const st = auditCli('status', '--state', dir)
   assert.ok((st.skip || []).length >= 1, `開示した単位: ${JSON.stringify(st.skip)}`)
+})
+
+// ---------------- Workflow script（偽の agent だけで流す。台帳は使わない） ----------------
+// coverage-audit の waves.test.mjs の「script:」の 4 つの振る舞い（最大の id の波を選ぶ・halt を兄弟の next_wave より優先する・行を切り詰めない・
+// 壊れた rows を拒む）を、build-step.js でも確かめる。build の行は build の段と役、検査の行は audit:<coverage-audit の段> と coverage-audit の役。
+const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'build-step.js')
+const BROW = (id, role = 'architect', stage = 'design') => ({ id, role, model: ROLES[role].model, effort: ROLES[role].effort, stage })
+const AROW = (id, stage = 'file') => {
+  const role = { plan: 'planner', file: 'file_reader', global: 'global_judge', full_review: 'full_reviewer' }[stage]
+  return { id, role, model: AUDIT_ROLES[role].model, effort: AUDIT_ROLES[role].effort, stage: `audit:${stage}` }
+}
+const scriptArgs = (id, rows) => ({ state: '/tmp/coverage-build-waves-x', callId: 'c1', wave: { id, rows } })
+// prompt の build-cli.mjs の claim の命令の --wave・--worker で、返す値を決める偽の agent。
+function fakeAgent(replies = {}) {
+  const seen = []
+  const fn = async (prompt, opts) => {
+    const argv = cliArgvOf(prompt, 'claim')
+    const key = `${argOf(argv, 'wave')}/${argOf(argv, 'worker')}`
+    seen.push({ key, argv, opts })
+    return replies[key] || { notes: [] }
+  }
+  fn.seen = seen
+  return fn
+}
+async function runBuildScript(args, fn) {
+  const res = await runScript(SCRIPT, args, fn)
+  assert.ok(res && !res.error, `script が throw した: ${JSON.stringify(res)}`)
+  return res
+}
+
+test('script: 返ってきた中で最大の next_wave_id の行で次の波を起動し（build の行と検査の行が混ざってよい）、返り値が次の波を持たなくなったら終える', async () => {
+  const fn = fakeAgent({
+    '3/w1': { notes: [], next_wave_id: 4, rows: [BROW('w3', 'unit_designer')] },
+    '3/w2': { notes: [], next_wave_id: 5, rows: [AROW('q1', 'plan'), BROW('w4', 'unit_designer')] },
+  })
+  const res = await runBuildScript(scriptArgs(3, [BROW('w1'), BROW('w2')]), fn)
+  assert.deepEqual(fn.seen.map((x) => x.key).sort(), ['3/w1', '3/w2', '5/q1', '5/w4'], '小さい id（4）の波は起動しない')
+  assert.deepEqual(Object.keys(res).sort(), ['agents', 'tokens'])
+  assert.equal(res.agents.length, 4)
+  assert.deepEqual(res.agents.filter((a) => String(a.wave) === '5').map((a) => a.stage).sort(), ['audit:plan', 'design'], '起動の記録は段と波を持つ')
+})
+
+test('script: 波の役のどれかが halt を返したら、ほかの役が next_wave を返しても新しい波を起動しない', async () => {
+  const fn = fakeAgent({
+    '2/w1': { notes: [], halt: true },
+    '2/w2': { notes: [], next_wave_id: 3, rows: [BROW('w3', 'unit_designer')] },
+  })
+  const res = await runBuildScript(scriptArgs(2, [BROW('w1'), BROW('w2')]), fn)
+  assert.deepEqual(fn.seen.map((x) => x.key).sort(), ['2/w1', '2/w2'])
+  assert.equal(res.agents.length, 2)
+})
+
+test('script: 行を切り詰めない（maxAgents を超える行も全て起動する。行の数を収めるのは CLI）', async () => {
+  const rows = Array.from({ length: C.LIMITS.maxAgents + 1 }, (_, i) => (i % 2 ? AROW(`q${i + 1}`) : BROW(`w${i + 1}`, 'unit_designer')))
+  const fn = fakeAgent()
+  const res = await runBuildScript(scriptArgs(1, rows), fn)
+  assert.equal(fn.seen.length, rows.length)
+  assert.equal(res.agents.length, rows.length)
+})
+
+test('script: 返ってきた次の波の行が壊れているか、id が今の波より大きくなければ、その波を起動しない', async () => {
+  for (const [name, reply] of [
+    ['行が欠けた欄を持つ', { notes: [], next_wave_id: 2, rows: [{ id: 'w2', role: 'unit_designer' }] }],
+    ['rows が配列でない', { notes: [], next_wave_id: 2, rows: 'w2' }],
+    ['rows が空', { notes: [], next_wave_id: 2, rows: [] }],
+    ['id が今の波と同じ', { notes: [], next_wave_id: 1, rows: [BROW('w2', 'unit_designer')] }],
+    ['行の id が重なる', { notes: [], next_wave_id: 2, rows: [BROW('w2', 'unit_designer'), BROW('w2', 'unit_designer')] }],
+    ['知らない段', { notes: [], next_wave_id: 2, rows: [{ ...BROW('w2', 'unit_designer'), stage: 'review' }] }],
+    ['build の段に検査の役', { notes: [], next_wave_id: 2, rows: [{ ...AROW('w2'), stage: 'design' }] }],
+    ['知らない検査の段', { notes: [], next_wave_id: 2, rows: [{ ...AROW('q2'), stage: 'audit:xyz' }] }],
+  ]) {
+    const fn = fakeAgent({ '1/w1': reply })
+    const res = await runBuildScript(scriptArgs(1, [BROW('w1')]), fn)
+    assert.deepEqual(fn.seen.map((x) => x.key), ['1/w1'], `${name}: 起動した: ${JSON.stringify(reply)}`)
+    assert.equal(res.agents.length, 1, name)
+  }
+})
+
+// ---------------- claim の行の照合（今の波・記録した次の波・締めた前の波） ----------------
+// 波の印（current・next・old）ごとに、行の引き当てと値の照合、拒むときの文言（終了状態 2、台帳を変えない）を確かめる。
+test('claim の照合（波の印ごと）: 記録した次の波の行の値の違い・記録の無い波・行に無い worker は理由つきの終了状態 2 で台帳を変えず、締めた前の波の行の claim は担当も次の波も返さずに done', async (t) => {
+  const { state } = setup(t)
+  const { args, row: goalRow, nw } = await passFirstWave(state)
+  assert.ok(nw && nw.rows.length === 1 && nw.rows[0].role === 'architect', JSON.stringify(nw))
+  const arch = nw.rows[0]
+  const other = (v, xs) => xs.find((x) => x !== v)
+  const before = ledgerBytes(state)
+  for (const [name, argv, want] of [
+    ['次の波の行の effort が違う', claimArgv(state, args.callId, { ...arch, effort: other(arch.effort, ['low', 'high']) }, nw.id),
+      [`--effort ${other(arch.effort, ['low', 'high'])}（記録は ${arch.effort}）`]],
+    ['次の波の行の model と段が違う', claimArgv(state, args.callId, { ...arch, model: other(arch.model, ['haiku', 'opus']), stage: 'tests' }, nw.id),
+      [`--model ${other(arch.model, ['haiku', 'opus'])}（記録は ${arch.model}）・--stage tests（記録は ${arch.stage}）`]],
+    ['記録の無い波', claimArgv(state, args.callId, arch, Number(nw.id) + 100), ['記録の無い波', String(Number(nw.id) + 100)]],
+    ['次の波の行に無い worker', claimArgv(state, args.callId, { ...arch, id: 'no-such-row' }, nw.id), ['行に無い worker', 'no-such-row']],
+  ]) {
+    const c = cli(...argv)
+    assert.equal(c.code, 2, `${name}: ${JSON.stringify(c)}`)
+    assert.equal(c.ok, false, name)
+    for (const w of want) assert.ok(String(c.error).includes(w), `${name}: 理由に「${w}」: ${c.error}`)
+    assert.equal(ledgerBytes(state), before, `${name}: 台帳を変えない`)
+  }
+  // 記録した次の波の行の正しい claim は、その波を今の波にして担当を渡す。
+  const got = cli(...claimArgv(state, args.callId, arch, nw.id))
+  assert.equal(got.code, 0, JSON.stringify(got))
+  assert.ok(got.tasks && got.tasks.length === 1 && got.tasks[0].kind === 'arch', JSON.stringify(got))
+  // 締めた前の波（目標の照合の波）の行: 値が合えば done だけ（担当・次の波・止まる印を持たない）で台帳を変えない。値が違えば終了状態 2。
+  const promoted = ledgerBytes(state)
+  const old = cli(...claimArgv(state, args.callId, goalRow, args.wave.id))
+  assert.equal(old.code, 0, JSON.stringify(old))
+  assert.equal(old.done, true, JSON.stringify(old))
+  for (const k of ['tasks', 'next_wave', 'halt']) assert.ok(!(k in old), `前の波の行の done は ${k} を持たない: ${JSON.stringify(old)}`)
+  assert.equal(ledgerBytes(state), promoted, '前の波の行の claim は台帳を変えない')
+  const oldBad = cli(...claimArgv(state, args.callId, { ...goalRow, model: other(goalRow.model, ['haiku', 'opus']) }, args.wave.id))
+  assert.equal(oldBad.code, 2, JSON.stringify(oldBad))
+  assert.ok(String(oldBad.error).includes(`（記録は ${goalRow.model}）`), oldBad.error)
+  assert.equal(ledgerBytes(state), promoted)
+})
+
+// ---------------- 起動の記録の照合（ingest の launch_mismatch） ----------------
+// 起動の記録の 1 件ごとに、台帳の起動した波の行と照らす。行は label（役-行の id）で引き、無ければ役で引く。波を持たない記録は照らさない。
+const MISMATCH_CASES = [
+  { name: '全て合う', patch: () => ({}), event: null },
+  { name: 'effort が違う', patch: (r) => ({ effort: r.effort === 'low' ? 'high' : 'low' }), event: '起動の記録' },
+  { name: '段が違う', patch: () => ({ stage: 'tests' }), event: '起動の記録' },
+  { name: '段を持たない（照らさない）', patch: () => ({ stage: null }), event: null },
+  { name: 'label が違うが役で行を引ける', patch: (r) => ({ label: `${r.role}-other` }), event: null },
+  { name: '台帳の起動した波に無い波', patch: (r, w) => ({ wave: Number(w) + 100 }), event: '起動した波の記録に無い' },
+  { name: '波を持たない（照らさない）', patch: () => ({ wave: null }), event: null },
+]
+test('ingest の launch_mismatch: 起動の記録を台帳の起動した波の行と照らし、effort・段の違いと記録に無い波の起動だけを出来事に残す', async (t) => {
+  for (const c of MISMATCH_CASES) {
+    const { state } = setup(t)
+    const { args } = openWave(state)
+    const row = args.wave.rows[0]
+    const rec = { role: row.role, label: `${row.role}-${row.id}`, model: row.model, effort: row.effort, ok: true, stage: row.stage, wave: args.wave.id }
+    const f = path.join(state, 'res-mismatch.json')
+    writeFileSync(f, JSON.stringify({ agents: [{ ...rec, ...c.patch(row, args.wave.id) }], tokens: null }))
+    const g = cli('ingest', '--state', state, '--call', args.callId, '--result', f)
+    assert.equal(g.code, 0, `${c.name}: ${JSON.stringify(g)}`)
+    const ms = ledger(state).events.filter((e) => e.kind === 'launch_mismatch')
+    if (c.event == null) assert.equal(ms.length, 0, `${c.name}: ${JSON.stringify(ms)}`)
+    else {
+      assert.equal(ms.length, 1, `${c.name}: ${JSON.stringify(ms)}`)
+      assert.ok(ms[0].text.includes(c.event), `${c.name}: ${ms[0].text}`)
+    }
+  }
 })

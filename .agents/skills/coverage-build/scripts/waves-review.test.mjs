@@ -7,11 +7,11 @@
 // 外から見える口だけに依る: build-cli の next・claim・submit・ingest・config・answer、build.json と検査の台帳（stateDir/audit/state/ledger.json）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { cli as auditCli, fileResult } from '../../coverage-audit/scripts/blackboard-fixture.mjs'
 import { UNIT_MAX_BYTES } from '../../coverage-audit/scripts/ledger-core.mjs'
-import { act, archResult, auditPos, auditStateOf, claimArgv, cli, driveScript, isAuditStage, setup, specResult, walkTo } from './board-fixture.mjs'
+import { act, archResult, auditPos, auditStateOf, claimArgv, cli, driveScript, isAuditStage, setup, specResult, walkTo, workerLoop } from './board-fixture.mjs'
 
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
 const auditLedger = (state) => JSON.parse(readFileSync(path.join(auditStateOf(state), 'ledger.json'), 'utf8'))
@@ -238,4 +238,157 @@ test('B. 現状の検査を止まった時点で閉じた後、同じ build の�
   const L = ledger(state)
   const missing = L.events.filter((e) => e.kind === 'agent_missing' || (e.kind === 'audit_internal' && /agent_missing/.test(e.text)))
   assert.equal(missing.length, 1, `同じ欠けを 1 件だけ: ${JSON.stringify(missing.map((e) => [e.kind, e.text]))}`)
+})
+
+// ---------------- D. 検査の波の進み（fail_streak と blocked） ----------------
+// 呼び出しの最初の波が検査の段 st の波のとき、その波の役の手の付け方で、build の台帳の進みの無い呼び出し（fail_streak）に数えるかが決まる:
+// 全文レビューは手を付けなくても進みとする・全体の段は claim か受理・読む段（file）は提出・計画の段は受理。2 回続けば blocked（failure）。
+// retro・unit_verify の段は build から届かない（build は観点を渡し、目標を照合済みにして検査を始める）ので、ここでは扱わない。
+// 道具: update の 1 回目の呼び出しを、段 st の波を記録した claim の返り値を halt に書き換えて閉じ、次の next が開く呼び出しの最初の波を段 st の波にする。
+async function firstWaveAt(t, st) {
+  const { state } = setup(t, { mode: 'update' })
+  let cut = false
+  const tamper = (ret) => (Array.isArray(ret.rows) && ret.rows.length && ret.rows[0].stage === `audit:${st}` ? ((cut = true), { notes: [], halt: true }) : ret)
+  const r1 = await driveScript(state, act(), { maxSteps: 1, tamper })
+  assert.ok(cut, `1 回目の呼び出しで段 ${st} の波を記録した: ${r1.launches.map((x) => x.stage)}`)
+  assert.equal(ledger(state).fail_streak, 0, '1 回目の呼び出しは進みがある')
+  const n = cli('next', '--state', state)
+  assert.equal(n.code, 0, JSON.stringify(n))
+  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  assert.equal(args.wave.rows[0].stage, `audit:${st}`, `2 回目の呼び出しの最初の波は段 ${st}: ${JSON.stringify(args.wave.rows)}`)
+  return { state, args }
+}
+// 波の最初の行が、手の付け方 how（none: claim しない・claim: claim だけ・reject: claim して照合に落ちる結果を出す）で動き、呼び出しを閉じる。
+function playAndIngest(state, args, how) {
+  const row = args.wave.rows[0]
+  if (how !== 'none') {
+    const c = cli(...claimArgv(state, args.callId, row, args.wave.id))
+    assert.equal(c.code, 0, JSON.stringify(c))
+    assert.ok(c.tasks && c.tasks.length, `担当を取る: ${JSON.stringify(c)}`)
+    if (how === 'reject') {
+      for (const task of c.tasks) writeTask(task, {})
+      const s = cli('submit', '--state', state, '--call', args.callId, '--worker', row.id)
+      assert.equal(s.code, 0, JSON.stringify(s))
+      assert.ok(s.results.length && s.results.every((x) => !x.ok), `照合に落ちる: ${JSON.stringify(s.results)}`)
+    }
+  }
+  const g = ingest(state, args.callId, args.wave.rows.map((w) => agentOf(w, args.wave.id)))
+  assert.equal(g.code, 0, JSON.stringify(g))
+}
+for (const c of [
+  { st: 'full_review', how: 'none', streak: 0, why: '全文レビューは手を付けなくても進み' },
+  { st: 'global', how: 'claim', streak: 0, why: '全体の段は claim で進み' },
+  { st: 'global', how: 'none', streak: 1, why: '全体の段で claim も受理も無ければ進みなし' },
+  { st: 'file', how: 'reject', streak: 0, why: '読む段は提出（照合に落ちても）で進み' },
+  { st: 'file', how: 'claim', streak: 1, why: '読む段で提出が無ければ進みなし' },
+  { st: 'plan', how: 'reject', streak: 1, why: '計画の段は受理が無ければ、提出があっても進みなし' },
+]) {
+  test(`D. 検査の波の進み: 段 ${c.st} の波だけの呼び出しで、役が ${c.how} なら fail_streak は ${c.streak}（${c.why}）`, async (t) => {
+    const { state, args } = await firstWaveAt(t, c.st)
+    playAndIngest(state, args, c.how)
+    assert.equal(ledger(state).fail_streak, c.streak)
+  })
+}
+test('D. 検査の波の進み: 進みの無い検査の波だけの呼び出しが 2 回続けば、next は blocked（failure）で止まる', async (t) => {
+  const { state, args } = await firstWaveAt(t, 'plan')
+  playAndIngest(state, args, 'reject')
+  assert.equal(ledger(state).fail_streak, 1)
+  const n = cli('next', '--state', state)
+  assert.equal(n.code, 0, JSON.stringify(n))
+  const args2 = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  assert.equal(args2.wave.rows[0].stage, 'audit:plan', JSON.stringify(args2.wave.rows))
+  playAndIngest(state, args2, 'reject')
+  assert.equal(ledger(state).fail_streak, 2)
+  const stop = cli('next', '--state', state)
+  assert.equal(stop.stop, 'blocked', JSON.stringify(stop))
+  assert.equal(stop.cause, 'failure', JSON.stringify(stop))
+  assert.ok((stop.reasons || []).some((x) => /提出が 1 件も無い呼び出しが 2 回続いた/.test(x)), `build の台帳の進みの無い呼び出しで止まる: ${JSON.stringify(stop.reasons)}`)
+})
+
+// ---------------- A. 検査の台帳を直に読み書きする経路の拒否も、build の CLI の終了状態で返す ----------------
+// build の CLI が coverage-audit の関数（lock・読み込み・保存）を直に流す経路で、検査の台帳の lock の待ちが切れたら終了状態 3（流し直す）、
+// 検査の台帳を読めない（形式が古い）なら終了状態 2 と ok: false で返す。どちらもスタックを出さず（終了状態 1 にしない）、build の台帳を変えない。
+// 経路 1: 詳細設計の波の最後の claim が、次の波（設計レビュー）を作るときに検査の台帳の枠を差し替える（開いた検査の呼び出しを閉じる）。
+// 経路 2: ingest が、同じ呼び出しで止まった時点で閉じた検査の呼び出しの起動の記録を直す。
+const stackFree = (r) => assert.ok(!/\n\s+at /.test(String(r.error)), `スタックを出さない（終了状態 1 の形にしない）: ${r.error}`)
+const auditLedgerBytes = (state) => readFileSync(path.join(auditStateOf(state), 'ledger.json'), 'utf8')
+const buildBytes = (state) => readFileSync(path.join(state, 'build.json'), 'utf8')
+// update の現状の検査を終えて、詳細設計の波の手前まで進める（検査の台帳はあり、build の台帳の検査の枠は外れている = 次の検査の段は枠を差し替える）。
+async function toSpecWave(t) {
+  const { state } = setup(t, { mode: 'update' })
+  const w = await walkTo(state, (wv) => wv.rows.some((r) => r.role === 'unit_designer'))
+  assert.ok(w.wave, `詳細設計の波まで進む: ${JSON.stringify(w)}`)
+  assert.ok(existsSync(path.join(auditStateOf(state), 'ledger.json')), '検査の台帳がある')
+  assert.equal(ledger(state).audit_frame, null, '現状の検査を取り込んで枠は外れている（次の検査は枠を差し替える）')
+  return { state, ...w }
+}
+// 波の行を偽の役で流し、claim ごとに前後の build の台帳を控える。0 以外で返った claim の記録を返す。
+async function runSpecRows(state, call, wave) {
+  const calls = []
+  const exec = (...argv) => {
+    const before = argv[0] === 'claim' ? buildBytes(state) : null
+    const r = cli(...argv)
+    if (argv[0] === 'claim') calls.push({ argv, before, after: buildBytes(state), r })
+    return r
+  }
+  for (const row of wave.rows) await workerLoop({ state, call, worker: row.id, role: row.role, argv: claimArgv(state, call, row, wave.id) }, act(), exec)
+  return calls.filter((c) => c.r.code !== 0)
+}
+test('A. 検査の台帳の lock の待ちが切れたら（経路 1: 枠の差し替え）、claim は終了状態 3 で build の台帳も検査の台帳も変えず、lock が空いた後に流し直せば設計レビューの波へ進む', { timeout: 60000 }, async (t) => {
+  const { state, call, wave } = await toSpecWave(t)
+  const lock = path.join(auditStateOf(state), 'ledger.lock')
+  writeFileSync(lock, 'other-process-token')
+  const audit0 = auditLedgerBytes(state)
+  const bad = await runSpecRows(state, call, wave)
+  assert.equal(bad.length, 1, `次の波を作る claim だけが拒まれる: ${JSON.stringify(bad.map((c) => c.r))}`)
+  const [c] = bad
+  assert.equal(c.r.code, 3, JSON.stringify(c.r))
+  assert.equal(c.r.ok, false)
+  stackFree(c.r)
+  assert.equal(c.after, c.before, 'build の台帳を変えない')
+  assert.equal(auditLedgerBytes(state), audit0, '検査の台帳を変えない')
+  assert.equal(readFileSync(lock, 'utf8'), 'other-process-token', '他の process の lock を奪わない')
+  rmSync(lock)
+  const again = cli(...c.argv)
+  assert.equal(again.code, 0, JSON.stringify(again))
+  assert.equal(again.done, true, JSON.stringify(again))
+  assert.ok(again.next_wave && isAuditStage(again.next_wave.rows[0].stage), `流し直すと設計レビューの波を返す: ${JSON.stringify(again)}`)
+})
+
+test('A. 検査の台帳の形式が古ければ（経路 1: 枠の差し替え）、claim は終了状態 2 と ok: false で理由を返し、build の台帳を変えない', async (t) => {
+  const { state, call, wave } = await toSpecWave(t)
+  const f = path.join(auditStateOf(state), 'ledger.json')
+  const AL = JSON.parse(readFileSync(f, 'utf8'))
+  delete AL.full_review
+  writeFileSync(f, JSON.stringify(AL))
+  const audit0 = auditLedgerBytes(state)
+  const bad = await runSpecRows(state, call, wave)
+  assert.equal(bad.length, 1, `次の波を作る claim だけが拒まれる: ${JSON.stringify(bad.map((c) => c.r))}`)
+  const [c] = bad
+  assert.equal(c.r.code, 2, JSON.stringify(c.r))
+  assert.equal(c.r.ok, false)
+  stackFree(c.r)
+  assert.match(String(c.r.error), /形式が古い/)
+  assert.equal(c.after, c.before, 'build の台帳を変えない')
+  assert.equal(auditLedgerBytes(state), audit0, '検査の台帳を変えない')
+})
+
+test('A. 検査の台帳の形式が古ければ（経路 2: 止まった時点で閉じた検査の呼び出しの記録を直す ingest）、ingest は終了状態 2 と ok: false で返し、build の台帳を変えない', async (t) => {
+  const { state } = setup(t, { mode: 'update' })
+  const w = await walkTo(state, (wv) => wv.rows.some((r) => r.role === 'architect'))
+  assert.ok(w.wave, `方式設計の波まで進む: ${JSON.stringify(w)}`)
+  const P = ledger(state).pending
+  assert.ok((P.audit_calls || []).some((x) => x.closed && x.recorded_at && !x.recorded), `同じ呼び出しで止まった時点で閉じた検査の呼び出しがある: ${JSON.stringify(P.audit_calls)}`)
+  const f = path.join(auditStateOf(state), 'ledger.json')
+  const AL = JSON.parse(readFileSync(f, 'utf8'))
+  delete AL.full_review
+  writeFileSync(f, JSON.stringify(AL))
+  const agents = P.launched.flatMap((W) => W.workers.map((row) => agentOf(row, W.id)))
+  const before = buildBytes(state)
+  const g = ingest(state, w.call, agents)
+  assert.equal(g.code, 2, JSON.stringify(g))
+  assert.equal(g.ok, false)
+  stackFree(g)
+  assert.match(String(g.error), /形式が古い/)
+  assert.equal(buildBytes(state), before, 'build の台帳を変えない')
 })

@@ -5,8 +5,8 @@
 // 待ちの上限を短くした子の process で流す（今の実装は 1 時間待つので、15 秒で打ち切って落とす）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as buildCli from './build-cli.mjs'
@@ -105,4 +105,88 @@ test('A. prompt: build の役の手順に「終了状態 3 なら同じ命令を
     assert.match(line, /同じ命令を流し直す/, line)
     assert.match(line, /担当は失われない/, line)
   }
+})
+
+// B. 古い lock（mtime が LOCK_STALE_MS = 60 秒より前）は、落ちた process の残りかもしれず、流し直しても空かない。終了状態 3（流し直す）にせず、
+// busy を付けない終了状態 2 で、lock の path と手で消す案内を返す（役は 2 を受けて notes に書いて終える）。lock は消さず、台帳を変えない。
+// 生きた lock（新しい mtime）は今のとおり待って終了状態 3。待ちきる前に 2 を返すか、待ちの上限で 2 を返すかは問わない（時間の下限を見ない）。
+const STALE_SEC = 120
+const backdate = (file) => { const old = (Date.now() - STALE_SEC * 1000) / 1000; utimesSync(file, old, old) }
+const holdStaleLock = (state) => { const f = path.join(state, 'build.lock'); writeFileSync(f, 'dead-process-token'); backdate(f); return f }
+const staleRefusal = (r, lock, name) => {
+  assert.notEqual(r.signal, 'SIGTERM', `${name}: 打ち切った（${r.took} ms）`)
+  assert.equal(r.code, 2, `${name}: 古い lock は終了状態 2: ${JSON.stringify(r)}`)
+  assert.equal(r.ok, false, name)
+  assert.ok(!r.busy, `${name}: busy を付けない: ${JSON.stringify(r)}`)
+  assert.ok(String(r.error).includes(lock), `${name}: lock の path を示す: ${r.error}`)
+  assert.ok(String(r.error).includes('手で消'), `${name}: 手で消す案内: ${r.error}`)
+  assert.ok(existsSync(lock), `${name}: lock を消さない`)
+}
+
+test('B. 役のコマンド（claim・query・submit）: build の台帳の古い lock は終了状態 2 で手で消す案内を返し、lock を消さず台帳を変えない。lock を消せば流し直して進む', async (t) => {
+  const { state } = setup(t)
+  const { call, row, wave } = await openGoalWave(state)
+  const who = ['--state', state, '--call', call, '--worker', row.id]
+  const before = ledgerBytes(state)
+  const lock = holdStaleLock(state)
+  for (const [name, argv] of [['claim', claimArgv(state, call, row, wave)], ['query', ['query', ...who, '--task', 'no-such-task']], ['submit', ['submit', ...who]]]) {
+    const r = runShort(argv)
+    staleRefusal(r, lock, name)
+    assert.equal(readFileSync(lock, 'utf8'), 'dead-process-token', `${name}: lock を取り直さない`)
+    assert.equal(ledgerBytes(state), before, `${name}: 台帳を変えない`)
+  }
+  rmSync(lock)
+  const again = cli(...claimArgv(state, call, row, wave))
+  assert.equal(again.code, 0, JSON.stringify(again))
+  assert.ok(again.tasks && again.tasks.length, '手で消した後に流し直すと担当を取る')
+})
+
+// 子の process で流す（待ちは 10 秒のままの口を、並べて同時に流す）。
+function spawnCli(argv, env = {}) {
+  return new Promise((resolve) => {
+    const t0 = Date.now()
+    const p = spawn(process.execPath, [CLI, ...argv], { env: { ...process.env, ...env } })
+    let out = ''
+    p.stdout.on('data', (b) => { out += b })
+    const timer = setTimeout(() => p.kill('SIGTERM'), 40000)
+    p.on('close', (code, signal) => {
+      clearTimeout(timer)
+      let j = {}
+      try { j = JSON.parse(out) } catch { j = { raw: out } }
+      resolve({ code, signal, took: Date.now() - t0, ...j })
+    })
+  })
+}
+test('B. 待ちの上限が固定の口（next）と検査の台帳の lock（検査の段の claim）: 古い lock は終了状態 2 で手で消す案内、生きた lock の next は上限まで待って終了状態 3', { timeout: 90000 }, async (t) => {
+  // next: 古い lock と生きた lock。
+  const stale = setup(t)
+  const live = setup(t)
+  const staleLock = holdStaleLock(stale.state)
+  const liveLock = path.join(live.state, 'build.lock')
+  writeFileSync(liveLock, 'other-process-token')
+  // 検査の段の claim: update の目標の照合の後の波（現状の検査の計画役）の行で、検査の台帳（stateDir/audit/state/ledger.lock）が古い lock。
+  const up = setup(t, { mode: 'update' })
+  const { call, row, wave } = await openGoalWave(up.state)
+  const rec = await workerLoop({ state: up.state, call, worker: row.id, role: row.role, argv: claimArgv(up.state, call, row, wave) }, act())
+  const nw = rec.next_wave
+  assert.ok(nw && nw.rows[0].stage.startsWith('audit:'), `目標の照合の後は検査の波: ${JSON.stringify(rec.claims.at(-1))}`)
+  const auditLock = path.join(up.state, 'audit', 'state', 'ledger.lock')
+  writeFileSync(auditLock, 'dead-process-token')
+  backdate(auditLock)
+  const before = { stale: ledgerBytes(stale.state), live: ledgerBytes(live.state), up: ledgerBytes(up.state), upAudit: readFileSync(path.join(up.state, 'audit', 'state', 'ledger.json'), 'utf8') }
+  const [rs, rl, ra] = await Promise.all([
+    spawnCli(['next', '--state', stale.state]),
+    spawnCli(['next', '--state', live.state]),
+    spawnCli(claimArgv(up.state, call, nw.rows[0], nw.id), { COVERAGE_BUILD_LOCK_WAIT_MS: WAIT }),
+  ])
+  staleRefusal(rs, staleLock, 'next（古い lock）')
+  assert.equal(ledgerBytes(stale.state), before.stale, 'next（古い lock）: 台帳を変えない')
+  assert.equal(rl.code, 3, `next（生きた lock）: ${JSON.stringify(rl)}`)
+  assert.ok(rl.took >= 9000, `next（生きた lock）: 上限まで待つ（${rl.took} ms）`)
+  assert.ok(String(rl.error).includes(liveLock) && !String(rl.error).includes('手で消'), `next（生きた lock）: ${rl.error}`)
+  assert.equal(readFileSync(liveLock, 'utf8'), 'other-process-token')
+  assert.equal(ledgerBytes(live.state), before.live, 'next（生きた lock）: 台帳を変えない')
+  staleRefusal(ra, auditLock, '検査の段の claim（検査の台帳の古い lock）')
+  assert.equal(ledgerBytes(up.state), before.up, '検査の段の claim: build の台帳を変えない')
+  assert.equal(readFileSync(path.join(up.state, 'audit', 'state', 'ledger.json'), 'utf8'), before.upAudit, '検査の段の claim: 検査の台帳を変えない')
 })

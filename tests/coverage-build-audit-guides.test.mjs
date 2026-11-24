@@ -73,3 +73,41 @@ for (const [stage, role] of Object.entries(STAGE_ROLE)) {
     assert.equal(normalize(b.prompt, stage), normalize(a.prompt, stage))
   })
 }
+
+// 波のループの写し: build-step.js の行の形（ROW_SCHEMA・WORKER_SCHEMA）・波の id の検査（waveIdOk）・波を順に流すループは、coverage-audit.js の写し。
+// 区間は両ファイルの「// <wave-loop>」の行と「// </wave-loop>」の行の間（印の行は含めない）。各印はちょうど 1 つで、始まりが終わりより前。
+// 照らす本文: 区間の行から、行全体が // の注釈の行と、rowsOk の宣言の文（「const rowsOk =」の行と、それに続く字下げした継続の行）を除いたもの。
+// 違ってよいのは rowsOk の宣言だけ（build は build の段の行も受ける）。rowsOk が使う補助（build の rowOk など）は区間の外に置くか、同じ文にする。
+// launch の呼び方・args の検査の文言なども、区間の中にある限り同じ文でなければならない。
+const WAVE_START = '// <wave-loop>'
+const WAVE_END = '// </wave-loop>'
+function waveLoopBlock(text, where) {
+  const lines = text.split('\n')
+  const starts = lines.flatMap((l, i) => (l.trim() === WAVE_START ? [i] : []))
+  const ends = lines.flatMap((l, i) => (l.trim() === WAVE_END ? [i] : []))
+  assert.equal(starts.length, 1, `${where} に「${WAVE_START}」の行がちょうど 1 つある（${starts.length} 個）`)
+  assert.equal(ends.length, 1, `${where} に「${WAVE_END}」の行がちょうど 1 つある（${ends.length} 個）`)
+  assert.ok(starts[0] < ends[0], `${where} の「${WAVE_START}」は「${WAVE_END}」より前`)
+  const body = lines.slice(starts[0] + 1, ends[0])
+  const out = []
+  for (let i = 0; i < body.length; i++) {
+    if (/^\s*\/\//.test(body[i])) continue
+    if (/^const rowsOk\s*=/.test(body[i])) {
+      while (i + 1 < body.length && /^\s+\S/.test(body[i + 1])) i++
+      continue
+    }
+    out.push(body[i])
+  }
+  return out.join('\n')
+}
+
+test('波のループの写し: build-step.js と coverage-audit.js の <wave-loop> 区間は、rowsOk の宣言を除いて同じ文で、行の形・波の id の検査・波のループを含む', () => {
+  const audit = waveLoopBlock(src(AUDIT_WF), AUDIT_WF)
+  const build = waveLoopBlock(src(BUILD_STEP), BUILD_STEP)
+  for (const [where, block] of [[AUDIT_WF, audit], [BUILD_STEP, build]]) {
+    for (const head of ['const ROW_SCHEMA = ', 'const WORKER_SCHEMA = ', 'const waveIdOk = ', 'for (;;) {']) {
+      assert.ok(block.includes(head), `${where} の <wave-loop> 区間に「${head}」がある`)
+    }
+  }
+  assert.equal(build, audit)
+})

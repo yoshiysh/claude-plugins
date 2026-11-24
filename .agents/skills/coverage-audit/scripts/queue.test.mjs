@@ -291,12 +291,14 @@ test('lock: 並べて流した hint は互いに違う id を受け取る', asyn
   assert.equal(new Set(outs.map((o) => o.id)).size, outs.length)
 })
 
-// 生きた lock も古い lock も消さずに上限まで待って止まり、古い lock のときだけ手で消す案内を出す。2 つのケースは別の stateDir で同時に流す（待ちは 10 秒のまま）。
+// 生きた lock も古い lock も消さない。生きた lock（mtime が LOCK_STALE_MS より新しい）は上限まで待って終了状態 3（流し直す）。
+// 古い lock（mtime が LOCK_STALE_MS より前）は流し直しても空かないので、終了状態 2 で手で消す案内を出す（待ちきる前に返すか、上限で返すかは問わない）。
+// 2 つのケースは別の stateDir で同時に流す（待ちは 10 秒のまま）。
 const LOCK_AGES = [
   { name: '生きた lock（mtime が 60 秒より新しい）', content: String(process.pid), ageSec: 0, maxCycles: '9', stale: false },
   { name: '古い lock（mtime が 60 秒より前）', content: 'x', ageSec: 120, maxCycles: '6', stale: true },
 ]
-test('lock: 生きた lock でも古い lock でも消さず、待つ時間が上限（10 秒）を超えたら 終了状態 3（流し直す）で、台帳を変えない。古い lock のときだけ手で消す案内を出す', { timeout: 60000 }, async (t) => {
+test('lock: 生きた lock でも古い lock でも消さず台帳を変えない。生きた lock は上限（10 秒）まで待って終了状態 3（流し直す）、古い lock は終了状態 2 で lock の path と手で消す案内を出す', { timeout: 60000 }, async (t) => {
   const cases = await Promise.all(LOCK_AGES.map(async (c) => {
     const { state } = await qsetup(t)
     const lock = path.join(state, 'ledger.lock')
@@ -312,16 +314,18 @@ test('lock: 生きた lock でも古い lock でも消さず、待つ時間が�
   }))
   cases.forEach((c, i) => {
     const { r, took } = outs[i]
-    assert.equal(r.code, 3, `${c.name}: ${JSON.stringify(r)}`) // lock の待ちが切れた（流し直す）
-    assert.ok(took >= 9000, `${c.name}: 上限まで待つ（${took} ms）`)
     assert.ok(took < 30000, `${c.name}: 上限を超えて待たない（${took} ms）`)
     assert.equal(bytes(c.state), c.before, `${c.name}: 台帳を変えない`)
     assert.ok(existsSync(c.lock), `${c.name}: lock を消さない`)
     assert.equal(readFileSync(c.lock, 'utf8'), c.content, `${c.name}: lock を取り直さない`)
     assert.ok(r.error.includes(c.lock), `${c.name}: lock の path を示す: ${r.error}`)
     if (c.stale) {
-      for (const w of ['落ちた process', 'CLI が動いていない', '手で消']) assert.ok(r.error.includes(w), `${c.name}: 案内に「${w}」: ${r.error}`)
+      assert.equal(r.code, 2, `${c.name}: 流し直しても空かないので終了状態 2: ${JSON.stringify(r)}`)
+      assert.ok(!r.busy, `${c.name}: busy を付けない: ${JSON.stringify(r)}`)
+      assert.ok(r.error.includes('手で消'), `${c.name}: 案内に「手で消」: ${r.error}`)
     } else {
+      assert.equal(r.code, 3, `${c.name}: ${JSON.stringify(r)}`) // lock の待ちが切れた（流し直す）
+      assert.ok(took >= 9000, `${c.name}: 上限まで待つ（${took} ms）`)
       assert.ok(r.error.includes('他の process が台帳を書いている'), `${c.name}: ${r.error}`)
       for (const w of ['手で消', '落ちた process']) assert.ok(!r.error.includes(w), `${c.name}: 案内を出さない「${w}」: ${r.error}`)
     }
