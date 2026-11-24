@@ -461,11 +461,12 @@ const BUILD_STAGES = ['design', 'tests', 'implement', 'retro']
 const AUDIT_STAGE = 'audit:'
 const auditStageOf = (st) => (typeof st === 'string' && st.startsWith(AUDIT_STAGE) ? st.slice(AUDIT_STAGE.length) : null)
 const claimLine = (w, waveId) => `node ${sq(cliOf(A.state))} claim --state ${sq(A.state)} --call ${sq(A.callId)} --worker ${sq(w.id)} --wave ${sq(waveId)} --model ${sq(w.model)} --effort ${sq(w.effort)} --stage ${sq(w.stage)}`
-const RETURN_RULE = `### 返り値
+// 返り値の節。what は書かない内容の言い方（検査の役は coverage-audit.js と同じ「内容（指摘・判定）」）。
+const returnRule = (what = '内容') => `### 返り値
 気づいたこと（notes。命令が流せなかった・拒まれた・諦めた担当など）と、最後の claim の done の出力にある制御の印だけ。
 - 出力に next_wave があれば、next_wave_id に next_wave.id を、rows に next_wave.rows を、書き換えずにそのまま入れる。
 - 出力の halt が true なら、halt に true を入れる（reason は notes に写してよい）。
-内容は返り値に書かない。`
+${what}は返り値に書かない。`
 
 const COMMON = `
 ## 共通の前提
@@ -485,7 +486,7 @@ ${claimLine(w, waveId)}
    ok が false の担当だけ、problems の理由を読んで直した結果を result_path に書き直し、同じ submit_cmd を流し直す（落ちた担当のファイルは CLI が消す）。dropped が true の担当は諦める。
 5. 1 に戻る。claim が done を返すまで繰り返す。出し終えていない担当があると、claim は同じ担当を返す。依存の順で後に回した担当は、前の担当が受理された後の claim で渡る。
 前の担当の判断を次の担当に持ち込まない。担当ごとに、その担当の入力だけから判断する。
-${RETURN_RULE}`
+${returnRule()}`
 
 // ---------------- build の役ごとの指示 ----------------
 // 照合の規則の文（CITE_RULE・VAGUE_WORDS・MAX_SPEC_LINES・LAYERS）は <checks> 区間の値から作る。写しを書かない。
@@ -581,7 +582,7 @@ ${claimLine(w, waveId)}
    ok が false の担当だけ、problems の理由を読んで直した結果を result_path に書き直し、${query === 'batch' ? '書き直した担当の全てを書いてから' : ''}同じ submit_cmd を流し直す（落ちた担当のファイルは CLI が消す。受理された担当は書き直さない）。dropped が true の担当は諦める。
 5. 1 に戻る。claim が done を返すまで繰り返す。出し終えていない担当があると、claim は同じ担当を返す。それを直せないときは notes に書いて終える。
 前の担当の判断を次の担当に持ち込まない。担当ごとに、その担当の入力だけから判断する。
-${RETURN_RULE}`
+${returnRule('内容（指摘・判定）')}`
 
 // <audit-guides> coverage-audit.js と同じ文（検査の役の結果の形・境界の規則・全体の段・計画の規則・全文レビュー・GUIDES・QUOTED）
 const READ_RESULT = `- seen: 観点ごとにちょうど 1 つ { lens, answer, quote }。answer は found（指摘がある）・checked（手続きで確かめ、指摘が無い）・not_applicable（この単位に手続きが列挙するものが無い）。どの answer にも、確かめた箇所の逐語の引用を quote に付ける。

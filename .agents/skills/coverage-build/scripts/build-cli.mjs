@@ -250,6 +250,11 @@ function closeOpenAudit(L, dir, P) {
   auditIngest(dir, st.pending.call_id, [])
   if (P) for (const c of P.audit_calls || []) if (c.call === st.pending.call_id) c.closed = true
 }
+// 検査の呼び出しの波で claim した行を、coverage-audit の行の印（label・段・波）の起動の記録にする（claim したので起動され、返ったものとする）。
+function claimedAuditAgents(P, call) {
+  return P.launched.filter((x) => x.audit && x.audit.call === call).flatMap((W) => W.workers.filter((w) => (W.claimed || []).includes(w.id))
+    .map((w) => ({ role: w.role, label: `${w.role}-${W.audit.ids[w.id]}`, model: w.model, effort: w.effort, ok: true, stage: auditStageOf(w.stage), wave: W.audit.wave })))
+}
 // 検査の呼び出しを閉じる（coverage-audit の ingest）。agents は起動の記録を coverage-audit の行の印（label・段・波）に直したもの。
 function auditIngest(dir, call, agents) {
   const f = path.join(auditState(dir), `result-build-${call}.json`)
@@ -436,7 +441,7 @@ function launchWave(L, P, W) {
   for (const k of WAVE_KEYS) delete P[k]
   Object.assign(P, W, W.step === 'audit' ? {} : { before: hashesNow(L), started: Date.now() })
   P.rows_total += W.workers.length
-  P.launched.push({ id: W.wave_id, step: W.step, workers: W.workers, ...(W.audit ? { audit: { call: W.audit.call, wave: W.audit.wave, ids: W.audit.ids } } : {}) })
+  P.launched.push({ id: W.wave_id, step: W.step, workers: W.workers, claimed: [], ...(W.audit ? { audit: { call: W.audit.call, wave: W.audit.wave, ids: W.audit.ids } } : {}) })
 }
 const addHints = (L, dir, P) => { for (const h of hints(dir)) if (!L.hints_read.includes(h.id) && !P.hints.includes(h.id)) P.hints.push(h.id) }
 // 呼び出しの区切り（時間・行の数）。当たれば halt の理由、当たらなければ null。n は足す行の数。
@@ -612,8 +617,17 @@ function bumpTask(L, t, reason, env = false) {
   dropIntent(L, t, `試行 ${it.tries} 回で受理できなかった（${reason}）`)
   return true
 }
-// 波に進みがあったか（提出が 1 件でもあったか）。build の波も検査の波も、この CLI を通った提出の数で見る。
-const waveProgress = (P) => !!P.submits
+// 波に進みがあったか。build の波は提出が 1 件でもあったか。検査の波は coverage-audit の waveProgress と同じ数え方
+// （全文レビューは環境の失敗に数えないので進みとする・全体の段は claim か受理・読む段は提出・計画の段は受理。数はこの CLI を通った claim と提出）。
+const AUDIT_READ_STEPS = ['file', 'retro']
+function waveProgress(P) {
+  if (P.step !== 'audit') return !!P.submits
+  const st = auditStageOf(P.workers[0] && P.workers[0].stage)
+  if (st === 'full_review') return true
+  if (st === 'global') return !!P.claims || !!P.accepted
+  if (AUDIT_READ_STEPS.includes(st)) return !!P.submits
+  return !!P.accepted
+}
 // 今の build の波の会計を締める（波の境目: 次の波の最初の claim と、呼び出しを閉じる ingest）。中身は前の形の呼び出しの閉じ方（closeCall）と同じで、
 // それを波ごとに流す（開始の hash と書いてよい paths は波ごと）。出し終えていない担当のうち、手を付けた（query か submit のあった）担当だけを試行に数える。
 // claim は自分の行の担当を一度に返すので、時間の上限などで手を付けずに終わった担当は数えない（次の波か呼び出しで渡る）。
@@ -770,6 +784,8 @@ function cmdClaim(o) {
     if (at === 'old') return { ok: true, done: true }
     if (at === 'next') promote(L, P)
     if (!P.claimed_rows.includes(w.id)) P.claimed_rows.push(w.id)
+    const cur = P.launched.find((x) => String(x.id) === String(P.wave_id))
+    if (cur && !cur.claimed.includes(w.id)) cur.claimed.push(w.id)
     const d = advance(L, dir)
     const gate = !d.stop && (P.step === 'audit' ? d.step === 'audit' && d.phase === P.phase : d.step === P.step && d.task === P.task)
     if (!gate) staleWave(P)
@@ -822,8 +838,9 @@ function auditClaim(L, dir, P, w) {
       const entry = (P.audit_calls || []).find((x) => x.call === A.call)
       const st = audit('status', ['--state', auditState(dir)])
       if (st.pending && st.pending.call_id === A.call) {
-        // 止まった検査の呼び出しを閉じる（この時点では起動の記録が無いので、起動の記録は build の台帳の agents にだけ残る）。
-        auditIngest(dir, A.call, [])
+        // 止まった検査の呼び出しを閉じる。この時点では Workflow の起動の記録が無いので、この呼び出しの波で claim した行を起動した役として
+        // （役・model・effort・段・成否 ok）coverage-audit の台帳に渡す（coverage-audit の起動数の上限と calls を少なく数えない）。
+        auditIngest(dir, A.call, claimedAuditAgents(P, A.call))
         if (entry) entry.closed = true
       }
       out = nextWaveOf(L, dir, P, advance(L, dir))
