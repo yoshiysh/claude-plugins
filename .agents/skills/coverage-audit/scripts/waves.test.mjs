@@ -340,6 +340,52 @@ test(`行の数の区切り: 呼び出しで出した行の和は maxAgents（${
   assert.equal(w2[0].rows.length, n - file1[0].rows.length)
 })
 
+// halt の種類: claim の done の halt は、種類の欄 halt_kind を持つ（stop: 台帳が止まる条件、time: 時間の区切り、rows: 行の数の区切り、limit: 起動数の上限）。
+// 呼ぶ側（coverage-build）は理由の文でなく、この欄で止まる条件かを判じる。
+test('halt の種類: claim の done の halt は halt_kind（stop・time・rows・limit）を持ち、next_wave の done は持たない', async (t) => {
+  const kindsOf = (log) => log.flatMap((x) => x.rec.claims).filter((c) => c && c.done && c.halt).map((c) => c.halt_kind)
+  const nexts = (log) => log.flatMap((x) => x.rec.claims).filter((c) => c && c.done && c.next_wave)
+  // stop: 1 回で complete まで流すと、最後の波の halt は止まる条件。
+  {
+    const { state } = project(t, FILES)
+    const log = []
+    await driveScript(state, scriptAgent(noProposalAct({ facts: FACTS }), log), { maxSteps: 3 })
+    assert.ok(kindsOf(log).length && kindsOf(log).every((k) => k === 'stop'), JSON.stringify(kindsOf(log)))
+    assert.ok(nexts(log).length && nexts(log).every((c) => !('halt_kind' in c)), 'next_wave の done は halt_kind を持たない')
+  }
+  // time: 計画役の波の後に経過を区切りの外にする。
+  {
+    const { state } = project(t, FILES)
+    const T0 = 1_800_000_000_000
+    setNow(t, T0)
+    let bumped = false
+    const a = noProposalAct({ facts: FACTS, plan: (q) => { if (!bumped) { bumped = true; setNow(t, T0 + CALL_BUDGET_MS + 1) } return noProposal(q) } })
+    const log = []
+    await driveScript(state, scriptAgent(a, log), { maxSteps: 1 })
+    assert.deepEqual(kindsOf(log), ['time'])
+    setNow(t, T0)
+  }
+  // limit: 今の段の起動数の上限が計画役の 1 体で尽きる。
+  {
+    const { state } = project(t, FILES)
+    assert.equal(cli('config', '--state', state, '--max-agents-total', '1').code, 0)
+    const log = []
+    await driveScript(state, scriptAgent(noProposalAct({ facts: FACTS }), log), { maxSteps: 1 })
+    assert.deepEqual(kindsOf(log), ['limit'])
+  }
+  // rows: 1 回の呼び出しで出した行の和が maxAgents に達する。
+  {
+    const d = tmp(t)
+    const roles = rolesFile(d, { file_reader: 4000 })
+    const n = C.LIMITS.maxAgents + 2
+    const files = Object.fromEntries(Array.from({ length: n }, (_, i) => [`f${String(i).padStart(3, '0')}.md`, sizedDoc(`f${i}`, 1500)]))
+    const { state } = project(t, files, { extra: ['--roles', roles] })
+    const log = []
+    await driveScript(state, scriptAgent(noProposalAct({ facts: () => ({ bind: false }) }), log), { maxSteps: 1 })
+    assert.ok(kindsOf(log).length && kindsOf(log).every((k) => k === 'rows'), JSON.stringify(kindsOf(log)))
+  }
+})
+
 // ---------------- ingest の起動の記録 ----------------
 
 test('ingest: 起動の記録の stage・wave・model・effort を台帳に取り込み、model・effort が波の記録と違う起動は出来事に残す', async (t) => {

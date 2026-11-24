@@ -12,7 +12,7 @@ import {
   AUDIT_PHASES, C, MAX_ATTEMPTS, PHASES, TASK_ROLE, addEvent, attemptKey, decide, depsDone, dropIntent, dueEvents, dueGroups, examinedIntents, goalIds, implPending, importAudit, newLedger,
   applyRedo, ownedPaths, ownerOf, packUnits, queuedIntents, readGoalFiles, redoSummary, renderDesign, route, rowIdsOf, settleRetro, sha, skippedAudits, submitTask, taskTitle, testsTodo, unitList, coverIds,
 } from './build-core.mjs'
-import { framePathProblems, main as auditMain } from '../../coverage-audit/scripts/ledger-cli.mjs'
+import { closeCall as auditCloseCall, framePathProblems, load as auditLoad, main as auditMain, noProgress as auditNoProgress, recordCall as auditRecordCall, save as auditSave, withLock as auditWithLock } from '../../coverage-audit/scripts/ledger-cli.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = path.dirname(HERE)
@@ -26,7 +26,7 @@ const KNOWN = {
   init: ['state', 'mode', 'repo', 'goal', 'request', 'decisions', 'criteria', 'constraints', 'input', 'target', 'check', 'roles', 'max-cycles', 'max-agents-total', 'max-unit-rounds', 'audit-phases'],
   next: ['state'], ingest: ['state', 'call', 'result'], 'run-checks': ['state'], status: ['state'],
   claim: ['state', 'call', 'worker', 'wave', 'model', 'effort', 'stage'], query: ['state', 'call', 'worker', 'task', 'fact'], submit: ['state', 'call', 'worker'],
-  hint: ['state', 'text'], answer: ['state', 'id', 'text', 'file'], dismiss: ['state', 'id', 'text'], config: ['state', 'max-cycles', 'max-agents-total', 'max-unit-rounds', 'audit-phases'],
+  hint: ['state', 'text'], answer: ['state', 'id', 'text', 'file'], dismiss: ['state', 'id', 'text'], config: ['state', 'max-cycles', 'max-agents-total', 'max-unit-rounds', 'audit-phases', 'audit-max-cycles', 'audit-max-agents-total'],
 }
 function parse(argv) {
   const o = { _: [] }
@@ -56,6 +56,8 @@ function posInts(o, keys) {
   return out
 }
 const LIMIT_KEYS = [['max-cycles', 'max_cycles'], ['max-agents-total', 'max_agents_total'], ['max-unit-rounds', 'max_unit_rounds']]
+// 検査の台帳（coverage-audit）の上限。build の config で受け、検査の台帳の config（--max-cycles・--max-agents-total）に渡す。
+const AUDIT_LIMIT_KEYS = [['audit-max-cycles', 'max-cycles'], ['audit-max-agents-total', 'max-agents-total']]
 // 検査を挟む段（--audit-phases）。baseline・design・impl の名前をカンマで並べる。知らない名前・空は拒む（台帳を作らない・変えない）。
 function auditPhasesOf(o) {
   if (o['audit-phases'] === undefined) return null
@@ -134,6 +136,19 @@ function withLock(dir, fn) {
     let held = null
     try { held = readFileSync(file, 'utf8') } catch (e) { if (e.code !== 'ENOENT') throw e }
     if (held === token) rmSync(file, { force: true })
+  }
+}
+// 役の claim・query・submit の lock の待ち。claim は次の波を作るときに、検査の台帳の init・reframe・next（対象の全ての読み直しと写し）と取り込みを
+// lock の中で流すので、対象が大きいと LOCK_WAIT_MS（withLock の 1 回の待ち）を超えうる。超えて拒むと役は担当を出さずに終わる（提出を失う）ので、
+// 役のコマンドは、lock が取れない Fail だけを、1 体の時間の上限（agentTimeoutMs）まで取り直す。
+const WORKER_LOCK_WAIT_MS = C.LIMITS.agentTimeoutMs
+const LOCK_BUSY = '台帳の lock を '
+function withWorkerLock(dir, fn) {
+  const t0 = Date.now()
+  for (;;) {
+    try { return withLock(dir, fn) } catch (e) {
+      if (!(e instanceof Fail) || !e.message.startsWith(LOCK_BUSY) || Date.now() - t0 >= WORKER_LOCK_WAIT_MS) throw e
+    }
   }
 }
 const abs = (L, rel) => path.join(L.repo, rel)
@@ -241,19 +256,56 @@ function ensureFrame(L, dir, phase, P) {
     closeOpenAudit(L, dir, P)
     audit('reframe', argv)
   } else audit('init', [...argv, '--goal-checked', 'coverage-build'])
+  applyAuditConfig(L, dir)
   L.audit_frame = { phase, key: F.key, target_key: keysOf(L, dir)[phase] }
 }
-// 開いたままの検査の呼び出し（波を起動していないもの）を、起動の記録なしで閉じる（reframe の前に、前の枠の呼び出しを残さない）。
+// 開いたままの検査の呼び出しを、reframe の前に閉じる（前の枠の呼び出しを残さない）。どの行も claim していない（起動されなかった）呼び出しは、
+// 会計（試行・出来事・calls・fail_streak・全文レビューの試行）に数えずに捨てる。claim のあった呼び出しは coverage-audit の ingest で閉じる。
 function closeOpenAudit(L, dir, P) {
-  const st = audit('status', ['--state', auditState(dir)])
-  if (!st.pending) return
-  auditIngest(dir, st.pending.call_id, [])
-  if (P) for (const c of P.audit_calls || []) if (c.call === st.pending.call_id) c.closed = true
+  const state = auditState(dir)
+  const call = auditWithLock(state, () => {
+    const AL = auditLoad(state)
+    const AP = AL.pending
+    if (!AP) return null
+    if ((AP.claims || 0) === 0 && (AP.waves_closed || 0) === 0) { AL.pending = null; auditSave(state, AL); return null }
+    return AP.call_id
+  })
+  if (call) auditIngest(dir, call, [])
+  if (P) for (const c of P.audit_calls || []) if (c.call === call) c.closed = true
 }
-// 検査の呼び出しの波で claim した行を、coverage-audit の行の印（label・段・波）の起動の記録にする（claim したので起動され、返ったものとする）。
-function claimedAuditAgents(P, call) {
-  return P.launched.filter((x) => x.audit && x.audit.call === call).flatMap((W) => W.workers.filter((w) => (W.claimed || []).includes(w.id))
-    .map((w) => ({ role: w.role, label: `${w.role}-${W.audit.ids[w.id]}`, model: w.model, effort: w.effort, ok: true, stage: auditStageOf(w.stage), wave: W.audit.wave })))
+// 検査が止まった（coverage-audit の claim が halt を返した）呼び出しを、その波で claim した行が全て done を受け取った後に閉じる。
+// 会計（coverage-audit の closeCall）は今締め、起動の記録（agents・calls・fail_streak）は Workflow の成否が分かる build の ingest で入れる
+// （その時に使う呼び出しの記録を entry.closed_call に控える）。coverage-audit の ingest を 2 つに分けて流すだけで、中身は変えない。
+function closeStoppedAudit(dir, entry) {
+  const state = auditState(dir)
+  auditWithLock(state, () => {
+    const AL = auditLoad(state)
+    const AP = AL.pending
+    if (!AP || AP.call_id !== entry.call) return
+    entry.closed_call = { call_id: AP.call_id, step: AP.step, launched: AP.launched, prev_submits: AP.prev_submits, submits: AP.submits, reported: AP.reported || [], progressed: !!AP.progressed, claims: AP.claims, accepted: AP.accepted, wave_id: AP.wave_id }
+    AL.hints_read.push(...(AP.hints || []))
+    auditCloseCall(AL, { env: auditNoProgress(AP, []), lost: false })
+    auditSave(state, AL)
+  })
+  entry.closed = true
+}
+// 閉じた検査の呼び出しの起動の記録を、coverage-audit の台帳に入れる（coverage-audit の recordCall。build の ingest が流す）。
+function recordStoppedAudit(dir, entry, agents) {
+  const state = auditState(dir)
+  auditWithLock(state, () => {
+    const AL = auditLoad(state)
+    const CP = entry.closed_call
+    const cur = agents.filter((a) => a.wave == null || String(a.wave) === String(CP.wave_id))
+    auditRecordCall(AL, CP, { agents, tokens: null }, !CP.progressed && auditNoProgress(CP, cur))
+    auditSave(state, AL)
+  })
+  entry.recorded = true
+}
+// build の config で受けた検査の上限を、検査の台帳に渡す（台帳がまだ無ければ、作った後に渡す）。
+function applyAuditConfig(L, dir) {
+  const c = L.audit_config || {}
+  const argv = AUDIT_LIMIT_KEYS.flatMap(([, k]) => (c[k] !== undefined ? [`--${k}`, String(c[k])] : []))
+  if (argv.length && existsSync(path.join(auditState(dir), 'ledger.json'))) audit('config', ['--state', auditState(dir), ...argv])
 }
 // 検査の呼び出しを閉じる（coverage-audit の ingest）。agents は起動の記録を coverage-audit の行の印（label・段・波）に直したもの。
 function auditIngest(dir, call, agents) {
@@ -268,7 +320,8 @@ function importStop(L, dir, phase, n) {
   const asks = AUDIT_ASKS.filter((k) => Array.isArray(n[k]) && n[k].length)
   if (!['complete', 'needs_input'].includes(n.stop) || asks.length) {
     const ids = [...(n.questions || []).map((q) => q.id), ...(n.plan_defects || []).map((x) => x.id), ...(n.target_gaps || []).map((x) => x.id), ...(n.stuck || []).map((k) => `attempts:${k}`)]
-    L.audit_halt = { phase, stop: n.stop, cause: n.cause || null, reasons: n.reasons || [], state: auditState(dir), status_path: n.status_path || null, ids, ...Object.fromEntries(asks.map((k) => [k, n[k]])) }
+    L.audit_halt = { phase, stop: n.stop, cause: n.cause || null, reasons: n.reasons || [], state: auditState(dir), status_path: n.status_path || null, ids, ...Object.fromEntries(asks.map((k) => [k, n[k]])),
+      ...(n.stop === 'limit' ? { then: `検査の上限で止まった。上限を上げるなら CLI config --state ${dir} --audit-max-agents-total N（周の上限は --audit-max-cycles N）を流してから next を流す` } : {}) }
     return
   }
   let status
@@ -436,10 +489,10 @@ const WAVE_KEYS = ['wave_id', 'step', 'task', 'phase', 'workers', 'tasks', 'audi
 const watched = (L) => [...new Set([...ownedPaths(L).map((p) => abs(L, p)), ...L.inputs, ...L.targets])]
 const hashesNow = (L) => Object.fromEntries(watched(L).map((f) => [f, fileHash(f)]))
 // 波を起動した（呼び出しを開いたか、記録した次の波の最初の claim が来た）ものとして今の波にする。行の数を呼び出しの和に足す。
-// build の波は、起動の時点の単位のファイル・入力・対象の hash（before）と時刻（started。本物の時刻）を持つ（受け持ちの外の変更は波ごとに照らす）。
+// 波は、起動の時点の単位のファイル・入力・対象の hash（before）と時刻（started。本物の時刻）を持つ（受け持ちの外の変更は波ごとに照らす。検査の波も同じ）。
 function launchWave(L, P, W) {
   for (const k of WAVE_KEYS) delete P[k]
-  Object.assign(P, W, W.step === 'audit' ? {} : { before: hashesNow(L), started: Date.now() })
+  Object.assign(P, W, { before: hashesNow(L), started: Date.now() })
   P.rows_total += W.workers.length
   P.launched.push({ id: W.wave_id, step: W.step, workers: W.workers, claimed: [], ...(W.audit ? { audit: { call: W.audit.call, wave: W.audit.wave, ids: W.audit.ids } } : {}) })
 }
@@ -633,22 +686,23 @@ function waveProgress(P) {
 // claim は自分の行の担当を一度に返すので、時間の上限などで手を付けずに終わった担当は数えない（次の波か呼び出しで渡る）。
 // 書く段も書かない段も、受け持ちの外のファイルの変更を照らし、あれば出来事にする。書く段はその波で受理した単位を受け付けない。
 // 書かない段で単位の持つファイルが変わったら、その単位のテストと実装を無効にし、書く段の担当が中身を書き直すまで受理しない（tainted）。
-// 検査の波の会計は coverage-audit が持つので、ここでは締めない。順序の門で使わなくした波（stale）の担当は手放し済みなので数えない。
+// 検査の波の担当の会計は coverage-audit が持つので、ここでは受け持ちの外の変更だけを照らす（検査の役は repo を書かない段なので、書かない段と同じ扱い）。
+// 順序の門で使わなくした波（stale）の、取られなかった担当は手放し済みなので数えない。
 function closeWave(L, P, env) {
-  if (P.step === 'audit' || !P.tasks) return
-  for (const t of P.tasks) {
+  const tasks = P.tasks || []
+  for (const t of tasks) {
     if (t.done || t.void || !t.touched) continue
     bumpTask(L, t, '提出されなかった', env)
   }
   // 同じ波の後の担当が、共有の fixture として受理済みの単位のテストのファイルを直すことがある。実装の照合は波の終わりの中身で取り直す。
-  for (const t of P.tasks.filter((x) => x.accepted && x.kind === 'tests' && L.units[x.unit])) {
+  for (const t of tasks.filter((x) => x.accepted && x.kind === 'tests' && L.units[x.unit])) {
     const u = L.units[t.unit]
     if (u.tests_for === u.design_hash) u.tests_hash = Object.fromEntries(u.tests.map((f) => [f, fileHash(abs(L, f))]))
   }
   const outside = outsideChanges(L, P)
   if (outside.length) {
-    addEvent(L, { stage: P.step, kind: 'write_outside', text: `受け持ちの外のファイルが変わった: ${outside.join(', ')}（${WRITE_STEPS.includes(P.step) ? 'この波で受理した単位を受け付けない' : 'そのファイルを持つ単位のテストと実装を書く段で書き直す'}）` })
-    for (const t of P.tasks.filter((x) => x.accepted && WRITE_STEPS.includes(x.kind) && L.units[x.unit])) {
+    addEvent(L, { stage: P.step === 'audit' ? `audit:${P.phase}` : P.step, kind: 'write_outside', text: `受け持ちの外のファイルが変わった: ${outside.join(', ')}（${WRITE_STEPS.includes(P.step) ? 'この波で受理した単位を受け付けない' : 'そのファイルを持つ単位のテストと実装を書く段で書き直す'}）` })
+    for (const t of tasks.filter((x) => x.accepted && WRITE_STEPS.includes(x.kind) && L.units[x.unit])) {
       const u = L.units[t.unit]
       if (t.kind === 'tests') Object.assign(u, { tests_for: null, tests_hash: {} })
       else Object.assign(u, { impl_for: null, impl_hash: {} })
@@ -676,12 +730,13 @@ function promote(L, P) {
   launchWave(L, P, P.next)
   P.next = null
 }
-// 段が変わった（記録した波の段が、その時の decide の段と合わない）波を使わなくする。まだ出し終えていない担当を、試行に数えずに手放す
-// （順序の門。前の段の担当を、段が変わった後に渡さない）。検査の波の担当は coverage-audit の呼び出しに残り、ingest が閉じる。
+// 段が変わった（記録した波の段が、その時の decide の段と合わない）波を使わなくする。まだ取られていない担当を、試行に数えずに手放す
+// （順序の門。前の段の担当を、段が変わった後に渡さない）。既に渡した担当は手放さない: その提出は submit が照らし、受理か理由つきの拒否になる
+// （出さずに終われば、波を締めるときに試行に数える）。検査の波の担当は coverage-audit の呼び出しに残り、ingest が閉じる。
 function staleWave(P) {
   if (P.stale) return
   P.stale = true
-  for (const t of P.tasks || []) if (!t.done) { t.done = true; t.void = true }
+  for (const t of P.tasks || []) if (!t.done && !t.claimed) { t.done = true; t.void = true }
 }
 // 今の波に、まだ done を受け取っていない行が取れる担当が残っているか（残っていれば、その行が取るので次の波を決めない）。
 function pendingWork(P) {
@@ -712,17 +767,18 @@ function cmdIngest(o) {
     recordCall(L, P, r, allFailed)
     L.hints_read.push(...P.hints)
     for (const c of P.audit_calls || []) {
-      if (c.closed) continue
+      if (c.closed && (c.recorded || !c.closed_call)) continue
       const waves = P.launched.filter((x) => x.audit && x.audit.call === c.call)
       if (!waves.length) continue
-      const st = audit('status', ['--state', auditState(dir)])
-      if (!st.pending || st.pending.call_id !== c.call) continue
       const mine = ag.flatMap((a) => {
         const W = waves.find((x) => String(x.id) === String(a.wave))
         if (!W) return []
         const row = W.workers.find((w) => `${w.role}-${w.id}` === a.label) || W.workers.find((w) => w.role === a.role)
         return row ? [{ role: a.role, label: `${a.role}-${W.audit.ids[row.id]}`, model: a.model, effort: a.effort, ok: a.ok, stage: auditStageOf(a.stage) ?? auditStageOf(row.stage), wave: W.audit.wave }] : []
       })
+      if (c.closed) { recordStoppedAudit(dir, c, mine); continue }
+      const st = audit('status', ['--state', auditState(dir)])
+      if (!st.pending || st.pending.call_id !== c.call) continue
       auditIngest(dir, c.call, mine)
       c.closed = true
     }
@@ -764,7 +820,7 @@ const publicTask = (dir, P, t) => ({ id: t.id, kind: t.kind, result_path: result
 // 返す前に結果の path の古いファイルを消す。
 function cmdClaim(o) {
   const dir = path.resolve(need(o, 'state'))
-  return withLock(dir, () => {
+  return withWorkerLock(dir, () => {
     const L = load(dir)
     const call = need(o, 'call')
     const worker = need(o, 'worker')
@@ -834,16 +890,18 @@ function auditClaim(L, dir, P, w) {
   } else if (c.halt) {
     const lim = callLimit(L, P)
     if (lim) out = { halt: true, reason: lim }
+    // 検査の台帳が止まる条件に当たった halt（halt_kind が stop）でなければ（検査の起動数・行の数・時間の区切り）、build の呼び出しもここで区切る。
+    // 検査の呼び出しは build の ingest が Workflow の起動の記録で閉じ、次の呼び出しの coverage-audit の next が止まる理由（limit など）を返す。
+    else if (c.halt_kind !== 'stop') out = { halt: true, reason: `検査（coverage-audit）が区切った: ${c.reason}` }
     else {
-      const entry = (P.audit_calls || []).find((x) => x.call === A.call)
-      const st = audit('status', ['--state', auditState(dir)])
-      if (st.pending && st.pending.call_id === A.call) {
-        // 止まった検査の呼び出しを閉じる。この時点では Workflow の起動の記録が無いので、この呼び出しの波で claim した行を起動した役として
-        // （役・model・effort・段・成否 ok）coverage-audit の台帳に渡す（coverage-audit の起動数の上限と calls を少なく数えない）。
-        auditIngest(dir, A.call, claimedAuditAgents(P, A.call))
-        if (entry) entry.closed = true
+      // 検査の呼び出しは、この波で claim した行が全て done を受け取るまで閉じない（兄弟の行の提出を受け付け続ける）。最後の行の done で閉じ、次の決定へ進む。
+      const cur = P.launched.find((x) => String(x.id) === String(P.wave_id))
+      const waiting = ((cur && cur.claimed) || []).filter((id) => !P.done_rows.includes(id))
+      if (!waiting.length) {
+        const entry = (P.audit_calls || []).find((x) => x.call === A.call)
+        if (entry && !entry.closed) closeStoppedAudit(dir, entry)
+        out = nextWaveOf(L, dir, P, advance(L, dir))
       }
-      out = nextWaveOf(L, dir, P, advance(L, dir))
     }
   }
   save(dir, L)
@@ -890,7 +948,7 @@ function inputsOf(L, dir, P, t) {
 // query: 担当が読む入力を台帳から引く（B1）。自分の行の担当だけ。検査の波の行は coverage-audit の query に渡す（--task は複数、--fact も受ける）。
 function cmdQuery(o) {
   const dir = path.resolve(need(o, 'state'))
-  return withLock(dir, () => {
+  return withWorkerLock(dir, () => {
     const L = load(dir)
     const w = pendingWorker(L, o)
     const P = L.pending
@@ -913,7 +971,7 @@ function cmdQuery(o) {
 // 検査の波の行は coverage-audit の submit に渡し、判定の数だけ build の波の提出に数える（呼び出しの進みの判定に使う）。
 function cmdSubmit(o) {
   const dir = path.resolve(need(o, 'state'))
-  return withLock(dir, () => {
+  return withWorkerLock(dir, () => {
     const L = load(dir)
     const w = pendingWorker(L, o)
     const P = L.pending
@@ -1069,13 +1127,17 @@ function answer(dir, o, dismiss) {
 function cmdConfig(o) {
   const dir = path.resolve(need(o, 'state'))
   const config = posInts(o, LIMIT_KEYS)
+  const auditConfig = posInts(o, AUDIT_LIMIT_KEYS)
   const phases = auditPhasesOf(o)
   return withLock(dir, () => {
     const L = load(dir)
     Object.assign(L.config, config)
     if (phases) L.audit_phases = phases
+    L.audit_config = { ...(L.audit_config || {}), ...auditConfig }
+    // 検査の台帳が既にあれば今渡す（無ければ、init の後に ensureFrame が渡す）。
+    if (Object.keys(auditConfig).length) applyAuditConfig(L, dir)
     save(dir, L)
-    return { ok: true, config: L.config, audit_phases: L.audit_phases, skipped_audits: skippedAudits(L) }
+    return { ok: true, config: L.config, audit_config: L.audit_config, audit_phases: L.audit_phases, skipped_audits: skippedAudits(L) }
   })
 }
 

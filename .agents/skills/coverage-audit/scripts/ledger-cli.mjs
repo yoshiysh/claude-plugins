@@ -52,7 +52,7 @@ function posInts(o, keys) {
   return out
 }
 const ledgerPath = (dir) => path.join(dir, 'ledger.json')
-function load(dir) {
+export function load(dir) {
   if (!existsSync(ledgerPath(dir))) throw new Fail(`台帳が無い: ${ledgerPath(dir)}（init を先に流す）`)
   const L = JSON.parse(read(ledgerPath(dir)))
   if (!L.goal || !Array.isArray(L.goal.items)) throw new Fail(`台帳の形式が古い（目標の項目と引用を持たない）: ${ledgerPath(dir)}。goal.md などを 1 行 1 件・引用つきに直し、新しい stateDir で init からやり直す`)
@@ -128,7 +128,7 @@ export function withLock(dir, fn) {
   }
 }
 // 書き込みは一時ファイルからの rename で 1 回に行う（途中で落ちても壊れた台帳を残さない）。
-function save(dir, L) {
+export function save(dir, L) {
   // 確定した指摘と検証不能の指摘と束ねの群は、台帳の事実から導いた写しを findings・groups に置く（status・answer・reframe の段の記録が読む）。
   if (L.facts) {
     const B = board(L)
@@ -779,7 +779,7 @@ function closeWave(L, { env = false, lost = false } = {}) {
   }
 }
 // 呼び出しを閉じる（ingest）。今の波の会計を締め、記録したまま起動されなかった次の波は捨てる（会計に数えない。次の next が作り直す）。
-function closeCall(L, opts = {}) {
+export function closeCall(L, opts = {}) {
   closeWave(L, opts)
   L.pending = null
 }
@@ -865,13 +865,14 @@ function pendingWork(L, P) {
 // 次の波を決めて記録する（波の担当が尽きたときの claim の done に載せる）。止まる条件・時間・行の数の区切りでは halt を返す（新しい波を起動させない）。
 // 行の数は maxAgents − この呼び出しで出した行と、残りの予算に収める。同じ中身の波を既に記録していれば、それを返す（中身が変われば新しい id で記録し直す）。
 function nextWaveOf(L, dir, P, d) {
-  const halt = (reason) => ({ halt: true, reason })
-  if (d.stop) return halt(`台帳が止まる条件に当たった（${d.stop}: ${(d.reasons || []).join(' / ')}）。新しい波は起動しない。呼ぶ側は ingest の後の next で結果を受け取る`)
+  // halt_kind は halt の種類（stop: 台帳が止まる条件・time: 時間の区切り・limit: 今の段の起動数の上限・rows: 呼び出しの行の数の区切り）。呼ぶ側が理由の文でなく欄で判じる。
+  const halt = (reason, kind) => ({ halt: true, halt_kind: kind, reason })
+  if (d.stop) return halt(`台帳が止まる条件に当たった（${d.stop}: ${(d.reasons || []).join(' / ')}）。新しい波は起動しない。呼ぶ側は ingest の後の next で結果を受け取る`, 'stop')
   const elapsed = nowMs() - P.opened_at
-  if (elapsed > CALL_BUDGET_MS) return halt(`呼び出しを開いてからの経過 ${elapsed}ms が、時間の区切り timeoutMs − agentTimeoutMs（${CALL_BUDGET_MS}ms）を超えた。新しい波は起動しない。続きは次の呼び出しが進める`)
+  if (elapsed > CALL_BUDGET_MS) return halt(`呼び出しを開いてからの経過 ${elapsed}ms が、時間の区切り timeoutMs − agentTimeoutMs（${CALL_BUDGET_MS}ms）を超えた。新しい波は起動しない。続きは次の呼び出しが進める`, 'time')
   const remain = budgetRemain(L)
   const cap = Math.min(C.LIMITS.maxAgents - P.rows_total, remain)
-  if (cap <= 0) return halt(remain <= 0 ? `今の段の起動数が上限 ${L.config.max_agents_total} に達した。新しい波は起動しない。next が止まる理由を返す` : `この呼び出しで出した行の和 ${P.rows_total} が上限 maxAgents ${C.LIMITS.maxAgents} に達した。新しい波は起動しない。続きは次の呼び出しが進める`)
+  if (cap <= 0) return halt(remain <= 0 ? `今の段の起動数が上限 ${L.config.max_agents_total} に達した。新しい波は起動しない。next が止まる理由を返す` : `この呼び出しで出した行の和 ${P.rows_total} が上限 maxAgents ${C.LIMITS.maxAgents} に達した。新しい波は起動しない。続きは次の呼び出しが進める`, remain <= 0 ? 'limit' : 'rows')
   const W = makeWave(L, P, d, cap)
   if (!P.next || P.next.sig !== W.sig) { addHints(L, dir, P, d.step); P.next = { ...W, wave_id: ++L.wave_seq } }
   return { next_wave: { id: P.next.wave_id, rows: P.next.workers } }
@@ -879,7 +880,7 @@ function nextWaveOf(L, dir, P, d) {
 
 // 起動の記録を台帳に取り込む（段と波の印つき）。model・effort・段が台帳の波の記録と違う起動と、記録に無い波の起動は、欠けとして出来事に残す
 // （その起動の提出は、claim が台帳の行と照らして既に拒んでいる）。
-function recordCall(L, P, res, failed) {
+export function recordCall(L, P, res, failed) {
   const ag = Array.isArray(res.agents) ? res.agents : []
   for (const a of ag) {
     L.agents.push({ call_id: P.call_id, cycle: L.cycle, stage: a.stage ?? P.step, wave: a.wave ?? null, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
@@ -905,7 +906,7 @@ export function unwrap(v) {
 // 進みの無かった呼び出しは環境の失敗に数える: claim が 1 度も無い全体の段、提出が 1 件も無い読む段（ファイルの段・振り返り）、全ての役が欠けて受理が 0 の計画の段
 // （全体の段の行は開いた意図のある種類にだけ作るので、claim が無ければ worker が起動されていない。取った後に提出が無いのは意図の試行に数える）。
 // 役が返らなくても（時間の上限など）、受理か提出があった呼び出しは環境の失敗にしない。
-function noProgress(P, ag) {
+export function noProgress(P, ag) {
   const accepted = P.accepted || 0
   // 全文レビューの失敗は止める理由にしない（網羅はファイルの段が持つ。設計「段の構成」の全文レビュー）。
   if (P.step === FULL_REVIEW) return false
