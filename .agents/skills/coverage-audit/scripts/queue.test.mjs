@@ -71,8 +71,8 @@ test('workers: ファイルの段は詰め合わせ 1 つに 1 体で、行は�
   const fiveArgs = review(five.state).args
   const rows = rowsOf(fiveArgs)
   assert.equal(rows.length, 1, '小さい 5 単位は 1 つの詰め合わせ（1 体）')
-  // 行の key: 波の行は段（stage）も持つ（実装の前の形は {id, role, model, effort}）。
-  const keys = fiveArgs.wave ? ['effort', 'id', 'model', 'role', 'stage'] : ['effort', 'id', 'model', 'role']
+  // 行の key: 波の行は段（stage）も持つ。
+  const keys = ['effort', 'id', 'model', 'role', 'stage']
   assert.ok(rows.every((w) => JSON.stringify(Object.keys(w).sort()) === JSON.stringify(keys)), JSON.stringify(rows))
   const three = await qsetup(t, { n: 3, workers: null, big: true })
   const big = rowsOf(review(three.state).args)

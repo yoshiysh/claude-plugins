@@ -1,6 +1,5 @@
 // 台帳の lock（stateDir/build.lock）の契約: 台帳を書くコマンドを直列にし、取得ごとの token を書き、token を書けなかったときは自分が作った lock を消す。
-// 写しの元は coverage-audit の ledger-cli.mjs の withLock（写しの一致は tests/coverage-build-audit-copies.test.mjs が照らす）。
-// withLock は export しないので、lock を取るコマンド（next）を通して確かめる。token の書き込みは node:fs の writeSync を差し替えて観る・落とす。
+// lock は coverage-audit の ledger-cli.mjs の withLock に lock の名前（build.lock）を渡して取る。build の lock の口として、lock を取るコマンド（next）を通して確かめる。token の書き込みは node:fs の writeSync を差し替えて観る・落とす。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'

@@ -13,10 +13,10 @@ import {
 
 const ledgerText = (state) => readFileSync(path.join(state, 'build.json'), 'utf8')
 const status = (state) => cli('status', '--state', state)
-// 書き換え（波の形）: 1 つの呼び出しが段を順に流すので、役の行を持つ単位は呼び出しでなく波（wavesOf）。
+// 1 つの呼び出しが段を順に流すので、役の行を持つ単位は呼び出しでなく波（wavesOf）。
 const callsWith = (launches, role) => wavesOf(launches).filter((w) => w.rows.some((x) => x.role === role))
 // 小さい対象を complete まで回す（振り返りを 1 回起こす）。
-// 書き換え（波の形）: 振り返りを起こす出来事は、偽の status の events でなく、実装レビューのファイルの段の役の最初の提出が照合に落ちることで起こす。
+// 振り返りを起こす出来事は、偽の status の events でなく、実装レビューのファイルの段の役の最初の提出が照合に落ちることで起こす。
 async function smallRun(t, over = {}, { mode = 'create' } = {}) {
   const s = setup(t, { mode })
   const r = await driveScript(s.state, act({ plan: { n: 2 }, ...over }), { auditOver: auditRejectOnce(s.state) })
@@ -36,7 +36,7 @@ test('起動数: 小さい対象（code 2・doc 1、依存なし）を complete 
 
 // ---------------- 9. 台帳の規則（B1〜B6） ----------------
 
-// 書き換え（波の形）: args は最初の波だけを持つ {state, callId, wave: {id, rows}}。行は {id, role, model, effort, stage}。次の波の行は claim の next_wave が運ぶ。
+// args は最初の波だけを持つ {state, callId, wave: {id, rows}}。行は {id, role, model, effort, stage}。次の波の行は claim の next_wave が運ぶ。
 const rowRoles = (row) => (isAuditStage(row.stage) ? AUDIT_ROLES : ROLES)
 test('9. B4 args: どの呼び出しの args もちょうど {state, callId, wave}。波の行は {id, role, model, effort, stage} で、model・effort は役の roles.json の値（検査の役は coverage-audit の roles.json）。1 つの波の役は 1 つの段に属す', async (t) => {
   const r = await smallRun(t)

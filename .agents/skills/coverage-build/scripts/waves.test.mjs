@@ -33,7 +33,7 @@ function openWave(state) {
   assert.equal(n.code, 0, JSON.stringify(n))
   assert.ok(n.args_path, `next が Workflow の呼び出しを開かない: ${JSON.stringify(n)}`)
   const args = argsOf(n)
-  assert.ok(args.wave && Array.isArray(args.wave.rows), `args に wave {id, rows} が無い（実装の前の形）: ${JSON.stringify(args)}`)
+  assert.ok(args.wave && Array.isArray(args.wave.rows), `args に wave {id, rows} が無い: ${JSON.stringify(args)}`)
   return { n, args }
 }
 // 最初の波の行（目標の照合役）を偽の役で流し、最後の claim の next_wave を返す。

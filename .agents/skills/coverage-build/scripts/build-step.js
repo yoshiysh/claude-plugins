@@ -674,23 +674,29 @@ ${g.text}${QUOTED.includes(st) ? `
 ${QUOTE_RULE}` : ''}`
 }
 
+// 行の役の prompt（検査の段の行は coverage-audit の役の prompt、build の段の行は build の役の prompt）。
+const promptFor = (w, waveId) => (auditStageOf(w.stage) ? auditPromptOf(w, waveId) : promptOf(w, waveId))
+// 行の形。build の段の行は build の役、検査の段の行は coverage-audit の段の名前（GUIDES の key）を持つ。
+const rowOk = (w) => !!w && isStr(w.id) && isStr(w.role) && isStr(w.model) && isStr(w.effort) && isStr(w.stage)
+  && (auditStageOf(w.stage) !== null ? Object.hasOwn(GUIDES, auditStageOf(w.stage)) : BUILD_STAGES.includes(w.stage) && Object.hasOwn(BUILD_GUIDES, w.role))
+
+// 波のループ。<wave-loop> 区間は coverage-audit の coverage-audit.js と同じ文（違ってよいのは rowsOk の宣言と注釈だけ）。
+// Workflow source は他の source を import できないので写しを置き、一致は tests/coverage-build-audit-guides.test.mjs が照らす。
+// <wave-loop>
 // 返り値は notes と、最後の claim が返した制御の印（next_wave_id・rows・halt。任意）だけ。
 const ROW_SCHEMA = { type: 'object', properties: { id: { type: 'string' }, role: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, stage: { type: 'string' } } }
 const WORKER_SCHEMA = { type: 'object', properties: { notes: { type: 'array', items: { type: 'string' } }, next_wave_id: { type: 'integer' }, rows: { type: 'array', items: ROW_SCHEMA }, halt: { type: 'boolean' } }, required: ['notes'] }
 // 行ごとに 1 体。モデルと effort は行の値（正本は roles.json で、CLI が行に写す）。agent の失敗（throw）も起動の記録に残す。起動の記録は段と波を持つ。
 async function launch(w, waveId) {
   const label = `${w.role}-${w.id}`
-  const prompt = auditStageOf(w.stage) ? auditPromptOf(w, waveId) : promptOf(w, waveId)
   let out = null
-  try { out = await agent(prompt, { label, phase: w.stage, schema: WORKER_SCHEMA, model: w.model, effort: w.effort }) } catch (e) { log(`${label}: agent が失敗した（${String((e && e.message) || e).slice(0, 160)}）`) }
+  try { out = await agent(promptFor(w, waveId), { label, phase: w.stage, schema: WORKER_SCHEMA, model: w.model, effort: w.effort }) } catch (e) { log(`${label}: agent が失敗した（${String((e && e.message) || e).slice(0, 160)}）`) }
   agents.push({ role: w.role, label, model: w.model, effort: w.effort, stage: w.stage, wave: waveId, ok: out != null })
   return out
 }
 
-// 波の id（CLI の連番）と行の形。build の段の行は build の役、検査の段の行は coverage-audit の段の名前（GUIDES の key）を持つ。id は波の中で重ならない。
+// 波の id（CLI の連番）と行の形（rowOk）。id は波の中で重ならない。
 const waveIdOk = (id) => Number.isSafeInteger(typeof id === 'string' && /^\d+$/.test(id) ? Number(id) : id)
-const rowOk = (w) => !!w && isStr(w.id) && isStr(w.role) && isStr(w.model) && isStr(w.effort) && isStr(w.stage)
-  && (auditStageOf(w.stage) !== null ? Object.hasOwn(GUIDES, auditStageOf(w.stage)) : BUILD_STAGES.includes(w.stage) && Object.hasOwn(BUILD_GUIDES, w.role))
 const rowsOk = (rows) => Array.isArray(rows) && rows.length > 0 && rows.every(rowOk) && new Set(rows.map((w) => w.id)).size === rows.length
 const argProblems = []
 if (!A || typeof A !== 'object') argProblems.push('args が object でない')
@@ -700,7 +706,7 @@ else {
   if (!A.wave || typeof A.wave !== 'object') argProblems.push('wave が無い')
   else {
     if (!waveIdOk(A.wave.id)) argProblems.push(`wave の id が整数でない: ${A.wave.id}`)
-    if (!rowsOk(A.wave.rows)) argProblems.push('wave の rows が {id, role, model, effort, stage} の配列でない（build の段は roles.json の役、検査の段は audit:<coverage-audit の段>。id は重ならない）')
+    if (!rowsOk(A.wave.rows)) argProblems.push('wave の rows が {id, role, model, effort, stage} の配列でない（stage は段の名前、id は重ならない）')
   }
 }
 // args が壊れていれば起動しない（起動の記録が空の呼び出しとして ingest が閉じる）。
@@ -720,4 +726,5 @@ else {
     wave = { id: Number(best.next_wave_id), rows: best.rows }
   }
 }
+// </wave-loop>
 return { agents, tokens: tokens() }

@@ -36,7 +36,7 @@ SKILL.md の手順の裏で、何がどこで決まるか。値と判定の正�
 | retro | 別の波で、計画役が意図を出し、実行役が意図を確かめ、別のモデルの検証役が受理を決める | 意図の根拠の id の実在（台帳の id）、結論の形、証拠の引用（振り返りの読めるファイルの中に逐語か）、意図の状態、巡の上限と乾き（「振り返りの探索グラフ」） |
 | route | なし | 出来事ごとの層を決め、単位の設計・テスト・実装のやり直しか、人間への返しにする（次節） |
 
-静的な照合と結果の形の正本は `scripts/build-step.js` の `// <checks>` 区間だけで、CLI（`build-core.mjs`）は同じ文を読み込んで `submit` で照らす（runner の source は import できないので、写しを持たずに 1 か所にするため）。Workflow の本体は役の結果を受け取らず、照合・やり直し・次に起動する役の判定をしない。拒んだ提出の出し直しは SKILL.md の「役とモデル」。目標の照合の静的な部分（`// <goalmap>`）は coverage-audit の Workflow source と同じ文を置き、一致は `tests/coverage-build-goalmap.test.mjs` が照らす（2 つのスキルは互いのファイルを読まないので、片方から読み込まずに同じ文の小さい関数にした）。
+静的な照合と結果の形の正本は `scripts/build-step.js` の `// <checks>` 区間だけで、CLI（`build-core.mjs`）は同じ文を読み込んで `submit` で照らす（runner の source は import できないので、写しを持たずに 1 か所にするため）。Workflow の本体は役の結果を受け取らず、照合・やり直し・次に起動する役の判定をしない。拒んだ提出の出し直しは SKILL.md の「役とモデル」。目標の照合の静的な部分（`// <goalmap>`）は coverage-audit の Workflow source と同じ文を置き、一致は `tests/coverage-build-goalmap.test.mjs` が照らす（Workflow source は他の source を import できないので、同じ文の小さい関数を両方に置いた）。
 
 目標の照合は、このスキルの 1 か所だけで行う。LLM の照合役の仕事は、利用者が求める成果を挙げて項目へ対応づけることだけで、項目が依頼に無いものを足したか・範囲を狭めたか・手順かを判定させない（判定が回ごとに揺れたので）。足していないことは init の引用の照合が静的に確かめ、落とした要求は対応の無い成果として人間に返す。目標・基準・制約・決定の記録は `answer` で直せ、直したら引用を照らし直して照合からやり直す。
 
@@ -116,7 +116,7 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 
 ## 記録と持ち越し
 
-- 役の `claim`・`query`・`submit` は、lock が取れないときに `WORKER_LOCK_WAIT_MS`（役の Bash のコマンドが流れられる時間に収める 90 秒。テストでは環境変数 `COVERAGE_BUILD_LOCK_WAIT_MS` で短くする）まで取り直し、切れたら台帳を変えずに終了状態 3 で返す（役は同じ命令を流し直し、取った担当は失われない）。`claim` は次の波を作るときに検査の台帳の init・reframe・next と取り込みを lock の中で流すので、対象が大きいと 1 回の待ち（`LOCK_WAIT_MS`）を超えうるため（終了状態 2 で拒むと、役は呼び出しが閉じたと読んで担当を出さずに終わる）。`next`・`ingest` は 1 回の待ちのまま。
+- 役の `claim`・`query`・`submit` は、lock が取れないときに `WORKER_LOCK_WAIT_MS`（役の Bash のコマンドが流れられる時間に収める 90 秒。テストでは環境変数 `COVERAGE_BUILD_LOCK_WAIT_MS` で短くする）まで取り直し、切れたら台帳を変えずに終了状態 3 で返す（役は同じ命令を流し直し、取った担当は失われない）。切れた時の lock の mtime が `LOCK_STALE_MS` より前なら、流し直しても空かないので終了状態 2 で手で消す案内を返す（coverage-audit の lock と同じ）。`claim` は次の波を作るときに検査の台帳の init・reframe・next と取り込みを lock の中で流すので、対象が大きいと 1 回の待ち（`LOCK_WAIT_MS`）を超えうるため（終了状態 2 で拒むと、役は呼び出しが閉じたと読んで担当を出さずに終わる）。`next`・`ingest` は 1 回の待ちのまま。
 - 起動ごとに役・label・指定した model・effort・成否（`agents`）、呼び出しごとに起動数・欠け・提出の数・token（`calls`）。`ingest` は `--result` のファイル（Workflow の返り値）から `agents` と `tokens` だけを読んで呼び出しを閉じ、役の出力は運ばない（役の出力は `submit` で台帳に入っている）。token は Workflow source が本体の始めと返す直前に読んだ `budget.spent()` の差（この呼び出しの消費量）で、どちらかが読めなければ（runner など）null と理由を残す。`budget.spent()` が何を数えるか（司令塔・担当の入力・出力のどれか）は確かめていないので、同じ経路の差どうしだけを比べる。
 - 台帳は run をまたいで残る。`next` のたびに設計の写しと対象の hash を取り直し、レビューと check は、取り込んだときの hash と今の hash が違う段だけをやり直す。人が実装のファイルを直した後の `next` は、check と実装レビューだけを流す。
 - 試行の回数・単位のやり直しの回数・周の数は台帳にあり、再開しても 0 に戻らない。試行に数える担当（SKILL.md の「役とモデル」）は、波の担当の `touched`（query か submit があった）で見分け、手を付けずに終わった担当は数えずに次の波か呼び出しへ渡す。段ごとの会計（出さなかった担当の試行・環境の失敗の印 `env_attempts`）は波の境目（次の波の最初の `claim` と `ingest`）で締め、起動されなかった波（`claim` が 1 回も無い波）は数えない。`fail_streak` は、どの波にも提出が無かった呼び出しだけを数える。
@@ -127,7 +127,7 @@ coverage-audit の層は `LAYER_MAP` で 3 つに写す（方針・要求 → �
 このリポジトリの Workflow の設計の型（`docs/design/skill-design-patterns.md`）から、次の点を変えている。
 
 - 運搬役を置かない。状態を書くのは CLI だけという点は守り、役が `claim`・`query`・`submit` で CLI を直接流す（内容を返り値と args で運ばない）。1 回の Workflow は、CLI が台帳に記録した次の波がある間、波を順に流す。役が返すのは CLI が記録した次の波の印（`next_wave` の id と行）か止まる印（`halt`）だけで、CLI が次の `claim` で台帳の記録に照らす（制御の印は内容でないので、運搬役にならない）。運搬役の失敗・写し違いの欠陥を作らないため（coverage-audit と同じ。設計は `docs/design/coverage-ledger-method.md` の「台帳と見たの記録」）。
-- 書き込む役（テストの担当・実装の担当）と書き込ませない役（設計の役・振り返りの役・検査の役）を、1 回の Workflow の波に並べる（`docs/design/skill-design-patterns.md` の、書き込む役だけを置く run に分ける原則から外す）。理由は host で違う。Claude Code の native Workflow では、permission rules が全ての subagent に同じく効くので、run を分けても書き込みは止められない（分けても得るものが無い）。Codex runner では run ごとの権限（read-only か workspace-write か）で書かない役の run の書き込みを止められるが、分けると段ごとに呼び出しが増えるので、事後の検出に頼る。代わりに、どの波も起動の時点の hash で受け持ちの外の変更を照らし、`write_outside` の出来事に残して、その単位を書く段で書き直させる。残る危険: 照らすのは事後で、書き込ませない役の Bash 経由の書き込みそのものは止められない（見ていないファイルの変更も検出しない）。
+- 書き込む役（テストの担当・実装の担当）と書き込ませない役（設計の役・振り返りの役・検査の役）を、1 回の Workflow の波に並べる（`docs/design/skill-design-patterns.md` の、波に並べてよい条件に従う。1 つの波には段を 1 つだけ置く）。Claude Code の native Workflow では、permission rules が全ての subagent に同じく効くので、run を分けても書き込みは止められないが、どの役の段の書き込みかの切り分けは波ごとの照合が代わる。Codex runner では run ごとの権限（read-only か workspace-write か）で書かない役の run の書き込みを止められるが、分けると段ごとに呼び出しが増えるので、事後の検出に頼る。どの波も起動の時点の hash で受け持ちの外の変更を照らし、段の付いた `write_outside` の出来事に残して、その単位を書く段で書き直させる。残る危険: 照らすのは事後で、書き込ませない役の Bash 経由の書き込みそのものは止められない（見ていないファイルの変更も検出しない）。
 - 状態の寿命を 1 run でなく、run をまたぐものにする（利用者の決定）。
 - 探索グラフは、作る作業の形ではなく振り返りに使う。作る作業は試すものの集合（単位）が方式設計で決まるので、設計と実装の段の並びは固定集合の反復型で、戻りは層への戻しだけ。
 - 計画役（方式設計）は 1 体。独立な 2 案と統合は置かず、方式設計の検証は script の静的な検査と coverage-audit の設計レビューに任せる。

@@ -1,6 +1,6 @@
 // テストの道具: 本物の Workflow source（build-step.js）を native と同じ注入で走らせ、役は担当を claim し、query の入力から結果を作って submit する偽物にする。
 // blackboard.test.mjs は自分の道具（board-fixture.mjs）を使う。ここはそれ以外のテストが使う（役の差し替えの鍵は前の形のまま: goal-check・architect・design-U1 など）。
-// 波の形（args.wave。行の stage が audit:… の行は検査の役）も受ける。検査の役は board-fixture.mjs の auditAct・auditAgent（coverage-audit の偽の役を
+// args は波の形（args.wave。行の stage が audit:… の行は検査の役）。検査の役は board-fixture.mjs の auditAct・auditAgent（coverage-audit の偽の役を
 // build-cli.mjs の口で流す）で流し、drive の audit(phase, out) が返す status の confirmed をファイルの段の指摘にする。役の返り値は最後の claim の next_wave・halt。
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -152,17 +152,10 @@ export function auditStatus({ phase, confirmed = [], unverifiable = [], skip = [
     skip: skip.map((unit) => ({ unit, reason: '試行の上限' })), references, undecided, ...section, phases: { ...others, [phase]: section },
   }
 }
-// coverage-audit が止まったときに書く status のファイル（import-audit が読む）。
-export const auditStatusPath = (auditState, phase) => path.join(auditState, `status-${phase}.json`)
-export function writeAuditStatus(auditState, phase, status) {
-  mkdirSync(auditState, { recursive: true })
-  writeFileSync(auditStatusPath(auditState, phase), JSON.stringify(status))
-}
 
 // next → Workflow / 偽の coverage-audit / run-checks → ingest --call を止まるまで回す。audit(phase, out) は status を返す。
 // steps の要素は Workflow の段が { step, task（担当の種類）, args, res, ingest }、audit は { step, phase, out, ingest }、checks は { step, ingest }。
-// 実装の前の形（next が step: audit を返す）では status を status-<段>.json に書いて import-audit を流し、1 つの呼び出しを 1 つの step にする。
-// 波の形（args.wave）では、1 つの呼び出しが段を順に流すので、step は波ごとに作る（呼び出しの区切りでなく、段の並びを今の next の順で見るため）:
+// 1 つの呼び出しが段を順に流すので、step は波ごとに作る（呼び出しの区切りでなく、段の並びを今の next の順で見るため）:
 // - build の役の波は 1 つの step。task は行の役から（TASK_OF）、args は { state, callId, stage, workers: 行（stage を除く）, wave }、res はその波の起動の記録、
 //   ingest はその呼び出しの ingest の出力。
 // - 続く検査の役の波（行の stage が audit:…）は、検査の 1 回（coverage-audit の段の始まり）ごとにまとめて 1 つの step { step: 'audit', phase, out, ingest }。
@@ -177,14 +170,6 @@ export async function drive(state, agentFn, { audit = (phase) => auditStatus({ p
   for (let i = 0; steps.length < maxSteps && i < maxSteps * 4; i++) {
     const n = cli('next', '--state', state)
     if (n.code !== 0 || n.stop) return { stop: n, steps }
-    if (n.step === 'audit') {
-      // 偽の coverage-audit が止まったときと同じく、置き場に status-<段>.json を書いてから取り込む（--status は無い）。
-      writeAuditStatus(n.audit.state, n.phase, await audit(n.phase, n))
-      const g = cli('import-audit', '--state', state)
-      steps.push({ step: 'audit', phase: n.phase, out: n, ingest: g })
-      if (g.code !== 0) return { stop: g, steps }
-      continue
-    }
     if (n.step === 'checks') {
       const g = cli('run-checks', '--state', state)
       steps.push({ step: 'checks', ingest: g })
@@ -193,19 +178,8 @@ export async function drive(state, agentFn, { audit = (phase) => auditStatus({ p
     }
     if (!n.args_path) return { stop: n, steps }
     const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-    if (!args.wave) {
-      // 実装の前の形: 1 つの呼び出しが 1 つの段。
-      let task
-      try { const P = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8')).pending; task = P && P.task } catch { task = undefined }
-      const res = await run(args, (prompt, opts) => (isAuditStage(opt(claimArgv(prompt) || [], 'stage')) ? aAgent(prompt, opts) : agentFn(prompt, opts)))
-      const rp = path.join(state, `result-${n.call_id}.json`)
-      writeFileSync(rp, JSON.stringify(wrap ? { result: res, summary: 'done', agentCount: (res.agents || []).length } : res))
-      const g = cli('ingest', '--state', state, '--call', n.call_id, '--result', rp)
-      steps.push({ step: n.step, task, args, res, ingest: g })
-      if (g.code !== 0) return { stop: g, steps }
-      continue
-    }
-    // 波の形: 波ごとに step を作る。
+    if (!args.wave || !Array.isArray(args.wave.rows)) throw new Error(`args が波の形（{ state, callId, wave: { id, rows } }）でない: ${JSON.stringify(args)}`)
+    // 波ごとに step を作る。
     const mine = []
     const rowsById = new Map([[String(args.wave.id), args.wave.rows]])
     const begun = new Set()

@@ -433,14 +433,20 @@ ${g.text}${QUOTED.includes(w.stage) ? `
 ### 引用の規則（submit が照合する）
 ${QUOTE_RULE}` : ''}`
 
+// 行の役の prompt（段の結果の形は GUIDES の段）。
+const promptFor = (w, waveId) => promptOf(w, waveId, GUIDES[w.stage])
+
+// 波のループ。<wave-loop> 区間は coverage-build の build-step.js と同じ文（違ってよいのは rowsOk の宣言と注釈だけ）。
+// Workflow source は他の source を import できないので写しを置き、一致は tests/coverage-build-audit-guides.test.mjs が照らす。
+// <wave-loop>
 // 返り値は notes と、最後の claim が返した制御の印（next_wave_id・rows・halt。任意）だけ。
 const ROW_SCHEMA = { type: 'object', properties: { id: { type: 'string' }, role: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, stage: { type: 'string' } } }
 const WORKER_SCHEMA = { type: 'object', properties: { notes: { type: 'array', items: { type: 'string' } }, next_wave_id: { type: 'integer' }, rows: { type: 'array', items: ROW_SCHEMA }, halt: { type: 'boolean' } }, required: ['notes'] }
 // 行ごとに 1 体。モデルと effort は行の値（正本は roles.json で、CLI が行に写す）。agent の失敗（throw）も起動の記録に残す。起動の記録は段と波を持つ。
-async function launch(w, waveId, g) {
+async function launch(w, waveId) {
   const label = `${w.role}-${w.id}`
   let out = null
-  try { out = await agent(promptOf(w, waveId, g), { label, phase: w.stage, schema: WORKER_SCHEMA, model: w.model, effort: w.effort }) } catch (e) { log(`${label}: agent が失敗した（${String((e && e.message) || e).slice(0, 160)}）`) }
+  try { out = await agent(promptFor(w, waveId), { label, phase: w.stage, schema: WORKER_SCHEMA, model: w.model, effort: w.effort }) } catch (e) { log(`${label}: agent が失敗した（${String((e && e.message) || e).slice(0, 160)}）`) }
   agents.push({ role: w.role, label, model: w.model, effort: w.effort, stage: w.stage, wave: waveId, ok: out != null })
   return out
 }
@@ -467,7 +473,7 @@ else {
   let wave = { id: Number(A.wave.id), rows: A.wave.rows }
   for (;;) {
     for (const st of new Set(wave.rows.map((w) => w.stage))) phase(st)
-    const outs = await parallel(wave.rows.map((w) => () => launch(w, wave.id, GUIDES[w.stage])))
+    const outs = await parallel(wave.rows.map((w) => () => launch(w, wave.id)))
     const rets = (Array.isArray(outs) ? outs : []).filter((r) => r && typeof r === 'object')
     if (rets.some((r) => r.halt === true)) { log(`波 ${wave.id} の役が止まる印を返したので、新しい波を起動しない`); break }
     const cands = rets.filter((r) => waveIdOk(r.next_wave_id))
@@ -477,4 +483,5 @@ else {
     wave = { id: Number(best.next_wave_id), rows: best.rows }
   }
 }
+// </wave-loop>
 return { agents, tokens: tokens() }

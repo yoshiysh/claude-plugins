@@ -12,13 +12,9 @@ return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, 
 // 同じ担当（目標の照合・方式設計・単位の詳細設計・テスト・実装・振り返りの計画、意図ごとの実行と検証）の欠け（提出されない・照合に落ちる）の上限。
 // 照合に落ちた提出は同じ体が出し直すので、1 回の呼び出しの中の出し直しも数える。run をまたいで数える。
 export const MAX_ATTEMPTS = 2
-// 1 体に詰める単位の、読むファイルの本文のバイト数（UTF-8）の上限。「1 体の文脈に収まらない」を判じる唯一の線で、詳細設計・テスト・実装の役が
-// 何単位を 1 体で受け持つかをこれだけで決める（設計 docs/design/coverage-ledger-method.md「モデルと費用」の起動の原則。coverage-audit の UNIT_MAX_BYTES と同じ考え方の線）。
-// 根拠: 役のモデル（roles.json の sonnet・opus）の文脈を 1M token と置く。指示・目標・台帳から引く入力・出力・推論に 3/4 を残し、単位のファイルの本文には
-// 1/4（250k token）までを当てる。token あたりのバイト数は、日本語（1 字 3 バイト）で 2〜3 バイト、英語・コードで 3〜4 バイトと置き、少ない側の 2 バイトで
-// 見積もる: 250k × 2 = 500,000 バイト。比率と、Workflow の役が 1M の文脈で走ることは実測していない（run の記録の token で見直す）。
-// build の自分の役は、まだ roles.json の context_tokens から導かず、この値を使う（検査の役の線は coverage-audit の lineOf が導く）。
-export const UNIT_MAX_BYTES = 500000
+// 1 体に詰める単位の量の線は、coverage-audit の lineOf に単位を詰める役（詳細設計・テスト・実装の役）を渡して、roles.json の context_tokens から導く
+// （build-cli.mjs の buildWave）。UNIT_MAX_BYTES は、役が context_tokens を持たないときの既定の線（テストが fixture の大きさに使う）。
+export { UNIT_MAX_BYTES } from '../../coverage-audit/scripts/ledger-core.mjs'
 export const DRY_ROUNDS = 2 // 振り返りで新しい原因が受理されない周がこの回数続いたら止める
 export const RETRO_MAX_ROUNDS = 2 // 1 回の振り返りの周の上限
 const MAX_FAIL_STREAK = 2 // 提出が 1 件も無い呼び出し（全ての役が欠けた・担当に手を付けずに返った）がこの回数続いたら止める
@@ -405,20 +401,6 @@ export function submitTask(L, t, rep, ctx) {
 export function dropIntent(L, t, reason) {
   const it = L.intents.find((x) => x.id === t.intent)
   if (it && ['queued', 'examined'].includes(it.status)) Object.assign(it, { status: 'undecided', undecided_from: it.status, why: reason })
-}
-
-// 単位の並び（ids の順）で前から、読むファイルの本文のバイト数の和が UNIT_MAX_BYTES に収まる所まで 1 体に詰める（next-fit。前に戻って詰めない）。
-// 詰め方を並びの順だけで決める（決定的。何を近いとするかの判断を置かない）。bytesOf(id) は単位のバイト数。
-export function packUnits(ids, bytesOf) {
-  const out = []
-  let cur = null
-  for (const id of ids) {
-    const n = bytesOf(id)
-    if (cur && cur.bytes + n <= UNIT_MAX_BYTES) { cur.ids.push(id); cur.bytes += n; continue }
-    cur = { ids: [id], bytes: n }
-    out.push(cur)
-  }
-  return out.map((x) => x.ids)
 }
 
 // coverage-audit の確定指摘の path。指摘は 1 つ以上の path（paths）を持ち、引用（quote）は先頭の path の単位の本文にある。

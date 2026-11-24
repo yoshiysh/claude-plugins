@@ -2,19 +2,17 @@
 // （docs/design/coverage-ledger-method.md「台帳と見たの記録」の B1〜B6 と「coverage-build の自分の Workflow にも当てる」、
 // 「モデルと費用」の起動の原則、計画 glimmering-squishing-moonbeam の「決めること」9〜12）。
 // blackboard.test.mjs だけが使う。test-harness.mjs（返り値と args で内容を運ぶ形の道具。読み込むと今の Workflow source を compile する）には依存せず、
-// setup・auditStatus・writeAuditStatus はそこから写す（source の形が変わっても、このファイルの読み込みで落ちないようにするため）。
-// coverage-audit の blackboard-fixture.mjs と同じ形を写す（2 つのスキルは互いのファイルを読まないので import しない）。
+// setup・auditStatus はそこから写す（source の形が変わっても、このファイルの読み込みで落ちないようにするため）。
+// 検査の役の偽物は coverage-audit の blackboard-fixture.mjs・plan-roles.mjs を import して使う（同じ plugin の scripts の import）。
 //
 // ここで固定する下の層の決定（変えるときはこのファイルを直す）:
 // - 役の名前は今の roles.json の key のまま: goal_checker・architect・unit_designer・test_writer・implementer・retro_planner・retro_examiner・retro_verifier。
-//   起動の数え方と結果の形は役で引く。args.stage の値と、担当の種類の名前（task.kind）は固定しない（不透明な文字列として扱う）。
+//   起動の数え方と結果の形は役で引く。担当の種類の名前（task.kind）は固定しない（不透明な文字列として扱う）。
 // - Workflow source は next の出力の workflow の path をそのまま使う（段と source の対応は固定しない）。
-// - args = { state, callId, stage, workers }。workers の行は { id, role, model, effort }（model・effort は台帳の役の値。既定は roles.json）。
-//   script は行ごとに 1 体を起動する（行の数と役が、その呼び出しの起動のすべて）。
-// - 返り値 = { agents, tokens }。agents の要素は { role, label, model, effort, ok }。
+// - args の形は下の「波の形」。行の model・effort は台帳の役の値（既定は roles.json）。script は行ごとに 1 体を起動する。
+// - 返り値 = { agents, tokens }。agents の要素は { role, label, model, effort, stage, wave, ok }。
 // - 役の prompt は、build-cli.mjs の claim の命令の行（`… build-cli.mjs claim --state S --call C --worker W`）を含む。CLI の置き場の path は固定しない。
-// - claim  --state S --call C --worker W            → { ok, done: true } | { ok, tasks: [{ id, result_path, ... }], submit_cmd }
-//   submit_cmd は `… build-cli.mjs submit --state S --call C --worker W` の形の命令（この道具は submit から後の語を流す）。
+// - claim は下の「波の形」。担当は tasks: [{ id, result_path, ... }]、submit_cmd は `… build-cli.mjs submit --state S --call C --worker W` の形の命令（この道具は submit から後の語を流す）。
 // - query  --state S --call C --worker W --task T   → { ok, inputs }。inputs は役ごとに次の欄を持つ（前の役の出力は台帳からここに出る）:
 //     goal_checker:  request（依頼文）・decisions（決定の記録か null）・item_ids（目標・基準・制約の項目の id）
 //     architect:     input_paths（読む入力の絶対 path）・cover_ids（covers に使う id）
@@ -32,9 +30,9 @@
 //     test_writer・implementer は { unit_id, written, notes, unresolved }（担当ごとに 1 単位）、
 //     retro_planner は INTENTS_SCHEMA、retro_examiner は EXAM_SCHEMA（担当ごとに意図 1 件）、retro_verifier は JUDGE_SCHEMA（担当ごとに意図 1 件）。
 //
-// 今の実装（claim が無い・ingest が --call を受けない）でも道具は throw せず、止まった出力（stop）を返す。テストが assertion で落ちるようにするため。
+// CLI が拒んでも道具は throw せず、止まった出力（stop）を返す。テストが assertion で落ちるようにするため。
 //
-// 波の形（計画 effervescent-kindling-corbato の「中心の仕組み」と「coverage-build」。道具は実装の前の形と両方を受ける）:
+// 波の形（計画 effervescent-kindling-corbato の「中心の仕組み」と「coverage-build」）:
 // - next の args: { state, callId, wave: { id, rows: [{ id, role, model, effort, stage }] } }（最初の波だけ。id は CLI の連番）
 //   build の役の行の stage は design・tests・implement・retro。検査の役の行は stage が `audit:<coverage-audit の段>`
 //   （audit:plan・audit:unit_verify・audit:full_review・audit:file・audit:global・audit:retro）、role は coverage-audit の roles.json の key。
@@ -104,7 +102,7 @@ export function cliArgvOf(text, cmd) {
 }
 export const argOf = (argv, k) => (argv && argv.includes(`--${k}`) ? argv[argv.indexOf(`--${k}`) + 1] : undefined)
 
-// ---------------- 対象と偽の coverage-audit（test-harness.mjs の setup・auditStatus・writeAuditStatus の写し） ----------------
+// ---------------- 対象と偽の coverage-audit（test-harness.mjs の setup・auditStatus の写し） ----------------
 export function tmp(t) {
   const d = mkdtempSync(path.join(tmpdir(), 'coverage-build-board-'))
   t.after(() => rmSync(d, { recursive: true, force: true }))
@@ -134,10 +132,6 @@ export function setup(t, { mode = 'create', checks = [], extra = [] } = {}) {
 export function auditStatus({ phase, events = [], stop = 'complete' } = {}) {
   const section = { findings: { confirmed: [], unverifiable: [] }, groups: [], events }
   return { phase, stopped: { stop }, pending: null, coverage: { units: 1, seen: 1, disclosed: [], pending: [] }, skip: [], references: [], undecided: [], ...section, phases: { [phase]: section } }
-}
-export function writeAuditStatus(auditState, phase, status) {
-  mkdirSync(auditState, { recursive: true })
-  writeFileSync(path.join(auditState, `status-${phase}.json`), JSON.stringify(status))
 }
 
 // ---------------- 役の既定の結果 ----------------
@@ -254,11 +248,15 @@ export async function workerLoop({ state, call, worker, role, argv = null }, a, 
 // 役の返り値（WORKER_SCHEMA）: 最後の claim の next_wave・halt をそのまま運ぶ。
 export const retOf = (rec) => (rec && rec.halt ? { notes: [], halt: true } : rec && rec.next_wave ? { notes: [], next_wave_id: rec.next_wave.id, rows: rec.next_wave.rows } : { notes: [] })
 
-// ---------------- 波の口の読み方（実装の前の形 { stage, workers } と、波の形 { wave } の両方を受ける） ----------------
-export const rowsOf = (args) => (args && args.wave ? arr(args.wave.rows) : arr(args && args.workers))
-export const waveIdOf = (args) => (args && args.wave ? args.wave.id : null)
-// 行の段（波の形は行の stage、実装の前の形は args.stage）。
-export const stageOf = (args, row = rowsOf(args)[0]) => (row && row.stage !== undefined ? row.stage : args && args.stage)
+// ---------------- 波の口の読み方（args は { state, callId, wave: { id, rows } }。形が違えば throw する） ----------------
+const waveOf = (args) => {
+  if (!args || !args.wave || !Array.isArray(args.wave.rows)) throw new Error(`args が波の形（{ state, callId, wave: { id, rows } }）でない: ${JSON.stringify(args)}`)
+  return args.wave
+}
+export const rowsOf = (args) => waveOf(args).rows
+export const waveIdOf = (args) => waveOf(args).id
+// 行の段（行の stage）。
+export const stageOf = (args, row = rowsOf(args)[0]) => row.stage
 // 行の claim の命令の argv。波の id があれば --wave・--model・--effort・--stage を足す（script が prompt に埋める形と同じ）。
 export const claimArgv = (state, call, row, waveId = null) => ['claim', '--state', state, '--call', call, '--worker', row.id,
   ...(waveId != null ? ['--wave', String(waveId), '--model', row.model, '--effort', row.effort, '--stage', row.stage] : [])]
@@ -340,9 +338,8 @@ export async function runScript(file, args, agentFn, { budget } = {}) {
 }
 
 // next → Workflow source（役は prompt の claim の命令で台帳と読み書きする）/ 偽の coverage-audit / run-checks → ingest --call を止まるまで回す。
-// audit(phase, out) は coverage-audit の status を返す。実装の前の形（next が step: audit を返す）では、それを status-<段>.json に書いて import-audit を流す。
-// 波の形では、Workflow の波に並ぶ検査の役（行の stage が audit:…）を coverage-audit の偽の役（auditAct）で流し、status の confirmed をファイルの段の指摘にする。
-// 返すのは { stop, steps, launches }。steps の要素は { step, next, args, argsText, res, ingest, launches }（audit・checks の段は { step, phase, ingest }）。
+// audit(phase, out) は coverage-audit の status を返す。Workflow の波に並ぶ検査の役（行の stage が audit:…）を coverage-audit の偽の役（auditAct）で流し、status の confirmed をファイルの段の指摘にする。
+// 返すのは { stop, steps, launches }。steps の要素は { step, next, args, argsText, res, ingest, launches }（checks の段は { step, ingest }）。
 // launches は起動した 1 体ごとの { label, model, effort, prompt, claim, call, worker, wave, role, stage, rec, error, ret }。
 // tamper(ret, entry) は役の返り値を書き換える（書き換えた next_wave を拒むテスト）。auditOver は検査の役の planAct に渡す。
 // failAgent(entry) が真なら、その役は担当を流し終えた後に返り値を返さない（Workflow は起動の記録を ok: false にする）。
@@ -381,13 +378,6 @@ export async function driveScript(state, a, { audit = null, auditOver = {}, maxS
   for (let i = 0; i < maxSteps; i++) {
     const n = cli('next', '--state', state)
     if (n.code !== 0 || n.stop) return { stop: n, steps, launches }
-    if (n.step === 'audit') {
-      writeAuditStatus(n.audit.state, n.phase, await (audit || ((phase) => auditStatus({ phase })))(n.phase, n))
-      const g = cli('import-audit', '--state', state)
-      steps.push({ step: 'audit', phase: n.phase, ingest: g })
-      if (g.code !== 0) return { stop: g, steps, launches }
-      continue
-    }
     if (n.step === 'checks') {
       const g = cli('run-checks', '--state', state)
       steps.push({ step: 'checks', ingest: g })
@@ -398,7 +388,7 @@ export async function driveScript(state, a, { audit = null, auditOver = {}, maxS
     const argsText = readFileSync(n.args_path, 'utf8')
     const args = JSON.parse(argsText)
     const w0 = waveIdOf(args)
-    for (const w of rowsOf(args)) roles.set(keyOf(args.callId, w0 == null ? null : String(w0), w.id), { ...w, stage: stageOf(args, w) })
+    for (const w of rowsOf(args)) roles.set(keyOf(args.callId, String(w0), w.id), { ...w, stage: stageOf(args, w) })
     const from = launches.length
     const res = await runScript(n.workflow, args, agentFn)
     const f = path.join(state, `result-${args.callId || n.call_id}.json`)
@@ -409,7 +399,7 @@ export async function driveScript(state, a, { audit = null, auditOver = {}, maxS
   }
   return { stop: null, steps, launches }
 }
-// 起動した 1 体ごとの記録を、波ごとに { call, wave, stage, rows: [launch] } に並べる（起動の順）。実装の前の形は 1 つの呼び出しが 1 つの波。
+// 起動した 1 体ごとの記録を、波ごとに { call, wave, stage, rows: [launch] } に並べる（起動の順）。
 export function wavesOf(launches) {
   const out = []
   for (const x of launches) {

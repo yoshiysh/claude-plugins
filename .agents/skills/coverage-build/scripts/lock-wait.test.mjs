@@ -2,7 +2,7 @@
 // - 1 回の待ちは 100 秒以内（build-cli.mjs が export する WORKER_LOCK_WAIT_MS）。環境変数 COVERAGE_BUILD_LOCK_WAIT_MS（ミリ秒）で短くできる（テスト用の口）。
 // - 待ちが切れたら終了状態 3（「lock の待ちが切れた。同じ命令を流し直す」）で返し、台帳を変えず、取った担当も失わない。流し直せば続きから進む。
 // - 役の prompt の手順に「終了状態 3 なら同じ命令を流し直す（担当は失われない）」が載る。
-// 待ちの上限を短くした子の process で流す（今の実装は 1 時間待つので、15 秒で打ち切って落とす）。
+// 待ちの上限を短くした子の process で流す（待ちが切れずに続くときは 15 秒で打ち切って落とす）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'

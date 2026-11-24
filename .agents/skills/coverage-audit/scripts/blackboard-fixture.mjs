@@ -4,7 +4,7 @@
 //
 // 固定する形（テストの前提）:
 // - next の args: { state, callId, wave: { id, rows: [{ id, role, model, effort, stage }] } }（最初の波だけ。id は CLI の連番、行の id は呼び出しの中で一意）
-//   実装の前の形 { state, callId, stage, workers: [{ id, role, model, effort }] } も道具は受ける（rowsOf・stageOf が両方を読む）。
+//   形が違う args は rowsOf・waveIdOf が throw する。
 // - claim  --state S --call C --worker W --wave N --model M --effort E --stage ST
 //          → { ok, tasks: [Task], submit_cmd } | { ok, done: true, next_wave?: { id, rows }, halt?: true, reason? }
 //   wave・worker・model・effort・stage が台帳の波の記録と違えば終了状態 2 で拒む（台帳を変えない）。
@@ -168,11 +168,15 @@ export function fileResult(task, over = {}) {
   }
 }
 
-// 波の口の読み方。args の形は新しい形（wave）と実装の前の形（stage・workers）の両方を受ける。
-export const rowsOf = (args) => (args && args.wave ? (args.wave.rows || []) : (args && args.workers) || [])
-export const waveIdOf = (args) => (args && args.wave ? args.wave.id : null)
-// 行の段（新しい形は行の stage、実装の前の形は args.stage）。
-export const stageOf = (args, row = rowsOf(args)[0]) => (row && row.stage !== undefined ? row.stage : args && args.stage)
+// 波の口の読み方（args は { state, callId, wave: { id, rows } }。形が違えば throw する）。
+const waveOf = (args) => {
+  if (!args || !args.wave || !Array.isArray(args.wave.rows)) throw new Error(`args が波の形（{ state, callId, wave: { id, rows } }）でない: ${JSON.stringify(args)}`)
+  return args.wave
+}
+export const rowsOf = (args) => waveOf(args).rows
+export const waveIdOf = (args) => waveOf(args).id
+// 行の段（行の stage）。
+export const stageOf = (args, row = rowsOf(args)[0]) => row.stage
 // 行の claim の命令の argv。波の id があれば --wave・--model・--effort・--stage を足す（script が prompt に埋める形と同じ）。
 export const claimArgv = (state, call, row, waveId = null) => ['claim', '--state', state, '--call', call, '--worker', row.id,
   ...(waveId != null ? ['--wave', String(waveId), '--model', row.model, '--effort', row.effort, '--stage', row.stage] : [])]
@@ -227,7 +231,7 @@ export function nextWaveOf(recs) {
 // 1 つの呼び出しの中では、script と同じく、返ってきた最大の id の next_wave の行で次の波を流す（halt か next_wave が無ければ終えて ingest）。
 // 返す calls は波ごとに 1 件: { next（呼び出しを開いた next の出力）, args（その呼び出しの args）, wave, stage, rows, workers, ingest（呼び出しを閉じた後に付く）}。
 // maxSteps は流す波の数の上限。until(rec) が真になった波の後は新しい波を流さずに呼び出しを閉じて返す（記録だけの波は次の next が作り直す）。
-// onCall(rec) は各波の後に呼ぶ（呼び出しの最後の波は ingest の後）。実装の前の形の args は 1 つの呼び出しを 1 つの波として流す。
+// onCall(rec) は各波の後に呼ぶ（呼び出しの最後の波は ingest の後）。
 export async function drive(state, act, { maxSteps = 40, onCall = null, exec = cli, until = null } = {}) {
   const calls = []
   let n = null
@@ -244,12 +248,12 @@ export async function drive(state, act, { maxSteps = 40, onCall = null, exec = c
       mine.push(rec)
       calls.push(rec)
       if (until && until(rec)) stop = true
-      const nw = wave.id == null ? null : nextWaveOf(rec.workers)
+      const nw = nextWaveOf(rec.workers)
       if (stop || !nw || calls.length >= maxSteps) break
       if (onCall) await onCall(rec)
       wave = { id: nw.id, rows: nw.rows || [] }
     }
-    const res = { agents: mine.flatMap((r) => r.rows.map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true, ...(r.wave != null ? { stage: w.stage, wave: r.wave } : {}) }))), tokens: null }
+    const res = { agents: mine.flatMap((r) => r.rows.map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true, stage: w.stage, wave: r.wave }))), tokens: null }
     const f = path.join(state, `result-${args.callId}.json`)
     writeFileSync(f, JSON.stringify(res))
     const g = exec('ingest', '--state', state, '--call', args.callId, '--result', f)
@@ -310,7 +314,7 @@ export async function driveScript(state, agentFn, { runWf = runScript, maxSteps 
   return { stop: null, steps }
 }
 // driveScript の steps と scriptAgent の log から、起動した 1 体ごとに { stage, role, call, wave, worker, claims, queries, submits, ret } を並べる。
-// 段は prompt の claim の --stage（実装の前の形は args.stage）、役は波の行（args の最初の波と、役が返した next_wave の行）から引く。
+// 段は prompt の claim の --stage、役は波の行（args の最初の波と、役が返した next_wave の行）から引く。
 export function launchesOf(steps, log) {
   const rows = new Map()
   const key = (call, wave, worker) => `${call}|${wave ?? ''}|${worker}`
@@ -329,10 +333,9 @@ export function launchesOf(steps, log) {
     const call = argOf(x.claim, 'call')
     const worker = argOf(x.claim, 'worker')
     const wave = argOf(x.claim, 'wave') ?? null
-    const s = steps.find((st) => st.args.callId === call)
     const row = rows.get(key(call, wave, worker))
     return {
-      stage: argOf(x.claim, 'stage') ?? (row && row.stage) ?? (s && s.args.stage), role: row && row.role, call, wave, worker, model: x.model, effort: x.effort,
+      stage: argOf(x.claim, 'stage') ?? (row && row.stage), role: row && row.role, call, wave, worker, model: x.model, effort: x.effort,
       claims: (x.rec && x.rec.claims) || [], queries: (x.rec && x.rec.queries) || [], submits: (x.rec && x.rec.submits) || [], ret: x.ret,
     }
   })
@@ -342,7 +345,7 @@ export function launchesOf(steps, log) {
 export const claimedTasks = (calls) => calls.flatMap((c, ci) => c.workers.flatMap((w) => w.claims.flatMap((cl) => (cl.tasks || []).map((t) => ({ ...t, call: ci, worker: w.worker, role: w.role })))))
 export const submitResults = (calls) => calls.flatMap((c) => c.workers.flatMap((w) => w.submits.flatMap((s) => (s.out.results || []))))
 // driveScript の steps と scriptAgent の log から、流れた波ごとに { call, wave, stage, rows: [起動した 1 体（launchesOf の形）] } を並べる（起動の順）。
-// 1 つの呼び出しが複数の段の波を流すので、段ごとの数は呼び出し（step）でなく波で数える。実装の前の形は 1 つの呼び出しが 1 つの波。
+// 1 つの呼び出しが複数の段の波を流すので、段ごとの数は呼び出し（step）でなく波で数える。
 export function wavesOf(steps, log) {
   const out = []
   for (const x of launchesOf(steps, log)) {
@@ -352,9 +355,9 @@ export function wavesOf(steps, log) {
   }
   return out
 }
-// Workflow の返り値の起動の記録（agents）の段を、起動の順に並べる（記録の stage。実装の前の形は呼び出しの args.stage）。
+// Workflow の返り値の起動の記録（agents）の段を、起動の順に並べる（記録の stage）。
 // prompt を受ける前に落ちた役（log に残らない役）も数えるときに使う。
-export const agentStages = (steps) => steps.flatMap((s) => ((s.res && s.res.agents) || []).map((a) => a.stage ?? s.args.stage))
+export const agentStages = (steps) => steps.flatMap((s) => ((s.res && s.res.agents) || []).map((a) => a.stage))
 // 手で流すテストの口: next の出力から args を読み（呼び出しの id で覚える）、worker の id から、その行の claim の命令を作って流す。
 // 行が見つからない（違う --call・行に無い worker を試す）ときは --state・--call・--worker だけを流す。
 const OPENED = new Map()

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { cli, drive, mockAgent, setup } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
 import { claimArgv } from '../.agents/skills/coverage-build/scripts/board-fixture.mjs'
 
-// 書き換え（波の形）: main session の import-audit とスキル呼び出しは無くなり、検査の役は build の呼び出しの波に並ぶ。
+// 検査の役は build の呼び出しの波に並ぶ。
 // 検査の役は偽物（board-fixture.mjs の auditAct: coverage-audit の偽の役を build-cli.mjs の口で流す）で、本物の coverage-audit の関数が台帳を作る。
 // coverage-audit の束ねの意図（確認役が取る）の偽物: 確定した指摘の事実（basis）の全件を 1 つの群に入れる。
 const GROUPING = {
@@ -78,7 +78,7 @@ import { auditStatus } from '../.agents/skills/coverage-build/scripts/test-harne
 
 const DQUOTE = '入力を受け取り、決まった値を返す。'
 const GS = 'c1:design:G1-GS'
-// 書き換え（波の形）: 群の id は本物の coverage-audit が付ける（G<周>-<id>）。設計レビューの 1 回目は周 1 なので、2 つの群とも G1-。
+// 群の id は本物の coverage-audit が付ける（G<周>-<id>）。設計レビューの 1 回目は周 1 なので、2 つの群とも G1-。
 const GX = 'c1:design:G1-XX'
 const RC_GS = '値の決め方を設計が書いていない'
 const RC_XX = '境界の約束の行が詳細設計に写されていない'
@@ -95,7 +95,7 @@ function groupedStatus(state, phase, fs, groups) {
   st.phases[phase].groups = groups
   return st
 }
-// 書き換え（波の形）: 本物の coverage-audit の束ねは 1 つの事実をちょうど 1 つの群に入れるので、波の中で流す run では指摘 B は群 G1-XX だけに入る。
+// 本物の coverage-audit の束ねは 1 つの事実をちょうど 1 つの群に入れるので、波の中で流す run では指摘 B は群 G1-XX だけに入る。
 // 2 つ以上の群を持つ指摘の取り込みは、importAudit に偽の status を渡す P14-1 のテストで確かめる。
 const THREE = [{ claim: '指摘A: 値の決め方が書かれていない', groups: ['G1-GS'] }, { claim: '指摘B: 約束の行が写されていない', groups: ['G1-XX'] }, { claim: '指摘C: 群に入らない欠陥' }]
 // 設計の段を回して、設計レビューの status を取り込んだ状態（次は retro）にする。
@@ -163,8 +163,8 @@ function planQuery(state) {
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'retro', JSON.stringify(n))
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  // 書き換え（波の形）: 行は args の最初の波、claim は行の --wave・--model・--effort・--stage を持つ命令。
-  assert.ok(args.wave, `args に wave が無い（実装の前の形）: ${JSON.stringify(args)}`)
+  // 行は args の最初の波、claim は行の --wave・--model・--effort・--stage を持つ命令。
+  assert.ok(args.wave, `args に wave が無い: ${JSON.stringify(args)}`)
   const w = args.wave.rows[0]
   assert.equal(w.role, 'retro_planner')
   const c = cli(...claimArgv(state, args.callId, w, args.wave.id))
@@ -218,7 +218,7 @@ test('P14-3: basis に群の id を書いた事実は、その群の全ての出
   assert.equal(L.intents.length, 1, '群の id を根拠にした意図を台帳に受ける')
   assert.equal(L.intents[0].status, 'accepted')
   assert.deepEqual(L.facts.map((f) => f.basis), [[GS]])
-  // 書き換え（波の形）: route は claim の時点の advance で走るので、検証役の波が尽きた claim の中で振り返りを閉じて route まで済む
+  // route は claim の時点の advance で走るので、検証役の波が尽きた claim の中で振り返りを閉じて route まで済む
   // （L.retro は route が戻す）。1 巡で終えたことは、計画役の step が 1 つで、次の next が retro を返さないことで確かめる。
   assert.equal(steps.filter((s) => s.task === 'plan').length, 1, '計画役は 1 巡だけ')
   assert.deepEqual(L.routes.map((r) => r.event).sort(), ['E1', 'E2'], 'route は呼び出しの中（claim の advance）で済み、next を待たない')
@@ -266,7 +266,7 @@ test('P14-3: CLI の submit は台帳の群の id で照らす。台帳に無い
 test('P14-4: 出来事の id・件数・kind・層・単位は、群があっても無くても同じ（groups の欄だけが増える）', async (t) => {
   const a = await afterDesignReview(t)
   const b = await afterDesignReview(t, THREE.map((f) => ({ claim: f.claim })), [])
-  // 書き換え（波の形）: ref は本物の coverage-audit の事実の id（対象の絶対 path を含む hash）なので、run ごとに値が違う。形（F<hex>）だけを比べる。
+  // ref は本物の coverage-audit の事実の id（対象の絶対 path を含む hash）なので、run ごとに値が違う。形（F<hex>）だけを比べる。
   const refShape = (ref) => (/^F[0-9a-f]+$/.test(String(ref)) ? 'F<hex>' : ref)
   const shape = (x) => ledgerOf(x.state).events.map((e) => [e.id, e.stage, e.kind, e.layer, e.unit, e.test, e.text.replaceAll(x.state, '<state>'), refShape(e.ref)])
   const withG = ledgerOf(a.state)

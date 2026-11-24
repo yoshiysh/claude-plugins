@@ -1,6 +1,5 @@
-// 書き換え（波の形）: 以前は coverage-build の next が coverage-audit の段の位置（stateDir/phase.json）を読み、同じ段の reframe を二重に発行しない（framed）ことを確かめた。
-// 検査を CLI が同じ process で流す形では argv を返す経路（framed・init_argv・reframe_argv）が無いので、段の位置のファイルが今も coverage-audit の
-// init・reframe で書かれ、検査の段ごとに今の段を指すことを確かめる（build の外から検査の段を読む口として残す）。
+// 段の位置のファイル（stateDir/audit/state/phase.json）が coverage-audit の init・reframe で書かれ、検査の段ごとに今の段を指すことを確かめる
+// （build の外から検査の段を読む口）。
 // 2 つのスキルのファイルを使うので tests/ に置く。
 import test from 'node:test'
 import assert from 'node:assert/strict'

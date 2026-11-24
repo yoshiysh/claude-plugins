@@ -20,7 +20,7 @@ test('meta: limits の写しが本体と一致し、どの段も同じ 1 つの 
   assert.deepEqual({ ...META.limits }, { ...C.LIMITS })
   assert.deepEqual([...META.requirements], ['fresh-thread', 'workspace-write'])
   assert.ok(!META.requirements.includes('read-only'), '役が台帳の外の result_path を書くので read-only は成り立たない')
-  // 書き換え（波の形）: 検査の段の波も同じ source が流すので、phases は build の 4 段を含めば足りる（検査の段の名前は固定しない）。
+  // 検査の段の波も同じ source が流すので、phases は build の 4 段を含めば足りる（検査の段の名前は固定しない）。
   for (const p of ['design', 'tests', 'implement', 'retro']) assert.ok(META.phases.some((x) => x.title === p), `phases に ${p}`)
   for (const role of ['goal_checker', 'architect', 'unit_designer', 'test_writer', 'implementer', 'retro_planner', 'retro_examiner', 'retro_verifier']) {
     assert.ok(ROLES[role] && ROLES[role].model && ROLES[role].effort && ROLES[role].why, `roles.json に ${role} の model・effort・理由がある`)
@@ -91,7 +91,7 @@ test('tokens: 呼び出しごとの tokens は担当の起動で増えた分の�
   const called = steps.filter((s) => s.res)
   assert.ok(called.length >= 4)
   assert.ok(['design', 'tests', 'implement'].every((k) => called.some((s) => s.step === k)), '書かない段と書く段の両方を通る')
-  // 書き換え（波の形）: 1 つの呼び出しが複数の波（step）を流すので、tokens は呼び出しごとに比べる。
+  // 1 つの呼び出しが複数の波（step）を流すので、tokens は呼び出しごとに比べる。
   const perCall = [...new Map(called.map((s) => [s.call || s.args.callId, s.res.tokens])).values()]
   assert.equal(consumed.length, perCall.length)
   assert.deepEqual(perCall, consumed, 'tokens は呼び出しの中で増えた分')

@@ -23,8 +23,9 @@ const MAX_FAIL_STREAK = 2 // 全ての役が欠けた呼び出しがこの回数
 export const UNIT_MAX_BYTES = 500000
 export const READER_ROLES = ['file_reader', 'full_reviewer', 'global_judge', 'confirmer']
 const bytesOfTokens = (n) => Math.floor((n / 4) * 2)
-export function lineOf(L) {
-  const ns = READER_ROLES.map((r) => L && L.roles && L.roles[r] && L.roles[r].context_tokens).filter((n) => Number.isFinite(n) && n > 0)
+// roles は線を決める役の名前（既定は READER_ROLES）。coverage-build は自分の単位を詰める役を渡し、同じ式で自分の役の線を導く。
+export function lineOf(L, roles = READER_ROLES) {
+  const ns = roles.map((r) => L && L.roles && L.roles[r] && L.roles[r].context_tokens).filter((n) => Number.isFinite(n) && n > 0)
   return ns.length ? bytesOfTokens(Math.min(...ns)) : UNIT_MAX_BYTES
 }
 // workers: 全体の段の 1 回の呼び出しで、役（判定役・確認役）ごとに起動する体数の上限（開いた意図の数より多くは起動しない）。
@@ -664,20 +665,6 @@ export function packUnitsTo(ids, bytesOf, max) {
   for (const id of ids) {
     const n = bytesOf(id)
     if (cur && cur.bytes + n <= max) { cur.ids.push(id); cur.bytes += n; continue }
-    cur = { ids: [id], bytes: n }
-    out.push(cur)
-  }
-  return out.map((x) => x.ids)
-}
-// 既定の線（UNIT_MAX_BYTES）の詰め合わせ。coverage-audit の中では使わない（この台帳の詰め合わせは、役の文脈の大きさから導く線で packUnitsTo を使う）。
-// 残すのは、coverage-build の build-core.mjs が同じ本文の写しを持ち、tests/coverage-build-audit-copies.test.mjs がこの宣言を正本として照らすため
-// （消すと写しの正本が無くなる。build が packUnitsTo に移るか import に替われば消せる）。
-export function packUnits(ids, bytesOf) {
-  const out = []
-  let cur = null
-  for (const id of ids) {
-    const n = bytesOf(id)
-    if (cur && cur.bytes + n <= UNIT_MAX_BYTES) { cur.ids.push(id); cur.bytes += n; continue }
     cur = { ids: [id], bytes: n }
     out.push(cur)
   }

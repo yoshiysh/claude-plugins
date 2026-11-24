@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C, MAX_ATTEMPTS, RETRO_MAX_ROUNDS, UNIT_MAX_BYTES, findingPath, importAudit, layerOf, retroConcluded } from './build-core.mjs'
-import { archOf, auditStatus, cli, defaultUnits, drive, mockAgent, runWorkflow, setup, writeAuditStatus } from './test-harness.mjs'
+import { archOf, auditStatus, cli, defaultUnits, drive, mockAgent, runWorkflow, setup } from './test-harness.mjs'
 import { act as boardAct, auditPos, driveScript } from './board-fixture.mjs'
 
 const OK_CHECK = ['node', '-e', 'process.exit(0)']
@@ -37,7 +37,7 @@ test('update: 設計の前に既存の対象を検査し、その結果を設計
   assert.ok(q.input_paths.some((f) => /baseline-status\.json$/.test(f)), '現状の検査の全件も、読んだかを申告する入力にする')
 })
 
-// 書き換え（波の形）: 開示（skip）は偽の status で渡せないので、coverage-audit のファイルの段の役が対象の単位を出し直しても照合に落ちる形で起こす。
+// 開示（skip）は偽の status で渡せないので、coverage-audit のファイルの段の役が対象の単位を出し直しても照合に落ちる形で起こす。
 test('update: 現状の検査が開示した見ていない単位も、設計の入力にする', async (t) => {
   // 対象を 2 つにする（受理した単位が 1 つも無い検査は開示でなく blocked で止まるので、old.mjs だけを読めない単位にする）。
   const { d, repo } = setup(t, { mode: 'update' })
@@ -110,7 +110,7 @@ test('設計の欠陥は単位と依存する単位を設計からやり直し�
   assert.ok(redo.every((x) => x.inputs.previous && x.inputs.previous.endsWith(`${x.inputs.unit.id}.md`)), '前の設計は path で渡る')
   const text = JSON.stringify(designs[1].args)
   assert.ok(!text.includes('入力を受け取り'), '前の設計の本文は args に無い')
-  // 書き換え（波の形）: drive の step の args は波ごとの見え方（行と波の id）。本物の args の key は blackboard.test.mjs の B4 が照らす。
+  // drive の step の args は波ごとの見え方（行と波の id）。本物の args の key は blackboard.test.mjs の B4 が照らす。
   assert.deepEqual(Object.keys(designs[1].args).sort(), ['callId', 'stage', 'state', 'wave', 'workers'])
   const L = ledger(state)
   assert.equal(L.units.U1.rounds, 1)
@@ -196,7 +196,7 @@ test('方式設計の入力の引用が本文に無ければ、試行に数え�
   assert.deepEqual(stop.stuck, ['arch'])
 })
 
-// 書き換え（波の形）: main session の import-audit は無くなり、取り込みは CLI の中で importAudit を流す。終わっていない検査を拒む規則と、
+// 取り込みは CLI の中で importAudit を流す。終わっていない検査を拒む規則と、
 // 引用の合わない指摘を欠陥として戻さない規則は importAudit の振る舞いなので、importAudit に偽の status を渡して確かめる。
 test('取り込み（importAudit）: 終わっていない検査を拒否し、引用の合わない指摘は欠陥として戻さず進め方の出来事にする', (t) => {
   const { state } = setup(t)
@@ -250,7 +250,7 @@ test('ingest は待っていない call_id を拒み、壊れた args の Workfl
   assert.match(cli('ingest', '--state', state, '--call', 'other', '--result', f).error, /閉じる呼び出しが違う/)
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
   const launched = []
-  // 書き換え（波の形）: 壊れた行は args の最初の波の行（wave.rows）で渡す。
+  // 壊れた行は args の最初の波の行（wave.rows）で渡す。
   const res = await runWorkflow({ ...args, wave: { id: args.wave ? args.wave.id : 1, rows: [{ id: 'g1', role: 'no_such_role', model: 'sonnet', effort: 'medium', stage: 'design' }] } }, async (p, o) => { launched.push(o.label); return { notes: [] } })
   assert.deepEqual(res, { agents: [], tokens: null })
   assert.deepEqual(launched, [])
@@ -372,7 +372,7 @@ test('answer: 質問への回答は決定の記録に足し、その回答を引
   assert.deepEqual(C.checkCited(L.constraints, C.citeSources({ request: L.request, decisions: L.decisions })), [])
 })
 
-// 書き換え（波の形）: 検査の入力は argv で返さず、CLI が同じ process で coverage-audit の台帳（stateDir/audit/state）を作る。渡したものは検査の台帳で確かめる。
+// CLI が同じ process で coverage-audit の台帳（stateDir/audit/state）を作る。渡したものは検査の台帳で確かめる。
 test('coverage-audit に渡すもの: 照合済みの印と、受け入れ基準を制約と別の欄で渡す', async (t) => {
   const { state } = setup(t)
   const { steps } = await drive(state, mockAgent(), { maxSteps: 4 })
@@ -466,8 +466,7 @@ test('answer: 回答から作る制約の id は、既にある目標・基準�
 })
 
 // ---------------- coverage-audit の台帳を 1 つに固定する（計画の 7） ----------------
-// 書き換え（波の形）: 検査の入力は argv（init_argv・reframe_argv・framed）で main session に返さず、CLI が同じ process で coverage-audit の台帳を
-// init・reframe する。置き場の固定・段ごとの reframe・段（--phase）は、検査の台帳（stateDir/audit/state）と段の位置で確かめる。
+// CLI が同じ process で coverage-audit の台帳を init・reframe する。置き場の固定・段ごとの reframe・段（--phase）は、検査の台帳（stateDir/audit/state）と段の位置で確かめる。
 const AUDIT_STATE = (state) => path.join(state, 'audit', 'state')
 const hashDirs = (state) => (existsSync(path.join(state, 'audit')) ? readdirSync(path.join(state, 'audit')).filter((f) => /^(baseline|design|impl|review)-[0-9a-f]+$/.test(f)) : [])
 const ledgerFiles = (state) => readdirSync(state, { recursive: true }).map(String).filter((f) => path.basename(f) === 'ledger.json')
@@ -524,8 +523,7 @@ test('answer で制約が足されても、coverage-audit の置き場は増え�
   assert.ok(AL.constraints.some((c) => c.text.includes('check を直す')), '足した制約を渡す')
 })
 
-// 書き換え（波の形）: framed（reframe を流す前に next を流し直しても reframe を飛ばさない）は、main session が argv を流す経路の規則だった。
-// 同じ process で流す形では、検査の途中で呼び出しが閉じたときに、次の呼び出しが同じ検査を作り直さずに続けることを確かめる。
+// 検査の途中で呼び出しが閉じたときに、次の呼び出しが同じ検査を作り直さずに続けることを確かめる。
 test('流し直し: 検査の段の途中で呼び出しが閉じても、次の呼び出しは同じ検査を段の始まりを作り直さずに続け、complete まで進む', async (t) => {
   const { state } = setup(t)
   let pos = null
@@ -541,7 +539,7 @@ test('流し直し: 検査の段の途中で呼び出しが閉じても、次の
   assert.deepEqual(resumed.pos, pos, '段の始まりを作り直さない（同じ段・同じ phase_start）')
 })
 
-// 書き換え（波の形）: 取り込みは CLI の中で、検査の台帳の今の段の status を importAudit に渡す。段ごとの取り込みの規則は importAudit で確かめる。
+// 取り込みは CLI の中で、検査の台帳の今の段の status を importAudit に渡す。段ごとの取り込みの規則は importAudit で確かめる。
 test('取り込み（importAudit）: その段の status の節だけを取り込み、前の段の節（phases の他の段）の指摘と出来事は取り込まない', (t) => {
   const { state } = setup(t)
   const L = ledger(state)
@@ -589,7 +587,7 @@ const marks = (L) => ({
   audits: Object.fromEntries(Object.entries(L.audits).map(([k, a]) => [k, a.imported])),
 })
 // 止まるまで 1 手ずつ進め、止まる直前の（route を流す next の前の）台帳を返す。
-// before は、止まる直前の step を流す前の台帳。書き換え（波の形）: route は claim の時点の advance で走るので、最後の波の役の claim の中で
+// before は、止まる直前の step を流す前の台帳。route は claim の時点の advance で走るので、最後の波の役の claim の中で
 // route が済み、その呼び出しの後の next が止まる。止まる next だけを流した回（step が無い）は、1 つ前の回の前の台帳を before にする。
 async function driveToStop(state, agentFn, opts) {
   let prev = null
@@ -814,7 +812,7 @@ test('詰める: 単位のファイルが UNIT_MAX_BYTES を超えると単位�
   const { stop, steps } = await drive(s.state, mockAgent({ architect: arch }, log))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const workerOf = (prompt) => /--worker '([^']+)'/.exec(prompt)[1]
-  // 書き換え（波の形）: 1 つの呼び出しが複数の波を流すので、起動は呼び出しと波（--wave）で引く（実装の前の形は呼び出しだけ）。
+  // 1 つの呼び出しが複数の波を流すので、起動は呼び出しと波（--wave）で引く。
   const inStep = (c) => (x) => x.prompt.includes(`--call '${c.args.callId}'`) && (c.args.wave == null || x.prompt.includes(`--wave '${c.args.wave}'`))
   const calls = steps.filter((x) => x.args)
   for (const c of calls) {
@@ -856,7 +854,7 @@ test('H1: 同じ呼び出しで U1 のテストを受理した後、後の担当
     architect: arch,
     'tests-U2': (p, o) => {
       // U1 を先に出して受理させてから、U1 のテストのファイルを fixture として直す。
-      // 書き換え（波の形）: 提出の口は prompt の claim の命令の --call・--worker から作る（台帳の pending の形に依らない）。
+      // 提出の口は prompt の claim の命令の --call・--worker から作る（台帳の pending の形に依らない）。
       const call = /--call '([^']+)'/.exec(p)[1]
       const w = /--worker '([^']+)'/.exec(p)[1]
       const r1 = cli('submit', '--state', s.state, '--call', call, '--worker', w)
@@ -876,7 +874,7 @@ const planTwo = (p, o) => (o.inputs.events.some((e) => e.kind === 'finding') ? {
 
 test('H2: 環境の失敗（実行役が手を付けて提出せずに返る）が続いて閉じた意図は undecided（退けたのではない）になり、blocked（failure）から再開すると待ちに戻って確かめ直す', async (t) => {
   const { state } = setup(t)
-  // 書き換え（波の形）: fail_streak は呼び出し全体で数える（前の波に進みのある呼び出しは数えない）。環境の失敗が続く形として、
+  // fail_streak は呼び出し全体で数える（前の波に進みのある呼び出しは数えない）。環境の失敗が続く形として、
   // 計画役が意図を出した後は、実行役と計画役の両方が手を付けて提出せずに返る（進みの無い呼び出しが続く）。
   let fail = true
   let planned = false
@@ -909,7 +907,7 @@ test('H2: 時間の上限で手を付けずに終わった意図の担当は試�
     const argv = [...line.matchAll(/'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2])
     const c = cli(...argv.slice(argv.indexOf('claim')))
     const task = c.tasks[0]
-    // 書き換え（波の形）: query と submit は --state・--call・--worker だけ（claim の --wave・--model・--effort・--stage を渡さない）。
+    // query と submit は --state・--call・--worker だけ（claim の --wave・--model・--effort・--stage を渡さない）。
     const who = ['state', 'call', 'worker'].flatMap((k) => [`--${k}`, argv[argv.indexOf(`--${k}`) + 1]])
     cli('query', ...who, '--task', task.id)
     mkdirSync(path.dirname(task.result_path), { recursive: true })

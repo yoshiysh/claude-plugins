@@ -3,7 +3,7 @@
 //
 // ここで固定する下の層の決定（変えるときはこのファイルを直す）:
 // - 役の名前: planner・unit_verifier・file_reader・global_judge・confirmer（roles.json の key）。振り返りの役の名前は固定しない（段 retro で見分ける）。
-// - 段の名前（args.stage）: plan・unit_verify・file・global・retro。束ね・反証・統合・目標の照合の段（group・refute・integrate・goal_check）は無い。
+// - 段の名前（波の行の stage）: plan・unit_verify・file・global・retro。束ね・反証・統合・目標の照合の段（group・refute・integrate・goal_check）は無い。
 // - 担当の種類（task.kind）:
 //   plan（計画役 1 体。目標の照合も担う）: query の inputs は今の plan の inputs に、目標の照合が要るときだけ request・item_ids（今の goal_check の名前）を足したもの。
 //     結果は { lenses, questions, constraint_map, outcomes?, defect_responses? }。outcomes は目標の照合が要るとき（inputs に item_ids があるとき）だけ、
@@ -43,14 +43,13 @@ export function planResult(q, { spec = { X1: {} }, outcomes = null, questions = 
     ...(Array.isArray(q.defects) ? { defect_responses: q.defects.map((d, i) => ({ defect_index: d.index ?? i, action: 'fixed', reason: '直した' })) } : {}),
   }
 }
-// 観点の検証役の結果。新しい形（inputs.lenses）と今の 1 観点の形（inputs.lens）の両方を作る。noFor(lens, key) で no にする問いを選ぶ。
+// 観点の検証役の結果（inputs.lenses の観点ごと）。noFor(lens, key) で no にする問いを選ぶ。形が違えば throw する。
 export function verifyResult(q, noFor = () => false) {
-  if (Array.isArray(q.lenses)) return { lenses: q.lenses.map((l) => unitAnswers(l, (k) => noFor(l, k))) }
-  return unitAnswers(q.lens, (k) => noFor(q.lens, k))
+  if (!q || !Array.isArray(q.lenses)) throw new Error(`観点の検証役の inputs に lenses の配列が無い: ${JSON.stringify(q)}`)
+  return { lenses: q.lenses.map((l) => unitAnswers(l, (k) => noFor(l, k))) }
 }
-// 束ねの結果。新しい形は basis の事実の id を keys にする。今の形（inputs.items の K<n>）にも答える。
+// 束ねの結果。basis の事実の id を keys にする。
 export function groupResult(q, { layer = '実装', root_cause = '確定した指摘に共通する原因' } = {}) {
-  if (q && q.inputs && Array.isArray(q.inputs.items)) return { groups: [{ id: 'g1', root_cause, layer, keys: q.inputs.items.map((x) => x.key), pattern: '', applies_to: [] }], unassigned: [] }
   const keys = ((q && q.basis) || []).map((f) => f.id)
   return { groups: [{ id: 'g1', root_cause, layer, keys }], unassigned: [] }
 }

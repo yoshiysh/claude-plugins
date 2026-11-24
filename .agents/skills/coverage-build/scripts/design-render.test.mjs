@@ -63,7 +63,7 @@ const designOf = (tweak = {}) => (p, opts) => {
   const id = /^design-(U\d+)/.exec(opts.label)[1]
   const r = SPECS[id]()
   if (tweak[id]) tweak[id](r)
-  // 書き換え（波の形）: やり直しの担当は中身を変える（本物の coverage-audit は中身の同じ単位の指摘を持ち越す）。
+  // やり直しの担当は中身を変える（本物の coverage-audit は中身の同じ単位の指摘を持ち越す）。
   r.spec = `${r.spec}${redoMark(opts.inputs)}`
   return r
 }
@@ -357,7 +357,7 @@ test('L.arch が無い台帳（方式設計の前）は拒否しない', (t) => 
 })
 
 // ---------------- 7. 設計レビューへの --link と frame ----------------
-// 書き換え（波の形）: 検査の入力は argv で返さず、CLI が同じ process で coverage-audit の台帳を init・reframe する。
+// CLI が同じ process で coverage-audit の台帳を init・reframe する。
 // 検査の 1 回ごとに（偽の検査の役が最初の担当を取る時点で audit が 1 回呼ばれる）、検査の台帳の段・link・目標の冒頭の文を残す。
 // 同じ段で観点の手続きが同じ reframe は計画をやり直さない（kept）ので、計画役の担当では数えない。findingOnce なら最初の設計レビューで U1.md に指摘を 1 件出す。
 function recorder(state, seen, { findingOnce = false } = {}) {

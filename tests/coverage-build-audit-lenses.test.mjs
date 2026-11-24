@@ -20,7 +20,7 @@ const argOf = (argv, k) => argv[argv.indexOf(`--${k}`) + 1]
 
 // ---- 観点を渡す ----
 
-// 書き換え（波の形）: 観点は argv の --lenses で main session に返さず、CLI が同じ process で coverage-audit の台帳に渡す。
+// 観点は CLI が同じ process で coverage-audit の台帳に渡す。
 // 渡った観点は、検査の役（ファイルの段）が claim で受け取る担当の lenses で確かめる（段は coverage-audit の段の位置から読む）。
 test('coverage-build: 段ごとの観点を coverage-audit に渡し、ファイルの段の担当が段ごとに違う観点を受け取る', async (t) => {
   const { state } = cb.setup(t)
@@ -143,7 +143,7 @@ test('coverage-build の経路: 設計レビュー → 直し → 設計レビ�
   const round = { n: 0 }
   // 直しの設計（2 回目の U1 の詳細設計）は本文を変える。
   let designs = 0
-  // 書き換え（波の形）: U2 は直さない単位（依存の直しで担当が回っても、中身を変えずに同じ設計を出す）。読みを持ち越す単位として残す。
+  // U2 は直さない単位（依存の直しで担当が回っても、中身を変えずに同じ設計を出す）。読みを持ち越す単位として残す。
   const agent = cb.mockAgent({ 'design-U2': (p, o) => cb.defaultResult('unit_designer', { ...o.inputs, causes: [] }), 'design-U1': () => { designs += 1; return designs > 1 ? { unit_id: 'U1', spec: '入力を受け取り、決まった値を返す。直しで境界の扱いを足した。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises: [], unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] } : undefined } })
   const statuses = []
   // 本物の coverage-audit を流す。保証は義務に結ばない（目標の判定は単位の索引と載せなかった事実から判定する）。
@@ -166,7 +166,7 @@ test('coverage-build の経路: 設計レビュー → 直し → 設計レビ�
     const quote = unitLines(u2).find(usable)
     return { verdict: 'gap', quote, findings: [{ claim: `U2 の前からの抜け（${task.intent.item}）`, locations: [{ unit: u2.id, quote }], obligation: task.intent.item, confidence: 'high', severity: 'HIGH', layer: '詳細設計' }] }
   }
-  // 書き換え（波の形）: 検査は build の呼び出しの波に並ぶ。検査の 1 回の始まりごとに audit が 1 回呼ばれるので、そこで回を数える。
+  // 検査は build の呼び出しの波に並ぶ。検査の 1 回の始まりごとに audit が 1 回呼ばれるので、そこで回を数える。
   // 結果は build が取り込んだ記録（audits の metrics と、指摘の出来事の provenance）で確かめる。
   const audit = (phase) => { round.n += 1; statuses.push(phase); return null }
   await cb.drive(state, agent, { audit, auditOver: { facts, goal }, maxSteps: 40 })

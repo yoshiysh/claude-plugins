@@ -1,5 +1,5 @@
-// 単位 5 のテスト: coverage-audit は止まったときに stateDir/status-<段>.json を書き、coverage-build の import-audit はそのファイルを path で読む
-// （司令塔が status の出力を写して --status で渡す経路を無くす）。試行の上限で開示して閉じた意図（undecided）を含む complete も取り込める。
+// 単位 5 のテスト: coverage-audit は止まったときに stateDir/status-<段>.json を書き、coverage-build の CLI は検査の結果を同じ process で取り込む。
+// 試行の上限で開示して閉じた意図（undecided）を含む complete も取り込める。
 // 設計「既存のスキルへの組み込み」の coverage-build との受け渡し（取り込み）と「完了と止める条件」の試行の上限。2 つのスキルを使うので tests/ に置く。
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -34,8 +34,7 @@ test('status-<段>.json: limit で止まったときも書き、停止の種類�
   assert.ok((s.intents || []).some((i) => i.state === 'open'), '開いたままの意図を開示する')
 })
 
-// 書き換え（波の形）: main session の import-audit は無くなり、検査の結果は build の CLI が同じ process で取り込む。
-// status-<段>.json を path で読む経路（--status を受けない・ファイルが無ければ拒む）は消えたので、取り込みの口が無いことと、
+// 検査の結果は build の CLI が同じ process で取り込む。build の CLI に取り込みの口（import-audit）が無いことと、
 // 取り込みの規則（指摘を単位へ結ぶ・判定できなかった意図を出来事にする）を、波の中で流れる本物の coverage-audit の関数で確かめる。
 const MARK = 'MARKER-設計の U1 の指摘'
 const markFacts = (p, lines) => (path.basename(p) === 'U1.md' ? { findings: [{ claim: MARK, quote: lines.find(usable), layer: '詳細設計' }] } : {})

@@ -15,7 +15,8 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const WORKFLOW = path.join(HERE, 'coverage-audit.js')
 
-class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }
+// 拒否（終了状態 2。extra.busy なら 3）。coverage-build の CLI も同じ class で投げ、同じ process で流したこの CLI の関数の拒否を自分の終了状態にする。
+export class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }
 const MULTI = ['target', 'context', 'fact', 'task']
 const KNOWN = {
   init: ['state', 'goal', 'request', 'decisions', 'criteria', 'goal-checked', 'target', 'context', 'repo', 'constraints', 'lenses', 'roles', 'seeds', 'max-cycles', 'max-agents-total', 'phase', 'link'],
@@ -69,7 +70,7 @@ export function load(dir) {
   if (!Number.isInteger(L.wave_seq) || !Array.isArray(L.contexts) || !Array.isArray(L.target_gaps) || !Object.hasOwn(L, 'repo')) throw new Fail(`台帳の形式が古い（波の連番・参照・no_target の欠陥・path を照らす基準の欄を持たない）: ${ledgerPath(dir)}。新しい stateDir で init からやり直す`)
   return L
 }
-function writeAtomic(file, text) {
+export function writeAtomic(file, text) {
   mkdirSync(path.dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, text)
@@ -77,21 +78,28 @@ function writeAtomic(file, text) {
 }
 // 役が最初の claim を流す入口（stateDir/ledger-cli.mjs）。args は {state, callId, wave} だけ（B4）で CLI の置き場を運べないので、
 // Workflow script は stateDir の下のこの名前を prompt に書く。中身は本物の CLI を絶対パスで import して流すだけで、判断も照合も持たない。
-// plugin の置き場が変わっても古い path が残らないよう、init と next のたびに書き直す。
+// plugin の置き場が変わっても古い path が残らないよう、init と next のたびに書き直す。coverage-build は自分の入口の名前と CLI の path を渡す。
 export const LAUNCHER = 'ledger-cli.mjs'
-export const launcherText = () => `// 生成物: ${LAUNCHER} が init・next のたびに書き直す。本物の CLI を流すだけ。\nimport { runMain } from ${JSON.stringify(pathToFileURL(fileURLToPath(import.meta.url)).href)}\nrunMain(process.argv.slice(2))\n`
-const writeLauncher = (dir) => writeAtomic(path.join(dir, LAUNCHER), launcherText())
-// 台帳を書くコマンドは、load から save までを stateDir/ledger.lock で囲む（並べて動く worker の claim・submit を直列にする）。
+const CLI_PATH = fileURLToPath(import.meta.url)
+export const launcherText = (name = LAUNCHER, cli = CLI_PATH) => `// 生成物: ${name} が init・next のたびに書き直す。本物の CLI を流すだけ。\nimport { runMain } from ${JSON.stringify(pathToFileURL(cli).href)}\nrunMain(process.argv.slice(2))\n`
+export const writeLauncher = (dir, name = LAUNCHER, cli = CLI_PATH) => writeAtomic(path.join(dir, name), launcherText(name, cli))
+// 台帳を書くコマンドは、load から save までを stateDir の lock（既定は ledger.lock。coverage-build は build.lock を渡す）で囲む（並べて動く worker の claim・submit を直列にする）。
 // lock は openSync の wx で取る。取れなければ短く眠って取り直し、LOCK_WAIT_MS を超えたら台帳を変えずに Fail にする。古い lock も消さない（自動で奪うと 2 つの process が同時に書く窓ができる）。
-// 止まるときの lock の mtime が LOCK_STALE_MS より前なら、落ちた process の残りかもしれないので、CLI が動いていないことを確かめてから手で消す案内を出す。
+// 止まるときの lock の mtime が LOCK_STALE_MS より前なら、落ちた process の残りかもしれず、流し直しても空かないので、busy を付けずに（終了状態 2）、
+// CLI が動いていないことを確かめてから手で消す案内を出す（lockRefusal）。
 // lock には取得ごとの token を書き、終わるときは中身が自分の token のときだけ消す（他の process の lock を消さない）。
-const LOCK_WAIT_MS = 10000
-const LOCK_STALE_MS = 60000
-const LOCK_SLEEP_MS = 20
-const nap = new Int32Array(new SharedArrayBuffer(4))
-export function withLock(dir, fn) {
+export const LOCK_WAIT_MS = 10000
+export const LOCK_STALE_MS = 60000
+export const LOCK_SLEEP_MS = 20
+export const nap = new Int32Array(new SharedArrayBuffer(4))
+// 待ちの上限の時点で lock が取れないときの拒否。age は lock の mtime からの経過、waitMs は待った時間。
+export function lockRefusal(file, age, waitMs) {
+  if (age > LOCK_STALE_MS) return new Fail(`台帳の lock を ${waitMs / 1000} 秒待っても取れない: ${file}（mtime が ${LOCK_STALE_MS / 1000} 秒より前で、落ちた process の lock が残っている可能性がある。流し直しても空かない。この台帳を使っている CLI が動いていないことを確かめてから、${file} を手で消して流し直す）`)
+  return new Fail(`台帳の lock を ${waitMs / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`, { busy: true })
+}
+export function withLock(dir, fn, name = 'ledger.lock') {
   mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, 'ledger.lock')
+  const file = path.join(dir, name)
   const t0 = Date.now()
   let fd = null
   while (fd === null) {
@@ -99,11 +107,7 @@ export function withLock(dir, fn) {
       if (e.code !== 'EEXIST') throw e
       let age = null
       try { age = Date.now() - statSync(file).mtimeMs } catch (e2) { if (e2.code === 'ENOENT') continue; throw e2 }
-      if (Date.now() - t0 >= LOCK_WAIT_MS) {
-        throw new Fail(age > LOCK_STALE_MS
-          ? `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（mtime が ${LOCK_STALE_MS / 1000} 秒より前で、落ちた process の lock が残っている可能性がある。この台帳を使っている CLI が動いていないことを確かめてから、${file} を手で消して流し直す）`
-          : `台帳の lock を ${LOCK_WAIT_MS / 1000} 秒待っても取れない: ${file}（他の process が台帳を書いている。終わってから流し直す）`, { busy: true })
-      }
+      if (Date.now() - t0 >= LOCK_WAIT_MS) throw lockRefusal(file, age, LOCK_WAIT_MS)
       Atomics.wait(nap, 0, 0, LOCK_SLEEP_MS)
     }
   }
@@ -716,7 +720,7 @@ const bump = (L, k, env) => {
 const clear = (L, k) => { delete L.attempts[k] }
 const stageOf = (a) => (a && a.retro ? 'retro' : 'file')
 // 単位を読む段（ファイルの段と振り返り）。claim は詰め合わせの単位を返し、query を拒む。
-const READ_STEPS = ['file', 'retro']
+export const READ_STEPS = ['file', 'retro']
 // 今の波の会計を締める（波の境目: 次の波の最初の claim と、呼び出しを閉じる ingest）。取ったまま提出されなかった単位は試行に数えて取りを外し、
 // 上限で理由つきの disclosed にする。提出されなかった計画の段の担当は、その鍵の試行に数える（env なら環境の失敗にも数え、blocked（failure）からの再開で戻す）。
 // 段が変わって使わなくした波（stale）の担当は、staleWave が手放し済みなので数えない。
@@ -842,7 +846,8 @@ function staleWave(L) {
   P.file_taken = Object.fromEntries(P.workers.map((w) => [w.id, true]))
 }
 // 波に進みがあったか（受理・提出。全体の段は claim も。全文レビューは環境の失敗に数えないので進みとする）。noProgress の裏返しで、起動の記録を使わない。
-function waveProgress(P) {
+// coverage-build も検査の波の進みをこの関数で判じる（P.step に検査の段、claims・submits・accepted に build の CLI を通った数を入れて渡す）。
+export function waveProgress(P) {
   if (P.step === FULL_REVIEW) return true
   if (P.step === 'global') return !!P.claims || !!P.accepted
   if (READ_STEPS.includes(P.step)) return !!P.submits
@@ -880,23 +885,30 @@ function nextWaveOf(L, dir, P, d) {
 
 // 起動の記録を台帳に取り込む（段と波の印つき）。model・effort・段が台帳の波の記録と違う起動と、記録に無い波の起動は、欠けとして出来事に残す
 // （その起動の提出は、claim が台帳の行と照らして既に拒んでいる）。
-export function recordCall(L, P, res, failed) {
-  const ag = Array.isArray(res.agents) ? res.agents : []
+// 起動の記録（ag）のうち、記録に無い波の起動と、model・effort・段が台帳の波の行と違う起動を、出来事の中身 { stage, label, text } で列挙する。
+// 書き込みは呼ぶ側の addEvent（coverage-build も同じ関数で列挙し、自分の出来事の形で書く）。
+export function launchMismatches(P, ag) {
+  const out = []
   for (const a of ag) {
-    L.agents.push({ call_id: P.call_id, cycle: L.cycle, stage: a.stage ?? P.step, wave: a.wave ?? null, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
     if (a.wave == null) continue
     const W = P.launched.find((x) => String(x.id) === String(a.wave))
     const row = W && (W.workers.find((w) => `${w.role}-${w.id}` === a.label) || W.workers.find((w) => w.role === a.role))
-    if (!row) addEvent(L, a.stage || P.step, 'launch_mismatch', `${a.label}（${a.model}/${a.effort}）: 起動の記録の波 ${a.wave} の行が、台帳の起動した波の記録に無い`, a.label)
-    else if (row.model !== a.model || row.effort !== a.effort || (a.stage != null && row.stage !== a.stage)) addEvent(L, row.stage, 'launch_mismatch', `${a.label}: 起動の記録（${a.stage}/${a.model}/${a.effort}）が台帳の波 ${a.wave} の行（${row.stage}/${row.model}/${row.effort}）と違う`, a.label)
+    if (!row) out.push({ stage: a.stage || P.step, label: a.label, text: `${a.label}（${a.model}/${a.effort}）: 起動の記録の波 ${a.wave} の行が、台帳の起動した波の記録に無い` })
+    else if (row.model !== a.model || row.effort !== a.effort || (a.stage != null && row.stage !== a.stage)) out.push({ stage: row.stage, label: a.label, text: `${a.label}: 起動の記録（${a.stage}/${a.model}/${a.effort}）が台帳の波 ${a.wave} の行（${row.stage}/${row.model}/${row.effort}）と違う` })
   }
+  return out
+}
+export function recordCall(L, P, res, failed) {
+  const ag = Array.isArray(res.agents) ? res.agents : []
+  for (const a of ag) L.agents.push({ call_id: P.call_id, cycle: L.cycle, stage: a.stage ?? P.step, wave: a.wave ?? null, role: a.role, label: a.label, model: a.model, effort: a.effort, ok: !!a.ok })
+  for (const x of launchMismatches(P, ag)) addEvent(L, x.stage, 'launch_mismatch', x.text, x.label)
   const tokens = typeof res.tokens === 'number' && Number.isFinite(res.tokens) ? res.tokens : null
   L.calls.push({ call_id: P.call_id, cycle: L.cycle, step: P.launched[0].step, stages: P.launched.map((x) => x.step), waves: P.launched.length, agents: ag.length, failed: ag.filter((a) => !a.ok).length, submits: P.prev_submits + (P.submits || 0), tokens, tokens_note: tokens == null ? '消費量を run の中で読めない経路（runner など）' : 'この呼び出しの budget.spent() の差' })
   L.fail_streak = failed ? L.fail_streak + 1 : 0
   for (const a of ag) if (!a.ok && !(P.reported || []).includes(`${a.wave}|${a.label}`)) addEvent(L, a.stage || P.step, 'agent_missing', `${a.label}（${a.model}/${a.effort}）が返らなかったか不正な出力だった`, a.label)
 }
 
-// native Workflow の tasks の .output（返り値を result に包んだ形）も、そのまま受け付ける。包みの判定は coverage-build の build-cli.mjs と同じ。
+// native Workflow の tasks の .output（返り値を result に包んだ形）も、そのまま受け付ける。coverage-build の CLI も同じ関数を import して使う。
 export function unwrap(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return v
   return Object.hasOwn(v, 'result') && typeof v.summary === 'string' && typeof v.agentCount === 'number' ? v.result : v
@@ -956,10 +968,9 @@ function pendingWorker(L, o) {
   if (!w) throw new Fail(`この呼び出しの workers に無い worker: ${worker}`)
   return w
 }
-const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
-const CLI_PATH = fileURLToPath(import.meta.url)
-const resultPath = (dir, call, worker, taskId) => path.join(dir, 'results', call, worker, `${sha(taskId).slice(0, 16)}.json`)
-const submitCmd = (dir, call, w) => [process.execPath, CLI_PATH, 'submit', '--state', dir, '--call', call, '--worker', w.id].map(sq).join(' ')
+export const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
+export const resultPath = (dir, call, worker, taskId) => path.join(dir, 'results', call, worker, `${sha(taskId).slice(0, 16)}.json`)
+export const submitCmd = (dir, call, w, cli = CLI_PATH) => [process.execPath, cli, 'submit', '--state', dir, '--call', call, '--worker', w.id].map(sq).join(' ')
 const fileTaskId = (unitId) => `file:${sha(unitId).slice(0, 12)}`
 const hintsOf = (dir, ids) => hints(dir).filter((h) => ids.includes(h.id))
 // ファイルの段の担当: 1 単位（写しの範囲）と、全ての観点と、義務（目標・受け入れ基準）。他の役の書き込み（事実）は返さない。
@@ -983,6 +994,20 @@ const boundTask = (dir, call, t) => ({ id: t.id, kind: t.kind, result_path: resu
 //   全体の段は、自分の種類の開いた意図を束で取る（量は query が返す入力のバイト数の和で線まで）。計画の段は、行に結んだ担当を返す。
 // 取る物が無ければ done。波のどの行にも取られていない担当が無くなった時点の done には、次の波（next_wave）か止まる印（halt と reason）を載せる。
 // 返す前に結果の path の古いファイルを消す。
+// claim の行の解決と照合: 開いた呼び出しの --call か、--wave は今の波・記録した次の波・前の波（old）のどれか、--worker はその波の行か、
+// --model・--effort・--stage は行の値か。外れたら Fail（台帳は変えていない）。coverage-build の claim も同じ関数を使う。
+export function claimRow(P, { call, worker, wave, got }) {
+  if (!P || !P.call_id) throw new Fail(`開いた呼び出しが無い（呼び出し ${call} は閉じた。worker を終える）`)
+  if (call !== P.call_id) throw new Fail(`呼び出しが違う: 今は ${P.call_id}、受け取ったのは ${call}（前の呼び出しは閉じた。worker を終える）`)
+  const at = String(P.wave_id) === wave ? 'current' : P.next && String(P.next.wave_id) === wave ? 'next' : P.launched.some((x) => String(x.id) === wave) ? 'old' : null
+  if (!at) throw new Fail(`台帳に記録の無い波: ${wave}（この呼び出しの波は ${[...P.launched.map((x) => x.id), ...(P.next ? [P.next.wave_id] : [])].join('・')}。返り値の次の波の印は書き換えずに返す）`)
+  const rows = at === 'current' ? P.workers : at === 'next' ? P.next.workers : P.launched.find((x) => String(x.id) === wave).workers
+  const w = rows.find((x) => x.id === worker)
+  if (!w) throw new Fail(`波 ${wave} の行に無い worker: ${worker}`)
+  const bad = Object.keys(got).filter((k) => got[k] !== w[k])
+  if (bad.length) throw new Fail(`claim の行の値が台帳の波 ${wave} の記録と違う: ${bad.map((k) => `--${k} ${got[k]}（記録は ${w[k]}）`).join('・')}`)
+  return { at, w }
+}
 function cmdClaim(o) {
   const dir = path.resolve(need(o, 'state'))
   return withLock(dir, () => {
@@ -992,15 +1017,7 @@ function cmdClaim(o) {
     const wave = need(o, 'wave')
     const got = { model: need(o, 'model'), effort: need(o, 'effort'), stage: need(o, 'stage') }
     const P = L.pending
-    if (!P) throw new Fail(`開いた呼び出しが無い（呼び出し ${call} は閉じた。worker を終える）`)
-    if (call !== P.call_id) throw new Fail(`呼び出しが違う: 今は ${P.call_id}、受け取ったのは ${call}（前の呼び出しは閉じた。worker を終える）`)
-    const at = String(P.wave_id) === wave ? 'current' : P.next && String(P.next.wave_id) === wave ? 'next' : P.launched.some((x) => String(x.id) === wave) ? 'old' : null
-    if (!at) throw new Fail(`台帳に記録の無い波: ${wave}（この呼び出しの波は ${[...P.launched.map((x) => x.id), ...(P.next ? [P.next.wave_id] : [])].join('・')}。返り値の次の波の印は書き換えずに返す）`)
-    const rows = at === 'current' ? P.workers : at === 'next' ? P.next.workers : P.launched.find((x) => String(x.id) === wave).workers
-    const w = rows.find((x) => x.id === worker)
-    if (!w) throw new Fail(`波 ${wave} の行に無い worker: ${worker}`)
-    const bad = Object.keys(got).filter((k) => got[k] !== w[k])
-    if (bad.length) throw new Fail(`claim の行の値が台帳の波 ${wave} の記録と違う: ${bad.map((k) => `--${k} ${got[k]}（記録は ${w[k]}）`).join('・')}`)
+    const { at, w } = claimRow(P, { call, worker, wave, got })
     // 前の波の行: その波は締めたので、担当を渡さない。
     if (at === 'old') return { ok: true, done: true }
     if (at === 'next') promote(L, dir)

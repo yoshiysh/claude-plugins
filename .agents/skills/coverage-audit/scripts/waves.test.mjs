@@ -471,6 +471,6 @@ test('道具: nextWaveOf は halt があれば null、無ければ最大の id �
   assert.equal(nextWaveOf([{ next_wave: { id: 2 } }, { next_wave: { id: 7 } }, {}]).id, 7)
   assert.equal(nextWaveOf([{}, { next_wave: null }]), null)
   assert.deepEqual(rowsOf({ wave: { id: 1, rows: [{ id: 'a' }] } }), [{ id: 'a' }])
-  assert.deepEqual(rowsOf({ workers: [{ id: 'b' }] }), [{ id: 'b' }])
+  assert.throws(() => rowsOf({ workers: [{ id: 'b' }] }), /波の形/)
   assert.equal(behave()({ kind: 'unknown' }, {}), null)
 })

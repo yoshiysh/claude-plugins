@@ -1,7 +1,7 @@
 // 全体の段の 1 回の呼び出しの起動数（設計「モデルと費用」の起動の原則）。
 // 全体の段は役の組（判定役 g と確認役 c。ledger-cli.mjs の INTENT_ROWS の 2 組）ごとに min(workers, 開いた意図の数) 行を作るので、
-// 1 回の呼び出しの起動数は最大で 組の数 × workers になる。Workflow source（coverage-audit.js）は rowsOf(args) を maxAgents で切るので、
-// 切られる行を作らないよう、CLI が次の 2 つを守る:
+// 1 回の呼び出しの起動数は最大で 組の数 × workers になる。Workflow source（coverage-audit.js）は行を切り詰めず全て起動するので、
+// 行の数を maxAgents に収めるのは CLI の責務で、CLI が次を守る:
 // - config --workers は、組の数 × workers が maxAgents を超える値を拒む（終了状態 2、台帳を変えない）。
 // - 全体の段の行の合計は、いつも min(maxAgents, 残りの予算) 以下（予算は超えてはいけない上限）。
 // - 予算が開いた組の数より少ないときは、INTENT_ROWS の並び（g が先、c が後）の順に開いた組へ 1 行ずつ割り当て、予算が尽きた組はその呼び出しで 0 行（次へ回す）。
