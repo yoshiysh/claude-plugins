@@ -2,7 +2,7 @@
 // 台帳を書く唯一の口。init → next →（Workflow が worker を起動し、worker が claim・query・submit で台帳と読み書きする）→ ingest を繰り返し、
 // next が止まる条件を返したら終わる。役の出力は返り値・args・prompt で運ばず、submit で台帳に入る（設計の B1〜B6）。
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
@@ -1278,4 +1278,5 @@ export function runMain(argv) {
   process.stdout.write(`${JSON.stringify(r.output, null, 1)}\n`)
   process.exitCode = r.code
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runMain(process.argv.slice(2))
+// symlink 経由（.claude/skills -> .agents/skills）で流しても一致させる。import.meta.url は実体の path になる。
+if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)) runMain(process.argv.slice(2))
