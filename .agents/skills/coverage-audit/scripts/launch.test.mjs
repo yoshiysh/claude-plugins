@@ -7,7 +7,8 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C, MAX_ATTEMPTS, UNIT_MAX_BYTES } from './ledger-core.mjs'
-import { ROLES, cli, driveScript, project, runScript, scriptAgent, status } from './blackboard-fixture.mjs'
+import { ROLES, cli, driveScript, project, runScript, scriptAgent, status, wavesOf } from './blackboard-fixture.mjs'
+import { proc, procQuote } from './plan-roles.mjs'
 import { GONE_ROLES, GONE_STAGES, NEW_ROLES, act, driveUntil, launchesOf, sizedDoc, standalone, workersOf } from './launch-fixture.mjs'
 
 const QA = 'この文書は台帳の lock を取ってから書き込むことを保証する。'
@@ -34,7 +35,7 @@ async function fullRun(t, mode, over = {}) {
   const { state } = mode.make(t)
   const log = []
   const r = await driveScript(state, scriptAgent(smallAct(over), log), { maxSteps: 30 })
-  return { state, log, ...r, launches: launchesOf(r.steps, log) }
+  return { state, log, ...r, launches: launchesOf(r.steps, log), waves: wavesOf(r.steps, log) }
 }
 const sorted = (xs) => [...xs].sort()
 const count = (xs) => xs.reduce((m, x) => ({ ...m, [x]: (m[x] || 0) + 1 }), {})
@@ -44,16 +45,16 @@ const base = (u) => path.basename(String(u.path || u.id))
 
 for (const mode of MODES) {
   test(`起動数（${mode.name}）: 小さい対象（4 ファイル）を complete まで回すと、振り返りを除く起動は 6 体（計画 1・観点の検証 1・全文レビュー 1・ファイル 1・判定 1・確認と束ね 1）`, async (t) => {
-    const { stop, steps, state, launches } = await fullRun(t, mode)
+    const { stop, state, launches } = await fullRun(t, mode)
     assert.equal(stop.stop, 'complete', JSON.stringify(stop))
     const target = launches.filter((x) => x.stage !== 'retro')
     assert.deepEqual(sorted(target.map((x) => x.role)), sorted([...NEW_ROLES, 'full_reviewer']), `段ごとの起動: ${JSON.stringify(count(target.map((x) => `${x.stage}/${x.role}`)))}`)
-    // 起動の記録（台帳の calls）も同じ数。
-    const recorded = status(state).calls.filter((c) => c.step !== 'retro').reduce((n, c) => n + c.agents, 0)
-    assert.equal(recorded, 6, JSON.stringify(status(state).calls.map((c) => [c.step, c.agents])))
+    // 起動の記録（台帳の calls）も、起動した数と同じ（1 つの呼び出しが段をまたぐので、段では分けずに全体で数える）。
+    const recorded = status(state).calls.reduce((n, c) => n + c.agents, 0)
+    assert.equal(recorded, launches.length, JSON.stringify(status(state).calls.map((c) => [c.step, c.agents])))
     const retro = launches.filter((x) => x.stage === 'retro')
     assert.equal(retro.length, mode.retro ? 1 : 0, `振り返りは単独で呼ばれたときだけ 1 体: ${retro.length}`)
-    assert.ok(steps.every((s) => !GONE_STAGES.includes(s.args.stage)), `無くなった段: ${steps.map((s) => s.args.stage)}`)
+    assert.ok(launches.every((x) => !GONE_STAGES.includes(x.stage)), `無くなった段: ${launches.map((x) => x.stage)}`)
   })
 }
 
@@ -90,8 +91,8 @@ test('2. 束ね: 確認が全て閉じた後に CLI が group の意図を作り
 })
 
 test('2. 上の層の群: 要求の層の群は needs_input の upper_groups に出る（反証は無い）。指摘そのものは上の層でない', async (t) => {
-  const { stop, state, steps } = await fullRun(t, MODES[0], { groupOpts: { layer: '要求' } })
-  assert.ok(steps.every((s) => !GONE_STAGES.includes(s.args.stage)), `束ね・反証の段を通らない: ${steps.map((s) => s.args.stage)}`)
+  const { stop, state, launches } = await fullRun(t, MODES[0], { groupOpts: { layer: '要求' } })
+  assert.ok(launches.every((x) => !GONE_STAGES.includes(x.stage)), `束ね・反証の段を通らない: ${launches.map((x) => x.stage)}`)
   assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
   assert.ok(Array.isArray(stop.upper_groups) && stop.upper_groups.length >= 1, JSON.stringify(stop))
   assert.deepEqual(stop.upper || [], [], '確定した指摘の層は上の層でない')
@@ -102,7 +103,7 @@ test('2. 上の層の群: 要求の層の群は needs_input の upper_groups に
 test('2. 段: Workflow script は束ね・反証・統合・目標の照合の段を受けず、役を起動しない（args の検査で落ちる）', async () => {
   for (const stage of GONE_STAGES) {
     const launched = []
-    const res = await runScript({ state: '/tmp/coverage-x', callId: 'c1', stage, workers: [{ id: 'w1', role: 'planner', model: 'sonnet', effort: 'medium' }] }, async (p, o) => { launched.push(o.label); return { notes: [] } })
+    const res = await runScript({ state: '/tmp/coverage-x', callId: 'c1', wave: { id: 1, rows: [{ id: 'w1', role: 'planner', model: 'sonnet', effort: 'medium', stage }] } }, async (p, o) => { launched.push(o.label); return { notes: [] } })
     assert.deepEqual(res.agents, [], `${stage} の段で役を起動した: ${launched}`)
   }
 })
@@ -111,11 +112,11 @@ test('2. 段: Workflow script は束ね・反証・統合・目標の照合の�
 
 for (const mode of MODES) {
   test(`3. 計画の段（${mode.name}）: planner 1 体の呼び出しが 1 回だけ流れ、目標の照合役・計画役 2 体・統合役は起動しない`, async (t) => {
-    const { stop, steps, launches } = await fullRun(t, mode)
+    const { stop, waves, launches } = await fullRun(t, mode)
     assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-    const plan = steps.filter((s) => s.args.stage === 'plan')
-    assert.equal(plan.length, 1, `計画の段の呼び出し: ${steps.map((s) => s.args.stage)}`)
-    assert.deepEqual(plan[0].args.workers.map((w) => w.role), ['planner'])
+    const plan = waves.filter((s) => s.stage === 'plan')
+    assert.equal(plan.length, 1, `計画の段の波: ${waves.map((s) => s.stage)}`)
+    assert.deepEqual(plan[0].rows.map((w) => w.role), ['planner'])
     assert.ok(launches.every((x) => !GONE_ROLES.includes(x.role)), `無くなった役: ${launches.map((x) => x.role)}`)
   })
 }
@@ -133,7 +134,7 @@ test('3. 目標の穴: 計画役の照合で受け止められていない成果
   assert.ok(Array.isArray(r.stop.goal_gaps) && r.stop.goal_gaps.some((g) => g.outcome === '受け止める項目の無い成果'), JSON.stringify(r.stop))
   assert.ok(!('questions' in r.stop), '計画の質問で止めない（その回の計画は使わない）')
   assert.deepEqual(status(state).questions, [], 'その回の計画の質問を status に出さない')
-  assert.ok(r.steps.every((s) => s.args.stage === 'plan'), `計画の段の外に進まない: ${r.steps.map((s) => s.args.stage)}`)
+  assert.ok(wavesOf(r.steps, log).every((s) => s.stage === 'plan'), `計画の段の外に進まない: ${wavesOf(r.steps, log).map((s) => s.stage)}`)
   assert.deepEqual(launchesOf(r.steps, log).map((x) => x.role), ['planner'], '照合と計画を 1 体で担う')
 })
 
@@ -141,10 +142,10 @@ test('3. 目標の穴: 計画役の照合で受け止められていない成果
 
 test('4. 観点の検証: 計画役が足した全ての観点を unit_verifier 1 体が 1 つの担当（計画の版）で確かめる', async (t) => {
   const { state } = project(t, FILES4)
-  const r = await driveUntil(state, smallAct({ planOpts: { spec: { X1: {}, X2: {}, X3: {} } } }), { until: (c) => c.args.stage === 'unit_verify' })
-  const uv = r.calls.filter((c) => c.args.stage === 'unit_verify')
-  assert.equal(uv.length, 1, `観点の検証の呼び出し: ${r.calls.map((c) => c.args.stage)}`)
-  assert.deepEqual(uv[0].args.workers.map((w) => w.role), ['unit_verifier'], '観点ごとに体を分けない')
+  const r = await driveUntil(state, smallAct({ planOpts: { spec: { X1: {}, X2: {}, X3: {} } } }), { until: (c) => c.stage === 'unit_verify' })
+  const uv = r.calls.filter((c) => c.stage === 'unit_verify')
+  assert.equal(uv.length, 1, `観点の検証の呼び出し: ${r.calls.map((c) => c.stage)}`)
+  assert.deepEqual(uv[0].rows.map((w) => w.role), ['unit_verifier'], '観点ごとに体を分けない')
   const tasks = workersOf(uv)[0].tasks
   assert.equal(tasks.length, 1, `担当は計画の版で 1 つ: ${tasks.map((x) => x.id)}`)
   assert.equal(tasks[0].kind, 'unit_verify')
@@ -154,7 +155,9 @@ test('4. 観点の検証: 計画役が足した全ての観点を unit_verifier 
 
 test('4. 観点の検証の欠陥: 計画の段（planner）に戻し、直した後は変わった観点だけを確かめ直す', async (t) => {
   const { state } = project(t, FILES4)
-  const OLD = '用語ごとに定義の文を対応づけ、定義の無い用語を探す'
+  const OLD = proc('用語ごとに定義の文を対応づけて列挙する', '列挙した用語を目標と照らし定義の無い用語を探す')
+  const NEW = proc('用語の一覧を先に作り本文の定義の文と対応づけて列挙する', '列挙した用語を目標と照らし定義の無い用語を探す')
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
   let round = 0
   // 1 回目の計画の X2 は OLD の手続き。2 回目（欠陥を受けた計画）は X2 の手続きだけを変え、X1 はそのまま。
   const a = act({
@@ -162,8 +165,8 @@ test('4. 観点の検証の欠陥: 計画の段（planner）に戻し、直し�
       round += 1
       const r = {
         lenses: [
-          { id: 'X1', name: 'X1', procedure: '主張と根拠を対応づけて食い違いを探す', goals: [...q.items, ...q.criteria].map((g) => ({ id: g.id, part: g.text })) },
-          { id: 'X2', name: 'X2', procedure: round === 1 ? OLD : `${OLD}。用語の一覧を先に作り、本文の定義の文と照らす`, goals: [...q.items, ...q.criteria].map((g) => ({ id: g.id, part: g.text })) },
+          { id: 'X1', name: 'X1', procedure: proc('本文の主張と根拠を対応づけて列挙する', '列挙した組を目標と照らし食い違いを探す'), goals: [...q.items, ...q.criteria].map((g) => ({ id: g.id, part: g.text })) },
+          { id: 'X2', name: 'X2', procedure: round === 1 ? OLD : NEW, goals: [...q.items, ...q.criteria].map((g) => ({ id: g.id, part: g.text })) },
         ],
         questions: [], constraint_map: [...q.criteria, ...q.constraints].map((c) => ({ constraint_id: c.id, handled_by: ['X2'] })),
         ...(Array.isArray(q.defects) ? { defect_responses: q.defects.map((d, i) => ({ defect_index: d.index ?? i, action: 'fixed', reason: '直した' })) } : {}),
@@ -176,17 +179,17 @@ test('4. 観点の検証の欠陥: 計画の段（planner）に戻し、直し�
       const ans = ls.map((l) => ({
         unit_id: l.id,
         answers: [{ question: 'Q1' }, { question: 'Q2' }, ...l.goals.map((g, i) => ({ question: 'Q3', goal_index: i, goal_id: g.id }))]
-          .map((x) => ({ ...x, answer: l.procedure === OLD && x.question === 'Q1' ? 'no' : 'yes', quote: l.procedure })),
+          .map((x) => ({ ...x, answer: same(l.procedure, OLD) && x.question === 'Q1' ? 'no' : 'yes', quote: procQuote(l) })),
       }))
       return Array.isArray(q.lenses) ? { lenses: ans } : ans[0]
     },
   })
-  const r = await driveUntil(state, a, { until: (c) => c.args.stage === 'file', maxSteps: 12 })
-  const stages = r.calls.map((c) => c.args.stage)
+  const r = await driveUntil(state, a, { until: (c) => c.stage === 'file', maxSteps: 12 })
+  const stages = r.calls.map((c) => c.stage)
   const uvAt = stages.map((s, i) => [s, i]).filter(([s]) => s === 'unit_verify').map(([, i]) => i)
   assert.equal(uvAt.length, 2, `観点の検証は 2 回（欠陥の前と後）: ${stages}`)
   assert.equal(stages[uvAt[0] + 1], 'plan', `欠陥の後は計画の段（planner）に戻る: ${stages}`)
-  assert.deepEqual(r.calls[uvAt[0] + 1].args.workers.map((w) => w.role), ['planner'])
+  assert.deepEqual(r.calls[uvAt[0] + 1].rows.map((w) => w.role), ['planner'])
   const lensIds = (c) => sorted((((workersOf([c])[0].queries[0] || {}).out || {}).inputs || {}).lenses?.map((l) => l.id) || [])
   assert.deepEqual(lensIds(r.calls[uvAt[0]]), ['X1', 'X2'], '1 回目は全ての観点')
   assert.deepEqual(lensIds(r.calls[uvAt[1]]), ['X2'], '2 回目は変わった観点だけ')
@@ -195,18 +198,20 @@ test('4. 観点の検証の欠陥: 計画の段（planner）に戻し、直し�
 // ---------------- 5. ファイルの段の詰め合わせ ----------------
 
 // 並びの順に前から詰める（next-fit）。a+b は上限を超え、b+c+d は収まる。a+c+d も収まるので、前に戻って詰める first-fit とは結果が違う。
-const SIZES = { 'a.md': 60000, 'b.md': 50000, 'c.md': 30000, 'd.md': 5000 }
+// fixture の大きさは線の既定（UNIT_MAX_BYTES）に比例させる（100KB の線で作った大きさの倍率）。
+const S = UNIT_MAX_BYTES / 100000
+const SIZES = { 'a.md': 60000 * S, 'b.md': 50000 * S, 'c.md': 30000 * S, 'd.md': 5000 * S }
 const BIG = Object.fromEntries(Object.entries(SIZES).map(([n, b]) => [n, sizedDoc(n.replace('.md', ''), b)]))
-const bundlesOf = (calls) => workersOf(calls.filter((c) => c.args.stage === 'file')).map((w) => sorted(w.tasks.filter((k) => k.kind === 'file').map((k) => base(k.unit)))).filter((b) => b.length).map((b) => [...new Set(b)]).sort((x, y) => (x[0] < y[0] ? -1 : 1))
+const bundlesOf = (calls) => workersOf(calls.filter((c) => c.stage === 'file')).map((w) => sorted(w.tasks.filter((k) => k.kind === 'file').map((k) => base(k.unit)))).filter((b) => b.length).map((b) => [...new Set(b)]).sort((x, y) => (x[0] < y[0] ? -1 : 1))
 
 test('5. 詰め合わせ: 並びの順で前から UNIT_MAX_BYTES まで決定的に詰め、詰め合わせ 1 つを 1 体が読む。別の台帳でも同じ組になる', async (t) => {
   for (const [n, b] of Object.entries(SIZES)) assert.ok(Math.abs(Buffer.byteLength(BIG[n]) - b) < 200, n)
-  assert.ok(SIZES['a.md'] + SIZES['b.md'] > UNIT_MAX_BYTES && SIZES['b.md'] + SIZES['c.md'] + SIZES['d.md'] < UNIT_MAX_BYTES - 5000)
+  assert.ok(SIZES['a.md'] + SIZES['b.md'] > UNIT_MAX_BYTES && SIZES['b.md'] + SIZES['c.md'] + SIZES['d.md'] < UNIT_MAX_BYTES - 5000 * S)
   const runOnce = async () => {
     const { state } = project(t, BIG)
-    const r = await driveUntil(state, smallAct(), { until: (c) => c.args.stage === 'file' })
-    const file = r.calls.filter((c) => c.args.stage === 'file')
-    return { rows: file.flatMap((c) => c.args.workers), bundles: bundlesOf(r.calls) }
+    const r = await driveUntil(state, smallAct(), { until: (c) => c.stage === 'file' })
+    const file = r.calls.filter((c) => c.stage === 'file')
+    return { rows: file.flatMap((c) => c.rows), bundles: bundlesOf(r.calls) }
   }
   const one = await runOnce()
   assert.deepEqual(one.bundles, [['a.md'], ['b.md', 'c.md', 'd.md']], '並びの順で前から詰める')
@@ -218,10 +223,10 @@ test('5. 詰め合わせ: 並びの順で前から UNIT_MAX_BYTES まで決定�
 
 test('5. 小さい対象: 全体が UNIT_MAX_BYTES 以下なら、ファイルの段は 1 体で全ての単位を読む', async (t) => {
   const { state } = project(t, FILES4)
-  const r = await driveUntil(state, smallAct(), { until: (c) => c.args.stage === 'file' })
-  const file = r.calls.filter((c) => c.args.stage === 'file')
+  const r = await driveUntil(state, smallAct(), { until: (c) => c.stage === 'file' })
+  const file = r.calls.filter((c) => c.stage === 'file')
   assert.equal(file.length, 1)
-  assert.deepEqual(file[0].args.workers.map((w) => w.role), ['file_reader'])
+  assert.deepEqual(file[0].rows.map((w) => w.role), ['file_reader'])
   assert.deepEqual(bundlesOf(r.calls), [['a.md', 'b.md', 'c.md', 'd.md']])
   assert.equal(status(state).coverage.seen, 4)
 })
@@ -236,8 +241,8 @@ test('5. 引用は自分の単位だけ: 同じ詰め合わせの他の単位の
       return { seen: task.lenses.map((l) => ({ lens: l.id, answer: 'checked', quote: QA })), findings: [], references: [], premises: [], guarantees: [{ subject: 'lock', quote: QB, confidence: 'high' }] }
     },
   })
-  const r = await driveUntil(state, a, { until: (c) => c.args.stage === 'file' })
-  const w = workersOf(r.calls.filter((c) => c.args.stage === 'file'))
+  const r = await driveUntil(state, a, { until: (c) => c.stage === 'file' })
+  const w = workersOf(r.calls.filter((c) => c.stage === 'file'))
   assert.equal(w.length, 1, '2 つの単位は 1 体に詰める')
   const results = w[0].submits.flatMap((s) => s.out.results || [])
   const firstA = results.find((x) => x.unit && path.basename(x.unit) === 'a.md')
@@ -249,15 +254,15 @@ test('5. 引用は自分の単位だけ: 同じ詰め合わせの他の単位の
 test('5. 持ち越しは単位ごと: 別の詰め合わせにあった 2 つの単位だけが変われば、その 2 つだけを詰め直して 1 体が読む', async (t) => {
   const { state, paths } = project(t, BIG)
   const a = smallAct({ facts: () => ({}) }) // BIG の本文に QA・QB は無いので、FACTS の保証・前提を足さない
-  const r1 = await driveUntil(state, a, { until: (c) => c.args.stage === 'file' })
+  const r1 = await driveUntil(state, a, { until: (c) => c.stage === 'file' })
   assert.deepEqual(bundlesOf(r1.calls), [['a.md'], ['b.md', 'c.md', 'd.md']])
   assert.equal(status(state).coverage.seen, 4)
   // a（60K）と c（30K）の中身だけを、大きさを変えずに書き換える。a+c は上限に収まる。
   for (const n of ['a.md', 'c.md']) writeFileSync(paths[n], readFileSync(paths[n], 'utf8').replace('line 000001:', 'line 00000X:'))
-  const r2 = await driveUntil(state, a, { until: (c) => c.args.stage === 'file' })
-  const file2 = r2.calls.filter((c) => c.args.stage === 'file')
-  assert.equal(file2.length, 1, `読み直しのファイルの段: ${r2.calls.map((c) => c.args.stage)}`)
-  assert.equal(file2[0].args.workers.length, 1, '読み直す単位だけを詰め直す（1 体）')
+  const r2 = await driveUntil(state, a, { until: (c) => c.stage === 'file' })
+  const file2 = r2.calls.filter((c) => c.stage === 'file')
+  assert.equal(file2.length, 1, `読み直しのファイルの段: ${r2.calls.map((c) => c.stage)}`)
+  assert.equal(file2[0].rows.length, 1, '読み直す単位だけを詰め直す（1 体）')
   assert.deepEqual(bundlesOf(r2.calls), [['a.md', 'c.md']], '変わった単位だけを読み直す')
   assert.equal(status(state).coverage.seen, 4)
 })
@@ -265,15 +270,15 @@ test('5. 持ち越しは単位ごと: 別の詰め合わせにあった 2 つの
 // ---------------- 6. 全体の段を種類ごとに 1 体にする ----------------
 
 test('6. 判定役 1 体: 名寄せ・主語の照合・指摘の判定・前提・目標の意図を global_judge が取り、alias_judge は無い。確認役も 1 体', async (t) => {
-  const { stop, steps, launches } = await fullRun(t, MODES[0])
+  const { stop, waves, launches } = await fullRun(t, MODES[0])
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const byKind = {}
   for (const x of launches) for (const c of x.claims) for (const k of c.tasks || []) (byKind[k.kind] = byKind[k.kind] || new Set()).add(x.role)
   for (const k of ['alias', 'subject', 'finding', 'goal']) assert.deepEqual([...(byKind[k] || [])], ['global_judge'], `${k} の担当を取った役: ${[...(byKind[k] || [])]}`)
   assert.deepEqual([...(byKind.confirm || [])], ['confirmer'])
-  const global = steps.filter((s) => s.args.stage === 'global')
+  const global = waves.filter((s) => s.stage === 'global')
   for (const s of global) {
-    const roles = count(s.args.workers.map((w) => w.role))
+    const roles = count(s.rows.map((w) => w.role))
     assert.ok(Object.values(roles).every((n) => n === 1), `種類ごとに 1 体: ${JSON.stringify(roles)}`)
     assert.ok(Object.keys(roles).every((r) => ['global_judge', 'confirmer'].includes(r)), JSON.stringify(roles))
   }
@@ -285,10 +290,10 @@ test('6. workers: 既定は 1 で、開いた判定の意図が多くても判�
   const firstGlobal = async (workers) => {
     const { state } = project(t, FILES4)
     if (workers) assert.equal(cli('config', '--state', state, '--workers', String(workers)).code, 0)
-    const r = await driveUntil(state, smallAct(), { until: (c) => c.args.stage === 'global' })
-    const g = r.calls.find((c) => c.args.stage === 'global')
-    assert.ok(g, `全体の段まで進む: ${r.calls.map((c) => c.args.stage)}`)
-    return { state, judges: g.args.workers.filter((w) => w.role === 'global_judge').length, intents: status(state).intents }
+    const r = await driveUntil(state, smallAct(), { until: (c) => c.stage === 'global' })
+    const g = r.calls.find((c) => c.stage === 'global')
+    assert.ok(g, `全体の段まで進む: ${r.calls.map((c) => c.stage)}`)
+    return { state, judges: g.rows.filter((w) => w.role === 'global_judge').length, intents: status(state).intents }
   }
   const def = await firstGlobal(null)
   assert.equal(cli('config', '--state', def.state).config.workers, 1, '既定の workers は 1')
@@ -314,7 +319,7 @@ test('7. 振り返り（単独）: 1 体が全ての出来事を読み、結果�
   assert.equal(r.stop.stop, 'complete', JSON.stringify(r.stop))
   const retro = launchesOf(r.steps, log).filter((x) => x.stage === 'retro')
   assert.equal(retro.length, 1, '振り返りは 1 体')
-  assert.equal(r.steps.at(-1).args.stage, 'retro', `振り返りは最後に走る: ${r.steps.map((s) => s.args.stage)}`)
+  assert.equal(wavesOf(r.steps, log).at(-1).stage, 'retro', `振り返りは最後に走る: ${wavesOf(r.steps, log).map((s) => s.stage)}`)
   const s = status(state)
   // 1 体が全ての出来事を読む: 振り返りの前の全ての出来事の id が、その 1 体の担当（写し）か query の出力にある。
   const seenText = retro.flatMap((x) => [
@@ -336,9 +341,9 @@ test('7. 振り返り（単独）: 1 体が全ての出来事を読み、結果�
 })
 
 test('7. 振り返り（coverage-build から）: --goal-checked coverage-build の台帳は振り返りを起動せず、status.retro に結果を出さない', async (t) => {
-  const { stop, steps, state } = await fullRun(t, MODES[0], { retroFindings: [{ claim: 'RETRO-出ない' }] })
+  const { stop, launches, state } = await fullRun(t, MODES[0], { retroFindings: [{ claim: 'RETRO-出ない' }] })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.ok(steps.every((s) => s.args.stage !== 'retro'))
+  assert.ok(launches.every((x) => x.stage !== 'retro'))
   const s = status(state)
   assert.ok(!s.retro || !(s.retro.findings || []).length, JSON.stringify(s.retro))
   assert.ok(!JSON.stringify(s).includes('RETRO-出ない'))

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { archOf, auditStatus, defaultUnits, drive, mockAgent, setup } from './test-harness.mjs'
+import { archOf, auditStatus, defaultUnits, drive, mockAgent, redoMark, setup } from './test-harness.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
@@ -78,7 +78,8 @@ test('query: 一覧の path は submit が premises を照らす集合と同じ�
   const pick = (p, o) => {
     const q = o.inputs
     const premises = q.premise_paths.map((x) => ({ claim: `${x} の本文`, path: x, quote: firstLine(path.isAbsolute(x) ? x : path.join(q.repo, x)) }))
-    return { unit_id: q.unit.id, spec: '入力を受け取り、決まった値を返す。', acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises, unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
+    // やり直しの担当は中身を変える（本物の coverage-audit は中身の同じ単位の指摘を持ち越す）。
+    return { unit_id: q.unit.id, spec: `入力を受け取り、決まった値を返す。${redoMark(q)}`, acceptance: ['値を返す'], behaviors: [{ text: '値を返す', accepts: [1], rows: [] }], partitions: [], premises, unverified: [], allowed_optional: [], cases: [{ condition: '入力が 1', expect: '2 を返す', accepts: [1], covers: [] }] }
   }
   const r = await runDesigns(t, { over: { design: pick } })
   assert.equal(r.stop && r.stop.stop, 'complete', JSON.stringify(r.stop))

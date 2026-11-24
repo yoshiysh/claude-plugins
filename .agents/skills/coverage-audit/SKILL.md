@@ -59,9 +59,11 @@ goal.md・criteria.md・constraints.md の各行の末尾に、request.md か de
 | goal.md | `- G1: 設計文書の見落としを観点ごとに確かめた指摘の一覧 〔request: この設計文書を観点ごとに漏れなく検査して〕` |
 | constraints.md | `- D1: 対象の本文を直さない 〔decisions: 本文は直さない〕` |
 
-検査する対象は `--target` で渡す（複数可。文書・コード・テストなど種類を問わない）。仕様書そのものも検査するなら対象に加える。
+検査する対象は `--target` で渡す（複数可。文書・コード・テストなど種類を問わない）。仕様書そのものも検査するなら対象に加える。検査はしないが照らす根拠にしたいファイル（今の本文・決定の記録など）は `--context` で参照として渡す。参照は網羅に数えず、読む役には渡らず、全文レビュー・判定役の単位の索引に載って引用の根拠になる。
 
-coverage-build から呼ばれたときは、coverage-build の `next` が渡す引数（`init_argv` か `reframe_argv`）をそのまま使う。台帳は coverage-build の段（`--phase`）をまたいで 1 つに固定する。
+目標・基準・制約の本文に書いた path（`/` を含み拡張子で終わる語）が repo（`--repo`、無ければ init の cwd）に実在するのに、`--target` にも `--context` にも無ければ、init と answer は `problems` で拒否する。実在しない path は照らさない。目標が対象に無いファイルを求めたまま検査を始めないため。照合済みの印（`--goal-checked coverage-build`）のある台帳（init・reframe）では照らさない。照らすのは呼ぶ側で、`scripts/ledger-cli.mjs` の `framePathProblems` を自分の対象と入力で使う。場所が参照の単位だけにある指摘は確定させず、参考（`references`）に入れる。
+
+coverage-build から呼ばれたときは、coverage-build の CLI が同じ process でこの台帳の init・reframe を流す（`scripts/ledger-cli.mjs` の関数を import する）。台帳は coverage-build の段（`--phase`）をまたいで 1 つに固定する。
 - `--goal-checked coverage-build` は、coverage-build が目標を照合済みである印。この印があると init は引用を照らさず、計画役も目標の照合をしない（目標のファイルの先頭の、検査の段を述べる文も受け付ける）。利用者が単独で呼ぶときは付けない。
 - 印のある台帳は振り返りを作らない。出来事は `status` の `events` で返し、coverage-build の探索グラフが受ける（振り返りを 1 か所に寄せるため）。束ねは全体の段の意図なので残る。
 - 段が変わると `reframe` で目標の冒頭の文・目標・基準・制約・依頼文・決定の記録・観点・対象と段を差し替える（下の「手順」）。
@@ -75,7 +77,7 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
    ```bash
    CLI init --state <stateDir> --goal goal.md --request request.md \
      --target <file> [--target <file> ...] [--decisions decisions.md] [--criteria criteria.md] [--constraints constraints.md] [--lenses lenses.json] \
-     [--max-cycles N] [--max-agents-total N] [--roles roles.json] [--seeds seeds.json] [--link <正規表現>]
+     [--context <file> ...] [--repo <dir>] [--max-cycles N] [--max-agents-total N] [--roles roles.json] [--seeds seeds.json] [--link <正規表現>]
    ```
 
    `--phase <段>`（任意）は呼ぶ側の段の名前で、台帳の `phase` に残り、`status` を段ごとに分ける。`--link <正規表現>`（任意）は対象の中の id の型で、静的な検査が範囲で書いた参照（例: `U1〜U3`）を 1 件ずつに展開し、どのファイルにも無い id を指摘の判定にかける（references/ledger.md の「全体の段」）。
@@ -84,41 +86,41 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
 
    ```bash
    CLI reframe --state <stateDir> --goal goal.md --request request.md [--decisions decisions.md] [--criteria criteria.md] [--constraints constraints.md] \
-     [--lenses lenses.json] --target <file> [--target <file> ...] --phase <段> [--link <正規表現>]
+     [--lenses lenses.json] --target <file> [--target <file> ...] [--context <file> ...] [--repo <dir>] --phase <段> [--link <正規表現>]
    ```
 
-   reframe は印を残して枠を差し替える。`--lenses` を渡せば利用者の観点を差し替え、渡さなければ今の利用者の観点を保つ。`--link` も枠の一部で、渡さなければ null に戻る。
+   reframe は印を残して枠を差し替える。`--context` は渡したものに差し替わる（渡さなければ参照は無くなる）。`--lenses` を渡せば利用者の観点を差し替え、渡さなければ今の利用者の観点を保つ。`--link` も枠の一部で、渡さなければ null に戻る。
    - 同じ段で、手続き（利用者の観点・目標・基準・制約・決定の記録・link）が前と同じなら、出力は `kept: true` になる。全てを読み直しにせず、次の `next` が内容の変わった単位だけを読み直す（止まった後なら新しい回を始める）。
    - それ以外は、出ていく段の `status` の節（指摘・束ね・出来事）を `phase_records` に写してから、計画・回答・試行を捨て、全ての単位を読み直しにする（中身が同じでも読み直す）。
 
    起動数の上限は段の始まり（init か、`kept` でない reframe）から、周の上限は今の回の始まりから数える。印の無い台帳・`--phase` の無い reframe・照合を通らない項目・読めない対象は、台帳を変えずに拒否する。
 
-   1 回の呼び出しの起動数は段で決まる。
-   - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。起動数は詰め合わせの数を `meta.limits.maxAgents` と残りの起動数の予算に収めた数で、残りは次の呼び出しで読む。
+   1 回の呼び出しは、段ごとの波を順に流す（下の「Workflow を呼ぶ」）。波の起動数は段で決まり、呼び出しの中の全ての波の和を `meta.limits.maxAgents` と残りの起動数の予算に収める。
+   - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。詰め合わせの線は、単位を読む役の `roles.json` の `context_tokens` の最小値から導く（既定 1M token で 500KB。references/ledger.md）。収まらない分は次の波か呼び出しで読む。
    - 全体の段: 開いた意図のある役（判定役・確認役）ごとに `workers` 体。既定は 1 体（`scripts/ledger-core.mjs` の `DEFAULT_CONFIG`）で、1 体が claim を繰り返して意図を束で取って処理する。`CLI config --state <stateDir> --workers N` が変えるのはこの数だけ（役の組の数 2 × `workers` が `meta.limits.maxAgents` を超える値は拒否する。行の合計は残りの起動数の予算にも収め、予算が足りないときは判定役の組を先に起動する）。
    - 計画の段: 計画役 1 体、観点の検証役 1 体。
    - 全文レビュー: いつも 1 体（`--workers` によらない）。
 
-   小さい対象（文脈に収まる分）の検査は、計画役・観点の検証役・全文レビュー・ファイルの段・判定役・確認役の多くて 6 体で終わる（単独で呼ばれたときは振り返りの 1 体を足して 7 体）。計画が観点を足さなければ観点の検証役は起動せず、確認と束ねの意図が無ければ確認役は起動しない（全文レビューが指摘を出せば確認の意図ができる）。
+   小さい対象（文脈に収まる分）の検査は、1 回の呼び出しで、計画役・観点の検証役・全文レビュー・ファイルの段・判定役・確認役の多くて 6 体で終わる（単独で呼ばれたときは振り返りの 1 体を足して 7 体）。計画が観点を足さなければ観点の検証役は起動せず、確認と束ねの意図が無ければ確認役は起動しない（全文レビューが指摘を出せば確認の意図ができる）。
 
-   数の引数は正の整数だけを受け付け、省いた値は `DEFAULT_CONFIG` になる。読めない対象と、引用の照合を通らない項目（`problems`）があれば台帳を作らずに拒否する（直して init をやり直す）。台帳の形が今の形と違えば、init 以外のコマンドが拒否するので、新しい `stateDir` で init からやり直す。出力の `hint` の文を利用者に示す（ヒントは run の途中でも `CLI hint --state <stateDir> --text "..."` で足せ、次の呼び出しの役に届く。全文レビューの呼び出しはヒントを読まず、その後の呼び出しが読む）。
+   数の引数は正の整数だけを受け付け、省いた値は `DEFAULT_CONFIG` になる。読めない対象と、引用か path の照合を通らない項目（`problems`）があれば台帳を作らずに拒否する（直して init をやり直す）。台帳の形が今の形と違えば、init 以外のコマンドが拒否するので、新しい `stateDir` で init からやり直す。出力の `hint` の文を利用者に示す（ヒントは run の途中でも `CLI hint --state <stateDir> --text "..."` で足せ、次の波の役に届く。全文レビューの波はヒントを読まず、その後の波が読む）。
 2. `CLI next --state <stateDir>` を流す。
    - `stop` があれば終わり。「止まったとき」へ。
-   - `step` があれば、`estimate_agents`（この呼び出しで起動する役の数）を見てから、下の「Workflow を呼ぶ」で `args_path` の args を 1 回流す。役は Workflow の中で `claim`・`query`・`submit` を Bash で流し、結果を台帳に直接出す。
+   - `step` があれば、`estimate_agents`（最初の波で起動する役の数）を見てから、下の「Workflow を呼ぶ」で `args_path` の args を 1 回流す。役は Workflow の中で `claim`・`query`・`submit` を Bash で流し、結果を台帳に直接出す。段は Workflow の中で進むので、多くは 1 回で止まる条件まで行く。
 3. Workflow の返り値をそのまま JSON でファイルに保存し、`CLI ingest --state <stateDir> --call <next の call_id> --result <file>` を流す。native Workflow が tasks に残す出力ファイル（`.output`。返り値を `result` に包んだ形）は、保存し直さずにその path をそのまま `--result` に渡してよい。ingest は呼び出しを閉じるだけで、読むのは起動の記録と token だけ（役の結果は既に台帳にある）。取ったまま提出されなかった担当は試行に数える（全体の段の意図の数え方は references/ledger.md の「全体の段」の試行）。この呼び出しで照合に落ちた提出があれば、その理由が出力の `rejected`（`ok` は呼び出しを閉じたことを指す）に載る。
 4. 2 に戻る。
 
-`next` は台帳だけから次の 1 手を決める。段の順は次のとおり（各段の役と照合は references/ledger.md）。
+`next` と `claim` は台帳だけから次の 1 手を決める（同じ決定的な遷移を流す）。段の順は次のとおり（各段の役と照合は references/ledger.md）。
 - plan: 計画役 1 体が観点の計画をし、目標の照合が済んでいなければ照合も担う。利用者の観点を渡しても流れる。照合で目標に穴があれば、その回の計画は使わず needs_input（`goal_gaps`）で止まる。利用者の観点があるときの提案が試行の上限まで出なければ、照合が済んでいる限り出来事 `plan_skipped` を残して読み進める。
-- unit_verify: 観点の検証役 1 体が、まだ確かめていない観点の全てを確かめる。欠陥があれば plan に戻り、次は変わった観点だけを確かめ直す。
+- unit_verify: 観点の検証役 1 体が、まだ確かめていない観点の全てを確かめる。欠陥があれば plan に戻り、次は変わった観点だけを確かめ直す。計画は 2 版まで（2 版目の検証でも欠陥が残れば needs_input）。計画役が Q3 の欠陥に `no_target`（部分を受け持てる単位が対象に無い）を付けたら、計画をやり直さずに needs_input（`target_gaps`）で止まる。
 - full_review: 全文レビューの役 1 体が、読む範囲の単位を観点に縛られずに目標だけを手に読み、指摘と参考を書く。網羅には数えない。失敗しても止まらず、読まなかったとして開示して file へ進む（読む範囲・持ち越し・確認の規則は references/ledger.md）。
 - file: 読む役が詰め合わせごとに読む。
 - global: 判定役と確認役が、開いた意図が 0 になるまで処理する。束ねは、他の意図が全て閉じた後に作られる最後の意図。
-- retro: 単独で呼ばれたときだけ、1 体が全ての出来事を読む（文脈に収まらない分だけ体を足す）。
+- retro: 単独で呼ばれたときだけ、1 体が、振り返りの波までに台帳に足された出来事を読む（文脈に収まらない分だけ体を足す）。ingest の時点でしか足されない出来事（claim した後に返らなかった行の `agent_missing`、`launch_mismatch`）は、その周の振り返りに入らず、`status` の `events_not_in_retro` に出る。
 
 `--max-cycles` は残っているが、run の中では周が増えない（横展開を持たない。周が進む条件は references/ledger.md の「止める条件」の limit）。
 
-開いた呼び出しがある間の `next` は同じ呼び出し（同じ `call_id` と `args_path`）を返すので、Workflow が途中で落ちたら 2 からやり直せばよい。待っている `call_id` と違う `--call` は `ingest` が拒否する。意図の種類と確定の条件も references/ledger.md。
+開いた呼び出しがある間の `next` は同じ呼び出し（同じ `call_id`）の今の波の args を返すので、Workflow が途中で落ちたら 2 からやり直せば続きから進む。待っている `call_id` と違う `--call` は `ingest` が拒否する。意図の種類と確定の条件も references/ledger.md。
 
 ## Workflow を呼ぶ
 
@@ -130,7 +132,7 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
 > `unsupported_runtime`・`rejected_source`・`workflow_incomplete` はそのまま報告する。
 >
 > **Codex classification: workspace-write required**（全ての役が `stateDir` に結果のファイルを書くため。host は `workspace.mode: "workspace-write"` を設定する）。runner request の `requirements` と `limits` は source の
-> `meta.requirements`・`meta.limits` をそのまま使い、SKILL.md に値を写さない。args の `workers` の各行の model 名に runner の `modelMap` を明示する。
+> `meta.requirements`・`meta.limits` をそのまま使い、SKILL.md に値を写さない。`roles.json` の各役の model 名（波の行の model はここから写す）に runner の `modelMap` を明示する。
 > 役は `stateDir` の入口（`<stateDir>/ledger-cli.mjs`。init と next のたびに CLI が書く）で `claim`・`query`・`submit` を Bash で流し、`stateDir/snap/` の写しを Read で読み、結果のファイルを Write で書く。native Workflow の subagent が Bash で CLI を流せることは確かめてある。
 > `stateDir` は作業ツリーの外にあり、Codex の runner の worker がそこを読めるか・書けるか、CLI を流せるかは確かめていない（流せなければ提出の無い呼び出しとして数えられ、続けば blocked（failure）で止まる）。
 
@@ -141,7 +143,14 @@ Workflow({
 })
 ```
 
-args は `{state, callId, stage, workers}` だけで、`workers` は役の行 `{id, role, model, effort}`。args を書き換えない。担当が読む文（目標・依頼文・本文・前の役の出力・事実）は args にも prompt にも載らず、役が `claim` と `query` で台帳から引く。役の結果も返り値で運ばず、役が `submit` で台帳に書く。返り値は起動の記録と token（`{agents, tokens}`）だけ。
+args は `{state, callId, wave}` だけで、`wave` は最初の波 `{id, rows}`、行は `{id, role, model, effort, stage}`。args を書き換えない。担当が読む文（目標・依頼文・本文・前の役の出力・事実）は args にも prompt にも載らず、役が `claim` と `query` で台帳から引く。役の結果も返り値で運ばず、役が `submit` で台帳に書く。返り値は起動の記録（段と波の印つき）と token（`{agents, tokens}`）だけ。
+
+1 回の Workflow は、CLI が台帳から決める次の波がある間、波を順に流す。
+- 波の担当が尽きると、`claim` の done が、CLI が台帳に記録した次の波（`next_wave`）か、止まる印（`halt` と `reason`）を返す。役はそれを返り値の `next_wave_id`・`rows`・`halt` にそのまま写す。運ぶのは制御の印だけで、内容は運ばない。
+- script は返り値の中で最大の `next_wave_id` の行で次の波を起動し、`halt` があれば起動しない。
+- `claim` は `--wave`・`--model`・`--effort`・`--stage` を台帳の波の記録と照らし、違えば拒む。印を書き換えても、空の起動か早い停止になるだけで台帳は壊れない。
+- 止まる条件に当たったとき、呼び出しを開いてからの経過が `timeoutMs − agentTimeoutMs` を超えたとき、出した行の和が `maxAgents` に達したときは `halt` になる。続きは次の `next` が同じ台帳から始める。
+- 段ごとの会計（取ったまま出さなかった担当の試行・環境の失敗）は、次の波の最初の claim の時点と ingest で締める。起動されなかった波は数えない。
 
 ## 止まったとき
 
@@ -150,7 +159,7 @@ args は `{state, callId, stage, workers}` だけで、`workers` は役の行 `{
 | stop | 返すもの | 続け方 |
 |---|---|---|
 | complete | 確かめた指摘（結ぶ目標か基準・原因の層・path・引用つき）、参考、見られなかった単位（`skip`）とその理由、全文レビューの読まなかった単位（`full_review.unread`。`skip` と別）と失敗の理由、判定できなかった意図（`undecided`）とその理由、盲点が相関しうることの開示 | 対象が変わったら同じ台帳で `next`（変わった単位だけ読み直し、関係する意図を開き直し、新しい周で束ねと、単独のときは振り返りを通す） |
-| needs_input | `reasons` と、決めること（`questions`・`upper`・`upper_groups`・`unverifiable`・`stuck`・`plan_defects`・`goal_gaps`）を判断材料つきで。`goal_gaps` は、どの項目にも受け止められていない成果とその引用（その回の計画は使われていない）。`upper_groups` の根本原因・層は `status` の `groups` で分かる | 利用者の回答を `CLI answer --state <stateDir> --id <id> --text "..."` で足して `next`。`upper_groups` は群の id（`G<周>-<id>`）、`upper`・`unverifiable` は指摘の id、`stuck` は `attempts:<キー>`（キーは `plan`・`unit_verify`）。`plan_defects` は各件の id（`P<n>`。今の欠陥だけを指せ、台帳に無い id は拒否する）に、直し方や受け入れ方を答える。質問と `P<n>` への回答は利用者の言葉として決定の記録に足し、その行を引用する制約になり、計画の段からやり直す（欠陥が残れば、また止まる）。目標・受け入れ基準・制約・決定の記録を直すときは `--id goal`・`criteria`・`constraints`・`decisions` と `--file <直したファイル>`（中身を置き換え、引用を照らし直し、`plan` の試行を戻して目標の照合からやり直す。照合を通らなければ台帳を変えずに拒否する。coverage-build から渡された台帳では拒否する。coverage-build の台帳で直すと、coverage-build の次の `next` が `reframe_argv` で差し替える） |
+| needs_input | `reasons` と、決めること（`questions`・`upper`・`upper_groups`・`unverifiable`・`stuck`・`plan_defects`・`target_gaps`・`goal_gaps`）を判断材料つきで。`plan_defects` で止まった `reasons` は、2 巡で終わらなかったこと（目標の書き方か観点の作り方を疑う）と、残った欠陥と検証の答えの引用を挙げる。`target_gaps` は `{id: P<n>, goal_id, reason}`（受け持てる単位が対象に無い目標の部分）。`goal_gaps` は、どの項目にも受け止められていない成果とその引用（その回の計画は使われていない）。`upper_groups` の根本原因・層は `status` の `groups` で分かる | 利用者の回答を `CLI answer --state <stateDir> --id <id> --text "..."` で足して `next`。`upper_groups` は群の id（`G<周>-<id>`）、`upper`・`unverifiable` は指摘の id、`stuck` は `attempts:<キー>`（キーは `plan`・`unit_verify`）。`plan_defects`・`target_gaps` は各件の id（`P<n>`。今の欠陥だけを指せ、台帳に無い id は拒否する）に、直し方や受け入れ方を答える。質問と `P<n>` への回答は利用者の言葉として決定の記録に足し、その行を引用する制約になり、計画の段をもう 1 巡だけ回す（欠陥が残れば、また止まる。答えずに上限だけを変えても回らない）。対象に無いものを目標が求めているなら、目標を直すか対象・参照を足す。目標・受け入れ基準・制約・決定の記録を直すときは `--id goal`・`criteria`・`constraints`・`decisions` と `--file <直したファイル>`（中身を置き換え、引用を照らし直し、`plan` の試行を戻して目標の照合からやり直す。照合を通らなければ台帳を変えずに拒否する。coverage-build から渡された台帳では拒否する。coverage-build の台帳で直すと、coverage-build の CLI が次に検査の段の波を作るときに reframe で差し替える） |
 | limit | どの上限か（起動数か、今の回の始まりから数えた周）、ここまでの結果と開いたままの意図 | 利用者が上限を変えるなら `CLI config --state <stateDir> --max-cycles N` か `--max-agents-total N` の後で `next` |
 | blocked | `cause`（input・target・failure）と理由。failure には、役が 1 件も提出しない・claim しない呼び出しが続いたもの（役が Bash で CLI を流せない・`stateDir` に書けないなど）を含む。役が返らなかった呼び出しでも、受理か提出があれば環境の失敗に数えない（1 体の時間の上限に当たった残りは次の呼び出しが取る） | 原因を直して `next`（環境の失敗で増えた試行は戻る） |
 

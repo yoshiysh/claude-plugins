@@ -12,20 +12,22 @@ return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, 
 // 同じ担当（目標の照合・方式設計・単位の詳細設計・テスト・実装・振り返りの計画、意図ごとの実行と検証）の欠け（提出されない・照合に落ちる）の上限。
 // 照合に落ちた提出は同じ体が出し直すので、1 回の呼び出しの中の出し直しも数える。run をまたいで数える。
 export const MAX_ATTEMPTS = 2
-// 1 体に詰める単位の、読むファイルの本文のバイト数（UTF-8）の上限。「1 体の文脈に収まらない」を判じる唯一の線で、詳細設計・テスト・実装の役が
-// 何単位を 1 体で受け持つかをこれだけで決める（設計 docs/design/coverage-ledger-method.md「モデルと費用」の起動の原則。coverage-audit の UNIT_MAX_BYTES と同じ考え方の線）。
-// 根拠: 役のモデル（roles.json の sonnet・opus）の文脈は 200k token。指示・目標・台帳から引く入力・出力・推論に 3/4 を残し、単位のファイルの本文には
-// 1/4（50k token）までを当てる。token あたりのバイト数は、日本語（1 字 3 バイト）で 2〜3 バイト、英語・コードで 3〜4 バイトと置き、少ない側の 2 バイトで
-// 見積もる: 50k × 2 = 100,000 バイト。比率は実測していない（run の記録の token で見直す）。2 つのスキルは互いのファイルを読まないので、値を import しない。
-export const UNIT_MAX_BYTES = 100000
+// 1 体に詰める単位の量の線は、coverage-audit の lineOf に単位を詰める役（詳細設計・テスト・実装の役）を渡して、roles.json の context_tokens から導く
+// （build-cli.mjs の buildWave）。UNIT_MAX_BYTES は、役が context_tokens を持たないときの既定の線（テストが fixture の大きさに使う）。
+export { UNIT_MAX_BYTES } from '../../coverage-audit/scripts/ledger-core.mjs'
 export const DRY_ROUNDS = 2 // 振り返りで新しい原因が受理されない周がこの回数続いたら止める
 export const RETRO_MAX_ROUNDS = 2 // 1 回の振り返りの周の上限
 const MAX_FAIL_STREAK = 2 // 提出が 1 件も無い呼び出し（全ての役が欠けた・担当に手を付けずに返った）がこの回数続いたら止める
 const DEFAULT_CONFIG = { max_cycles: 2, max_agents_total: 400, max_unit_rounds: 2 }
 const RANK = { 目標: 0, 設計: 1, 実装: 2 } // 上流ほど小さい。進め方は成果物の層でなく、報告だけにする
 // 成果物でなく進め方の出来事（原因が確かめられなければ進め方として報告に回す）。
-const PROCESS_KINDS = ['agent_missing', 'rejected_output', 'not_seen', 'write_outside', 'import_mismatch', 'input_not_read', 'unit_removed', 'audit_internal']
+const PROCESS_KINDS = ['agent_missing', 'rejected_output', 'not_seen', 'write_outside', 'import_mismatch', 'input_not_read', 'unit_removed', 'audit_internal', 'launch_mismatch']
 export const PHASES = ['baseline', 'design', 'impl', 'review']
+// 検査を挟む段の選択（init・config の --audit-phases）で選べる段。既定は全て。review の検査は review の本体なので外せない。
+export const AUDIT_PHASES = ['baseline', 'design', 'impl']
+const MODE_AUDITS = { create: ['design', 'impl'], update: ['baseline', 'design', 'impl'], review: [] }
+// 外した段（mode が流す段のうち、--audit-phases に無いもの）と理由。status と停止の報告に段ごとに出す。
+export const skippedAudits = (L) => MODE_AUDITS[L.mode].filter((p) => !L.audit_phases.includes(p)).map((phase) => ({ phase, reason: `--audit-phases（${L.audit_phases.join(',')}）で外したので、この段の検査（coverage-audit）を流していない。この段の指摘・見ていない単位の記録は無い` }))
 
 export const sha = (s) => createHash('sha256').update(String(s)).digest('hex')
 const arr = (a) => (Array.isArray(a) ? a : [])
@@ -34,12 +36,13 @@ export const readGoalFiles = C.readGoalFiles
 export const goalIds = (L) => [...L.goal.items, ...L.criteria, ...L.constraints].map((c) => c.id)
 export const goalSources = (L) => C.citeSources({ request: L.request, ...(L.decisions != null ? { decisions: L.decisions } : {}) })
 
-export function newLedger({ mode, repo, goal, goalItems, request, decisions, criteria, constraints, inputs, targets, checks, config, roles }) {
+export function newLedger({ mode, repo, goal, goalItems, request, decisions, criteria, constraints, inputs, targets, checks, config, roles, auditPhases = null }) {
   return {
     version: 1, rev: 0, mode, repo, cycle: 1, goal: { text: goal, items: goalItems, checked: false, problems: [] }, request, decisions, criteria, constraints, inputs, targets, checks,
     config: { ...DEFAULT_CONFIG, ...config }, roles, arch: null, need_arch: mode !== 'review', arch_rounds: 0, arch_causes: [], units: {}, audits: {}, baseline: null,
     checks_run: null, events: [], facts: [], intents: [], retro: { rounds: 0, dry: 0, due: false, open: null }, human: [], answers: [], notes: [], routes: [], pending_redo: null,
     attempts: {}, env_attempts: {}, fail_streak: 0, agents: [], calls: [], call_seq: 0, hints_read: [], pending: null, stopped: null, audit_frame: null, audit_events_seen: [], audit_groups: {},
+    wave_seq: 0, audit_phases: auditPhases || [...AUDIT_PHASES], audit_halt: null,
   }
 }
 
@@ -220,6 +223,9 @@ export function decide(L, { keys = {}, missing = [] } = {}) {
   if (missing.length) return stop('blocked', [`読めないファイル: ${missing.join(', ')}`], { cause: 'input' })
   if (L.fail_streak >= MAX_FAIL_STREAK) return stop('blocked', [`提出が 1 件も無い呼び出しが ${L.fail_streak} 回続いた`], { cause: 'failure' })
   if (L.agents.length >= L.config.max_agents_total) return stop('limit', [`起動数が上限 ${L.config.max_agents_total} に達した（${L.agents.length}）`])
+  // 検査（coverage-audit）が取り込めない形で止まった（利用者への問い・試行の上限・計画の欠陥・blocked・limit）。検査の停止の種類と理由をそのまま返す。
+  const H = L.audit_halt
+  if (H) return stop(H.stop === 'needs_input' || H.stop === 'limit' ? H.stop : 'blocked', [`coverage-audit の検査（段 ${H.phase}）が ${H.stop} で止まった`, ...arr(H.reasons)], { ...(H.stop === 'needs_input' || H.stop === 'limit' ? {} : { cause: 'audit' }), audit: H })
   if (L.goal.problems.length) return stop('needs_input', ['依頼文・決定の記録が求める成果のうち、目標・基準・制約のどの項目も受け止めていないものがある'], { goal_gaps: L.goal.problems })
   const stuck = Object.entries(L.attempts).filter(([, n]) => n >= MAX_ATTEMPTS).map(([k]) => k)
   if (stuck.length) return stop('needs_input', ['試行の上限まで欠けた段がある'], { stuck })
@@ -234,12 +240,14 @@ export function decide(L, { keys = {}, missing = [] } = {}) {
     return retroConcluded(L) ? { step: 'route' } : { step: 'retro', task: 'plan' }
   }
   const design = { step: 'design', task: !L.goal.checked ? 'goal' : L.need_arch ? 'arch' : 'spec' }
-  const audited = (p) => L.audits[p] && L.audits[p].imported === keys[p]
+  // --audit-phases で外した段は検査しない（済んだものとして進め、外したことは status と停止の報告が開示する）。
+  const runs = (p) => p === 'review' || arr(L.audit_phases).includes(p)
+  const audited = (p) => !runs(p) || (L.audits[p] && L.audits[p].imported === keys[p])
   if (L.mode === 'review' && !L.goal.checked) return design // 目標の照合だけ（照合はこのスキルの 1 か所で行い、coverage-audit には照合済みとして渡す）
   if (L.mode === 'review') return audited('review') ? stop('complete', ['対象を検査し、振り返りで戻す先の層を決めた（確かめるだけで直さない）']) : { step: 'audit', phase: 'review' }
   // update: 目標の固定 → 現状の検査 → 設計。現状の検査は 1 度だけ（実装で対象が変わった後に、変わった対象を現状として検査し直さない）。
   if (L.mode === 'update' && !L.goal.checked) return design
-  if (L.mode === 'update' && !L.audits.baseline) return { step: 'audit', phase: 'baseline' }
+  if (L.mode === 'update' && runs('baseline') && !L.audits.baseline) return { step: 'audit', phase: 'baseline' }
   if (!L.goal.checked || L.need_arch || unitList(L).some((u) => u.need_design)) return design
   if (!audited('design')) return { step: 'audit', phase: 'design' }
   if (testsTodo(L).length) return { step: 'tests', task: 'tests' }
@@ -393,20 +401,6 @@ export function submitTask(L, t, rep, ctx) {
 export function dropIntent(L, t, reason) {
   const it = L.intents.find((x) => x.id === t.intent)
   if (it && ['queued', 'examined'].includes(it.status)) Object.assign(it, { status: 'undecided', undecided_from: it.status, why: reason })
-}
-
-// 単位の並び（ids の順）で前から、読むファイルの本文のバイト数の和が UNIT_MAX_BYTES に収まる所まで 1 体に詰める（next-fit。前に戻って詰めない）。
-// 詰め方を並びの順だけで決める（決定的。何を近いとするかの判断を置かない）。bytesOf(id) は単位のバイト数。
-export function packUnits(ids, bytesOf) {
-  const out = []
-  let cur = null
-  for (const id of ids) {
-    const n = bytesOf(id)
-    if (cur && cur.bytes + n <= UNIT_MAX_BYTES) { cur.ids.push(id); cur.bytes += n; continue }
-    cur = { ids: [id], bytes: n }
-    out.push(cur)
-  }
-  return out.map((x) => x.ids)
 }
 
 // coverage-audit の確定指摘の path。指摘は 1 つ以上の path（paths）を持ち、引用（quote）は先頭の path の単位の本文にある。

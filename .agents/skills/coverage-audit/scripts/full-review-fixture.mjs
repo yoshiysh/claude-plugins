@@ -3,7 +3,7 @@
 //
 // ここで固定する下の層の決定（変えるときはこのファイルを直す）:
 // - 役の名前: full_reviewer（roles.json の key。file_reader と別の役。Opus / medium）。
-// - 段の名前（args.stage）: full_review。計画の段（plan・unit_verify）の後、ファイルの段（file）の前に 1 回だけ流れ、workers はいつも 1 行。
+// - 段の名前（波の行の stage）: full_review。計画の段（plan・unit_verify）の後、ファイルの段（file）の前に 1 回だけ流れ、その波の行はいつも 1 行。
 // - 担当の種類（task.kind）: full_review。claim の担当は観点（lenses）を持たない。
 // - query（--task <全文レビューの担当の id>）: { ok, task, kind, inputs }。inputs の key は FR_QUERY_KEYS の部分集合で、goal・items・units を必ず持つ。
 //   units は読む範囲の単位の一覧 [{ id, path, file（stateDir/snap/ の写し）, start, end }]。観点・索引（index）・事実・前の判定・ヒントは返さない。

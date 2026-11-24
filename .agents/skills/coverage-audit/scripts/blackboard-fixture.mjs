@@ -3,7 +3,13 @@
 // 古い test-harness.mjs（枡・applies_to・k を前提にする）には依存しない。CLI は ledger-cli.mjs を子プロセス（run）か in-process（cli）で流す。
 //
 // 固定する形（テストの前提）:
-// - claim  --state S --call C --worker W            → { ok, done: true } | { ok, tasks: [Task], submit_cmd }
+// - next の args: { state, callId, wave: { id, rows: [{ id, role, model, effort, stage }] } }（最初の波だけ。id は CLI の連番、行の id は呼び出しの中で一意）
+//   形が違う args は rowsOf・waveIdOf が throw する。
+// - claim  --state S --call C --worker W --wave N --model M --effort E --stage ST
+//          → { ok, tasks: [Task], submit_cmd } | { ok, done: true, next_wave?: { id, rows }, halt?: true, reason? }
+//   wave・worker・model・effort・stage が台帳の波の記録と違えば終了状態 2 で拒む（台帳を変えない）。
+//   done は、その worker に渡す担当が尽きた印。波の全ての担当が尽きたら、次の波（next_wave）か止まる印（halt と理由）が載る。
+// - 役の返り値（Workflow の WORKER_SCHEMA）: { notes, next_wave_id?, rows?, halt? }。最後の claim の next_wave・halt をそのまま返す。
 //   Task = { id, kind, result_path, unit?: { id, path, file, start, end }, lenses?: [{ id, name, procedure }], obligations?: [{ id, text }], intent?: { id, kind } }
 //   kind は file・retro・alias・subject・finding・premise・goal・confirm・group と、計画の段の plan・unit_verify、全文レビューの full_review
 //   lenses はファイルの段と振り返りの担当だけが持つ。全体の段の claim は意図の束（量は UNIT_MAX_BYTES まで）を返す（束の形は batch-fixture.mjs が固定する）
@@ -162,9 +168,24 @@ export function fileResult(task, over = {}) {
   }
 }
 
+// 波の口の読み方（args は { state, callId, wave: { id, rows } }。形が違えば throw する）。
+const waveOf = (args) => {
+  if (!args || !args.wave || !Array.isArray(args.wave.rows)) throw new Error(`args が波の形（{ state, callId, wave: { id, rows } }）でない: ${JSON.stringify(args)}`)
+  return args.wave
+}
+export const rowsOf = (args) => waveOf(args).rows
+export const waveIdOf = (args) => waveOf(args).id
+// 行の段（行の stage）。
+export const stageOf = (args, row = rowsOf(args)[0]) => row.stage
+// 行の claim の命令の argv。波の id があれば --wave・--model・--effort・--stage を足す（script が prompt に埋める形と同じ）。
+export const claimArgv = (state, call, row, waveId = null) => ['claim', '--state', state, '--call', call, '--worker', row.id,
+  ...(waveId != null ? ['--wave', String(waveId), '--model', row.model, '--effort', row.effort, '--stage', row.stage] : [])]
+
 // 1 体の worker: claim が done を返すまで、取った担当の結果を書いて submit_cmd を流す。log に claim・query・submit の出力を残す。
-export async function workerLoop({ state, call, worker, role }, act, log = [], exec = cli) {
-  const rec = { worker, role, claims: [], submits: [], queries: [] }
+// argv を渡すと、claim はその argv をそのまま流す（prompt の claim の命令を書き換えずに流す）。無ければ --state・--call・--worker だけ。
+// 最後の claim の next_wave・halt を rec に残す（役の返り値になる）。
+export async function workerLoop({ state, call, worker, role, argv = null }, act, log = [], exec = cli) {
+  const rec = { worker, role, claims: [], submits: [], queries: [], next_wave: null, halt: false }
   log.push(rec)
   const ctx = {
     query: (task, facts = []) => {
@@ -174,10 +195,13 @@ export async function workerLoop({ state, call, worker, role }, act, log = [], e
     },
     state, call, worker,
   }
+  // argv が無ければ、readArgs で覚えた呼び出しの行から claim の命令を作る（claimFor と同じ）。
+  const claimCmd = argv || claimArgvFor(state, call, worker)
   for (let guard = 0; guard < 300; guard++) {
-    const c = exec('claim', '--state', state, '--call', call, '--worker', worker)
+    const c = exec(...claimCmd)
     rec.claims.push(c)
-    if (c.code !== 0 || c.done || !Array.isArray(c.tasks) || !c.tasks.length) break
+    if (c.code === 0 && c.done) { rec.next_wave = c.next_wave || null; rec.halt = !!c.halt; break }
+    if (c.code !== 0 || !Array.isArray(c.tasks) || !c.tasks.length) break
     let wrote = 0
     for (const task of c.tasks) {
       const r = await act(task, ctx)
@@ -196,24 +220,47 @@ export async function workerLoop({ state, call, worker, role }, act, log = [], e
   }
   return rec
 }
+// 返ってきた next_wave のうち id の最大のもの（script と同じ選び方）。halt が 1 つでもあれば null。
+export function nextWaveOf(recs) {
+  if (recs.some((r) => r && r.halt)) return null
+  const ws = recs.map((r) => r && r.next_wave).filter((w) => w && w.id != null)
+  return ws.length ? ws.reduce((a, b) => (Number(b.id) > Number(a.id) ? b : a)) : null
+}
 
-// Workflow を通さずに next → worker（args.workers の行ごとに 1 体）→ ingest を止まるまで回す。CLI の振る舞いのテストに使う。
-// onCall(rec) は各呼び出しの ingest の後に呼ぶ（status を見るため）。
-export async function drive(state, act, { maxSteps = 40, onCall = null, exec = cli } = {}) {
+// Workflow を通さずに next → 波（行ごとに 1 体の worker）→ ingest を止まるまで回す。CLI の振る舞いのテストに使う。
+// 1 つの呼び出しの中では、script と同じく、返ってきた最大の id の next_wave の行で次の波を流す（halt か next_wave が無ければ終えて ingest）。
+// 返す calls は波ごとに 1 件: { next（呼び出しを開いた next の出力）, args（その呼び出しの args）, wave, stage, rows, workers, ingest（呼び出しを閉じた後に付く）}。
+// maxSteps は流す波の数の上限。until(rec) が真になった波の後は新しい波を流さずに呼び出しを閉じて返す（記録だけの波は次の next が作り直す）。
+// onCall(rec) は各波の後に呼ぶ（呼び出しの最後の波は ingest の後）。
+export async function drive(state, act, { maxSteps = 40, onCall = null, exec = cli, until = null } = {}) {
   const calls = []
-  for (let i = 0; i < maxSteps; i++) {
-    const n = exec('next', '--state', state)
+  let n = null
+  while (calls.length < maxSteps) {
+    n = exec('next', '--state', state)
     if (n.code !== 0 || n.stop) return { stop: n, calls }
-    const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-    const rec = { next: n, args, workers: [] }
-    for (const w of args.workers || []) await workerLoop({ state: args.state, call: args.callId, worker: w.id, role: w.role }, act, rec.workers, exec)
-    const res = { agents: (args.workers || []).map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true })), tokens: null }
+    const args = readArgs(n)
+    const mine = []
+    let wave = { id: waveIdOf(args), rows: rowsOf(args) }
+    let stop = false
+    for (;;) {
+      const rec = { next: mine.length ? null : n, args, wave: wave.id, stage: stageOf(args, wave.rows[0]), rows: wave.rows, workers: [] }
+      for (const w of wave.rows) await workerLoop({ state: args.state, call: args.callId, worker: w.id, role: w.role, argv: claimArgv(args.state, args.callId, w, wave.id) }, act, rec.workers, exec)
+      mine.push(rec)
+      calls.push(rec)
+      if (until && until(rec)) stop = true
+      const nw = nextWaveOf(rec.workers)
+      if (stop || !nw || calls.length >= maxSteps) break
+      if (onCall) await onCall(rec)
+      wave = { id: nw.id, rows: nw.rows || [] }
+    }
+    const res = { agents: mine.flatMap((r) => r.rows.map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true, stage: w.stage, wave: r.wave }))), tokens: null }
     const f = path.join(state, `result-${args.callId}.json`)
     writeFileSync(f, JSON.stringify(res))
-    rec.ingest = exec('ingest', '--state', state, '--call', args.callId, '--result', f)
-    calls.push(rec)
-    if (onCall) await onCall(rec)
-    if (rec.ingest.code !== 0) return { stop: rec.ingest, calls }
+    const g = exec('ingest', '--state', state, '--call', args.callId, '--result', f)
+    for (const r of mine) r.ingest = g
+    if (onCall) await onCall(mine.at(-1))
+    if (g.code !== 0) return { stop: g, calls }
+    if (stop) return { stop: null, calls }
   }
   return { stop: null, calls }
 }
@@ -227,34 +274,101 @@ export function runScript(args, agentFn, { budget } = {}) {
   const pipeline = (items, fn) => Promise.all(items.map((x) => Promise.resolve().then(() => fn(x)).catch(() => null)))
   return runBody(agentFn, parallel, pipeline, () => {}, () => {}, args, budget)
 }
-// Workflow が起動する役の偽物: prompt の claim の命令を読み、workerLoop で台帳と読み書きする。prompt は log に残す。
+// Workflow が起動する役の偽物: prompt の claim の命令を読み、その argv のまま workerLoop で台帳と読み書きする。prompt と返り値は log に残す。
 // prompt に claim の命令が無い役は、内容を返り値か prompt で運ぶ形なので失敗にする。
-export function scriptAgent(act, log = []) {
-  return async (prompt, opts) => {
-    const entry = { label: opts.label, model: opts.model, effort: opts.effort, prompt, claim: cliArgvOf(prompt, 'claim') }
+// 返り値は { notes, next_wave_id?, rows?, halt? }（最後の claim の next_wave・halt をそのまま運ぶ）。tamper(ret, entry) で書き換えた返り値を返せる。
+export function scriptAgent(act, log = [], { tamper = null } = {}) {
+  const fn = async (prompt, opts) => {
+    const entry = { label: opts.label, model: opts.model, effort: opts.effort, phase: opts.phase, schema: opts.schema, prompt, claim: cliArgvOf(prompt, 'claim') }
     log.push(entry)
     if (!entry.claim) throw new Error(`役の prompt に ledger-cli.mjs claim の命令が無い: ${opts.label}`)
-    entry.rec = await workerLoop({ state: argOf(entry.claim, 'state'), call: argOf(entry.claim, 'call'), worker: argOf(entry.claim, 'worker'), role: null }, act, [])
-    return { notes: [] }
+    entry.rec = await workerLoop({ state: argOf(entry.claim, 'state'), call: argOf(entry.claim, 'call'), worker: argOf(entry.claim, 'worker'), role: null, argv: entry.claim }, act, [])
+    let ret = { notes: [] }
+    if (entry.rec.halt) ret.halt = true
+    else if (entry.rec.next_wave) ret = { ...ret, next_wave_id: entry.rec.next_wave.id, rows: entry.rec.next_wave.rows }
+    if (tamper) ret = tamper(ret, entry) ?? ret
+    entry.ret = ret
+    return ret
   }
+  fn.log = log
+  return fn
 }
-// next → Workflow source → ingest を止まるまで回す。runWf で native の注入か runner を選ぶ。
+// next → Workflow source → ingest を止まるまで回す。runWf で native の注入か runner を選ぶ。steps は呼び出しごとに 1 件。
+// agentFn が scriptAgent なら、各 step に、その呼び出しで起動した役（launches: { stage, role, wave, worker, ... }）を付ける。
 export async function driveScript(state, agentFn, { runWf = runScript, maxSteps = 40 } = {}) {
   const steps = []
   for (let i = 0; i < maxSteps; i++) {
     const n = cli('next', '--state', state)
     if (n.code !== 0 || n.stop) return { stop: n, steps }
-    const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+    const args = readArgs(n)
+    const at = agentFn.log ? agentFn.log.length : 0
     const res = await runWf(args, agentFn)
     const f = path.join(state, `result-${n.call_id}.json`)
     writeFileSync(f, JSON.stringify(res))
     const g = cli('ingest', '--state', state, '--call', args.callId, '--result', f)
-    steps.push({ next: n, args, res, ingest: g })
+    const step = { next: n, args, res, ingest: g }
+    if (agentFn.log) step.launches = launchesOf([step], agentFn.log.slice(at))
+    steps.push(step)
     if (g.code !== 0) return { stop: g, steps }
   }
   return { stop: null, steps }
+}
+// driveScript の steps と scriptAgent の log から、起動した 1 体ごとに { stage, role, call, wave, worker, claims, queries, submits, ret } を並べる。
+// 段は prompt の claim の --stage、役は波の行（args の最初の波と、役が返した next_wave の行）から引く。
+export function launchesOf(steps, log) {
+  const rows = new Map()
+  const key = (call, wave, worker) => `${call}|${wave ?? ''}|${worker}`
+  for (const s of steps) {
+    const w0 = waveIdOf(s.args)
+    for (const r of rowsOf(s.args)) rows.set(key(s.args.callId, w0, r.id), { ...r, stage: stageOf(s.args, r) })
+  }
+  for (const x of log) {
+    const call = argOf(x.claim, 'call')
+    const nw = x.rec && x.rec.next_wave
+    if (nw) for (const r of nw.rows || []) rows.set(key(call, nw.id, r.id), r)
+  }
+  // 渡した steps の呼び出しの役だけを並べる（log は全ての呼び出しの役を持つことがある）。
+  const calls = new Set(steps.map((s) => s.args.callId))
+  return log.filter((x) => calls.has(argOf(x.claim, 'call'))).map((x) => {
+    const call = argOf(x.claim, 'call')
+    const worker = argOf(x.claim, 'worker')
+    const wave = argOf(x.claim, 'wave') ?? null
+    const row = rows.get(key(call, wave, worker))
+    return {
+      stage: argOf(x.claim, 'stage') ?? (row && row.stage), role: row && row.role, call, wave, worker, model: x.model, effort: x.effort,
+      claims: (x.rec && x.rec.claims) || [], queries: (x.rec && x.rec.queries) || [], submits: (x.rec && x.rec.submits) || [], ret: x.ret,
+    }
+  })
 }
 
 // claim の記録から、取った担当を平らに並べる。
 export const claimedTasks = (calls) => calls.flatMap((c, ci) => c.workers.flatMap((w) => w.claims.flatMap((cl) => (cl.tasks || []).map((t) => ({ ...t, call: ci, worker: w.worker, role: w.role })))))
 export const submitResults = (calls) => calls.flatMap((c) => c.workers.flatMap((w) => w.submits.flatMap((s) => (s.out.results || []))))
+// driveScript の steps と scriptAgent の log から、流れた波ごとに { call, wave, stage, rows: [起動した 1 体（launchesOf の形）] } を並べる（起動の順）。
+// 1 つの呼び出しが複数の段の波を流すので、段ごとの数は呼び出し（step）でなく波で数える。
+export function wavesOf(steps, log) {
+  const out = []
+  for (const x of launchesOf(steps, log)) {
+    let w = out.find((o) => o.call === x.call && o.wave === x.wave)
+    if (!w) out.push((w = { call: x.call, wave: x.wave, stage: x.stage, rows: [] }))
+    w.rows.push(x)
+  }
+  return out
+}
+// Workflow の返り値の起動の記録（agents）の段を、起動の順に並べる（記録の stage）。
+// prompt を受ける前に落ちた役（log に残らない役）も数えるときに使う。
+export const agentStages = (steps) => steps.flatMap((s) => ((s.res && s.res.agents) || []).map((a) => a.stage))
+// 手で流すテストの口: next の出力から args を読み（呼び出しの id で覚える）、worker の id から、その行の claim の命令を作って流す。
+// 行が見つからない（違う --call・行に無い worker を試す）ときは --state・--call・--worker だけを流す。
+const OPENED = new Map()
+export function readArgs(n) {
+  const a = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  OPENED.set(a.callId, a)
+  return a
+}
+export function claimArgvFor(state, call, worker) {
+  const a = OPENED.get(call)
+  const row = a && rowsOf(a).find((r) => r.id === worker)
+  return row ? claimArgv(state, call, row, waveIdOf(a)) : ['claim', '--state', state, '--call', call, '--worker', worker]
+}
+export const claimFor = (state, call, worker, exec = cli) => exec(...claimArgvFor(state, call, worker))

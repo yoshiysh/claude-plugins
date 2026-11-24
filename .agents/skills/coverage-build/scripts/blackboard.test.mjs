@@ -8,16 +8,18 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { MAX_ATTEMPTS } from './build-core.mjs'
 import {
-  ALL_ROLES, ROLES, STAGE_ROLES, act, archResult, auditWithEvent, cli, driveScript, examResult, roleCounts, setup, specResult, stageOfRole, tasksOf, unitEvents, verdictsOf,
+  ALL_ROLES, AUDIT_ROLES, ROLES, STAGE_ROLES, act, archResult, auditRejectOnce, buildLaunches, claimArgv, cli, driveScript, examResult, isAuditStage, roleCounts, setup, specResult, stageOfRole, tasksOf, unitEvents, verdictsOf, wavesOf,
 } from './board-fixture.mjs'
 
 const ledgerText = (state) => readFileSync(path.join(state, 'build.json'), 'utf8')
 const status = (state) => cli('status', '--state', state)
-const callsWith = (steps, role) => steps.filter((s) => s.args && (s.args.workers || []).some((w) => w.role === role))
+// 1 つの呼び出しが段を順に流すので、役の行を持つ単位は呼び出しでなく波（wavesOf）。
+const callsWith = (launches, role) => wavesOf(launches).filter((w) => w.rows.some((x) => x.role === role))
 // 小さい対象を complete まで回す（振り返りを 1 回起こす）。
-async function smallRun(t, over = {}, { mode = 'create', audit = auditWithEvent() } = {}) {
+// 振り返りを起こす出来事は、偽の status の events でなく、実装レビューのファイルの段の役の最初の提出が照合に落ちることで起こす。
+async function smallRun(t, over = {}, { mode = 'create' } = {}) {
   const s = setup(t, { mode })
-  const r = await driveScript(s.state, act({ plan: { n: 2 }, ...over }), { audit })
+  const r = await driveScript(s.state, act({ plan: { n: 2 }, ...over }), { auditOver: auditRejectOnce(s.state) })
   return { ...s, ...r }
 }
 const stopOf = (r) => JSON.stringify(r.stop).slice(0, 600)
@@ -27,43 +29,55 @@ const stopOf = (r) => JSON.stringify(r.stop).slice(0, 600)
 test('起動数: 小さい対象（code 2・doc 1、依存なし）を complete まで回すと、design は goal_checker・architect・unit_designer が各 1、tests は test_writer 1、implement は implementer 1、retro は planner・examiner・verifier が各 1', async (t) => {
   const r = await smallRun(t)
   assert.equal(r.stop && r.stop.stop, 'complete', stopOf(r))
-  assert.deepEqual(roleCounts(r.launches), Object.fromEntries(ALL_ROLES.map((x) => [x, 1])), `役ごとの起動: ${JSON.stringify(roleCounts(r.launches))}`)
+  assert.deepEqual(roleCounts(buildLaunches(r.launches)), Object.fromEntries(ALL_ROLES.map((x) => [x, 1])), `build の役ごとの起動: ${JSON.stringify(roleCounts(r.launches))}`)
   const recorded = (status(r.state).calls || []).reduce((n, c) => n + c.agents, 0)
   assert.equal(recorded, r.launches.length, '台帳の起動の記録（calls）も同じ数')
 })
 
 // ---------------- 9. 台帳の規則（B1〜B6） ----------------
 
-test('9. B4 args: どの呼び出しの args もちょうど {state, callId, stage, workers}。workers の行は {id, role, model, effort} で、model・effort は roles.json の役の値。1 つの呼び出しの役は 1 つの段に属す', async (t) => {
+// args は最初の波だけを持つ {state, callId, wave: {id, rows}}。行は {id, role, model, effort, stage}。次の波の行は claim の next_wave が運ぶ。
+const rowRoles = (row) => (isAuditStage(row.stage) ? AUDIT_ROLES : ROLES)
+test('9. B4 args: どの呼び出しの args もちょうど {state, callId, wave}。波の行は {id, role, model, effort, stage} で、model・effort は役の roles.json の値（検査の役は coverage-audit の roles.json）。1 つの波の役は 1 つの段に属す', async (t) => {
   const r = await smallRun(t)
   const calls = r.steps.filter((s) => s.args)
   assert.ok(calls.length > 0, stopOf(r))
   for (const s of calls) {
-    assert.deepEqual(Object.keys(s.args).sort(), ['callId', 'stage', 'state', 'workers'], `args に束の参照・id の一覧・argsSum を載せない（${s.step}）: ${Object.keys(s.args).join(', ')}`)
+    assert.deepEqual(Object.keys(s.args).sort(), ['callId', 'state', 'wave'], `args に束の参照・id の一覧・argsSum を載せない（${s.step}）: ${Object.keys(s.args).join(', ')}`)
     assert.equal(s.args.state, r.state)
     assert.equal(s.args.callId, s.next.call_id)
-    assert.ok(Array.isArray(s.args.workers) && s.args.workers.length > 0, `${s.step}: workers が空`)
-    for (const w of s.args.workers) {
-      assert.deepEqual(Object.keys(w).sort(), ['effort', 'id', 'model', 'role'], JSON.stringify(w))
-      assert.ok(ROLES[w.role], `roles.json に無い役: ${w.role}`)
-      assert.deepEqual([w.model, w.effort], [ROLES[w.role].model, ROLES[w.role].effort], w.role)
-    }
-    assert.equal(new Set(s.args.workers.map((w) => w.id)).size, s.args.workers.length, 'worker の id は重ならない')
-    assert.equal(new Set(s.args.workers.map((w) => stageOfRole(w.role))).size, 1, `1 つの呼び出しに段をまたぐ役を置かない: ${s.args.workers.map((w) => w.role)}`)
   }
+  const waves = [...calls.map((s) => s.args.wave), ...r.launches.map((l) => l.rec && l.rec.next_wave).filter(Boolean)]
+  for (const w of waves) {
+    assert.ok(Array.isArray(w.rows) && w.rows.length > 0, `波 ${w.id} の行が空`)
+    for (const x of w.rows) {
+      assert.deepEqual(Object.keys(x).sort(), ['effort', 'id', 'model', 'role', 'stage'], JSON.stringify(x))
+      const R = rowRoles(x)
+      assert.ok(R[x.role], `roles.json に無い役: ${x.role}`)
+      assert.deepEqual([x.model, x.effort], [R[x.role].model, R[x.role].effort], x.role)
+    }
+    assert.equal(new Set(w.rows.map((x) => x.id)).size, w.rows.length, 'worker の id は重ならない')
+    assert.equal(new Set(w.rows.map((x) => x.stage)).size, 1, `1 つの波に段をまたぐ役を置かない: ${w.rows.map((x) => x.stage)}`)
+    for (const x of w.rows.filter((y) => !isAuditStage(y.stage))) assert.equal(x.stage, stageOfRole(x.role), `build の役の段: ${x.role}`)
+  }
+  const ids = r.launches.map((l) => `${l.call}|${l.worker}`)
+  assert.equal(new Set(ids).size, ids.length, '行の id は呼び出しの中で一意')
   assert.equal(r.stop && r.stop.stop, 'complete', stopOf(r))
 })
 
-test('9. B3 返り値: Workflow の返り値はちょうど {agents, tokens}。script は args の workers の行ごとにちょうど 1 体を起動し、行と同じ役で記録する', async (t) => {
+test('9. B3 返り値: Workflow の返り値はちょうど {agents, tokens}。script は波の行ごとにちょうど 1 体を起動し、行と同じ役・段・波で記録する', async (t) => {
   const r = await smallRun(t)
   const calls = r.steps.filter((s) => s.args)
   assert.ok(calls.length > 0, stopOf(r))
   for (const s of calls) {
     assert.deepEqual(Object.keys(s.res || {}).sort(), ['agents', 'tokens'], `返り値に役の出力を載せない（${s.step}）: ${Object.keys(s.res || {}).join(', ')}`)
-    const rows = (s.args.workers || []).map((w) => w.role).sort()
-    assert.deepEqual(s.launches.map((l) => l.role).sort(), rows, `起動は args の行のとおり（${s.step}）。script が照合・やり直し・役を選ばない`)
-    assert.deepEqual(s.res.agents.map((a) => a.role).sort(), rows, `${s.step}: agents の記録`)
-    for (const a of s.res.agents) assert.deepEqual(Object.keys(a).sort(), ['effort', 'label', 'model', 'ok', 'role'], JSON.stringify(a))
+    assert.deepEqual(s.res.agents.map((a) => a.role).sort(), s.launches.map((l) => l.role).sort(), `${s.step}: agents の記録は起動のとおり`)
+    for (const a of s.res.agents) assert.deepEqual(Object.keys(a).sort(), ['effort', 'label', 'model', 'ok', 'role', 'stage', 'wave'], JSON.stringify(a))
+    for (const w of wavesOf(s.launches)) {
+      const rows = w.wave === String(s.args.wave.id) ? s.args.wave.rows : (s.launches.map((l) => l.rec && l.rec.next_wave).find((x) => x && String(x.id) === w.wave) || {}).rows
+      assert.ok(rows, `波 ${w.wave} の行の記録がある`)
+      assert.deepEqual(w.rows.map((l) => l.role).sort(), rows.map((x) => x.role).sort(), `起動は波の行のとおり（${w.stage}）。script が照合・やり直し・役を選ばない`)
+    }
   }
   assert.equal(r.stop && r.stop.stop, 'complete', stopOf(r))
 })
@@ -73,9 +87,10 @@ test('9. CLI の claim・query・submit: 開いた呼び出しで claim は担�
   const n = cli('next', '--state', state)
   assert.equal(n.code, 0, JSON.stringify(n))
   const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  const w = (args.workers || [])[0]
-  assert.ok(w, `args に workers の行が無い: ${Object.keys(args)}`)
-  const c = cli('claim', '--state', state, '--call', args.callId, '--worker', w.id)
+  const w = args.wave && args.wave.rows[0]
+  assert.ok(w, `args に波の行が無い: ${Object.keys(args)}`)
+  const claim = claimArgv(state, args.callId, w, args.wave.id)
+  const c = cli(...claim)
   assert.equal(c.code, 0, JSON.stringify(c))
   assert.ok(Array.isArray(c.tasks) && c.tasks.length > 0, JSON.stringify(c))
   for (const task of c.tasks) { assert.equal(typeof task.id, 'string'); assert.equal(typeof task.result_path, 'string') }
@@ -92,7 +107,7 @@ test('9. CLI の claim・query・submit: 開いた呼び出しで claim は担�
   const g = cli('ingest', '--state', state, '--call', args.callId, '--result', f)
   assert.equal(g.code, 0, JSON.stringify(g))
   const before = ledgerText(state)
-  const late = cli('claim', '--state', state, '--call', args.callId, '--worker', w.id)
+  const late = cli(...claim)
   assert.equal(late.code, 2, `閉じた呼び出しの claim は拒む: ${JSON.stringify(late)}`)
   assert.equal(ledgerText(state), before, '台帳を変えない')
 })
@@ -179,14 +194,14 @@ test('9. 検証役の起動は CLI が next で決める: 実行役の結論が�
   const r = await smallRun(t, { exam: { verdict: 'unclear' } })
   assert.equal(r.stop && r.stop.stop, 'complete', stopOf(r))
   assert.ok((roleCounts(r.launches).retro_examiner || 0) >= 1, `実行役は起動する: ${JSON.stringify(roleCounts(r.launches))}`)
-  assert.equal(callsWith(r.steps, 'retro_verifier').length, 0, '支持された結論が無いので検証役を起動しない')
+  assert.equal(callsWith(r.launches, 'retro_verifier').length, 0, '支持された結論が無いので検証役を起動しない')
 })
 
 test('9. 検証役の起動は CLI が next で決める: 2 件の意図のうち 1 件だけが supported なら、検証役の行を持つ呼び出しは 1 つで、検証役はその 1 件だけを取る', async (t) => {
   const r = await smallRun(t, { plan: { n: 2, hypothesis: (i) => (i === 0 ? '支持される仮説' : '決まらない仮説') }, exam: (q) => (String(q.intent && q.intent.hypothesis).startsWith('支持') ? {} : { verdict: 'unclear' }) })
   assert.equal(r.stop && r.stop.stop, 'complete', stopOf(r))
-  const calls = callsWith(r.steps, 'retro_verifier')
-  assert.equal(calls.length, 1, `検証役の呼び出し: ${calls.length}`)
+  const calls = callsWith(r.launches, 'retro_verifier')
+  assert.equal(calls.length, 1, `検証役の波: ${calls.length}`)
   const verifiers = r.launches.filter((l) => l.role === 'retro_verifier')
   assert.equal(verifiers.length, 1)
   assert.equal(tasksOf(verifiers[0]).length, 1, `検証役が取る担当は supported の 1 件だけ: ${JSON.stringify(tasksOf(verifiers[0]))}`)
@@ -267,7 +282,7 @@ test('11. 依存の順: U2 が U1 に依存するなら、U2 の実装の担当�
   const u1 = unitEvents(r.launches, 'implementer', 'U1')
   const u2 = unitEvents(r.launches, 'implementer', 'U2')
   assert.ok(u1.accepted !== null && u2.claimed !== null && u2.claimed > u1.accepted, `依存がそろった単位だけを渡す: ${JSON.stringify({ u1, u2 })}`)
-  for (const s of callsWith(r.steps, 'implementer')) assert.equal(s.args.workers.length, 1, '実装の呼び出しの行は 1 つ')
+  for (const w of callsWith(r.launches, 'implementer')) assert.equal(w.rows.length, 1, '実装の波の行は 1 つ')
   assert.ok((roleCounts(r.launches).implementer || 0) <= 2, `実装の役の起動は依存の段の数まで: ${roleCounts(r.launches).implementer}`)
 })
 
