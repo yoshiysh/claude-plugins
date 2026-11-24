@@ -5,11 +5,16 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-// Workflow source の置き場は公開の前後で変わる（best-practices §13「script の置き場」）: 未公開の間はこのファイルの隣、
-// 公開した後は plugin の workflows/（skills/<name>/scripts/ から 3 つ上）。先に見つかった方を読む。どちらにも無ければ止める。
-const SOURCE_CANDIDATES = ['coverage-audit.js', '../../../workflows/coverage-audit.js'].map((p) => fileURLToPath(new URL(p, import.meta.url)))
-export const WORKFLOW_SOURCE = SOURCE_CANDIDATES.find((p) => existsSync(p))
-if (!WORKFLOW_SOURCE) throw new Error(`Workflow source coverage-audit.js が見つかりません: ${SOURCE_CANDIDATES.join(', ')}`)
+// Workflow source の置き場は公開の前後で変わる（best-practices §13「script の置き場」）: 未公開の間は呼ぶ core（metaUrl）の隣、
+// 公開した後は plugin の workflows/（skills/<name>/scripts/ から 3 つ上）。先に見つかった方を返す。どちらにも無ければ止める。
+// coverage-build の build-core.mjs も同じ規則で build-step.js を解くので、ここから import して使う。
+export function workflowSource(file, metaUrl) {
+  const candidates = [file, `../../../workflows/${file}`].map((p) => fileURLToPath(new URL(p, metaUrl)))
+  const found = candidates.find((p) => existsSync(p))
+  if (!found) throw new Error(`Workflow source ${file} が見つかりません: ${candidates.join(', ')}`)
+  return found
+}
+export const WORKFLOW_SOURCE = workflowSource('coverage-audit.js', import.meta.url)
 const SRC = readFileSync(WORKFLOW_SOURCE, 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
