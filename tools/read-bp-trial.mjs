@@ -29,10 +29,12 @@ export function pick(seed, sp, candidates) {
 
 // 除く単位と強いられた未検査、および SP-BPCONFORMANCE-034 に従う行は指摘にならないので、そこに仕込むと外れとしか読めない。
 const EXECUTOR_TIME = 'SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8';
+// SP-BPCONFORMANCE-035 が照らさずに「適合」を付ける行（モデルを変えたときの effort の測り直しの行と、xhigh と max を使ってよい役を限る行）も、仕込んでも指摘にならない。
+export const CONFORMANT_BY_035 = Object.freeze(['SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r1', 'SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r2']);
 export function injectable(criteriaDir, row, sp) {
   const r = applicability(criteriaDir).find((x) => x.row === row);
   const flow = new Set(flowUnits(criteriaDir).map((u) => u.value));
-  return r.units.map((u) => u.value).filter((v) => belongs(v, sp) && flow.has(v) && !r.forced.includes(v) && v !== EXECUTOR_TIME);
+  return r.units.map((u) => u.value).filter((v) => belongs(v, sp) && flow.has(v) && !r.forced.includes(v) && v !== EXECUTOR_TIME && !CONFORMANT_BY_035.includes(v));
 }
 
 export function forcedBy(criteriaDir, row, sp) {

@@ -217,9 +217,15 @@ test('検証方法: R2 の行は基準の run の記録が無ければ、仕込�
 
 test('検証方法（bp-conformance）: 完了を決める記録の読み取りも、仕込みの伴う単位として吸収した指摘を R2 の行ごとに宣言する', async (t) => {
   const current = fingerprint();
+  // 本物の正解表が伴う単位を宣言するかに頼らず、写した正解表のフローの観点のファイル全体の仕込みに宣言を足して読ませる。
   const expected = JSON.parse(readFileSync(EXPECTED_FILE, 'utf8'));
+  const declaring = expected.injections.find((i) => i.viewpoint === 'flow' && i.section === null && i.unseen.length > 0);
+  assert.ok(declaring, '伴う単位を足せる仕込み（フローの観点のファイル全体）が正解表に無い');
+  declaring.accompanies = [declaring.unseen[0]];
+  const trialDir = await tmp(t, 'bp-expected-');
+  await fs.cp(TRIAL_DIR, trialDir, { recursive: true });
+  await fs.writeFile(path.join(trialDir, path.basename(EXPECTED_FILE)), JSON.stringify(expected));
   const asFinding = (i, unit = i.unit) => ({ viewpoint: i.viewpoint, kind: unit, state: 'open', assets: [{ id: 'A', path: i.file, loc: i.section === null ? { k: 'file' } : { k: 'sec', h: i.section.map((x, n) => [n + 1, x]), n: 1 } }] });
-  const declaring = expected.injections.find((i) => i.accompanies);
   const row = { row: expected.row };
   const baseline = { stopKind: 'complete', findings: [], applicability: row };
   const injected = (findings) => ({ stopKind: 'complete', findings, applicability: row, uncheckedViewpoints: expected.forced.map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason })) });
@@ -227,7 +233,7 @@ test('検証方法（bp-conformance）: 完了を決める記録の読み取り�
   const r2Rows = async (findings) => readRecords({ recordsDir: await records(t, {
     R1: forged('R1', 'review', sourceFor('R1'), baseline, current),
     R2: forged('R2', 'review', sourceFor('R2'), injected(findings), current),
-  }), current }).filter((r) => r.run === 'R2' && r.file === 'bp-conformance.md');
+  }), current, trialDir }).filter((r) => r.run === 'R2' && r.file === 'bp-conformance.md');
   const plain = await r2Rows(all);
   assert.ok(plain.length > 0);
   assert.ok(plain.every((r) => !r.notes.some((n) => n.startsWith(ACCOMPANIED_NOTE))));

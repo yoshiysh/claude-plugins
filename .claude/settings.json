@@ -24,7 +24,9 @@
       "Write(**)",
       "mcp__serena",
       "mcp__codex",
-      "WebSearch"
+      "WebSearch",
+      "Bash(sh tests/formal/bp-prd/prd_sections.sh:*)",
+      "Bash(TLA2TOOLS=* tests/formal/bp-prd/check.sh)"
     ],
     "deny": [
       "Read(.env.*)",
