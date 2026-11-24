@@ -2,9 +2,15 @@
 // 役の出力の静的な照合と結果の形は build-step.js の <checks> 区間が正本で、ここはそれを読み込んで使う（写しを持たない）。
 // 役の提出（submit）の照合はここで行う（Workflow source は照合しない。設計「台帳と見たの記録」の B2・B5）。
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-const SRC = readFileSync(new URL('./build-step.js', import.meta.url), 'utf8')
+// Workflow source の置き場は公開の前後で変わる（best-practices §13「script の置き場」）: 未公開の間はこのファイルの隣、
+// 公開した後は plugin の workflows/（skills/<name>/scripts/ から 3 つ上）。先に見つかった方を読む。どちらにも無ければ止める。
+const SOURCE_CANDIDATES = ['build-step.js', '../../../workflows/build-step.js'].map((p) => fileURLToPath(new URL(p, import.meta.url)))
+export const WORKFLOW_SOURCE = SOURCE_CANDIDATES.find((p) => existsSync(p))
+if (!WORKFLOW_SOURCE) throw new Error(`Workflow source build-step.js が見つかりません: ${SOURCE_CANDIDATES.join(', ')}`)
+const SRC = readFileSync(WORKFLOW_SOURCE, 'utf8')
 export const C = new Function(`${SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))}
 return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, VAGUE_WORDS, AUDIT_LAYERS, LAYERS, LAYER_MAP, canon, norm, quoteProblem, waves, checkArch, checkSpec, checkIntents, checkExam, checkJudge, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles,
   GOAL_SCHEMA, ARCH_SCHEMA, SPEC_SCHEMA, WRITE_SCHEMA, INTENTS_SCHEMA, EXAM_SCHEMA, JUDGE_SCHEMA, RESULT_SCHEMAS, shapeProblems }`)()

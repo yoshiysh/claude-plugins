@@ -6,11 +6,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { C } from './build-core.mjs'
+import { C, WORKFLOW_SOURCE } from './build-core.mjs'
 import { defaultResult, drive, mockAgent, setup } from './test-harness.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const STEP_SRC = readFileSync(path.join(HERE, 'build-step.js'), 'utf8')
+const STEP_SRC = readFileSync(WORKFLOW_SOURCE, 'utf8')
 const CHECKS = STEP_SRC.slice(STEP_SRC.indexOf('// <checks>'), STEP_SRC.indexOf('// </checks>'))
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 

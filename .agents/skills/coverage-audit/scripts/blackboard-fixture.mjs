@@ -36,10 +36,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as cliMod from './ledger-cli.mjs'
+import { WORKFLOW_SOURCE } from './ledger-core.mjs'
 
 export const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const CLI = path.join(HERE, 'ledger-cli.mjs')
-export const WF = path.join(HERE, 'coverage-audit.js')
+export const WF = WORKFLOW_SOURCE
 export const ROLES = JSON.parse(readFileSync(path.join(HERE, 'roles.json'), 'utf8'))
 export const INTENT_KINDS = ['alias', 'subject', 'finding', 'premise', 'goal', 'confirm', 'group']
 export const INTENT_ID = /^(alias|subject|finding|premise|goal|confirm|group):[0-9a-f]+$/

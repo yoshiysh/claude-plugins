@@ -6,10 +6,13 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { cli as buildCli, mockAgent as buildAgent, setup as buildSetup } from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
 import * as auditHarness from '../.agents/skills/coverage-audit/scripts/test-harness.mjs'
+// Workflow source の置き場は公開の前後で変わるので、path は各スキルの core が解いたものを使う。
+import { WORKFLOW_SOURCE as BUILD_STEP } from '../.agents/skills/coverage-build/scripts/build-core.mjs'
+import { WORKFLOW_SOURCE as AUDIT_WF } from '../.agents/skills/coverage-audit/scripts/ledger-core.mjs'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const block = (p) => {
-  const t = readFileSync(path.join(ROOT, p), 'utf8')
+  const t = readFileSync(path.resolve(ROOT, p), 'utf8')
   const s = t.indexOf('// <goalmap>')
   const e = t.indexOf('// </goalmap>')
   assert.ok(s >= 0 && e > s && t.indexOf('// <checks>') < s && e < t.indexOf('// </checks>'), `${p} の <checks> の中に <goalmap> 区間がある`)
@@ -17,16 +20,14 @@ const block = (p) => {
 }
 
 test('<goalmap> 区間は 2 つのスキルで同じ文', () => {
-  assert.equal(block('.agents/skills/coverage-build/scripts/build-step.js'), block('.agents/skills/coverage-audit/scripts/coverage-audit.js'))
+  assert.equal(block(BUILD_STEP), block(AUDIT_WF))
 })
 
 // ---- 目標の照合役への指示に、引用の規則を載せる（単位 P1）----
 // 規則の文の正本は <goalmap> 区間の 1 か所。区間は CITE_MIN から字数を作り、coverage-build の goal_checker と、目標の照合も担う coverage-audit の planner の prompt が埋め込む。
 
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
-const BUILD_STEP = '.agents/skills/coverage-build/scripts/build-step.js'
-const AUDIT_WF = '.agents/skills/coverage-audit/scripts/coverage-audit.js'
-const src = (p) => readFileSync(path.join(ROOT, p), 'utf8')
+const src = (p) => readFileSync(path.resolve(ROOT, p), 'utf8')
 const bodyOf = (text) => new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', text.replace(/^export const meta = /, 'const meta = '))
 const parallel = (ts) => Promise.all(ts.map((t) => Promise.resolve().then(t).catch(() => null)))
 const pipeline = (items, fn) => Promise.all(items.map((x, i) => Promise.resolve().then(() => fn(x, i)).catch(() => null)))

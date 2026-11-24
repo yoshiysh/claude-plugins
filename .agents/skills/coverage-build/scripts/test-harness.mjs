@@ -5,13 +5,11 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { C } from './build-core.mjs'
+import { C, WORKFLOW_SOURCE } from './build-core.mjs'
 import { main } from './build-cli.mjs'
 import { auditAct, auditAgent, auditPos, auditStateOf, isAuditStage, retOf } from './board-fixture.mjs'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-export const SOURCE = path.join(HERE, 'build-step.js')
+export const SOURCE = WORKFLOW_SOURCE
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const body = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', readFileSync(SOURCE, 'utf8').replace(/^export const meta = /, 'const meta = '))
 const arr = (a) => (Array.isArray(a) ? a : [])

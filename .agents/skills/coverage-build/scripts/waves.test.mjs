@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { C, UNIT_MAX_BYTES } from './build-core.mjs'
+import { C, UNIT_MAX_BYTES, WORKFLOW_SOURCE } from './build-core.mjs'
 import {
   AUDIT_ROLES, AUDIT_ROLE_NAMES, ROLES, act, archResult, argOf, auditStateOf, claimArgv, cli, cliArgvOf, driveScript, goalResult, isAuditStage, runScript, runsOf, setup, stageGroup, wavesOf, workerLoop,
 } from './board-fixture.mjs'
@@ -480,7 +480,7 @@ test('道具: ファイルの段の提出が照合に落ち続ける単位は（
 // ---------------- Workflow script（偽の agent だけで流す。台帳は使わない） ----------------
 // coverage-audit の waves.test.mjs の「script:」の 4 つの振る舞い（最大の id の波を選ぶ・halt を兄弟の next_wave より優先する・行を切り詰めない・
 // 壊れた rows を拒む）を、build-step.js でも確かめる。build の行は build の段と役、検査の行は audit:<coverage-audit の段> と coverage-audit の役。
-const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'build-step.js')
+const SCRIPT = WORKFLOW_SOURCE
 const BROW = (id, role = 'architect', stage = 'design') => ({ id, role, model: ROLES[role].model, effort: ROLES[role].effort, stage })
 const AROW = (id, stage = 'file') => {
   const role = { plan: 'planner', file: 'file_reader', global: 'global_judge', full_review: 'full_reviewer' }[stage]

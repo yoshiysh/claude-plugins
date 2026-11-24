@@ -2,9 +2,15 @@
 // 引用・計画・束ねなどの静的な照合の式は Workflow source の <checks> 区間にあり、ここはそれを読み込んで使う（写しを持たない）。
 // ファイルの段の結果の照合（checkFileResult）はここが正本（B2: 照合するのは CLI だけ）。
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-const SRC = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
+// Workflow source の置き場は公開の前後で変わる（best-practices §13「script の置き場」）: 未公開の間はこのファイルの隣、
+// 公開した後は plugin の workflows/（skills/<name>/scripts/ から 3 つ上）。先に見つかった方を読む。どちらにも無ければ止める。
+const SOURCE_CANDIDATES = ['coverage-audit.js', '../../../workflows/coverage-audit.js'].map((p) => fileURLToPath(new URL(p, import.meta.url)))
+export const WORKFLOW_SOURCE = SOURCE_CANDIDATES.find((p) => existsSync(p))
+if (!WORKFLOW_SOURCE) throw new Error(`Workflow source coverage-audit.js が見つかりません: ${SOURCE_CANDIDATES.join(', ')}`)
+const SRC = readFileSync(WORKFLOW_SOURCE, 'utf8')
 const BLOCK = SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))
 export const C = new Function(`${BLOCK}
 return { LIMITS, LAYERS, SEVERITIES, norm, fenceMask, quoteProblem, unitKey, unitText, checkGoals, checkPlan, checkUnitVerdict, unitDefects, checkGroups, UPPER, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles }`)()
