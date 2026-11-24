@@ -375,7 +375,10 @@ test('lock の順: 検査の段の claim は build の lock を取ってから�
   mkdirSync(auditStateOf(state), { recursive: true })
   writeFileSync(auditLock, 'other-process-token')
   const p = spawnCli(claimArgv(state, call, nw.rows[0], nw.id))
-  await new Promise((r) => setTimeout(r, 800))
+  // 子の process の起動の遅れに依らないよう、子が build の lock を取ったこと（build.lock が現れること）を合図に待つ。
+  // 検査の台帳の lock は持ったままなので、子はそこで待つ（待ちの上限 10 秒より前に合図が来る）。
+  const deadline = Date.now() + 8000
+  while (!existsSync(buildLock) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20))
   const heldBuild = existsSync(buildLock)
   rmSync(auditLock)
   const c = await p

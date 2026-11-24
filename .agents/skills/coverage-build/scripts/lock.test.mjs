@@ -30,9 +30,11 @@ function patchWriteSync(t, on) {
   return { calls, restore }
 }
 
-function run(argv) {
+// ready を渡すと、子の process が起動して CLI を読み込む前にそのファイルを書く（--import の合図）。起動の遅れに依らずに待つため。
+function run(argv, { ready = null } = {}) {
   return new Promise((resolve) => {
-    const p = spawn(process.execPath, [CLI, ...argv])
+    const pre = ready ? ['--import', `data:text/javascript,${encodeURIComponent(`import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(ready)}, '1')`)}`] : []
+    const p = spawn(process.execPath, [...pre, CLI, ...argv])
     let out = ''
     p.stdout.on('data', (b) => { out += b })
     p.on('close', (code) => {
@@ -49,7 +51,12 @@ test('lock（直列化）: 他の process の lock があるあいだ next は�
   writeFileSync(lock, 'other-process-token')
   const before = bytes(state)
   const t0 = Date.now()
-  const p = run(['next', '--state', state])
+  // 子が起動した合図（ready）を待ってから、待つ時間を測る（子の起動の遅れを待ちの時間に数えない）。
+  const ready = path.join(state, 'child-ready')
+  const p = run(['next', '--state', state], { ready })
+  const deadline = Date.now() + 8000
+  while (!existsSync(ready) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20))
+  assert.ok(existsSync(ready), '子の process が起動した')
   await new Promise((r) => setTimeout(r, 600))
   assert.equal(bytes(state), before, '待つあいだ台帳を変えない')
   assert.equal(readFileSync(lock, 'utf8'), 'other-process-token', '他の process の lock を奪わない')

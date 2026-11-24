@@ -465,3 +465,28 @@ export function auditRejectOnce(state) {
 // 起動の記録のうち build の役（coverage-build の roles.json の役）だけ。
 export const buildLaunches = (launches) => launches.filter((x) => ALL_ROLES.includes(x.role))
 
+
+// 手で波を進める道具: next で開いた呼び出しの波を、行ごとに偽の役で順に流し、until(wave) が真になる波の手前で止める（その波の行は claim しない）。
+// wave = { id, rows }。build の役は act、検査の役は auditAct(state, audit, auditOver) で流す。止まった波 { call, wave } を返し、
+// 呼び出しが until に届かずに次の波を失ったら（halt か next_wave が無い）{ call, wave: null, last } を返す。
+export async function walkTo(state, until, { a = act(), audit = null, auditOver = {} } = {}) {
+  const n = cli('next', '--state', state)
+  if (n.code !== 0 || !n.args_path) return { call: null, wave: null, next: n }
+  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  const aAct = auditAct(state, audit, auditOver)
+  let wave = args.wave
+  for (let guard = 0; guard < 60 && wave; guard++) {
+    if (until(wave)) return { call: args.callId, wave }
+    const recs = []
+    for (const row of wave.rows) {
+      const argv = claimArgv(state, args.callId, row, wave.id)
+      recs.push(isAuditStage(row.stage)
+        ? await auditWorkerLoop({ state, call: args.callId, worker: row.id, role: null, argv }, aAct, [], cli)
+        : await workerLoop({ state, call: args.callId, worker: row.id, role: row.role, argv }, a))
+    }
+    const nws = recs.map((r) => r.next_wave).filter(Boolean)
+    if (recs.some((r) => r.halt) || !nws.length) return { call: args.callId, wave: null, last: recs }
+    wave = nws.reduce((x, y) => (Number(y.id) > Number(x.id) ? y : x))
+  }
+  return { call: args.callId, wave: null }
+}
