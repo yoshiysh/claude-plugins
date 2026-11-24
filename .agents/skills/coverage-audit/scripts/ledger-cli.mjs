@@ -798,21 +798,32 @@ function promote(L, dir) {
     addEvent(L, w.stage, 'agent_missing', `${label}（${w.model}/${w.effort}）: 波 ${P.wave_id} の役が claim を 1 回もしないまま、波が閉じた`, label)
     P.reported = [...(P.reported || []), `${P.wave_id}|${label}`]
   }
-  P.progressed = !!P.progressed || waveProgress(P)
-  closeWave(L)
+  // 環境の失敗の印（env_attempts）は、締める波ごとに、その波の進みで付ける。呼び出し全体の進み（progressed）で判じるのは fail_streak だけ。
+  const moved = waveProgress(P)
+  P.progressed = !!P.progressed || moved
+  closeWave(L, { env: !moved })
   P.waves_closed += 1
   P.prev_submits += P.submits || 0
   if (P.next.step === 'retro' && L.events.length > at && L.goal.checked_by !== 'coverage-build') {
     // 読まなかった振り返りの単位だけを作り直す（読んだ単位とその出来事は作り直さない）。その単位の出来事と、新しく増えた出来事を並べ直す。
-    const back = new Set()
+    // 作り直した単位は、同じ出来事を含んでいた元の単位の試行を引き継ぐ（取り残し続ければ MAX_ATTEMPTS で開示される）。
+    const back = new Map()
+    const idsOf = (id) => [...String(unitTextOf(L, id) || '').matchAll(/^\[([^\]]+)\]/gm)].map((m) => m[1])
     for (const [id, a] of Object.entries(L.assets)) {
       if (!a.retro || a.state !== 'unseen' || a.claim) continue
-      for (const m of String(unitTextOf(L, id) || '').matchAll(/^\[([^\]]+)\]/gm)) back.add(m[1])
+      for (const e of idsOf(id)) back.set(e, { attempts: a.attempts || 0, env: a.env_attempts || 0 })
       delete L.assets[id]
     }
     for (const e of L.events) if (back.has(e.id)) delete e.retro
     L.retro_made = null
     const d = advance(L, dir)
+    for (const [id, a] of Object.entries(L.assets)) {
+      if (!a.retro || a.state !== 'unseen' || a.read) continue
+      const olds = idsOf(id).map((e) => back.get(e)).filter(Boolean)
+      if (!olds.length) continue
+      a.attempts = Math.max(a.attempts || 0, ...olds.map((x) => x.attempts))
+      a.env_attempts = Math.max(a.env_attempts || 0, ...olds.map((x) => x.env))
+    }
     const packs = d.step === 'retro' ? packUnitsTo(d.units, (id) => unitBytes(L, id), lineOf(L)) : []
     P.next.bundles = Object.fromEntries(P.next.workers.map((w, i) => [w.id, packs[i] || []]))
   }
@@ -919,15 +930,16 @@ function ingest(dir, o) {
   if (P.next && ag.some((a) => a.wave != null && String(a.wave) === String(P.next.wave_id))) promote(L, dir)
   // 今の波（最後に起動した波）の起動の記録。波の印の無い記録は今の波のものとして読む。
   const cur = ag.filter((a) => a.wave == null || String(a.wave) === String(P.wave_id))
-  // 環境の失敗に数えるのは、進みが無かった呼び出しだけ（設計「モデルと費用」の起動の原則: 1 体の時間の上限に当たった残りは次の呼び出しが取る）。
-  // 波ごとに数を戻すので、今の波で判じる（境目まで来た前の波には進みがあり、最後の波が進まなければ数える）:
+  // fail_streak に数えるのは、どの波にも進みが無かった呼び出しだけ（設計「モデルと費用」の起動の原則: 1 体の時間の上限に当たった残りは次の呼び出しが取る）。
+  // 環境の失敗の印（env_attempts）は、今の波の進みで付ける（前の波に進みがあっても、進みの無い波の取り残しは環境の失敗の試行）:
   // - 全体の段: claim も受理も 0（worker が起動されなかった）。読む段（ファイルの段・振り返り）: submit が 0。計画の段: 全ての役が欠け、受理が 0。
   // 進みのあった呼び出しで返らなかった役は、取ったまま出していない担当の試行に数えるだけにする（closeWave）。
-  const allFailed = !P.progressed && noProgress(P, cur)
+  const waveFailed = noProgress(P, cur)
+  const allFailed = !P.progressed && waveFailed
   recordCall(L, P, r, allFailed)
   L.hints_read.push(...P.hints)
   const rejected = L.events.slice(P.events_at).filter((e) => e.kind.startsWith('rejected_')).map((e) => e.text)
-  closeCall(L, { env: allFailed, lost: cur.some((a) => !a.ok) })
+  closeCall(L, { env: waveFailed, lost: cur.some((a) => !a.ok) })
   save(dir, L)
   return { ok: true, cycle: L.cycle, coverage: coverage(L), ...(rejected.length ? { rejected } : {}), next: 'next を流す' }
 }

@@ -613,6 +613,8 @@ function deriveFindings(L, facts, intents) {
   // 場所が参照（--context）の単位だけにある指摘は、対象の欠陥と言えないので確定させず、参考にする（場所の 1 つ以上が対象の単位にあれば確定しうる）。
   const onlyContext = (f) => { const us = unitsOf(f); return us.length > 0 && us.every((u) => L.assets[u] && L.assets[u].context) }
   const confirmed = (x, f) => (x.obligation && C.LAYERS.includes(x.layer) && !onlyContext(f) ? out.push(x) : refs.push(ref(x)))
+  // 検証不能も、場所が参照だけの指摘は対象の欠陥の候補にならないので、unverifiable に入れず参考に回す（それを理由に止めない）。
+  const unverif = (x, f) => (onlyContext(f) ? refs.push(ref(x)) : out.push(x))
   for (const it of intents) {
     if (it.kind !== 'finding' || !it.judgment) continue
     const f = facts.get(it.basis[0])
@@ -623,17 +625,17 @@ function deriveFindings(L, facts, intents) {
     if (!c || !c.judgment) continue
     if (j.verdict === 'keep') {
       if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [j, c.judgment]), f)
-      else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment]))
+      else if (c.judgment.verdict === 'unverifiable') unverif(shape(f, 'unverifiable', [j, c.judgment]), f)
       continue
     }
     if (c.judgment.verdict === 'disagree') confirmed(shape(f, 'confirmed', [j, c.judgment], { restored: true }), f)
-    else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment], { dropped: true }))
+    else if (c.judgment.verdict === 'unverifiable') unverif(shape(f, 'unverifiable', [j, c.judgment], { dropped: true }), f)
   }
   for (const f of facts.values()) {
     if (f.type !== 'finding' || !f.judgment) continue
     const c = confirmOf.get(`added|${f.id}`)
     if (!c || !c.judgment) continue
-    if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [c.judgment]))
+    if (c.judgment.verdict === 'unverifiable') unverif(shape(f, 'unverifiable', [c.judgment]), f)
     else if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [c.judgment]), f)
   }
   return { list: out, references: refs }

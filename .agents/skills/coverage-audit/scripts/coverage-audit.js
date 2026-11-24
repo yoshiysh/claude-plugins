@@ -8,7 +8,7 @@ export const meta = {
     { title: 'full_review', detail: '全文レビューの役 1 体が、読む範囲の全ての単位を観点に縛られずに目標だけを手に読み、指摘と参考を書く（網羅に数えない）' },
     { title: 'file', detail: '読む役が文脈に収まる分の単位の詰め合わせを取り、単位ごとに全文を全ての観点で読み、指摘・保証と前提・観点ごとの見たを書く' },
     { title: 'global', detail: '判定役と確認役が意図を取り、根拠と関係する事実だけを引いて判定する（名寄せ・主語の照合・指摘の判定・前提・目標・確認・束ね）' },
-    { title: 'retro', detail: '単独で呼ばれたときだけ、振り返りの役 1 体が全ての出来事を読み、対象の指摘と分けて振り返りを書く' },
+    { title: 'retro', detail: '単独で呼ばれたときだけ、振り返りの役 1 体が、振り返りの波までに台帳に足された出来事を読み、対象の指摘と分けて振り返りを書く（ingest でだけ足される出来事は次の周か events_not_in_retro に残る）' },
   ],
   limits: { maxAgents: 60, concurrency: 3, timeoutMs: 12000000, agentTimeoutMs: 600000, maxOutputBytes: 4000000 },
 }
