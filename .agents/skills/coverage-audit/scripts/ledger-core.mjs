@@ -610,21 +610,23 @@ function deriveFindings(L, facts, intents) {
     units: involved(f), ...extra,
   })
   const ref = (f) => ({ id: f.id, unit: f.unit, path: f.path, claim: f.claim, quote: f.quote, origin: f.origin })
-  const confirmed = (x) => (x.obligation && C.LAYERS.includes(x.layer) ? out.push(x) : refs.push(ref(x)))
+  // 場所が参照（--context）の単位だけにある指摘は、対象の欠陥と言えないので確定させず、参考にする（場所の 1 つ以上が対象の単位にあれば確定しうる）。
+  const onlyContext = (f) => { const us = unitsOf(f); return us.length > 0 && us.every((u) => L.assets[u] && L.assets[u].context) }
+  const confirmed = (x, f) => (x.obligation && C.LAYERS.includes(x.layer) && !onlyContext(f) ? out.push(x) : refs.push(ref(x)))
   for (const it of intents) {
     if (it.kind !== 'finding' || !it.judgment) continue
     const f = facts.get(it.basis[0])
     const j = it.judgment
     const fr = f.origin === FULL_REVIEW
-    if (j.verdict === 'keep' && !fr) { confirmed(shape(f, 'confirmed', [j])); continue }
+    if (j.verdict === 'keep' && !fr) { confirmed(shape(f, 'confirmed', [j]), f); continue }
     const c = confirmOf.get(`${j.verdict === 'keep' ? 'kept' : 'dropped'}|${f.id}`)
     if (!c || !c.judgment) continue
     if (j.verdict === 'keep') {
-      if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [j, c.judgment]))
+      if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [j, c.judgment]), f)
       else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment]))
       continue
     }
-    if (c.judgment.verdict === 'disagree') confirmed(shape(f, 'confirmed', [j, c.judgment], { restored: true }))
+    if (c.judgment.verdict === 'disagree') confirmed(shape(f, 'confirmed', [j, c.judgment], { restored: true }), f)
     else if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [j, c.judgment], { dropped: true }))
   }
   for (const f of facts.values()) {
@@ -632,7 +634,7 @@ function deriveFindings(L, facts, intents) {
     const c = confirmOf.get(`added|${f.id}`)
     if (!c || !c.judgment) continue
     if (c.judgment.verdict === 'unverifiable') out.push(shape(f, 'unverifiable', [c.judgment]))
-    else if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [c.judgment]))
+    else if (c.judgment.verdict === 'agree') confirmed(shape(f, 'confirmed', [c.judgment]), f)
   }
   return { list: out, references: refs }
 }
@@ -665,8 +667,9 @@ export function packUnitsTo(ids, bytesOf, max) {
   }
   return out.map((x) => x.ids)
 }
-// 既定の線（UNIT_MAX_BYTES）の詰め合わせ。coverage-build の build-core.mjs が同じ本文を写す（一致は tests/coverage-build-audit-copies.test.mjs が照らす）ので、
-// 本文を packUnitsTo に寄せずに残す。この台帳の詰め合わせは、役の文脈の大きさから導く線で packUnitsTo を使う。
+// 既定の線（UNIT_MAX_BYTES）の詰め合わせ。coverage-audit の中では使わない（この台帳の詰め合わせは、役の文脈の大きさから導く線で packUnitsTo を使う）。
+// 残すのは、coverage-build の build-core.mjs が同じ本文の写しを持ち、tests/coverage-build-audit-copies.test.mjs がこの宣言を正本として照らすため
+// （消すと写しの正本が無くなる。build が packUnitsTo に移るか import に替われば消せる）。
 export function packUnits(ids, bytesOf) {
   const out = []
   let cur = null
@@ -735,8 +738,8 @@ export function openCycle(L) {
 // 周の上限は、今の回の始まり（round_start。init・reframe か、止まった後に対象が変わって読み直しを始めた周）から数える。
 const roundBase = (L) => Math.max(L.round_start ?? L.phase_start.cycle, L.phase_start.cycle)
 
-// 次の 1 手か停止を、台帳だけから決める。計画の段は役ごとの呼び出し（計画役 → 観点の検証役）に分ける
-// （1 つの呼び出しの worker は全て同時に起動されるので、前の役の提出を待つ役は次の呼び出しに置く）。
+// 次の 1 手か停止を、台帳だけから決める（next と claim の advance が流す）。計画の段は役ごとの波（計画役 → 観点の検証役）に分ける
+// （1 つの波の worker は全て同時に起動されるので、前の役の提出を待つ役は次の波に置く）。
 export function decide(L, { missingTargets = [] } = {}) {
   // 停止には、開いたままの意図と、判定できずに開示して閉じた意図を必ず載せる（上限で止まったことを完了と取り違えない）。
   const stop = (kind, reasons, extra = {}) => {
@@ -814,7 +817,10 @@ export function retroAssets(L) {
   const chunks = pack(lines.map((_, k) => ({ start: k, end: k + 1 })), size, (x) => [x], lineOf(L))
   return chunks.map((c, n) => {
     const text = lines.slice(c.start, c.end).join('\n')
-    const id = `retro:c${L.cycle}${chunks.length > 1 ? `/c${n + 1}` : ''}`
+    // 同じ周に作り直すとき（振り返りが 2 波以上に分かれ、読まなかった単位を作り直す）は、読んだ単位の id と重ねない。
+    const base = `retro:c${L.cycle}${chunks.length > 1 ? `/c${n + 1}` : ''}`
+    let id = base
+    for (let k = 2; L.assets && L.assets[id]; k++) id = `${base}~${k}`
     return { id, path: id, heading: 'retro', trail: [], kind: 'retro', start: 1, end: text.split('\n').length, text, hash: sha(text).slice(0, 16), retro: true }
   })
 }

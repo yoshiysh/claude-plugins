@@ -61,7 +61,7 @@ goal.md・criteria.md・constraints.md の各行の末尾に、request.md か de
 
 検査する対象は `--target` で渡す（複数可。文書・コード・テストなど種類を問わない）。仕様書そのものも検査するなら対象に加える。検査はしないが照らす根拠にしたいファイル（今の本文・決定の記録など）は `--context` で参照として渡す。参照は網羅に数えず、読む役には渡らず、全文レビュー・判定役の単位の索引に載って引用の根拠になる。
 
-目標・基準・制約の本文に書いた path（`/` を含み拡張子で終わる語）が repo（`--repo`、無ければ init の cwd）に実在するのに、`--target` にも `--context` にも無ければ、init・reframe・answer は `problems` で拒否する。実在しない path は照らさない。目標が対象に無いファイルを求めたまま検査を始めないため。
+目標・基準・制約の本文に書いた path（`/` を含み拡張子で終わる語）が repo（`--repo`、無ければ init の cwd）に実在するのに、`--target` にも `--context` にも無ければ、init と answer は `problems` で拒否する。実在しない path は照らさない。目標が対象に無いファイルを求めたまま検査を始めないため。照合済みの印（`--goal-checked coverage-build`）のある台帳（init・reframe）では照らさない。照らすのは呼ぶ側で、`scripts/ledger-cli.mjs` の `framePathProblems` を自分の対象と入力で使う。場所が参照の単位だけにある指摘は確定させず、参考（`references`）に入れる。
 
 coverage-build から呼ばれたときは、coverage-build の `next` が渡す引数（`init_argv` か `reframe_argv`）をそのまま使う。台帳は coverage-build の段（`--phase`）をまたいで 1 つに固定する。
 - `--goal-checked coverage-build` は、coverage-build が目標を照合済みである印。この印があると init は引用を照らさず、計画役も目標の照合をしない（目標のファイルの先頭の、検査の段を述べる文も受け付ける）。利用者が単独で呼ぶときは付けない。
@@ -96,14 +96,14 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
    起動数の上限は段の始まり（init か、`kept` でない reframe）から、周の上限は今の回の始まりから数える。印の無い台帳・`--phase` の無い reframe・照合を通らない項目・読めない対象は、台帳を変えずに拒否する。
 
    1 回の呼び出しは、段ごとの波を順に流す（下の「Workflow を呼ぶ」）。波の起動数は段で決まり、呼び出しの中の全ての波の和を `meta.limits.maxAgents` と残りの起動数の予算に収める。
-   - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。詰め合わせの線は、単位を読む役の `roles.json` の `context_tokens` の最小値から導く（既定 200k token で 100KB。references/ledger.md）。収まらない分は次の呼び出しで読む。
+   - ファイルの段と振り返り: 詰め合わせ 1 つに 1 体。詰め合わせの線は、単位を読む役の `roles.json` の `context_tokens` の最小値から導く（既定 200k token で 100KB。references/ledger.md）。収まらない分は次の波か呼び出しで読む。
    - 全体の段: 開いた意図のある役（判定役・確認役）ごとに `workers` 体。既定は 1 体（`scripts/ledger-core.mjs` の `DEFAULT_CONFIG`）で、1 体が claim を繰り返して意図を束で取って処理する。`CLI config --state <stateDir> --workers N` が変えるのはこの数だけ（役の組の数 2 × `workers` が `meta.limits.maxAgents` を超える値は拒否する。行の合計は残りの起動数の予算にも収め、予算が足りないときは判定役の組を先に起動する）。
    - 計画の段: 計画役 1 体、観点の検証役 1 体。
    - 全文レビュー: いつも 1 体（`--workers` によらない）。
 
    小さい対象（文脈に収まる分）の検査は、1 回の呼び出しで、計画役・観点の検証役・全文レビュー・ファイルの段・判定役・確認役の多くて 6 体で終わる（単独で呼ばれたときは振り返りの 1 体を足して 7 体）。計画が観点を足さなければ観点の検証役は起動せず、確認と束ねの意図が無ければ確認役は起動しない（全文レビューが指摘を出せば確認の意図ができる）。
 
-   数の引数は正の整数だけを受け付け、省いた値は `DEFAULT_CONFIG` になる。読めない対象と、引用か path の照合を通らない項目（`problems`）があれば台帳を作らずに拒否する（直して init をやり直す）。台帳の形が今の形と違えば、init 以外のコマンドが拒否するので、新しい `stateDir` で init からやり直す。出力の `hint` の文を利用者に示す（ヒントは run の途中でも `CLI hint --state <stateDir> --text "..."` で足せ、次の呼び出しの役に届く。全文レビューの呼び出しはヒントを読まず、その後の呼び出しが読む）。
+   数の引数は正の整数だけを受け付け、省いた値は `DEFAULT_CONFIG` になる。読めない対象と、引用か path の照合を通らない項目（`problems`）があれば台帳を作らずに拒否する（直して init をやり直す）。台帳の形が今の形と違えば、init 以外のコマンドが拒否するので、新しい `stateDir` で init からやり直す。出力の `hint` の文を利用者に示す（ヒントは run の途中でも `CLI hint --state <stateDir> --text "..."` で足せ、次の波の役に届く。全文レビューの波はヒントを読まず、その後の波が読む）。
 2. `CLI next --state <stateDir>` を流す。
    - `stop` があれば終わり。「止まったとき」へ。
    - `step` があれば、`estimate_agents`（最初の波で起動する役の数）を見てから、下の「Workflow を呼ぶ」で `args_path` の args を 1 回流す。役は Workflow の中で `claim`・`query`・`submit` を Bash で流し、結果を台帳に直接出す。段は Workflow の中で進むので、多くは 1 回で止まる条件まで行く。
@@ -120,7 +120,7 @@ CLI は `node [SKILL_DIR]/scripts/ledger-cli.mjs`（以下 `CLI`）。出力は 
 
 `--max-cycles` は残っているが、run の中では周が増えない（横展開を持たない。周が進む条件は references/ledger.md の「止める条件」の limit）。
 
-開いた呼び出しがある間の `next` は同じ呼び出し（同じ `call_id` と `args_path`）を返すので、Workflow が途中で落ちたら 2 からやり直せばよい。待っている `call_id` と違う `--call` は `ingest` が拒否する。意図の種類と確定の条件も references/ledger.md。
+開いた呼び出しがある間の `next` は同じ呼び出し（同じ `call_id`）の今の波の args を返すので、Workflow が途中で落ちたら 2 からやり直せば続きから進む。待っている `call_id` と違う `--call` は `ingest` が拒否する。意図の種類と確定の条件も references/ledger.md。
 
 ## Workflow を呼ぶ
 
