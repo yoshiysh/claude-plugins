@@ -42,10 +42,13 @@ const okResult = (args, ok = true) => ({ agents: rowsOf(args).map((w) => ({ role
 const ingest = (state, d, args, res = okResult(args)) => cli('ingest', '--state', state, '--call', args.callId, '--result', put(d, res))
 const missedBy = (L, kind, id) => L.events.some((e) => e.kind === kind && (e.ref === id || String(e.text).includes(id)))
 
-// 別の node の process で CLI を流す（並べて流すときは Promise.all で同時に走らせる）。
-function run(argv, { shell = null } = {}) {
+// 子の process が自分で測る時刻の合図（起動を終えて CLI を読み込む直前と、終わる時）。親の側の起動の遅れ・後片付けの遅れを測りに入れないため。
+const CLOCK = `data:text/javascript,${encodeURIComponent("process.stderr.write('CLOCK START ' + Date.now() + '\\n'); process.on('exit', () => process.stderr.write('CLOCK END ' + Date.now() + '\\n'))")}`
+const clockOf = (err) => { const m = (k) => { const x = new RegExp(`CLOCK ${k} (\\d+)`).exec(err); return x ? Number(x[1]) : null }; return { start: m('START'), end: m('END') } }
+// 別の node の process で CLI を流す（並べて流すときは Promise.all で同時に走らせる）。timed なら、子が測った開始と終わりの時刻（clock）を返す。
+function run(argv, { shell = null, timed = false } = {}) {
   return new Promise((resolve) => {
-    const p = shell ? spawn('sh', ['-c', shell]) : spawn(process.execPath, [CLI, ...argv])
+    const p = shell ? spawn('sh', ['-c', shell]) : spawn(process.execPath, [...(timed ? ['--import', CLOCK] : []), CLI, ...argv])
     let out = ''
     let err = ''
     p.stdout.on('data', (b) => { out += b })
@@ -53,7 +56,7 @@ function run(argv, { shell = null } = {}) {
     p.on('close', (code) => {
       let j = {}
       try { j = JSON.parse(out) } catch { j = { raw: out, stderr: err } }
-      resolve({ code, ...j })
+      resolve({ code, ...j, ...(timed ? { clock: clockOf(err) } : {}) })
     })
   })
 }
@@ -299,10 +302,11 @@ test('lock: 生きた lock でも古い lock でも消さず、待つ時間が�
     if (c.ageSec) { const old = (Date.now() - c.ageSec * 1000) / 1000; utimesSync(lock, old, old) }
     return { ...c, state, lock, before: bytes(state) }
   }))
+  // 待った時間は子の process が自分で測る（起動を終えてから終わるまで）。並べて流したときの子の起動の遅れに依らない。
   const outs = await Promise.all(cases.map(async (c) => {
-    const t0 = Date.now()
-    const r = await run(['config', '--state', c.state, '--max-cycles', c.maxCycles])
-    return { r, took: Date.now() - t0 }
+    const r = await run(['config', '--state', c.state, '--max-cycles', c.maxCycles], { timed: true })
+    assert.ok(Number.isFinite(r.clock.start) && Number.isFinite(r.clock.end), `${c.name}: 子の時刻の合図が無い: ${JSON.stringify(r)}`)
+    return { r, took: r.clock.end - r.clock.start }
   }))
   cases.forEach((c, i) => {
     const { r, took } = outs[i]
