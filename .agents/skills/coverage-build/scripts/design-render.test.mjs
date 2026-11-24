@@ -355,52 +355,56 @@ test('L.arch が無い台帳（方式設計の前）は拒否しない', (t) => 
 })
 
 // ---------------- 7. 設計レビューへの --link と frame ----------------
-// 偽の検査: 呼ばれた audit の欄（argv と、そのときの goal.md の本文）を残す。置き場に段の位置のファイル（phase.json）を置き、2 回目からは reframe_argv にさせる。
+// 書き換え（波の形）: 検査の入力は argv で返さず、CLI が同じ process で coverage-audit の台帳を init・reframe する。
+// 偽の検査の計画役が担当を取るたびに（検査の 1 回ごとに）、検査の台帳の段・link・目標の冒頭の文を残す。findingOnce なら最初の設計レビューで U1.md に指摘を 1 件出す。
 function recorder(state, seen, { findingOnce = false } = {}) {
   let n = 0
-  return (phase, out) => {
-    const a = out.audit
-    seen.push({ phase, argv: a.init_argv || a.reframe_argv, kind: a.init_argv ? 'init' : 'reframe', goal: readFileSync(a.goal, 'utf8') })
-    mkdirSync(a.state, { recursive: true })
-    if (!existsSync(path.join(a.state, 'phase.json'))) writeFileSync(path.join(a.state, 'phase.json'), '{}')
-    if (findingOnce && phase === 'design' && n++ === 0) return auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] })
-    return auditStatus({ phase })
+  const key = new Set()
+  const auditOver = {
+    plan: () => {
+      const AL = JSON.parse(readFileSync(path.join(state, 'audit', 'state', 'ledger.json'), 'utf8'))
+      const k = JSON.stringify([AL.phase, AL.phase_start])
+      if (!key.has(k)) { key.add(k); seen.push({ phase: AL.phase, link: AL.link ?? null, goal: AL.goal.text }) }
+      return undefined
+    },
   }
+  const audit = (phase) => (findingOnce && phase === 'design' && n++ === 0
+    ? auditStatus({ phase, confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '入力を受け取り、決まった値を返す。', layer: '詳細設計' }] })
+    : auditStatus({ phase }))
+  return { audit, auditOver }
 }
 
-test('設計レビュー: init と reframe の argv に --link で C.LINK_PATTERN を渡し、実装レビューでは渡さない', async (t) => {
+test('設計レビュー: init と reframe で link に C.LINK_PATTERN を置き、実装レビューでは置かない', async (t) => {
   const { state } = setup(t)
   const seen = []
-  const { stop } = await drive(state, agentOf(), { audit: recorder(state, seen, { findingOnce: true }) })
+  const { stop } = await drive(state, agentOf(), recorder(state, seen, { findingOnce: true }))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.deepEqual(seen.map((x) => [x.phase, x.kind]), [['design', 'init'], ['design', 'reframe'], ['impl', 'reframe']])
-  for (const x of seen.filter((s) => s.phase === 'design')) {
-    assert.equal(x.argv.filter((a) => a === '--link').length, 1, `${x.kind}: --link は 1 つ`)
-    assert.deepEqual(pairOf(x.argv, '--link'), ['--link', C.LINK_PATTERN], x.kind)
-  }
-  assert.ok(!seen.find((x) => x.phase === 'impl').argv.includes('--link'), '実装レビューの reframe は --link を持たない（link は枠の一部で null に戻る）')
+  assert.deepEqual(seen.map((x) => x.phase), ['design', 'design', 'impl'])
+  for (const x of seen.filter((s) => s.phase === 'design')) assert.equal(x.link, C.LINK_PATTERN)
+  assert.equal(seen.find((x) => x.phase === 'impl').link, null, '実装レビューの reframe は link を持たない（link は枠の一部で null に戻る）')
   assert.equal(typeof C.LINK_PATTERN, 'string')
   const re = new RegExp(C.LINK_PATTERN, 'g')
   assert.deepEqual('X1-2 と U1A3 と U2S1 と X1'.match(re), ['X1-2', 'U1A3', 'U2S1'])
 })
 
-test('現状の検査・review の argv には --link を渡さない', async (t) => {
+test('現状の検査・review の台帳には link を置かない', async (t) => {
   for (const [mode, phase] of [['update', 'baseline'], ['review', 'review']]) {
     const { state } = setup(t, { mode })
     const seen = []
-    await drive(state, mockAgent(), { audit: recorder(state, seen), maxSteps: 4 })
-    assert.equal(seen[0].phase, phase)
-    assert.ok(!seen[0].argv.includes('--link'), `${phase}: ${JSON.stringify(seen[0].argv)}`)
+    await drive(state, mockAgent(), { ...recorder(state, seen), maxSteps: 3 })
+    assert.equal(seen[0] && seen[0].phase, phase, JSON.stringify(seen))
+    assert.equal(seen[0].link, null, phase)
   }
 })
 
 test('設計レビューの frame に、境界の表と行 id・照らし済みの 2 文を足す。ほかの段には足さない', async (t) => {
   const { state } = setup(t)
   const seen = []
-  const { stop } = await drive(state, agentOf(), { audit: recorder(state, seen) })
+  const { stop } = await drive(state, agentOf(), recorder(state, seen))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const S1 = '単位をまたぐ扱いは `_architecture.md` の境界の表にあり、設計の文書は行 id（`X<n>-<k>`）でそれを指す。'
   const S2 = '前提の引用と照合の不変条件は script が照らし済みである。'
+  assert.ok(seen.some((x) => x.phase === 'design') && seen.some((x) => x.phase === 'impl'), `設計レビューと実装レビューの検査の台帳を見た: ${JSON.stringify(seen.map((x) => x.phase))}`)
   const design = seen.find((x) => x.phase === 'design').goal
   assert.ok(design.includes(S1), design)
   assert.ok(design.includes(S2), design)

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import * as cb from '../.agents/skills/coverage-build/scripts/test-harness.mjs'
+import { auditPos } from '../.agents/skills/coverage-build/scripts/board-fixture.mjs'
 import { lensSetVersion } from '../.agents/skills/coverage-audit/scripts/ledger-core.mjs'
 import { behave, claimedTasks, cli, drive, project, status, unitLines, usable } from '../.agents/skills/coverage-audit/scripts/blackboard-fixture.mjs'
 
@@ -19,25 +20,21 @@ const argOf = (argv, k) => argv[argv.indexOf(`--${k}`) + 1]
 
 // ---- 観点を渡す ----
 
-test('coverage-build: 段ごとの観点を lenses.json に書き、init_argv と reframe_argv の --lenses で渡す（段で中身が変わる）', async (t) => {
+// 書き換え（波の形）: 観点は argv の --lenses で main session に返さず、CLI が同じ process で coverage-audit の台帳に渡す。
+// 渡った観点は、検査の役（ファイルの段）が claim で受け取る担当の lenses で確かめる（段は coverage-audit の段の位置から読む）。
+test('coverage-build: 段ごとの観点を coverage-audit に渡し、ファイルの段の担当が段ごとに違う観点を受け取る', async (t) => {
   const { state } = cb.setup(t)
-  const seen = []
-  const audit = (phase, out) => {
-    const argv = out.audit.init_argv || out.audit.reframe_argv
-    if (argv) seen.push({ phase, kind: argv[0], lenses: JSON.parse(readFileSync(argOf(argv, 'lenses'), 'utf8')) })
-    // 本物の coverage-audit が init した後と同じく、置き場に段の位置のファイルを置く（次の段は reframe になる）。
-    mkdirSync(out.audit.state, { recursive: true })
-    writeFileSync(path.join(out.audit.state, 'phase.json'), JSON.stringify({ phase, phase_start: { cycle: seen.length, agents: 0, events: 0 } }))
-    return cb.auditStatus({ phase })
-  }
-  const { stop } = await cb.drive(state, cb.mockAgent(), { audit })
+  const seen = {}
+  const auditOver = { file: (task) => { const p = (auditPos(state) || {}).phase; (seen[p] = seen[p] || []).push(...task.lenses); return undefined } }
+  const { stop } = await cb.drive(state, cb.mockAgent(), { auditOver })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.deepEqual(seen.map((x) => [x.phase, x.kind]), [['design', 'init'], ['impl', 'reframe']])
-  for (const x of seen) {
-    assert.ok(Array.isArray(x.lenses) && x.lenses.length >= 1, `${x.phase}: 観点が 1 つ以上`)
-    for (const l of x.lenses) assert.ok(l.id && l.name && l.procedure, `${x.phase}: 観点は id・name・procedure を持つ: ${JSON.stringify(l)}`)
+  assert.deepEqual(Object.keys(seen).sort(), ['design', 'impl'])
+  for (const [p, ls] of Object.entries(seen)) {
+    assert.ok(ls.length >= 1, `${p}: 観点が 1 つ以上`)
+    for (const l of ls) assert.ok(l.id && l.name && l.procedure, `${p}: 観点は id・name・procedure を持つ: ${JSON.stringify(l)}`)
   }
-  assert.notDeepEqual(seen[0].lenses, seen[1].lenses, '設計レビューと実装レビューで観点が違う')
+  const ids = (p) => [...new Set(seen[p].map((l) => l.id))].sort()
+  assert.notDeepEqual(ids('design'), ids('impl'), '設計レビューと実装レビューで観点が違う')
 })
 
 test('coverage-audit: reframe の --lenses で利用者の観点が差し替わり、観点の組の版が変わって全ての単位が読み直しになる。--lenses の無い reframe は観点を保つ', async (t) => {
@@ -168,21 +165,14 @@ test('coverage-build の経路: 設計レビュー → 直し → 設計レビ�
     const quote = unitLines(u2).find(usable)
     return { verdict: 'gap', quote, findings: [{ claim: `U2 の前からの抜け（${task.intent.item}）`, locations: [{ unit: u2.id, quote }], obligation: task.intent.item, confidence: 'high', severity: 'HIGH', layer: '詳細設計' }] }
   }
-  const audit = async (phase, out) => {
-    const argv = out.audit.init_argv || out.audit.reframe_argv
-    if (argv) assert.equal(cli(...argv).code, 0)
-    round.n += 1
-    const r = await drive(out.audit.state, behave({ facts, goal }), { maxSteps: 60 })
-    const s = cli('status', '--state', out.audit.state)
-    statuses.push({ phase, stop: r.stop.stop, s })
-    return s
-  }
-  await cb.drive(state, agent, { audit, maxSteps: 40 })
-  const design = statuses.filter((x) => x.phase === 'design')
-  assert.ok(design.length >= 2, `設計レビューが 2 回: ${JSON.stringify(statuses.map((x) => [x.phase, x.stop]))}`)
-  const second = design[1].s
-  assert.ok(second.metrics.reads.carried >= 1, `2 回目は変わらない単位の読みを持ち越す: ${JSON.stringify(second.metrics)}`)
-  const by = Object.fromEntries(second.findings.confirmed.map((f) => [f.claim, f.provenance]))
+  // 書き換え（波の形）: 検査は build の呼び出しの波に並ぶ。検査の 1 回の始まりごとに audit が 1 回呼ばれるので、そこで回を数える。
+  // 結果は build が取り込んだ記録（audits の metrics と、指摘の出来事の provenance）で確かめる。
+  const audit = (phase) => { round.n += 1; statuses.push(phase); return null }
+  await cb.drive(state, agent, { audit, auditOver: { facts, goal }, maxSteps: 40 })
+  assert.ok(statuses.filter((x) => x === 'design').length >= 2, `設計レビューが 2 回: ${JSON.stringify(statuses)}`)
+  const L = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8'))
+  assert.ok(L.audits.design.metrics.reads.carried >= 1, `2 回目は変わらない単位の読みを持ち越す: ${JSON.stringify(L.audits.design.metrics)}`)
+  const by = Object.fromEntries(L.events.filter((e) => e.kind === 'finding' && e.stage === 'design_review').map((e) => [e.text.split('（')[0], e.provenance]))
   assert.equal(by['U1 の指摘 2'], 'fix', JSON.stringify(by))
   assert.ok(Object.entries(by).some(([c, p]) => c.startsWith('U2 の前からの抜け') && p === 'missed'), JSON.stringify(by))
 })

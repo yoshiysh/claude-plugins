@@ -1,11 +1,14 @@
 // テストの道具: 本物の Workflow source（build-step.js）を native と同じ注入で走らせ、役は担当を claim し、query の入力から結果を作って submit する偽物にする。
 // blackboard.test.mjs は自分の道具（board-fixture.mjs）を使う。ここはそれ以外のテストが使う（役の差し替えの鍵は前の形のまま: goal-check・architect・design-U1 など）。
+// 波の形（args.wave。行の stage が audit:… の行は検査の役）も受ける。検査の役は board-fixture.mjs の auditAct・auditAgent（coverage-audit の偽の役を
+// build-cli.mjs の口で流す）で流し、drive の audit(phase, out) が返す status の confirmed をファイルの段の指摘にする。役の返り値は最後の claim の next_wave・halt。
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { C } from './build-core.mjs'
 import { main } from './build-cli.mjs'
+import { auditAct, auditAgent, auditPos, auditStateOf, isAuditStage, retOf } from './board-fixture.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const SOURCE = path.join(HERE, 'build-step.js')
@@ -75,21 +78,28 @@ const opt = (argv, k) => argv[argv.indexOf(`--${k}`) + 1]
 // 照合に落ちた担当は、同じ体が作り直して出し直す。over[鍵](prompt, opts, log) が undefined 以外を返せばそれを結果にし、null なら結果を書かない（欠測）。
 // opts は { label（鍵）, role, model, effort, schema（役の結果の形）, inputs（query の inputs）, task, attempt（その担当を書く何回目か）, problems（前の submit の理由） }。
 // log には担当ごとに { label, role, model, effort, prompt, inputs, task } を足す。
+// claim は prompt の命令をそのまま流し（波の形の --wave・--model・--effort・--stage を含む）、query は --state・--call・--worker・--task だけで流す。
+// 返り値は最後の claim の next_wave・halt（{ notes, next_wave_id, rows } か { notes, halt }）。検査の役（--stage が audit:…）は、指摘を書かない検査の偽物で流す。
 export function mockAgent(over = {}, log = []) {
   return async (prompt, opts) => {
     const argv = claimArgv(prompt)
     if (!argv) throw new Error(`役の prompt に claim の命令が無い: ${opts && opts.label}`)
     const state = opt(argv, 'state')
+    if (isAuditStage(opt(argv, 'stage'))) return auditAgent(auditAct(state))(prompt, opts)
+    const call = opt(argv, 'call')
+    const worker = opt(argv, 'worker')
     const role = String(opts.label).replace(/-[^-]+$/, '')
     const tries = {}
     const problems = {}
+    let last = null
     for (let guard = 0; guard < 40; guard++) {
       const c = cli(...argv)
+      last = c
       if (c.code !== 0 || c.done || !arr(c.tasks).length) break
       let wrote = 0
       for (const task of c.tasks) {
         tries[task.id] = (tries[task.id] || 0) + 1
-        const q = cli('query', ...argv.slice(1), '--task', task.id)
+        const q = cli('query', '--state', state, '--call', call, '--worker', worker, '--task', task.id)
         const inputs = q.inputs || {}
         const keys = keysOf(role, { ...inputs, intent: inputs.intent }, state)
         log.push({ label: keys[0], role, model: opts.model, effort: opts.effort, prompt, inputs, task })
@@ -108,7 +118,7 @@ export function mockAgent(over = {}, log = []) {
       if (s.code !== 0) break
       for (const x of arr(s.results)) if (!x.ok) problems[x.task] = x.problems
     }
-    return { notes: [] }
+    return retOf(last && last.code === 0 && last.done ? { next_wave: last.next_wave || null, halt: !!last.halt } : null)
   }
 }
 
@@ -145,10 +155,21 @@ export function writeAuditStatus(auditState, phase, status) {
 }
 
 // next → Workflow / 偽の coverage-audit / run-checks → ingest --call を止まるまで回す。audit(phase, out) は status を返す。
-// steps の要素は Workflow の段が { step, task（next の担当の種類。台帳の pending から）, args, res, ingest }、audit は { step, phase, out, ingest }、checks は { step, ingest }。
-export async function drive(state, agentFn, { audit = (phase) => auditStatus({ phase }), run = runWorkflow, maxSteps = 40, wrap = false } = {}) {
+// steps の要素は Workflow の段が { step, task（担当の種類）, args, res, ingest }、audit は { step, phase, out, ingest }、checks は { step, ingest }。
+// 実装の前の形（next が step: audit を返す）では status を status-<段>.json に書いて import-audit を流し、1 つの呼び出しを 1 つの step にする。
+// 波の形（args.wave）では、1 つの呼び出しが段を順に流すので、step は波ごとに作る（呼び出しの区切りでなく、段の並びを今の next の順で見るため）:
+// - build の役の波は 1 つの step。task は行の役から（TASK_OF）、args は { state, callId, stage, workers: 行（stage を除く）, wave }、res はその波の起動の記録、
+//   ingest はその呼び出しの ingest の出力。
+// - 続く検査の役の波（行の stage が audit:…）は、検査の 1 回（coverage-audit の段の始まり）ごとにまとめて 1 つの step { step: 'audit', phase, out, ingest }。
+//   phase はその間に取り込んだ段（status の audits が変わった段。無ければ coverage-audit の段の位置）、ingest は取り込みの要約 { code, ok, phase, imported_findings, not_seen }。
+// - maxSteps は step の数の上限。上限に達した後は、新しい step になる次の波を起動させずに（役の返り値から next_wave を外して）呼び出しを閉じる。
+//   検査の役は auditAct（status の confirmed をファイルの段の指摘にする偽の検査の役）で流し、audit に out.audit.state（検査の台帳の置き場）を渡す。
+export const TASK_OF = { goal_checker: 'goal', architect: 'arch', unit_designer: 'spec', test_writer: 'tests', implementer: 'implement', retro_planner: 'plan', retro_examiner: 'exam', retro_verifier: 'judge' }
+export async function drive(state, agentFn, { audit = (phase) => auditStatus({ phase }), run = runWorkflow, maxSteps = 40, wrap = false, auditOver = {} } = {}) {
   const steps = []
-  for (let i = 0; i < maxSteps; i++) {
+  const aAgent = auditAgent(auditAct(state, audit, auditOver))
+  const audits = () => { const s = cli('status', '--state', state); return (s && s.audits) || {} }
+  for (let i = 0; steps.length < maxSteps && i < maxSteps * 4; i++) {
     const n = cli('next', '--state', state)
     if (n.code !== 0 || n.stop) return { stop: n, steps }
     if (n.step === 'audit') {
@@ -165,13 +186,78 @@ export async function drive(state, agentFn, { audit = (phase) => auditStatus({ p
       if (g.code !== 0) return { stop: g, steps }
       continue
     }
+    if (!n.args_path) return { stop: n, steps }
     const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-    const task = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8')).pending.task
-    const res = await run(args, agentFn)
+    if (!args.wave) {
+      // 実装の前の形: 1 つの呼び出しが 1 つの段。
+      let task
+      try { const P = JSON.parse(readFileSync(path.join(state, 'build.json'), 'utf8')).pending; task = P && P.task } catch { task = undefined }
+      const res = await run(args, (prompt, opts) => (isAuditStage(opt(claimArgv(prompt) || [], 'stage')) ? aAgent(prompt, opts) : agentFn(prompt, opts)))
+      const rp = path.join(state, `result-${n.call_id}.json`)
+      writeFileSync(rp, JSON.stringify(wrap ? { result: res, summary: 'done', agentCount: (res.agents || []).length } : res))
+      const g = cli('ingest', '--state', state, '--call', n.call_id, '--result', rp)
+      steps.push({ step: n.step, task, args, res, ingest: g })
+      if (g.code !== 0) return { stop: g, steps }
+      continue
+    }
+    // 波の形: 波ごとに step を作る。
+    const mine = []
+    const rowsById = new Map([[String(args.wave.id), args.wave.rows]])
+    const begun = new Set()
+    let group = null // 開いている検査の step
+    const closeGroup = () => {
+      if (!group) return
+      const now = audits()
+      const changed = Object.keys(now).filter((p) => JSON.stringify(now[p]) !== JSON.stringify(group.before[p]))
+      group.step.phase = changed[0] || (auditPos(state) || {}).phase || null
+      group.step.out = { phase: group.step.phase, audit: { state: auditStateOf(state) } }
+      const a = group.step.phase && now[group.step.phase]
+      group.step.ingest = a ? { code: 0, ok: true, phase: group.step.phase, imported_findings: a.findings, not_seen: (a.not_seen || []).length } : null
+      group = null
+    }
+    const startsStep = (rows) => { const st = rows && rows[0] && rows[0].stage; return !(isAuditStage(st) && group && (auditPos(state) || {}).phase === group.pos) }
+    const begin = (id) => {
+      begun.add(id)
+      const rows = rowsById.get(id) || []
+      const st = rows[0] && rows[0].stage
+      if (isAuditStage(st)) {
+        const pos = (auditPos(state) || {}).phase
+        if (group && group.pos === pos) { group.step.waves.push(id); return }
+        closeGroup()
+        group = { pos, before: audits(), step: { step: 'audit', phase: pos, out: null, ingest: null, waves: [id], call: args.callId } }
+        mine.push(group.step)
+        steps.push(group.step)
+        return
+      }
+      closeGroup()
+      const st2 = { step: st, task: TASK_OF[rows[0] && rows[0].role], args: { state: args.state, callId: args.callId, stage: st, workers: rows.map(({ stage, ...r }) => r), wave: id }, res: null, ingest: null, waves: [id], call: args.callId }
+      mine.push(st2)
+      steps.push(st2)
+    }
+    const wrapped = async (prompt, opts) => {
+      const argv = claimArgv(prompt)
+      const wave = argv ? String(opt(argv, 'wave')) : null
+      if (wave && !begun.has(wave)) begin(wave)
+      let ret = await (argv && isAuditStage(opt(argv, 'stage')) ? aAgent(prompt, opts) : agentFn(prompt, opts))
+      if (ret && ret.next_wave_id != null) {
+        const id = String(ret.next_wave_id)
+        if (!rowsById.has(id)) rowsById.set(id, ret.rows || [])
+        // 上限に達した後は、新しい step になる波を起動させない。
+        if (!begun.has(id) && steps.length >= maxSteps && startsStep(ret.rows)) ret = { notes: [] }
+      }
+      return ret
+    }
+    begin(String(args.wave.id))
+    const res = await run(args, wrapped)
+    closeGroup()
     const rp = path.join(state, `result-${n.call_id}.json`)
     writeFileSync(rp, JSON.stringify(wrap ? { result: res, summary: 'done', agentCount: (res.agents || []).length } : res))
     const g = cli('ingest', '--state', state, '--call', n.call_id, '--result', rp)
-    steps.push({ step: n.step, task, args, res, ingest: g })
+    for (const x of mine) {
+      x.res = { agents: ((res && res.agents) || []).filter((a) => x.waves.includes(String(a.wave))), tokens: res && res.tokens }
+      if (x.step === 'audit') x.ingest = x.ingest || g
+      else x.ingest = g
+    }
     if (g.code !== 0) return { stop: g, steps }
   }
   return { stop: null, steps }
