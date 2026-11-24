@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { C } from './ledger-core.mjs'
+import { C, WORKFLOW_SOURCE } from './ledger-core.mjs'
 import { behave, cli, drive, project } from './blackboard-fixture.mjs'
 
 const QA = 'この文書は一つ目の主張を述べるが根拠を書いていない本文の行である。'
@@ -27,7 +27,7 @@ test('起動数の上限: max_agents_total に達したら、今のまま limit 
 
 test('P10-1: UPPER（方針・要求）は <checks> 区間が持ち、ledger-core は C から読む（自前の定義を持たない）', () => {
   assert.deepEqual([...C.UPPER], ['方針', '要求'])
-  const src = readFileSync(new URL('./coverage-audit.js', import.meta.url), 'utf8')
+  const src = readFileSync(WORKFLOW_SOURCE, 'utf8')
   const block = src.slice(src.indexOf('// <checks>'), src.indexOf('// </checks>'))
   assert.match(block, /\bconst UPPER\b/, '<checks> 区間に UPPER を置く')
   const core = readFileSync(new URL('./ledger-core.mjs', import.meta.url), 'utf8')

@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   AUDIT_PHASES, C, MAX_ATTEMPTS, PHASES, TASK_ROLE, addEvent, attemptKey, decide, depsDone, dropIntent, dueEvents, dueGroups, examinedIntents, goalIds, implPending, importAudit, newLedger,
-  applyRedo, ownedPaths, ownerOf, queuedIntents, readGoalFiles, redoSummary, renderDesign, route, rowIdsOf, settleRetro, sha, skippedAudits, submitTask, taskTitle, testsTodo, unitList, coverIds,
+  applyRedo, ownedPaths, ownerOf, queuedIntents, readGoalFiles, redoSummary, renderDesign, route, rowIdsOf, settleRetro, sha, skippedAudits, submitTask, taskTitle, testsTodo, unitList, coverIds, WORKFLOW_SOURCE,
 } from './build-core.mjs'
 import {
   Fail, LOCK_SLEEP_MS, claimRow, closeCall as auditCloseCall, framePathProblems, launchMismatches, load as auditLoad, lockRefusal, main as auditMain, nap, noProgress as auditNoProgress,
@@ -20,7 +20,7 @@ import { lineOf, packUnitsTo } from '../../coverage-audit/scripts/ledger-core.mj
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = path.dirname(HERE)
 // どの段も同じ 1 つの Workflow source（書く役と書かない役を同じ波の列に並べる理由は references/ledger.md の「設計の型から変えた点」）。
-const WORKFLOW = path.join(HERE, 'build-step.js')
+const WORKFLOW = WORKFLOW_SOURCE
 const CHECK_TIMEOUT_MS = 1800000
 
 // lock の待ちが切れた拒否（終了状態 3）。台帳は変えておらず、同じ命令を流し直せば続きから進む。

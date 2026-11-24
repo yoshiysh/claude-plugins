@@ -162,4 +162,4 @@ args は `{state, callId, wave}` だけで（`wave` は最初の波 `{id, rows}`
 
 - [references/ledger.md](references/ledger.md): 台帳の構成、段ごとの script と LLM の分け方、層への戻し方、振り返りの探索グラフ、coverage-audit との口、止める条件、記録、設計の型から変えた点、照合しないもの。
 - [references/writing.md](references/writing.md): 文書を書くときの規則（表・図・散文の使い分け）。文書の単位の担当が読む。
-- 静的な照合と役の結果の形の正本: `scripts/build-step.js` の `// <checks>` 区間（CLI の `submit` も同じ文を読み込む）。その中の `// <goalmap>` 区間（目標・基準・制約の引用と目標の照合）は coverage-audit の Workflow source と同じ文。
+- 静的な照合と役の結果の形の正本: `build-step.js` の `// <checks>` 区間（CLI の `submit` も同じ文を読み込む）。その中の `// <goalmap>` 区間（目標・基準・制約の引用と目標の照合）は coverage-audit の Workflow source と同じ文。

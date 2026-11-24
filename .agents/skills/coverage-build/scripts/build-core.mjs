@@ -3,8 +3,11 @@
 // 役の提出（submit）の照合はここで行う（Workflow source は照合しない。設計「台帳と見たの記録」の B2・B5）。
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { workflowSource } from '../../coverage-audit/scripts/ledger-core.mjs'
 
-const SRC = readFileSync(new URL('./build-step.js', import.meta.url), 'utf8')
+// Workflow source の置き場は公開の前後で変わる。解き方は coverage-audit の workflowSource の 1 か所。
+export const WORKFLOW_SOURCE = workflowSource('build-step.js', import.meta.url)
+const SRC = readFileSync(WORKFLOW_SOURCE, 'utf8')
 export const C = new Function(`${SRC.slice(SRC.indexOf('// <checks>'), SRC.indexOf('// </checks>'))}
 return { LIMITS, MAX_UNIT_PATHS, MAX_SPEC_LINES, ARCH_INVARIANTS, LINK_PATTERN, VAGUE_WORDS, AUDIT_LAYERS, LAYERS, LAYER_MAP, canon, norm, quoteProblem, waves, checkArch, checkSpec, checkIntents, checkExam, checkJudge, parseCited, citeSources, checkCited, checkGoalMap, goalGaps, readGoalFiles,
   GOAL_SCHEMA, ARCH_SCHEMA, SPEC_SCHEMA, WRITE_SCHEMA, INTENTS_SCHEMA, EXAM_SCHEMA, JUDGE_SCHEMA, RESULT_SCHEMAS, shapeProblems }`)()

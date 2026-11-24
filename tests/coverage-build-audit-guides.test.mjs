@@ -7,11 +7,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+// Workflow source の置き場は公開の前後で変わるので、path は各スキルの core が解いたものを使う。
+import { WORKFLOW_SOURCE as BUILD_STEP } from '../.agents/skills/coverage-build/scripts/build-core.mjs'
+import { WORKFLOW_SOURCE as AUDIT_WF } from '../.agents/skills/coverage-audit/scripts/ledger-core.mjs'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
-const BUILD_STEP = '.agents/skills/coverage-build/scripts/build-step.js'
-const AUDIT_WF = '.agents/skills/coverage-audit/scripts/coverage-audit.js'
-const src = (p) => readFileSync(path.join(ROOT, p), 'utf8')
+const src = (p) => readFileSync(path.resolve(ROOT, p), 'utf8')
 const START = 'const READ_RESULT = '
 const END = 'const QUOTED = '
 function guidesBlock(text, where) {

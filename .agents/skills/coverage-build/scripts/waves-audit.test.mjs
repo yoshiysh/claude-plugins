@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { framePathProblems } from '../../coverage-audit/scripts/ledger-cli.mjs'
+import { WORKFLOW_SOURCE } from './build-core.mjs'
 import { act, auditPos, cli, driveScript, setup } from './board-fixture.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -150,8 +151,8 @@ test('取り込みの形: build の CLI は coverage-audit の ledger-cli.mjs �
   const audit = imports.filter((x) => x.from === '../../coverage-audit/scripts/ledger-cli.mjs')
   assert.ok(audit.length, `build-cli.mjs が coverage-audit の ledger-cli.mjs を import する: ${JSON.stringify(imports.map((x) => x.from))}`)
   assert.ok(audit.some((x) => x.names.includes('framePathProblems')), 'framePathProblems を import する')
-  for (const f of ['build-cli.mjs', 'build-core.mjs', 'build-step.js']) {
-    const s = readFileSync(path.join(HERE, f), 'utf8')
+  for (const f of [path.join(HERE, 'build-cli.mjs'), path.join(HERE, 'build-core.mjs'), WORKFLOW_SOURCE]) {
+    const s = readFileSync(f, 'utf8')
     assert.ok(!/function\s+framePathProblems|PATH_TOKEN\s*=/.test(s), `${f} に path の照合の写しを置かない`)
   }
   assert.ok(!/spawnSync\([^)]*ledger-cli/.test(src), 'coverage-audit の CLI を子プロセスで流さない')

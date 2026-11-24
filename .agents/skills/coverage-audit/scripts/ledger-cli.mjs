@@ -9,11 +9,11 @@ import {
   ALIAS_ANSWERS, C, CONFIDENCES, MAX_ATTEMPTS, VERDICTS, addEvent, board, calibration, checkFileResult, coverage, currentFindings, decide, factsOf, goalIds, goalSources,
   lensSetVersion, lensesFor, needPlan, newLedger, obligations, openCycle, planAnswerKinds, phaseEvents, rangeHash, rangeText, readGoalFiles, readsSig, refresh, retroAssets, retroTodo, sha, splitAssets,
   startPhase, staticFacts, unitTextOf, carriedRead, provenance, runMetrics, FULL_REVIEW, syncFullReview, fullReviewStatus, sameLocationPairs,
-  isTarget, lineOf, contextUnits, unitBytes, packUnitsTo,
+  isTarget, lineOf, contextUnits, unitBytes, packUnitsTo, WORKFLOW_SOURCE,
 } from './ledger-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const WORKFLOW = path.join(HERE, 'coverage-audit.js')
+const WORKFLOW = WORKFLOW_SOURCE
 
 // 拒否（終了状態 2。extra.busy なら 3）。coverage-build の CLI も同じ class で投げ、同じ process で流したこの CLI の関数の拒否を自分の終了状態にする。
 export class Fail extends Error { constructor(msg, extra = {}) { super(msg); this.extra = extra } }

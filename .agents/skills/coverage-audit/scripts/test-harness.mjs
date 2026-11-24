@@ -4,11 +4,10 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { main } from './ledger-cli.mjs'
+import { WORKFLOW_SOURCE } from './ledger-core.mjs'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-export const WF = path.join(HERE, 'coverage-audit.js')
+export const WF = WORKFLOW_SOURCE
 
 export function tmp(t) {
   const d = mkdtempSync(path.join(tmpdir(), 'coverage-audit-'))

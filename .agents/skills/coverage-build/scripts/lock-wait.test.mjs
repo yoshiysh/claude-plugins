@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync 
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as buildCli from './build-cli.mjs'
+import { WORKFLOW_SOURCE } from './build-core.mjs'
 import { act, claimArgv, cli, setup, workerLoop } from './board-fixture.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -93,7 +94,7 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const BUILD_ROLES = JSON.parse(readFileSync(path.join(HERE, 'roles.json'), 'utf8'))
 const STAGE = { goal_checker: 'design', architect: 'design', unit_designer: 'design', test_writer: 'tests', implementer: 'implement', retro_planner: 'retro', retro_examiner: 'retro', retro_verifier: 'retro' }
 test('A. prompt: build の役の手順に「終了状態 3 なら同じ命令を流し直す（担当は失われない）」が載る', async () => {
-  const body = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', readFileSync(path.join(HERE, 'build-step.js'), 'utf8').replace(/^export const meta = /, 'const meta = '))
+  const body = new AsyncFunction('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', readFileSync(WORKFLOW_SOURCE, 'utf8').replace(/^export const meta = /, 'const meta = '))
   const rows = Object.keys(STAGE).map((role, i) => ({ id: `w${i}`, role, model: BUILD_ROLES[role].model, effort: BUILD_ROLES[role].effort, stage: STAGE[role] }))
   const prompts = []
   const parallel = (ts) => Promise.all(ts.map((x) => Promise.resolve().then(x).catch(() => null)))

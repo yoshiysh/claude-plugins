@@ -19,7 +19,7 @@ SKILL.md の手順の裏で、何がどこで決まるか。値と判定の正�
 | 部品 | 実体 | 持つもの |
 |---|---|---|
 | ボード | `stateDir/build.json`。設計の写しの `design/`・検査の `audit/`・check の `checks/`・呼び出しの args の `call-<call_id>.json`・役の結果の `results/<call_id>/<worker>/`・ヒントの `hints.jsonl`・役の入口の `build-cli.mjs` は別ファイル | 目標・基準・制約・単位・開いた呼び出しと担当（`pending`）・レビューの取り込み・出来事・意図・原因・戻した層・人間に返したもの・起動の記録 |
-| 知識源 | Workflow source `scripts/build-step.js` の 1 つが起動する役（`scripts/roles.json`）と coverage-audit | 取った担当の判断か生成だけ。ボードは `claim`・`query`・`submit` を通してだけ読み書きする |
+| 知識源 | Workflow source `build-step.js` の 1 つが起動する役（`scripts/roles.json`）と coverage-audit | 取った担当の判断か生成だけ。ボードは `claim`・`query`・`submit` を通してだけ読み書きする |
 | 制御 | `scripts/build-cli.mjs`。呼び出し側が流す `next`・`ingest`・`run-checks` と、役（検査の役を含む）が流す `claim`・`query`・`submit`。検査は coverage-audit の `scripts/ledger-cli.mjs` の関数を同じ process で流す | 次の波と起動する役の決定、提出の照合と受け入れ、層への戻し、検査の台帳の init・reframe と取り込み、止める判定 |
 
 ボードを書くのは CLI だけで、並べて動く役の `claim`・`submit` は `stateDir/build.lock` で直列にする。役の prompt は CLI の置き場を args で受けない（args の形は SKILL.md の「Workflow を呼ぶ」）ので、最初の `claim` は `stateDir/build-cli.mjs` で流す。この入口は本物の CLI を絶対 path で import して流すだけで、判断も照合も持たない。CLI は init と next のたびに入口を書き直す（plugin の置き場が変わっても古い path が残らないため）。2 回目からの `query`・`submit` は、`claim` が返す `submit_cmd`（本物の CLI の絶対 path）から作る。
@@ -36,7 +36,7 @@ SKILL.md の手順の裏で、何がどこで決まるか。値と判定の正�
 | retro | 別の波で、計画役が意図を出し、実行役が意図を確かめ、別のモデルの検証役が受理を決める | 意図の根拠の id の実在（台帳の id）、結論の形、証拠の引用（振り返りの読めるファイルの中に逐語か）、意図の状態、巡の上限と乾き（「振り返りの探索グラフ」） |
 | route | なし | 出来事ごとの層を決め、単位の設計・テスト・実装のやり直しか、人間への返しにする（次節） |
 
-静的な照合と結果の形の正本は `scripts/build-step.js` の `// <checks>` 区間だけで、CLI（`build-core.mjs`）は同じ文を読み込んで `submit` で照らす（runner の source は import できないので、写しを持たずに 1 か所にするため）。Workflow の本体は役の結果を受け取らず、照合・やり直し・次に起動する役の判定をしない。拒んだ提出の出し直しは SKILL.md の「役とモデル」。目標の照合の静的な部分（`// <goalmap>`）は coverage-audit の Workflow source と同じ文を置き、一致は `tests/coverage-build-goalmap.test.mjs` が照らす（Workflow source は他の source を import できないので、同じ文の小さい関数を両方に置いた）。
+静的な照合と結果の形の正本は `build-step.js`（置き場は公開の前後で変わり、`build-core.mjs` の `WORKFLOW_SOURCE` が解く）の `// <checks>` 区間だけで、CLI（`build-core.mjs`）は同じ文を読み込んで `submit` で照らす（runner の source は import できないので、写しを持たずに 1 か所にするため）。Workflow の本体は役の結果を受け取らず、照合・やり直し・次に起動する役の判定をしない。拒んだ提出の出し直しは SKILL.md の「役とモデル」。目標の照合の静的な部分（`// <goalmap>`）は coverage-audit の Workflow source と同じ文を置き、一致は `tests/coverage-build-goalmap.test.mjs` が照らす（Workflow source は他の source を import できないので、同じ文の小さい関数を両方に置いた）。
 
 目標の照合は、このスキルの 1 か所だけで行う。LLM の照合役の仕事は、利用者が求める成果を挙げて項目へ対応づけることだけで、項目が依頼に無いものを足したか・範囲を狭めたか・手順かを判定させない（判定が回ごとに揺れたので）。足していないことは init の引用の照合が静的に確かめ、落とした要求は対応の無い成果として人間に返す。目標・基準・制約・決定の記録は `answer` で直せ、直したら引用を照らし直して照合からやり直す。
 

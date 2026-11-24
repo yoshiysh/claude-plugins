@@ -38,7 +38,7 @@
 - 公開した後も scripts の相対の位置が保たれる。ディレクトリ名を実体名のまま保ち（上の「実体が plugins/ 側にある理由」）、import する path を `skills/<name>/scripts/` の中に限る。
 - Workflow script を `workflows/` へ移す公開の規則（本書「配置と配布」）と食い違わない。import する scripts（とその先）は、公開で移る Workflow script を自分からの相対 path で読まない。読むと移した後に解けず、公開の操作はその参照を見つけて exit 6 で止まる。
 
-実例: `coverage-build` の `scripts/build-cli.mjs` は `coverage-audit` の `scripts/ledger-cli.mjs` を import し、同じ process で流す。今は `coverage-audit` の `scripts/ledger-core.mjs` が Workflow script `./coverage-audit.js` を相対 path で読む（`coverage-build` の `build-core.mjs` も `./build-step.js` を読む）ので、3 つ目の条件を満たしておらず、初めての公開は exit 6 で止まる。公開の前に、移した後の置き場でも解ける読み方へ直す。
+実例: `coverage-build` の `scripts/build-cli.mjs` は `coverage-audit` の `scripts/ledger-cli.mjs` を import し、同じ process で流す。両方の core（`ledger-core.mjs`・`build-core.mjs`）は Workflow script を、自分の隣（未公開）と plugin の `workflows/`（公開後）の順に探して読み、見つけた path を `WORKFLOW_SOURCE` として CLI とテストに渡す。
 
 ### 収録スキル
 
