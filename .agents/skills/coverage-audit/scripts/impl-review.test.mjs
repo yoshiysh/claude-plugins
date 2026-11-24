@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { behave, claimedTasks, cli, drive, project, status, unitLines, usable } from './blackboard-fixture.mjs'
+import { behave, claimedTasks, cli, drive, project, status, unitLines, usable, rowsOf, readArgs } from './blackboard-fixture.mjs'
 import { planAct } from './plan-roles.mjs'
 
 const ledgerOf = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
@@ -22,9 +22,9 @@ test('H1: ファイルの段は文脈に収まる分の単位を 1 体に詰め�
   assert.equal(cli('config', '--state', state, '--workers', '2').code, 0)
   const { stop, calls } = await drive(state, behave())
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  const files = calls.filter((c) => c.args.stage === 'file')
+  const files = calls.filter((c) => c.stage === 'file')
   assert.equal(files.length, 1, '3 単位を 1 回の呼び出しで読む')
-  assert.equal(files[0].args.workers.length, 1, '小さい対象は 1 つの詰め合わせ（workers 2 でも 1 体）')
+  assert.equal(files[0].rows.length, 1, '小さい対象は 1 つの詰め合わせ（workers 2 でも 1 体）')
   const per = new Map()
   for (const task of claimedTasks(files).filter((x) => x.kind === 'file')) per.set(task.worker, new Set([...(per.get(task.worker) || []), task.unit.id]))
   assert.deepEqual([...per.values()].map((x) => x.size), [3], `1 体が詰め合わせの 3 単位を読む: ${JSON.stringify([...per].map(([w, x]) => [w, [...x]]))}`)
@@ -36,12 +36,12 @@ test('H1: ファイルの段の起動数（詰め合わせの数）は残りの�
   const { state } = project(t, { 'a.md': bigDoc('A'), 'b.md': bigDoc('B'), 'c.md': bigDoc('C') })
   // 計画の段（計画役 1 体・観点の検証役 1 体）と全文レビュー（1 体）を済ませる（3 体）。
   const { calls } = await drive(state, planAct(), { maxSteps: 3 })
-  assert.deepEqual(calls.map((c) => c.args.stage), ['plan', 'unit_verify', 'full_review'])
+  assert.deepEqual(calls.map((c) => c.stage), ['plan', 'unit_verify', 'full_review'])
   assert.equal(cli('config', '--state', state, '--max-agents-total', '5').code, 0)
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'file', JSON.stringify(n))
   assert.equal(n.estimate_agents, 2, '見積もりは残りの予算（5 - 3）に収めた起動数（詰め合わせは 3 つ）')
-  assert.equal(JSON.parse(readFileSync(n.args_path, 'utf8')).workers.length, 2)
+  assert.equal(rowsOf(readArgs(n)).length, 2)
 })
 
 // ---------------- H2 ----------------
@@ -100,7 +100,7 @@ test('H3: 観点を渡しても、仕組みの標準の観点（通読）を常�
   })
   const { stop, calls } = await drive(state, act)
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.ok(calls.some((c) => c.args.stage === 'plan'), '観点を渡しても計画役が流れる')
+  assert.ok(calls.some((c) => c.stage === 'plan'), '観点を渡しても計画役が流れる')
   assert.ok(given.length && given.every((g) => Array.isArray(g) && g.some((l) => l.id === 'L1') && g.some((l) => l.id === std[0].id)), `計画役は既にある観点（呼ぶ側・標準）を引く: ${JSON.stringify(given)}`)
   const fileLenses = claimedTasks(calls).filter((x) => x.kind === 'file').map((x) => x.lenses.map((l) => l.id).sort())
   assert.ok(fileLenses.length && fileLenses.every((ids) => ids.includes('L1') && ids.includes(std[0].id) && ids.includes('X1')), `ファイルの段の観点は 3 者の和: ${JSON.stringify(fileLenses)}`)
@@ -110,7 +110,7 @@ test('H3: 観点を渡したときの計画役の提案が出なくても（返�
   const { state } = project(t, THREE)
   const { stop, calls } = await drive(state, behave())
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.ok(calls.some((c) => c.args.stage === 'plan'))
+  assert.ok(calls.some((c) => c.stage === 'plan'))
   assert.ok(ledgerOf(state).events.some((e) => e.kind === 'plan_skipped'), '計画役の提案が無かったことを出来事に残す')
   const fileLenses = claimedTasks(calls).filter((x) => x.kind === 'file').map((x) => x.lenses.map((l) => l.id))
   assert.ok(fileLenses.every((ids) => ids.includes('L1') && ids.length === 2), JSON.stringify(fileLenses))

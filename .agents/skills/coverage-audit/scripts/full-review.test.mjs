@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { MAX_ATTEMPTS, STANDARD_LENSES, UNIT_MAX_BYTES } from './ledger-core.mjs'
-import { LENSES, ROLES, cli, driveScript, project, scriptAgent, status } from './blackboard-fixture.mjs'
+import { LENSES, ROLES, cli, driveScript, project, scriptAgent, status, wavesOf, agentStages } from './blackboard-fixture.mjs'
 import { NEW_ROLES, driveUntil, launchesOf, sizedDoc, standalone, workersOf } from './launch-fixture.mjs'
 import { LENS_PROC } from './plan-roles.mjs'
 import { FR_KIND, FR_ORIGIN, FR_QUERY_KEYS, FR_QUERY_REQUIRED, FR_ROLE, FR_STAGE, confirmedIds, frAct, frFacts, frFinding, frStatus, loc } from './full-review-fixture.mjs'
@@ -34,18 +34,18 @@ async function fullRun(t, mode, over = {}, { files = FILES4, agentWrap = (f) => 
   const state = given || mode.make(t, files).state
   const log = []
   const r = await driveScript(state, agentWrap(scriptAgent(smallAct(over), log)), { maxSteps: 40 })
-  return { state, log, ...r, launches: launchesOf(r.steps, log) }
+  return { state, log, ...r, launches: launchesOf(r.steps, log), waves: wavesOf(r.steps, log) }
 }
 const sorted = (xs) => [...xs].sort()
 const count = (xs) => xs.reduce((m, x) => ({ ...m, [x]: (m[x] || 0) + 1 }), {})
-const stagesOf = (steps) => steps.map((s) => s.args.stage)
-const frSteps = (steps) => steps.filter((s) => s.args.stage === FR_STAGE)
-const frCalls = (calls) => calls.filter((c) => c.args.stage === FR_STAGE)
+const stagesOf = (waves) => waves.map((s) => s.stage)
+const frSteps = (waves) => waves.filter((s) => s.stage === FR_STAGE)
+const frCalls = (calls) => calls.filter((c) => c.stage === FR_STAGE)
 const isComplete = (stop) => { assert.ok(stop, '止まるまで進まなかった（stop が null）'); assert.equal(stop.stop, 'complete', JSON.stringify(stop)) }
 const baseName = (s, id) => { const u = (s.units || []).find((x) => x.id === id); return path.basename(String((u && u.path) || id)) }
 const allIds = (s) => (s.units || []).map((u) => u.id)
 // 全文レビューの呼び出しまで回す（その呼び出しの ingest の後で止まる）。
-const untilFR = (state, a, maxSteps = 12) => driveUntil(state, a, { until: (c) => c.args.stage === FR_STAGE, maxSteps })
+const untilFR = (state, a, maxSteps = 12) => driveUntil(state, a, { until: (c) => c.stage === FR_STAGE, maxSteps })
 const frWorker = (calls) => workersOf(frCalls(calls))[0]
 const frSubmitResults = (w) => (w ? w.submits.flatMap((s) => s.out.results || []) : [])
 // 対象の観点の手続きの文（全文レビューに渡らないはずの文）。
@@ -55,20 +55,21 @@ const LENS_TEXTS = [LENSES[0].procedure, LENS_PROC.X1, ...STANDARD_LENSES.map((l
 
 for (const mode of MODES) {
   test(`1. 置き場と体数（${mode.name}）: 全文レビューは計画の段（と観点の検証）の後・ファイルの段の前に 1 回だけ 1 体で流れ、振り返りを除く起動は 6 体`, async (t) => {
-    const { stop, steps, state, launches } = await fullRun(t, mode)
+    const { stop, waves, state, launches } = await fullRun(t, mode)
     isComplete(stop)
-    const stages = stagesOf(steps)
-    const fr = frSteps(steps)
+    const stages = stagesOf(waves)
+    const fr = frSteps(waves)
     assert.equal(fr.length, 1, `全文レビューの呼び出しは 1 回: ${stages}`)
-    assert.deepEqual(fr[0].args.workers.map((w) => w.role), [FR_ROLE], '全文レビューは 1 体')
+    assert.deepEqual(fr[0].rows.map((w) => w.role), [FR_ROLE], '全文レビューは 1 体')
     const at = stages.indexOf(FR_STAGE)
     const planLast = Math.max(stages.lastIndexOf('plan'), stages.lastIndexOf('unit_verify'))
     assert.ok(planLast >= 0 && planLast < at, `計画の段（と観点の検証）の後: ${stages}`)
     assert.ok(stages.indexOf('file') > at, `ファイルの段の前: ${stages}`)
     const target = launches.filter((x) => x.stage !== 'retro')
     assert.deepEqual(sorted(target.map((x) => x.role)), sorted([...NEW_ROLES, FR_ROLE]), `段ごとの起動: ${JSON.stringify(count(target.map((x) => `${x.stage}/${x.role}`)))}`)
-    const recorded = status(state).calls.filter((c) => c.step !== 'retro').reduce((n, c) => n + c.agents, 0)
-    assert.equal(recorded, 6, JSON.stringify(status(state).calls.map((c) => [c.step, c.agents])))
+    // 1 つの呼び出しが段をまたぐので、台帳の起動の記録は段で分けずに全体で、起動した数と照らす。
+    const recorded = status(state).calls.reduce((n, c) => n + c.agents, 0)
+    assert.equal(recorded, launches.length, JSON.stringify(status(state).calls.map((c) => [c.step, c.agents])))
   })
 }
 
@@ -77,8 +78,8 @@ test('1. いつも 1 体: config --workers 2 でも全文レビューの workers
   assert.equal(cli('config', '--state', state, '--workers', '2').code, 0)
   const r = await untilFR(state, smallAct())
   const fr = frCalls(r.calls)
-  assert.equal(fr.length, 1, `全文レビューまで進む: ${r.calls.map((c) => c.args.stage)}`)
-  assert.deepEqual(fr[0].args.workers.map((w) => w.role), [FR_ROLE])
+  assert.equal(fr.length, 1, `全文レビューまで進む: ${r.calls.map((c) => c.stage)}`)
+  assert.deepEqual(fr[0].rows.map((w) => w.role), [FR_ROLE])
 })
 
 // ---------------- 2. 入力 ----------------
@@ -87,7 +88,7 @@ test('2. 入力: 全文レビューの担当は観点を持たず、query で引
   const { state } = project(t, FILES4)
   const r = await untilFR(state, smallAct())
   const w = frWorker(r.calls)
-  assert.ok(w, `全文レビューの worker が起動した: ${r.calls.map((c) => c.args.stage)}`)
+  assert.ok(w, `全文レビューの worker が起動した: ${r.calls.map((c) => c.stage)}`)
   assert.ok(w.tasks.length >= 1 && w.tasks.every((k) => k.kind === FR_KIND), `担当の種類: ${w.tasks.map((k) => k.kind)}`)
   assert.ok(w.tasks.every((k) => !k.lenses || !k.lenses.length), '担当に観点を載せない')
   const claimText = JSON.stringify(w.tasks)
@@ -215,11 +216,11 @@ test('5. 重なり: ファイルの段と同じ欠陥を挙げた全文レビュ
 test('6. 独立（ファイルの段）: 全文レビューが書いた後も、ファイルの段の担当の query は拒まれ、担当に全文レビューの指摘が載らない', async (t) => {
   const { state } = project(t, FILES4)
   const a = smallAct({ file: (task, ctx) => { ctx.query(task); return undefined } })
-  const r = await driveUntil(state, a, { until: (c) => c.args.stage === 'file', maxSteps: 12 })
-  const stages = r.calls.map((c) => c.args.stage)
+  const r = await driveUntil(state, a, { until: (c) => c.stage === 'file', maxSteps: 12 })
+  const stages = r.calls.map((c) => c.stage)
   assert.ok(stages.indexOf(FR_STAGE) >= 0 && stages.indexOf(FR_STAGE) < stages.indexOf('file'), `全文レビューの後にファイルの段: ${stages}`)
   assert.ok(frFacts(status(state)).some((f) => f.claim === FR_A), '全文レビューが台帳に書いた')
-  const fw = workersOf(r.calls.filter((c) => c.args.stage === 'file'))
+  const fw = workersOf(r.calls.filter((c) => c.stage === 'file'))
   const qs = fw.flatMap((w) => w.queries)
   assert.ok(qs.length >= 1, 'ファイルの段が query を試した')
   for (const q of qs) assert.notEqual(q.out.code, 0, `ファイルの段の query が通った: ${JSON.stringify(q.out).slice(0, 200)}`)
@@ -240,7 +241,7 @@ test('6. 独立（全文レビュー）: 次の run の全文レビューは、�
   const r = await driveScript(state, scriptAgent(a, log), { maxSteps: 40 })
   isComplete(r.stop)
   const fr = launchesOf(r.steps, log).filter((x) => x.stage === FR_STAGE)
-  assert.equal(fr.length, 1, `次の run の全文レビュー: ${stagesOf(r.steps)}`)
+  assert.equal(fr.length, 1, `次の run の全文レビュー: ${stagesOf(wavesOf(r.steps, log))}`)
   const plainQ = fr[0].queries.find((q) => q.out && q.out.code === 0)
   assert.ok(plainQ, `全文レビューの query: ${JSON.stringify(fr[0].queries.map((q) => q.out && q.out.code))}`)
   const out = JSON.stringify([plainQ.out, fr[0].claims.flatMap((c) => c.tasks || [])])
@@ -273,8 +274,8 @@ test('7. 大きい対象: 全文レビューは並びの順で前から UNIT_MAX
   })
   const r = await untilFR(state, a)
   const w = frWorker(r.calls)
-  assert.ok(w, `全文レビューまで進む: ${r.calls.map((c) => c.args.stage)}`)
-  assert.equal(frCalls(r.calls)[0].args.workers.length, 1, '大きい対象でも 1 体')
+  assert.ok(w, `全文レビューまで進む: ${r.calls.map((c) => c.stage)}`)
+  assert.equal(frCalls(r.calls)[0].rows.length, 1, '大きい対象でも 1 体')
   const s = status(state)
   const q = w.queries[0] && w.queries[0].out
   assert.deepEqual(sorted(((q && q.inputs && q.inputs.units) || []).map((u) => baseName(s, u.id))), ['a.md', 'b.md'], '読む範囲は並びの順で前から上限まで（next-fit）')
@@ -308,8 +309,9 @@ for (const x of FAILS) {
   test(`8. 失敗（${x.name}）: 出来事として記録し、読まなかったとして開示して先へ進み、complete まで行く`, async (t) => {
     const { stop, steps, state } = await fullRun(t, MODES[0], x.over, { agentWrap: x.wrap })
     isComplete(stop)
-    const fr = frSteps(steps)
-    assert.ok(fr.length >= 1 && fr.length <= MAX_ATTEMPTS, `全文レビューの呼び出しは 1〜${MAX_ATTEMPTS} 回: ${stagesOf(steps)}`)
+    // 返らない役は prompt を受ける前に落ちるので、起動の記録（agents の stage）で数える。
+    const fr = agentStages(steps).filter((x) => x === FR_STAGE)
+    assert.ok(fr.length >= 1 && fr.length <= MAX_ATTEMPTS, `全文レビューの起動は 1〜${MAX_ATTEMPTS} 回: ${agentStages(steps)}`)
     const s = status(state)
     assert.ok(s.events.some((e) => e.stage === FR_STAGE), `全文レビューの出来事: ${JSON.stringify(s.events.map((e) => [e.stage, e.kind]))}`)
     assert.deepEqual(sorted(frStatus(s).unread || []), sorted(allIds(s)), `読まなかったとして開示: ${JSON.stringify(frStatus(s))}`)
@@ -324,14 +326,14 @@ test('9. 持ち越し（同じ範囲・指紋・目標）: 上の層の指摘で
   const { state } = project(t, FILES4)
   const first = await fullRun(t, MODES[0], { frFindings: twoUnit(FR_A, { layer: '要求' }) }, { state })
   assert.ok(first.stop, '止まるまで進まなかった')
-  assert.equal(frSteps(first.steps).length, 1, `最初の run の全文レビュー: ${stagesOf(first.steps)}`)
+  assert.equal(frSteps(first.waves).length, 1, `最初の run の全文レビュー: ${stagesOf(first.waves)}`)
   assert.equal(first.stop.stop, 'needs_input', JSON.stringify(first.stop))
   const f = frFacts(status(state)).find((x) => x.claim === FR_A)
   assert.ok(f && (first.stop.upper || []).includes(f.id), `上の層の全文レビューの指摘で止まる: ${JSON.stringify(first.stop)}`)
   assert.equal(cli('answer', '--state', state, '--id', f.id, '--text', '方針として受け入れる').code, 0)
   const again = await fullRun(t, MODES[0], { frFindings: twoUnit(FR_A, { layer: '要求' }) }, { state })
   isComplete(again.stop)
-  assert.equal(frSteps(again.steps).length, 0, `読み直した: ${stagesOf(again.steps)}`)
+  assert.equal(frSteps(again.waves).length, 0, `読み直した: ${stagesOf(again.waves)}`)
   assert.ok(confirmedIds(status(state)).includes(f.id), '前の読みの指摘は今の根拠に残る')
 })
 
@@ -341,14 +343,14 @@ test('9. 持ち越し（単位の指紋が変わる）: 新しい 1 体が読み
   const over = { frFindings: (units) => twoUnit(`FR-run${round}`)(units) }
   const first = await fullRun(t, MODES[0], over, { state })
   isComplete(first.stop)
-  assert.equal(frSteps(first.steps).length, 1)
+  assert.equal(frSteps(first.waves).length, 1)
   writeFileSync(paths['c.md'], `${FILES4['c.md']}\n文書C に足した二つ目の本文の行である。\n`)
   round = 2
   const second = await fullRun(t, MODES[0], over, { state })
   isComplete(second.stop)
-  const fr = frSteps(second.steps)
-  assert.equal(fr.length, 1, `読み直しの全文レビュー: ${stagesOf(second.steps)}`)
-  assert.equal(fr[0].args.workers.length, 1)
+  const fr = frSteps(second.waves)
+  assert.equal(fr.length, 1, `読み直しの全文レビュー: ${stagesOf(second.waves)}`)
+  assert.equal(fr[0].rows.length, 1)
   const fileTasks = second.launches.filter((x) => x.stage === 'file').flatMap((x) => x.claims.flatMap((c) => c.tasks || []))
   assert.deepEqual([...new Set(fileTasks.map((k) => path.basename(k.unit.path)))], ['c.md'], 'ファイルの段は変わった単位だけ')
   const s = status(state)
@@ -361,7 +363,7 @@ test('9. 持ち越し（目標の版が変わる）: 同じ段の reframe で目
   const { state, d, paths } = project(t, FILES4, { phase: 'review' })
   const first = await fullRun(t, MODES[0], {}, { state })
   isComplete(first.stop)
-  assert.equal(frSteps(first.steps).length, 1)
+  assert.equal(frSteps(first.waves).length, 1)
   const g2 = path.join(d, 'goal2.md')
   writeFileSync(g2, '- G1: 対象の文書を観点ごとに確かめた指摘の一覧（改めた目標）\n- G2: 目標の抜けを確かめた結果\n')
   const rf = cli('reframe', '--state', state, '--goal', g2, '--request', path.join(d, 'request.md'), '--criteria', path.join(d, 'criteria.md'), '--lenses', path.join(d, 'lenses.json'), ...Object.values(paths).flatMap((p) => ['--target', p]), '--phase', 'review')
@@ -369,7 +371,7 @@ test('9. 持ち越し（目標の版が変わる）: 同じ段の reframe で目
   const second = await fullRun(t, MODES[0], {}, { state })
   isComplete(second.stop)
   const fr = second.launches.filter((x) => x.stage === FR_STAGE)
-  assert.equal(fr.length, 1, `読み直しの全文レビュー: ${stagesOf(second.steps)}`)
+  assert.equal(fr.length, 1, `読み直しの全文レビュー: ${stagesOf(second.waves)}`)
   assert.ok(fr[0].queries.some((q) => JSON.stringify(q.out).includes('改めた目標')), '新しい目標を引く')
 })
 
@@ -383,7 +385,7 @@ for (const [changed, want] of [['b.md', 'fix'], ['c.md', 'missed']]) {
     const NEW = 'FR-読み直しで初めて拾った指摘'
     const second = await fullRun(t, MODES[0], { frFindings: twoUnit(NEW) }, { state })
     isComplete(second.stop)
-    assert.equal(frSteps(second.steps).length, 1, `読み直しの全文レビュー: ${stagesOf(second.steps)}`)
+    assert.equal(frSteps(second.waves).length, 1, `読み直しの全文レビュー: ${stagesOf(second.waves)}`)
     const s = status(state)
     const f = s.findings.confirmed.find((x) => x.claim === NEW)
     assert.ok(f, `全文レビューの指摘が確定した: ${JSON.stringify(s.findings.confirmed.map((x) => [x.origin, x.claim]))}`)

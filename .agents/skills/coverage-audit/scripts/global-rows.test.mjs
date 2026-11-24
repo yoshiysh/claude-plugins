@@ -1,6 +1,6 @@
 // 全体の段の 1 回の呼び出しの起動数（設計「モデルと費用」の起動の原則）。
 // 全体の段は役の組（判定役 g と確認役 c。ledger-cli.mjs の INTENT_ROWS の 2 組）ごとに min(workers, 開いた意図の数) 行を作るので、
-// 1 回の呼び出しの起動数は最大で 組の数 × workers になる。Workflow source（coverage-audit.js）は args.workers を maxAgents で切るので、
+// 1 回の呼び出しの起動数は最大で 組の数 × workers になる。Workflow source（coverage-audit.js）は rowsOf(args) を maxAgents で切るので、
 // 切られる行を作らないよう、CLI が次の 2 つを守る:
 // - config --workers は、組の数 × workers が maxAgents を超える値を拒む（終了状態 2、台帳を変えない）。
 // - 全体の段の行の合計は、いつも min(maxAgents, 残りの予算) 以下（予算は超えてはいけない上限）。
@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { C } from './ledger-core.mjs'
-import { cli, project } from './blackboard-fixture.mjs'
+import { cli, project, rowsOf, readArgs } from './blackboard-fixture.mjs'
 import { driveUntil } from './launch-fixture.mjs'
 import { frAct, frFinding, loc } from './full-review-fixture.mjs'
 
@@ -53,12 +53,12 @@ const FR_ONLY = async (task, ctx) => {
 // 両方の組に開いた意図がある全体の段の呼び出しの手前まで流し、今の段で使った起動数を返す。その呼び出しはまだ開かない。
 async function toGlobal(t, workers) {
   const { state } = project(t, FILES)
-  const r = await driveUntil(state, act, { until: (rec) => rec.args.stage === 'file' })
+  const r = await driveUntil(state, act, { until: (rec) => rec.stage === 'file' })
   assert.equal(r.stop, null, JSON.stringify(r.stop))
   const g1 = await driveUntil(state, FR_ONLY, { maxSteps: 1 })
   assert.equal(g1.calls.length, 1, JSON.stringify(g1.stop))
-  assert.equal(g1.calls[0].args.stage, 'global', '全体の段の 1 回目の呼び出し')
-  assert.deepEqual(g1.calls[0].args.workers.map((w) => w.role), ['global_judge'], '1 回目は判定役の組だけに開いた意図がある')
+  assert.equal(g1.calls[0].stage, 'global', '全体の段の 1 回目の呼び出し')
+  assert.deepEqual(g1.calls[0].rows.map((w) => w.role), ['global_judge'], '1 回目は判定役の組だけに開いた意図がある')
   assert.equal(cli('config', '--state', state, '--workers', String(workers)).code, 0)
   const L = ledger(state)
   return { state, spent: L.agents.length - L.phase_start.agents }
@@ -67,7 +67,7 @@ function globalCall(state) {
   const n = cli('next', '--state', state)
   assert.equal(n.code, 0, JSON.stringify(n))
   assert.equal(n.step, 'global', JSON.stringify(n))
-  const rows = JSON.parse(readFileSync(n.args_path, 'utf8')).workers
+  const rows = rowsOf(readArgs(n))
   return { g: rows.filter((w) => w.role === 'global_judge'), c: rows.filter((w) => w.role === 'confirmer'), rows }
 }
 

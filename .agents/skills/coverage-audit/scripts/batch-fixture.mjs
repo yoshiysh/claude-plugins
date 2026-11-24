@@ -19,16 +19,16 @@
 // - goal の意図が足す指摘の obligation: 役が省いても別の id を書いても、意図の item になる（上書き）。
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { cli, shellWords, status, workerLoop } from './blackboard-fixture.mjs'
+import { cli, shellWords, status, workerLoop, readArgs, rowsOf, claimFor } from './blackboard-fixture.mjs'
 
 export const G_KINDS = ['alias', 'subject', 'finding', 'premise', 'goal']
 export const C_KINDS = ['confirm', 'group']
 export const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
-export const argsOf = (n) => JSON.parse(readFileSync(n.args_path, 'utf8'))
+export const argsOf = (n) => readArgs(n)
 export const openOf = (state, kinds) => status(state).intents.filter((i) => i.state === 'open' && kinds.includes(i.kind))
 export const intentIds = (c) => (c.tasks || []).map((x) => x.intent && x.intent.id)
 export const writeResult = (task, r) => { mkdirSync(path.dirname(task.result_path), { recursive: true }); writeFileSync(task.result_path, JSON.stringify(r)) }
-export const claimOf = (state, args, w) => cli('claim', '--state', state, '--call', args.callId, '--worker', w.id)
+export const claimOf = (state, args, w) => claimFor(state, args.callId, w.id)
 export const submitOf = (c) => { const ws = shellWords(String(c.submit_cmd)); return cli(...ws.slice(ws.indexOf('submit'))) }
 // 1 件ずつの query の口（今の形）。役の偽物（behave）が使う。
 export const ctxOf = (state, args, w) => ({
@@ -37,7 +37,7 @@ export const ctxOf = (state, args, w) => ({
 })
 // 呼び出しを閉じる（全ての役が返った形の返り値）。
 export function ingestOk(state, args) {
-  const res = { agents: (args.workers || []).map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true })), tokens: null }
+  const res = { agents: rowsOf(args).map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true })), tokens: null }
   const f = path.join(state, `result-${args.callId}.json`)
   writeFileSync(f, JSON.stringify(res))
   return cli('ingest', '--state', state, '--call', args.callId, '--result', f)
@@ -49,7 +49,7 @@ export async function toGlobal(state, act, maxSteps = 20) {
     if (n.code !== 0 || n.stop) throw new Error(`全体の段まで進まない: ${JSON.stringify(n)}`)
     const args = argsOf(n)
     if (args.stage === 'global') return { n, args }
-    for (const w of args.workers || []) await workerLoop({ state, call: args.callId, worker: w.id, role: w.role }, act, [])
+    for (const w of rowsOf(args)) await workerLoop({ state, call: args.callId, worker: w.id, role: w.role }, act, [])
     const g = ingestOk(state, args)
     if (g.code !== 0) throw new Error(`ingest が通らない: ${JSON.stringify(g)}`)
   }

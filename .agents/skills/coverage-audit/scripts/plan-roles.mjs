@@ -2,8 +2,21 @@
 // 計画役は目標の照合も担う（inputs に item_ids があるときだけ outcomes を足す）。観点の検証役は計画の版の観点の全て（inputs.lenses）に答える。
 // blackboard-fixture.mjs の behave に、計画の段の種類の振る舞いを足して返す（fixture の既存の形と既定は変えない）。
 import { behave } from './blackboard-fixture.mjs'
+import { C } from './ledger-core.mjs'
 
-export const LENS_PROC = { X1: '主張と根拠を対応づけて食い違いを探す', X2: '用語ごとに定義の文を対応づけ、定義の無い用語を探す', X3: '手順ごとに前提の文を対応づけ、前提の無い手順を探す' }
+// 計画の観点の procedure の形。計画（Q1・Q2 を形に移す）は { enumerate: 何を列挙するか, compare_with: 列挙したものを何と照らすか } で、
+// 空なら checkPlan が拒む。checkPlan が文字列の procedure しか受けない間（実装の前）は、2 つをつないだ文字列にする（既存のテストを実装の前後で流すため）。
+// 形の判定は checkPlan（計画が照合の口に決めた関数）の答えだけに依る。
+export const OBJECT_PROCEDURE = !C.checkPlan({ lenses: [{ id: 'Z1', name: 'Z1', procedure: { enumerate: '主張を本文から列挙する', compare_with: '列挙した主張を目標と照らす' }, goals: [{ id: 'G1', part: 'x' }] }], questions: [], constraint_map: [] },
+  { goalItemIds: ['G1'], constraintIds: [] }).some((p) => /procedure/.test(p))
+export const proc = (enumerate, compareWith) => (OBJECT_PROCEDURE ? { enumerate, compare_with: compareWith } : `${enumerate}、${compareWith}`)
+// 観点の本文から引ける引用（観点の検証役の quote）。procedure が形なら enumerate の文。
+export const procQuote = (l) => (typeof l.procedure === 'string' ? l.procedure : l.procedure.enumerate)
+export const LENS_PROC = {
+  X1: proc('本文の主張と根拠を対応づけて列挙する', '列挙した組を目標と照らし食い違いを探す'),
+  X2: proc('用語ごとに定義の文を対応づけて列挙する', '列挙した用語を目標と照らし定義の無い用語を探す'),
+  X3: proc('手順ごとに前提の文を対応づけて列挙する', '列挙した手順を目標と照らし前提の無い手順を探す'),
+}
 // 観点が受け持つ目標の部分: 全ての目標・受け入れ基準の本文の全体。
 export const goalsOfQ = (q) => [...q.items, ...q.criteria].map((g) => ({ id: g.id, part: g.text }))
 // 計画役の欄: 目標の照合が要る（inputs に item_ids がある）ときは依頼文の全体を引く成果を 1 つ、計画の見直し（defects がある）ときは欠陥を全て fixed にする。
@@ -26,7 +39,7 @@ export const onePlan = lensPlan({ X1: {} }, ['X1'])
 export const unitAnswers = (u, noFor = () => false) => ({
   unit_id: u.id,
   answers: [{ question: 'Q1' }, { question: 'Q2' }, ...(u.goals || []).map((g, i) => ({ question: 'Q3', goal_index: i, goal_id: g.id }))]
-    .map((x) => ({ ...x, answer: noFor(x.question === 'Q3' ? `Q3:${x.goal_index}` : x.question) ? 'no' : 'yes', quote: u.procedure })),
+    .map((x) => ({ ...x, answer: noFor(x.question === 'Q3' ? `Q3:${x.goal_index}` : x.question) ? 'no' : 'yes', quote: procQuote(u) })),
 })
 const PLAN_KINDS = ['plan', 'unit_verify']
 // 観点の検証役の答え: 計画の版の観点ごとの答えの組。noFor(lens, key) で no にする問いを選ぶ。

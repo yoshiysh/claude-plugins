@@ -11,7 +11,7 @@ import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scr
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { C } from '../.agents/skills/coverage-audit/scripts/ledger-core.mjs'
 import { LAUNCHER } from '../.agents/skills/coverage-audit/scripts/ledger-cli.mjs'
-import { CLI, ROLES, WF, argOf, behave, cli, cliArgvOf, driveScript, project, runScript, scriptAgent, shellWords, tmp } from '../.agents/skills/coverage-audit/scripts/blackboard-fixture.mjs'
+import { CLI, ROLES, WF, argOf, behave, cli, cliArgvOf, driveScript, launchesOf, project, readArgs, runScript, scriptAgent, shellWords, tmp } from '../.agents/skills/coverage-audit/scripts/blackboard-fixture.mjs'
 import { planAct } from '../.agents/skills/coverage-audit/scripts/plan-roles.mjs'
 
 const META = readSourceMetadata(readFileSync(WF, 'utf8'))
@@ -76,14 +76,16 @@ test('入口: init と next が stateDir/ledger-cli.mjs に、本物の CLI を�
 
 // ---- runner（Codex）でも流れる ----
 
-test('runner: ファイルの段と全体の段が最後まで回り、全ての単位を読んで完了する。1 回の起動数は workers の行の数', async (t) => {
+test('runner: ファイルの段と全体の段が最後まで回り、全ての単位を読んで完了する。1 回の起動数は起動した行の数で、maxAgents 以下', async (t) => {
   const { state } = project(t, { 'doc.md': DOC })
-  const { stop, steps } = await driveScript(state, scriptAgent(behave()), { runWf: viaRunner(t) })
+  const log = []
+  const { stop, steps } = await driveScript(state, scriptAgent(behave(), log), { runWf: viaRunner(t) })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.equal(stop.coverage.seen, stop.coverage.units)
+  const launches = launchesOf(steps, log)
   for (const s of steps) {
-    assert.equal(s.res.agents.length, s.args.workers.length)
-    assert.ok(s.args.workers.length <= C.LIMITS.maxAgents)
+    assert.equal(s.res.agents.length, launches.filter((x) => x.call === s.args.callId).length)
+    assert.ok(s.res.agents.length <= C.LIMITS.maxAgents)
   }
 })
 
@@ -98,10 +100,11 @@ test('runner: 照合に落ちる提出は拒否され、出し直しても落ち
 
 test('runner: 計画・観点の検証・ファイル・全体（束ねを含む）が回り、上の層の欠陥は needs_input で返す。tokens は null', async (t) => {
   const { state } = project(t, { 'doc.md': DOC }, { lenses: null })
-  const { stop, steps } = await driveScript(state, scriptAgent(planAct({ ...oneFinding('要求'), ...GROUPING })), { runWf: viaRunner(t) })
+  const log = []
+  const { stop, steps } = await driveScript(state, scriptAgent(planAct({ ...oneFinding('要求'), ...GROUPING }), log), { runWf: viaRunner(t) })
   assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
   assert.equal(stop.upper.length, 1, '要求の層の欠陥は利用者に返す')
-  const stages = new Set(steps.map((s) => s.args.stage))
+  const stages = new Set(launchesOf(steps, log).map((x) => x.stage))
   for (const k of ['plan', 'unit_verify', 'file', 'global']) assert.ok(stages.has(k), `${k} が回る: ${[...stages]}`)
   assert.ok(ledgerOf(state).groups.some((g) => g.root_cause === '根の原因'), '束ねは全体の段の意図として回る')
   assert.ok(steps.every((s) => s.res.tokens === null), 'runner では消費量を読めないので null')
@@ -257,15 +260,16 @@ test('tokens: 読むたびに進む計器でも、始めと返す直前の 2 回
   const { state } = project(t, { 'doc.md': DOC })
   const { stop, steps } = await driveScript(state, scriptAgent(behave()), { runWf: auditRun(ticking(1000)) })
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
-  assert.ok(steps.length >= 2)
+  assert.ok(steps.length >= 1)
   assert.ok(steps.every((s) => s.res.tokens === 1000), JSON.stringify(steps.map((s) => s.res.tokens)))
   assert.ok(ledgerOf(state).calls.every((c) => c.tokens === 1000 && c.tokens_note === DIFF_NOTE))
 })
 
 test('tokens: 束ねの意図を取る全体の段の呼び出しも差で返す', async (t) => {
   const { state } = project(t, { 'doc.md': DOC })
-  const { steps } = await driveScript(state, scriptAgent(behave({ ...oneFinding(), ...GROUPING })), { runWf: auditRun(ticking(1000)) })
-  assert.ok(steps.some((s) => s.args.stage === 'global' && s.args.workers.some((w) => w.role === 'confirmer')), JSON.stringify(steps.map((s) => s.args.stage)))
+  const log = []
+  const { steps } = await driveScript(state, scriptAgent(behave({ ...oneFinding(), ...GROUPING }), log), { runWf: auditRun(ticking(1000)) })
+  assert.ok(launchesOf(steps, log).some((x) => x.stage === 'global' && x.role === 'confirmer'), JSON.stringify(launchesOf(steps, log).map((x) => [x.stage, x.role])))
   assert.ok(ledgerOf(state).groups.length >= 1, '束ねの群がある')
   assert.ok(steps.every((s) => s.res.tokens === 1000))
   assert.ok(ledgerOf(state).calls.every((c) => c.tokens === 1000 && c.tokens_note === DIFF_NOTE))
@@ -288,10 +292,17 @@ for (const [name, budget] of [
   })
 }
 
-test('args の検査: 段・workers の形が壊れた args では役を起動せず、返り値は {agents: [], tokens} だけ', async () => {
+test('args の検査: 波（wave）の形が壊れた args では役を起動せず、返り値は {agents: [], tokens} だけ', async () => {
   const started = []
   const fn = async (p, o) => { started.push(o.label); return { notes: [] } }
-  for (const a of [{ state: '/s', callId: 'c', stage: 'review', workers: [] }, { state: '/s', callId: 'c', stage: 'file', workers: [{ id: 'f1' }] }]) {
+  const row = { id: 'f1', role: 'file_reader', model: 'opus', effort: 'medium', stage: 'file' }
+  for (const a of [
+    { state: '/s', callId: 'c', wave: { id: 1, rows: [{ ...row, stage: 'review' }] } },
+    { state: '/s', callId: 'c', wave: { id: 1, rows: [{ id: 'f1' }] } },
+    { state: '/s', callId: 'c', wave: { id: 1 } },
+    { state: '/s', callId: 'c', wave: { rows: [row] } },
+    { state: '/s', callId: 'c', stage: 'file', workers: [{ id: 'f1', role: 'file_reader', model: 'opus', effort: 'medium' }] },
+  ]) {
     const r = await runScript(a, fn)
     assert.deepEqual(Object.keys(r).sort(), ['agents', 'tokens'])
     assert.deepEqual(r.agents, [])

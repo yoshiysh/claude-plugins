@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import * as core from './ledger-core.mjs'
-import { INTENT_ID, behave, claimedTasks, cli, drive, project, run, status, submitResults } from './blackboard-fixture.mjs'
+import { INTENT_ID, behave, claimedTasks, cli, drive, project, run, status, submitResults, readArgs, rowsOf, claimFor } from './blackboard-fixture.mjs'
 import { passPlan } from './plan-roles.mjs'
 
 const QA = 'この文書は台帳の lock を取ってから書き込むことを保証する。'
@@ -483,10 +483,10 @@ test('B4 callId（全体の段）: 閉じた呼び出しで取った意図の su
   await fileStage(state, act())
   const n = cli('next', '--state', state)
   assert.ok(n.args_path, JSON.stringify(n))
-  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
+  const args = readArgs(n)
   let held = null
-  for (const w of args.workers) {
-    const c = cli('claim', '--state', state, '--call', args.callId, '--worker', w.id)
+  for (const w of rowsOf(args)) {
+    const c = claimFor(state, args.callId, w.id)
     if (c.tasks && c.tasks.length) { held = { c, w }; break }
   }
   assert.ok(held && held.c.tasks[0].intent, '意図の担当を取った')

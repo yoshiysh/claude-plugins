@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync 
 import path from 'node:path'
 import { C, MAX_ATTEMPTS } from './ledger-core.mjs'
 import { withLock } from './ledger-cli.mjs'
-import { CLI, behave, cli, drive, fileResult, project, shellWords, status, tmp, workerLoop } from './blackboard-fixture.mjs'
+import { CLI, behave, cli, drive, fileResult, project, shellWords, status, tmp, workerLoop, readArgs, rowsOf, claimFor, claimArgvFor } from './blackboard-fixture.mjs'
 import { passPlan } from './plan-roles.mjs'
 
 const doc = (name) => `# ${name}\n\n## 節\n${name} の節は主張を一つだけ述べる本文の行である。\n二行目も ${name} の主張を補う本文の行として置く。\n`
@@ -30,15 +30,15 @@ function review(state) {
   const n = cli('next', '--state', state)
   assert.equal(n.code, 0, JSON.stringify(n))
   assert.equal(n.step, 'file', JSON.stringify(n))
-  return { n, args: JSON.parse(readFileSync(n.args_path, 'utf8')) }
+  return { n, args: readArgs(n) }
 }
-const claim = (state, call, worker) => cli('claim', '--state', state, '--call', call, '--worker', worker)
+const claim = (state, call, worker) => claimFor(state, call, worker)
 const submitOf = (c) => { const w = shellWords(c.submit_cmd); return cli(...w.slice(w.indexOf('submit'))) }
 const writeResult = (task, obj) => { mkdirSync(path.dirname(task.result_path), { recursive: true }); writeFileSync(task.result_path, JSON.stringify(obj)) }
 const unitOf = (state, id) => status(state).units.find((u) => u.id === id)
 let seq = 0
 const put = (d, obj) => { const f = path.join(d, `res-${++seq}.json`); writeFileSync(f, JSON.stringify(obj)); return f }
-const okResult = (args, ok = true) => ({ agents: args.workers.map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok })), tokens: null })
+const okResult = (args, ok = true) => ({ agents: rowsOf(args).map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok })), tokens: null })
 const ingest = (state, d, args, res = okResult(args)) => cli('ingest', '--state', state, '--call', args.callId, '--result', put(d, res))
 const missedBy = (L, kind, id) => L.events.some((e) => e.kind === kind && (e.ref === id || String(e.text).includes(id)))
 
@@ -63,11 +63,11 @@ function run(argv, { shell = null } = {}) {
 test('workers: ファイルの段は詰め合わせ 1 つに 1 体で、行は詰め合わせの数（workers の設定に縛られない）。既定の workers は 1。行は {id, role, model, effort} だけ', async (t) => {
   const five = await qsetup(t, { n: 5, workers: null })
   assert.equal(ledger(five.state).config.workers, 1)
-  const rows = review(five.state).args.workers
+  const rows = rowsOf(review(five.state).args)
   assert.equal(rows.length, 1, '小さい 5 単位は 1 つの詰め合わせ（1 体）')
   assert.ok(rows.every((w) => JSON.stringify(Object.keys(w).sort()) === JSON.stringify(['effort', 'id', 'model', 'role'])))
   const three = await qsetup(t, { n: 3, workers: null, big: true })
-  const big = review(three.state).args.workers
+  const big = rowsOf(review(three.state).args)
   assert.equal(big.length, 3, '詰め合わせが 3 つなら workers 1 でも 3 体')
   assert.ok(big.every((w) => w.role === 'file_reader'))
 })
@@ -78,11 +78,11 @@ test('config --workers: 正の整数で worker の数を変え、次の全体の
   for (const v of ['0', '-1', '1.5', 'abc', String(Math.floor(C.LIMITS.maxAgents / 2) + 1)]) assert.equal(cli('config', '--state', state, '--workers', v).code, 2, v)
   assert.equal(bytes(state), before, '台帳を変えない')
   assert.equal(cli('config', '--state', state, '--workers', '2').code, 0)
-  assert.equal(review(state).args.workers.length, 1, 'ファイルの段は詰め合わせの数（workers に縛られない）')
+  assert.equal(rowsOf(review(state).args).length, 1, 'ファイルの段は詰め合わせの数（workers に縛られない）')
   await drive(state, behave(), { maxSteps: 1 })
   const g = cli('next', '--state', state)
   assert.equal(g.step, 'global', JSON.stringify(g))
-  const roles = JSON.parse(readFileSync(g.args_path, 'utf8')).workers.filter((w) => w.role === 'global_judge')
+  const roles = rowsOf(readArgs(g)).filter((w) => w.role === 'global_judge')
   assert.equal(roles.length, 2, '全体の段の判定役の行（名寄せ・主語の照合・指摘・前提・目標）は workers 件')
   assert.equal(cli('config', '--state', state, '--workers', String(Math.floor(C.LIMITS.maxAgents / 2))).code, 0, '組の数 × workers が maxAgents に収まる最大の値は受け付ける')
 })
@@ -92,8 +92,8 @@ test('config --workers: 正の整数で worker の数を変え、次の全体の
 test('claim: 行に結んだ詰め合わせの単位を並びの順に全て渡し、出し終えていない単位だけを返し直し、全て出し終えたら done', async (t) => {
   const { state, paths } = await qsetup(t, { n: 2, workers: 3 })
   const { args } = review(state)
-  assert.equal(args.workers.length, 1)
-  const w = args.workers[0].id
+  assert.equal(rowsOf(args).length, 1)
+  const w = rowsOf(args)[0].id
   const c1 = claim(state, args.callId, w)
   assert.deepEqual(c1.tasks.map((x) => x.unit.id), [paths['d0.md'], paths['d1.md']])
   writeResult(c1.tasks[0], fileResult(c1.tasks[0]))
@@ -108,7 +108,7 @@ test('claim: 行に結んだ詰め合わせの単位を並びの順に全て渡�
 test('claim の取り直し: 出し終えていない担当を持つ worker の claim は、新しい単位を取らずに同じ担当を返す。返す前に結果の path のファイルを消す', async (t) => {
   const { state } = await qsetup(t)
   const { args } = review(state)
-  const w = args.workers[0].id
+  const w = rowsOf(args)[0].id
   const c1 = claim(state, args.callId, w)
   writeResult(c1.tasks[0], { stale: true })
   const c2 = claim(state, args.callId, w)
@@ -123,10 +123,10 @@ test('claim・submit の拒否: 開いた呼び出しが無い・違う --call�
   assert.equal(bytes(state), before)
   const { args } = review(state)
   const opened = bytes(state)
-  assert.equal(claim(state, 'ffffffffffff', args.workers[0].id).code, 2, '違う --call')
+  assert.equal(claim(state, 'ffffffffffff', rowsOf(args)[0].id).code, 2, '違う --call')
   assert.equal(claim(state, args.callId, 'no-such-worker').code, 2, 'workers に無い worker')
   assert.equal(cli('submit', '--state', state, '--call', args.callId, '--worker', 'no-such-worker').code, 2)
-  assert.equal(cli('submit', '--state', state, '--call', args.callId, '--worker', args.workers[0].id, '--cell', 'x').code, 2, '1 枡ずつ出す --cell は無い')
+  assert.equal(cli('submit', '--state', state, '--call', args.callId, '--worker', rowsOf(args)[0].id, '--cell', 'x').code, 2, '1 枡ずつ出す --cell は無い')
   assert.equal(bytes(state), opened)
 })
 
@@ -135,7 +135,7 @@ test('claim・submit の拒否: 開いた呼び出しが無い・違う --call�
 test('submit: 結果のファイルの無い担当は missing に挙げ、試行に数えず取ったままにする。後でファイルを書いて流し直すと受け付ける', async (t) => {
   const { state } = await qsetup(t, { n: 1 })
   const { args } = review(state)
-  const c = claim(state, args.callId, args.workers[0].id)
+  const c = claim(state, args.callId, rowsOf(args)[0].id)
   const task = c.tasks[0]
   const s1 = submitOf(c)
   assert.deepEqual([s1.results, s1.missing], [[], [task.id]])
@@ -149,7 +149,7 @@ test('submit: 結果のファイルの無い担当は missing に挙げ、試行
 test('submit: 照合に落ちた担当は理由を返して試行に数え、取りを保ち、結果のファイルを CLI が消す。直す前に流し直しても missing で、2 回目の試行に数えない', async (t) => {
   const { state } = await qsetup(t, { n: 1 })
   const { args } = review(state)
-  const c = claim(state, args.callId, args.workers[0].id)
+  const c = claim(state, args.callId, rowsOf(args)[0].id)
   const task = c.tasks[0]
   writeResult(task, { ...fileResult(task), seen: [] })
   const s1 = submitOf(c)
@@ -166,7 +166,7 @@ test('submit: 照合に落ちた担当は理由を返して試行に数え、取
 test('submit: 取った後に写しが書き換わったら、終了状態 2 で台帳を変えずに拒否する（偽の引用の拒否と違い、試行に数えない）', async (t) => {
   const { state } = await qsetup(t)
   const { args } = review(state)
-  const c = claim(state, args.callId, args.workers[0].id)
+  const c = claim(state, args.callId, rowsOf(args)[0].id)
   const task = c.tasks[0]
   writeResult(task, fileResult(task))
   writeFileSync(task.unit.file, readFileSync(task.unit.file, 'utf8').replace('主張を一つだけ', '主張を二つだけ'))
@@ -178,7 +178,7 @@ test('submit: 取った後に写しが書き換わったら、終了状態 2 で
 test('submit_cmd: claim が返す submit_cmd を shell でそのまま流すと、取った担当の結果を受け付ける', { skip: process.platform === 'win32' }, async (t) => {
   const { state } = await qsetup(t)
   const { args } = review(state)
-  const c = claim(state, args.callId, args.workers[0].id)
+  const c = claim(state, args.callId, rowsOf(args)[0].id)
   writeResult(c.tasks[0], fileResult(c.tasks[0]))
   const s = await run([], { shell: c.submit_cmd })
   assert.equal(s.code, 0, JSON.stringify(s))
@@ -191,13 +191,13 @@ test('next の冪等: 開いた呼び出しがある間の next は同じ callId
   const { d, state } = await qsetup(t)
   const { n, args } = review(state)
   const raw = readFileSync(n.args_path, 'utf8')
-  const c = claim(state, args.callId, args.workers[0].id)
+  const c = claim(state, args.callId, rowsOf(args)[0].id)
   const again = review(state)
   assert.equal(again.n.call_id, n.call_id)
   assert.equal(again.n.args_path, n.args_path)
   assert.equal(readFileSync(again.n.args_path, 'utf8'), raw, 'args は同じバイト列')
   const L = ledger(state)
-  assert.deepEqual(L.assets[c.tasks[0].unit.id].claim, { call: args.callId, worker: args.workers[0].id }, '取りを外さない')
+  assert.deepEqual(L.assets[c.tasks[0].unit.id].claim, { call: args.callId, worker: rowsOf(args)[0].id }, '取りを外さない')
   assert.equal(L.assets[c.tasks[0].unit.id].attempts, 0, '試行に数えない')
   writeResult(c.tasks[0], fileResult(c.tasks[0]))
   assert.deepEqual(submitOf(c).results.map((r) => r.ok), [true], '流し直しの前に取った担当を提出できる')
@@ -211,12 +211,12 @@ test('戻し: 取ったまま提出されない単位は呼び出しを閉じる
   let last = null
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     const { args } = review(state)
-    id = claim(state, args.callId, args.workers[0].id).tasks[0].unit.id
+    id = claim(state, args.callId, rowsOf(args)[0].id).tasks[0].unit.id
     assert.equal(ingest(state, d, args).code, 0)
     assert.ok(missedBy(ledger(state), 'missing_read', id))
     last = args
   }
-  assert.equal(claim(state, last.callId, last.workers[0].id).code, 2)
+  assert.equal(claim(state, last.callId, rowsOf(last)[0].id).code, 2)
   const u = unitOf(state, id)
   assert.equal(u.state, 'disclosed')
   assert.match(u.reason, /提出しなかった/)
@@ -225,11 +225,11 @@ test('戻し: 取ったまま提出されない単位は呼び出しを閉じる
 test('戻し（ingest）: その呼び出しの ingest が、提出されなかった担当の取りを外して試行に数える。提出を受けた呼び出しなので全件失敗には数えない', async (t) => {
   const { d, state } = await qsetup(t, { n: 2, workers: 2, big: true })
   const { args } = review(state)
-  assert.equal(args.workers.length, 2, '詰め合わせが 2 つ')
-  const c0 = claim(state, args.callId, args.workers[0].id)
+  assert.equal(rowsOf(args).length, 2, '詰め合わせが 2 つ')
+  const c0 = claim(state, args.callId, rowsOf(args)[0].id)
   writeResult(c0.tasks[0], fileResult(c0.tasks[0]))
   assert.equal(submitOf(c0).code, 0)
-  const c1 = claim(state, args.callId, args.workers[1].id)
+  const c1 = claim(state, args.callId, rowsOf(args)[1].id)
   const g = ingest(state, d, args)
   assert.equal(g.code, 0, JSON.stringify(g))
   const L = ledger(state)
@@ -242,7 +242,7 @@ test('提出が 1 件も無い呼び出し: 全ての役が欠けた呼び出し
   const { d, state } = await qsetup(t, { n: 1, workers: 1 })
   for (let i = 0; i < 2; i++) {
     const { args } = review(state)
-    claim(state, args.callId, args.workers[0].id)
+    claim(state, args.callId, rowsOf(args)[0].id)
     assert.equal(ingest(state, d, args).code, 0)
   }
   const n = cli('next', '--state', state)
@@ -256,7 +256,7 @@ test('提出が 1 件も無い呼び出し: 全ての役が欠けた呼び出し
 test('worker: workers の行ごとに claim を done まで流すと、1 回の呼び出しで全ての単位が seen になる', async (t) => {
   const { d, state } = await qsetup(t, { n: 3, workers: 2 })
   const { args } = review(state)
-  for (const w of args.workers) await workerLoop({ state, call: args.callId, worker: w.id, role: w.role }, behave(), [])
+  for (const w of rowsOf(args)) await workerLoop({ state, call: args.callId, worker: w.id, role: w.role }, behave(), [])
   assert.equal(ingest(state, d, args).code, 0)
   assert.ok(status(state).units.every((u) => u.state === 'seen'))
   assert.equal(cli('next', '--state', state).step, 'global', 'ファイルの段の後は全体の段')
@@ -267,8 +267,8 @@ test('worker: workers の行ごとに claim を done まで流すと、1 回の�
 test('lock: 並べて流した claim は互いに違う単位を返し、並べて流した submit は全て台帳に残る（失われた更新が無い）', async (t) => {
   const { state } = await qsetup(t, { n: 6, workers: 6, big: true })
   const { args } = review(state)
-  assert.equal(args.workers.length, 6, '詰め合わせが 6 つ')
-  const cs = await Promise.all(args.workers.map((w) => run(['claim', '--state', state, '--call', args.callId, '--worker', w.id])))
+  assert.equal(rowsOf(args).length, 6, '詰め合わせが 6 つ')
+  const cs = await Promise.all(rowsOf(args).map((w) => run(claimArgvFor(state, args.callId, w.id))))
   assert.equal(new Set(cs.map((c) => c.tasks[0].unit.id)).size, 6)
   for (const c of cs) writeResult(c.tasks[0], fileResult(c.tasks[0]))
   const ss = await Promise.all(cs.map((c) => run([], { shell: c.submit_cmd })))
@@ -369,7 +369,7 @@ test('全体の段: claim が 1 度も無い呼び出し（worker が起動さ�
   for (let i = 0; i < 2; i++) {
     const n = cli('next', '--state', state)
     assert.equal(n.step, 'global', JSON.stringify(n))
-    assert.equal(ingest(state, d, JSON.parse(readFileSync(n.args_path, 'utf8'))).code, 0)
+    assert.equal(ingest(state, d, readArgs(n)).code, 0)
   }
   const n = cli('next', '--state', state)
   assert.equal(n.stop, 'blocked', JSON.stringify(n))
@@ -381,8 +381,8 @@ async function timedOut(state, d, act, { take = 1 } = {}) {
   const n = cli('next', '--state', state)
   assert.equal(n.code, 0, JSON.stringify(n))
   assert.ok(!n.stop, JSON.stringify(n))
-  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  const w = args.workers[0]
+  const args = readArgs(n)
+  const w = rowsOf(args)[0]
   const ctx = { query: (task) => cli('query', '--state', state, '--call', args.callId, '--worker', w.id, '--task', task.id) }
   let ok = 0
   for (let i = 0; i < take; i++) {
@@ -418,8 +418,8 @@ test('時間の上限（ファイルの段）: 詰め合わせの一部を受理
   const { d, state } = await qsetup(t, { n: 2, workers: 1 })
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'file', JSON.stringify(n))
-  const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-  const c = claim(state, args.callId, args.workers[0].id)
+  const args = readArgs(n)
+  const c = claim(state, args.callId, rowsOf(args)[0].id)
   assert.equal(c.tasks.length, 2, '2 単位の詰め合わせ')
   writeResult(c.tasks[0], fileResult(c.tasks[0]))
   assert.deepEqual(submitOf(c).results.map((r) => r.ok), [true], '書けた単位だけを出す')

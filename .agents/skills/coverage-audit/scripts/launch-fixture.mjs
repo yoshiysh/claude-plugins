@@ -21,7 +21,7 @@
 // 今の実装でも run が止まるまで進み、テストが assertion で落ちるようにするため（未知の種類で worker が止まって時間切れにならない）。
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { behave, cli, fileResult, project, unitLines, usable, workerLoop } from './blackboard-fixture.mjs'
+import { behave, drive, launchesOf, project, unitLines, usable } from './blackboard-fixture.mjs'
 import { asIntegrated, lensPlan, unitAnswers } from './plan-roles.mjs'
 
 export const NEW_ROLES = ['planner', 'unit_verifier', 'file_reader', 'global_judge', 'confirmer']
@@ -108,40 +108,15 @@ export function act(over = {}) {
   }
 }
 
-// next → worker（行ごとに 1 体）→ ingest を、止まるか until(rec) が真になるまで回す（in-process）。rec は { next, args, workers, ingest }。
-export async function driveUntil(state, a, { until = () => false, maxSteps = 40 } = {}) {
-  const calls = []
-  for (let i = 0; i < maxSteps; i++) {
-    const n = cli('next', '--state', state)
-    if (n.code !== 0 || n.stop) return { stop: n, calls }
-    const args = JSON.parse(readFileSync(n.args_path, 'utf8'))
-    const rec = { next: n, args, workers: [] }
-    for (const w of args.workers || []) await workerLoop({ state: args.state, call: args.callId, worker: w.id, role: w.role }, a, rec.workers)
-    const res = { agents: (args.workers || []).map((w) => ({ role: w.role, label: `worker-${w.id}`, model: w.model, effort: w.effort, ok: true })), tokens: null }
-    const f = path.join(state, `result-${args.callId}.json`)
-    writeFileSync(f, JSON.stringify(res))
-    rec.ingest = cli('ingest', '--state', state, '--call', args.callId, '--result', f)
-    calls.push(rec)
-    if (rec.ingest.code !== 0) return { stop: rec.ingest, calls }
-    if (until(rec)) return { stop: null, calls }
-  }
-  return { stop: null, calls }
-}
+// next → 波（行ごとに 1 体）→ ingest を、止まるか until(rec) が真になるまで回す（in-process）。rec は波ごとに 1 件で、形は blackboard-fixture.mjs の drive。
+export const driveUntil = (state, a, { until = () => false, maxSteps = 40 } = {}) => drive(state, a, { until, maxSteps })
 
-// driveScript の steps と scriptAgent の log から、起動した 1 体ごとに { stage, role, call, worker, claims, queries } を並べる。
-export function launchesOf(steps, log) {
-  return log.map((x) => {
-    const call = x.claim && x.claim[x.claim.indexOf('--call') + 1]
-    const worker = x.claim && x.claim[x.claim.indexOf('--worker') + 1]
-    const s = steps.find((st) => st.args.callId === call)
-    const w = s && s.args.workers.find((r) => r.id === worker)
-    return { stage: s && s.args.stage, role: w && w.role, call, worker, claims: (x.rec && x.rec.claims) || [], queries: (x.rec && x.rec.queries) || [], submits: (x.rec && x.rec.submits) || [] }
-  })
-}
-// driveUntil の calls から、worker ごとに { stage, role, call, worker, tasks（取った担当を平らに）, submits } を並べる。
+// driveScript の steps と scriptAgent の log から、起動した 1 体ごとに並べる（形は blackboard-fixture.mjs の launchesOf）。
+export { launchesOf }
+// driveUntil の calls（波ごと）から、worker ごとに { stage, role, call, worker, tasks（取った担当を平らに）, submits } を並べる。
 export function workersOf(calls) {
   return calls.flatMap((c) => c.workers.map((w) => ({
-    stage: c.args.stage, role: w.role, call: c.args.callId, worker: w.worker,
+    stage: c.stage, role: w.role, call: c.args.callId, worker: w.worker,
     tasks: w.claims.flatMap((cl) => cl.tasks || []), submits: w.submits, queries: w.queries,
   })))
 }

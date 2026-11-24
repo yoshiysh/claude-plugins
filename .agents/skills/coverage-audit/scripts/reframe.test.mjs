@@ -14,7 +14,7 @@ const CITED_GOAL = '- G1: 対象の文書の見落としを観点ごとに確か
 
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
 const bytes = (state) => readFileSync(path.join(state, 'ledger.json'), 'utf8')
-const steps = (calls) => calls.map((c) => c.next.step)
+const steps = (calls) => calls.map((c) => c.stage)
 
 // coverage-build が渡すのと同じ形の入力（目標の冒頭の文 + 項目、基準・制約・決定の記録）を書く。name で別の組を作る。
 function frameFiles(d, name, { lead, goal, criteria, constraints, decisions, request = REQUEST }) {
@@ -83,7 +83,7 @@ test('reframe: 目標の冒頭の文・目標・基準・制約・依頼文・�
   assert.equal(L.goal.checked_by, 'coverage-build', '照合済みの印を残す')
   const second = await drive(state, planAct())
   assert.equal(second.stop.stop, 'complete', JSON.stringify(second.stop))
-  const planQ = second.calls.filter((c) => c.args.stage === 'plan').flatMap((c) => c.workers.flatMap((w) => w.queries.map((q) => q.out.inputs)))
+  const planQ = second.calls.filter((c) => c.stage === 'plan').flatMap((c) => c.workers.flatMap((w) => w.queries.map((q) => q.out.inputs)))
   assert.ok(planQ.length && planQ.every((q) => !('item_ids' in q)), '照合済みの目標を照合し直さない（計画役に照合の入力を渡さない）')
   assert.deepEqual(unitStates(state), [[doc2, 'seen']], '差し替えた対象の単位だけが残る')
 })
@@ -190,11 +190,11 @@ test('振り返り: 印の無い台帳では、同じ出来事から振り返り
   assert.equal(r.stop.stop, 'complete', JSON.stringify(r.stop))
   const retro = Object.entries(ledger(state).assets).filter(([id]) => id.startsWith('retro:'))
   assert.ok(retro.length && retro.every(([, a]) => a.state === 'seen'), JSON.stringify(retro.map(([id, a]) => [id, a.state])))
-  const rc = r.calls.filter((c) => c.args.stage === 'retro')
-  assert.equal(rc.length, 1, `振り返りの段は 1 回: ${r.calls.map((c) => c.args.stage)}`)
+  const rc = r.calls.filter((c) => c.stage === 'retro')
+  assert.equal(rc.length, 1, `振り返りの段は 1 回: ${r.calls.map((c) => c.stage)}`)
   const tasks = rc.flatMap((c) => c.workers.flatMap((w) => w.claims.flatMap((cl) => cl.tasks || [])))
   assert.ok(tasks.length && tasks.every((x) => x.kind === 'retro' && x.unit.id.startsWith('retro:') && x.lenses.map((l) => l.id).join() === 'R1,R2,R3,R4'), JSON.stringify(tasks.map((x) => [x.kind, x.unit.id])))
-  assert.ok(!r.calls.filter((c) => c.args.stage === 'file').some((c) => c.workers.some((w) => w.claims.some((cl) => (cl.tasks || []).some((x) => x.unit.id.startsWith('retro:'))))), 'ファイルの段は振り返りの単位を読まない')
+  assert.ok(!r.calls.filter((c) => c.stage === 'file').some((c) => c.workers.some((w) => w.claims.some((cl) => (cl.tasks || []).some((x) => x.unit.id.startsWith('retro:'))))), 'ファイルの段は振り返りの単位を読まない')
   assert.ok(!status(state).units.some((u) => u.id.startsWith('retro:')), 'status の units は対象の単位だけ')
   assert.equal(status(state).coverage.units, 1, '振り返りの単位は対象の単位に数えない')
 })

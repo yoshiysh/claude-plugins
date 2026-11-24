@@ -7,7 +7,7 @@ import path from 'node:path'
 import { C } from './ledger-core.mjs'
 import { cli, tmp } from './test-harness.mjs'
 import { driveScript, scriptAgent } from './blackboard-fixture.mjs'
-import { planAct } from './plan-roles.mjs'
+import { planAct, proc } from './plan-roles.mjs'
 
 const DOC = `# 対象の文書
 
@@ -80,8 +80,8 @@ test('2. 計画役の説明: purpose・layer はスキルが持つので作ら�
 test('3. 静的な照合: 計画の観点の id が purpose・layer でも、constraint_map の受け皿が purpose でも拒否しない', () => {
   const goals = [{ id: 'G1', part: '見落とし' }]
   const lenses = [
-    { id: 'purpose', name: '目的', procedure: '主張ごとに目標を対応づける', goals },
-    { id: 'layer', name: '層', procedure: '内容ごとに層を判定する', goals },
+    { id: 'purpose', name: '目的', procedure: proc('主張ごとに目標を対応づけて列挙する', '列挙した主張を目標と照らす'), goals },
+    { id: 'layer', name: '層', procedure: proc('内容ごとに層を判定して列挙する', '列挙した内容を対象の層と照らす'), goals },
   ]
   const ctx = { constraintIds: ['AC1'], lensesGiven: false, givenLensIds: [], goalItemIds: ['G1'] }
   assert.deepEqual(C.checkPlan({ lenses, questions: [], constraint_map: [{ constraint_id: 'AC1', handled_by: ['purpose'] }] }, ctx), [])

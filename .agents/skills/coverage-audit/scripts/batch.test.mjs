@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { cpSync } from 'node:fs'
 import path from 'node:path'
 import { MAX_ATTEMPTS, UNIT_MAX_BYTES } from './ledger-core.mjs'
-import { behave, cli, driveScript, project, run, scriptAgent, status } from './blackboard-fixture.mjs'
+import { behave, cli, driveScript, project, run, scriptAgent, status, rowsOf } from './blackboard-fixture.mjs'
 import { act, launchesOf } from './launch-fixture.mjs'
 import { confirmedIds, frAct, frFinding, loc } from './full-review-fixture.mjs'
 import {
@@ -25,7 +25,7 @@ const FACTS = (p) => (path.basename(p) === 'a.md'
   : path.basename(p) === 'b.md' ? { premises: [{ subject: 'lock', quote: QB, confidence: 'high' }] } : {})
 const smallAct = (over = {}) => act({ facts: FACTS, ...over })
 const sorted = (xs) => [...xs].sort()
-const rowOf = (args, role) => args.workers.find((w) => w.role === role)
+const rowOf = (args, role) => rowsOf(args).find((w) => w.role === role)
 const unitIdOf = (state, name) => { const u = status(state).units.find((x) => path.basename(x.path) === name); assert.ok(u, `単位が無い: ${name}`); return u.id }
 
 // 小さい対象の最初の全体の段を開く（worker はまだ起動しない）。判定役の種類の開いた意図が 2 件以上あることを前提として確かめる。
@@ -55,7 +55,7 @@ test('1. claim（確認役）: c 行の claim は、開いた確認の意図を�
   const { state } = project(t, FILES4)
   const a = frAct({ facts: FACTS, frFindings: two })
   const first = await toGlobal(state, a)
-  for (const w of first.args.workers) await batchWorker(state, first.args, w, a)
+  for (const w of rowsOf(first.args)) await batchWorker(state, first.args, w, a)
   assert.equal(ingestOk(state, first.args).code, 0)
   const n = cli('next', '--state', state)
   assert.equal(n.step, 'global', JSON.stringify(n))
@@ -63,7 +63,7 @@ test('1. claim（確認役）: c 行の claim は、開いた確認の意図を�
   const open = openOf(state, ['confirm'])
   assert.ok(open.length >= 2, `前提: 確認の意図が 2 件以上開く: ${open.length}`)
   const w = rowOf(args, 'confirmer')
-  assert.ok(w, `確認役の行: ${JSON.stringify(args.workers)}`)
+  assert.ok(w, `確認役の行: ${JSON.stringify(rowsOf(args))}`)
   const c = claimOf(state, args, w)
   assert.deepEqual(sorted(intentIds(c)), sorted(open.map((i) => i.id)), `1 回の claim で開いた確認の意図の全て: ${JSON.stringify(intentIds(c))}`)
   assert.ok(c.tasks.every((x) => C_KINDS.includes(x.kind)))
@@ -174,14 +174,14 @@ test('2. query（今も通る守り）: ファイルの段の担当は、--task 
     const n = cli('next', '--state', state)
     const args = argsOf(n)
     if (args.stage === 'file') {
-      const w = args.workers[0]
+      const w = rowsOf(args)[0]
       const c = claimOf(state, args, w)
       assert.ok(c.tasks.length >= 2, `前提: ファイルの段の詰め合わせ: ${c.tasks.length}`)
       const r = run('query', '--state', state, '--call', args.callId, '--worker', w.id, ...c.tasks.flatMap((x) => ['--task', x.id]))
       assert.equal(r.code, 2, JSON.stringify(r))
       return
     }
-    for (const w of args.workers) await batchWorker(state, args, w, a)
+    for (const w of rowsOf(args)) await batchWorker(state, args, w, a)
     ingestOk(state, args)
   }
   assert.fail('ファイルの段まで進まない')
@@ -269,7 +269,7 @@ function zeroClose(state, itemOf, opened = null) {
   if (n) assert.equal(n.step, 'global', JSON.stringify(n))
   const args = opened || argsOf(n)
   const w = rowOf(args, 'global_judge')
-  assert.ok(w, `判定役の行: ${JSON.stringify(args.workers)}`)
+  assert.ok(w, `判定役の行: ${JSON.stringify(rowsOf(args))}`)
   const items = intentIds(claimOf(state, args, w)).map((id) => itemOf[id])
   assert.equal(ingestOk(state, args).code, 0)
   return items
@@ -303,7 +303,7 @@ test("4'. 時間切れの束: 0 件のまま 2 回閉じた後でも、縮めた
     const n = cli('next', '--state', state)
     if (n.stop) { assert.equal(n.stop, 'complete', JSON.stringify(n)); break }
     const args2 = argsOf(n)
-    for (const w of args2.workers) await batchWorker(state, args2, w, a)
+    for (const w of rowsOf(args2)) await batchWorker(state, args2, w, a)
     assert.equal(ingestOk(state, args2).code, 0)
   }
   assert.equal(status(state).stopped && status(state).stopped.stop, 'complete', JSON.stringify(status(state).stopped))

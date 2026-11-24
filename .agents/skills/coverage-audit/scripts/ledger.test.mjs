@@ -6,17 +6,17 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { C, MAX_ATTEMPTS, UNIT_MAX_BYTES, factId, jsHeads, retroAssets, splitAssets } from './ledger-core.mjs'
-import { WF, behave, claimedTasks, cli, drive, fileResult, project, status, tmp } from './blackboard-fixture.mjs'
-import { asIntegrated, goalsOfQ, lensPlan, onePlan, passPlan, planAct, unitAnswers, verifyAll } from './plan-roles.mjs'
+import { WF, behave, claimedTasks, cli, drive, fileResult, project, rowsOf, status, tmp } from './blackboard-fixture.mjs'
+import { asIntegrated, goalsOfQ, lensPlan, onePlan, passPlan, planAct, proc, unitAnswers, verifyAll } from './plan-roles.mjs'
 
 const ledger = (state) => JSON.parse(readFileSync(path.join(state, 'ledger.json'), 'utf8'))
 const doc = (name) => `# ${name}\n\n## 節\n${name} の節は主張を一つだけ述べる本文の行である。\n二行目も ${name} の主張を補う本文の行として置く。\n`
 const TWO = { 'a.md': doc('一つ目の文書'), 'b.md': doc('二つ目の文書') }
 const THREE = { ...TWO, 'c.md': doc('三つ目の文書') }
 const REQUEST = '対象の文書を観点ごとにレビューしてほしい'
-const steps = (calls) => calls.map((c) => c.next.step)
+const steps = (calls) => calls.map((c) => c.stage)
 // 呼び出しごとの記録の後に台帳の計画の欠陥を写す（drive の onCall）。
-const recordDefects = (state, out) => async (rec) => { out.push({ step: rec.next.step, defects: ledger(state).plan_defects }) }
+const recordDefects = (state, out) => async (rec) => { out.push({ step: rec.stage, defects: ledger(state).plan_defects }) }
 
 // 計画役を走らせる台帳（利用者の観点を渡さない）。目標は coverage-build から照合済みで渡す。criteria は受け入れ基準の行（無ければ渡さない）。
 const planned = (t, files = TWO, { criteria = null } = {}) => project(t, files, { lenses: null, goal: '- G1: 対象の文書の見落としを確かめた指摘の一覧\n', criteria })
@@ -228,7 +228,7 @@ test('ingest: native Workflow の出力ファイル（result に包んだ形）�
     const nx = cli('next', '--state', state)
     const args = JSON.parse(readFileSync(nx.args_path, 'utf8'))
     const f = path.join(d, `wrapped-${n}.json`)
-    writeFileSync(f, JSON.stringify(wrap({ agents: [{ role: args.workers[0].role, label: 'w', model: 'm', effort: 'e', ok: true }], tokens: 5 })))
+    writeFileSync(f, JSON.stringify(wrap({ agents: [{ role: rowsOf(args)[0].role, label: 'w', model: 'm', effort: 'e', ok: true }], tokens: 5 })))
     const g = cli('ingest', '--state', state, '--call', args.callId, '--result', f)
     assert.equal(g.code, 0, JSON.stringify(g))
     assert.equal(ledger(state).calls.at(-1).agents, n, n ? '包みを外して起動の記録を読む' : '包みに似た形は外さない')
@@ -315,7 +315,7 @@ test('目標の照合（単独）: 計画役が照合も担い、受け止めら
   const gap = (q) => ({ ...onePlan(q), outcomes: [{ outcome: '確かめた指摘', quotes: [{ source: 'request', quote: REQUEST }], items: [] }] })
   const { stop, calls } = await drive(state, planAct({ plan: gap }))
   assert.equal(steps(calls)[0], 'plan')
-  assert.deepEqual(calls[0].args.workers.map((w) => w.role), ['planner'], '照合と計画を 1 体で担う')
+  assert.deepEqual(calls[0].rows.map((w) => w.role), ['planner'], '照合と計画を 1 体で担う')
   assert.equal(stop.stop, 'needs_input', JSON.stringify(stop))
   assert.deepEqual(stop.goal_gaps, [{ outcome: '確かめた指摘', quotes: [{ source: 'request', quote: REQUEST }] }])
   assert.equal(ledger(state).plan, null, '目標の穴があれば、その回の計画は使わない')
@@ -382,7 +382,7 @@ test('計画の段: 計画役 1 体 → 観点の検証 1 体 → 全文レビ�
   const { stop, calls } = await drive(state, planAct())
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   assert.deepEqual(steps(calls).slice(0, 4), ['plan', 'unit_verify', 'full_review', 'file'])
-  assert.deepEqual(calls.slice(0, 4).map((c) => c.args.workers.map((w) => w.role)), [['planner'], ['unit_verifier'], ['full_reviewer'], ['file_reader']])
+  assert.deepEqual(calls.slice(0, 4).map((c) => c.rows.map((w) => w.role)), [['planner'], ['unit_verifier'], ['full_reviewer'], ['file_reader']])
   const q = (i) => calls[i].workers[0].queries[0].out.inputs
   assert.deepEqual(q(0).index.map((r) => r.id), Object.keys(ledger(state).assets), '計画役の索引は 1 行 1 単位')
   assert.ok(!JSON.stringify(q(0)).includes('主張を補う本文の行'), '索引は単位の本文を載せない（写しの参照と先頭の数語だけ）')
@@ -411,10 +411,10 @@ test('計画の静的な欠陥: 照合に落ちる計画は計画役に 1 回出
   assert.ok(stop.plan_defects.some((x) => x.kind === 'static' && /^P\d+$/.test(x.id) && /価値判断の理由が無い/.test(x.claim)), JSON.stringify(stop.plan_defects))
   assert.ok(steps(calls).filter((x) => x === 'plan').length >= 2, '見直しの計画に戻る')
   assert.ok(!steps(calls).includes('file'), '受け付けない計画でファイルの段に進まない')
-  const planner = calls.find((c) => c.next.step === 'plan').workers[0]
+  const planner = calls.find((c) => c.stage === 'plan').workers[0]
   assert.equal(planner.submits.length, 2, '外れのある計画は 1 回出し直させてから受け取る')
   assert.equal(planner.submits[0].out.results[0].ok, false)
-  const again = calls.filter((c) => c.next.step === 'plan')[1].workers[0].queries[0].out.inputs
+  const again = calls.filter((c) => c.stage === 'plan')[1].workers[0].queries[0].out.inputs
   assert.ok(again.previous_plan && Array.isArray(again.defects) && again.defects.every((d, i) => d.index === i), '見直しの計画役は前の計画と欠陥を引く')
 })
 
@@ -574,15 +574,15 @@ test('answer: 質問への回答から作る制約の id は、既にある基�
 
 test('計画が id purpose・layer の観点を返しても受け付け、ほかの計画の観点と同じく閉じた問いを通り、ファイルの段に計画の観点として渡る', async (t) => {
   const { state, paths } = planned(t, TWO, { criteria: '- AC1: 指摘ごとに本文の引用を付ける\n' })
-  const PROC = { purpose: 'この部分の主張ごとに、固定した目標と制約のどれに効くかを対応づけてから、効かない主張を探す。', layer: 'この部分の内容ごとに層を判定してから、対象の層より上の決め直しを探す。' }
+  const PROC = { purpose: proc('この部分の主張ごとに、固定した目標と制約のどれに効くかを対応づけて列挙する', '列挙した主張を目標と照らし、効かない主張を探す'), layer: proc('この部分の内容ごとに層を判定して列挙する', '列挙した内容を対象の層と照らし、上の層の決め直しを探す') }
   const idPlan = (q) => asIntegrated(q, { lenses: ['purpose', 'layer'].map((id) => ({ id, name: id, procedure: PROC[id], goals: goalsOfQ(q) })), questions: [], constraint_map: [...q.criteria, ...q.constraints].map((c) => ({ constraint_id: c.id, handled_by: ['purpose'] })) })
   const { stop, calls } = await drive(state, planAct({ plan: idPlan }))
   assert.equal(stop.stop, 'complete', JSON.stringify(stop))
   const L = ledger(state)
   assert.deepEqual(L.plan_defects, [], '計画の欠陥にしない')
   assert.deepEqual(L.lenses.filter((l) => !l.retro).map((l) => [l.id, l.origin]), [['S1', 'standard'], ['purpose', 'plan'], ['layer', 'plan']], '計画の観点として台帳に入る（標準の観点と並ぶ）')
-  const uv = calls.find((c) => c.next.step === 'unit_verify')
-  assert.equal(uv.args.workers.length, 1, '閉じた問いは 1 体が全ての観点に答える（観点ごとに起動しない）')
+  const uv = calls.find((c) => c.stage === 'unit_verify')
+  assert.equal(uv.rows.length, 1, '閉じた問いは 1 体が全ての観点に答える（観点ごとに起動しない）')
   assert.deepEqual(uv.workers[0].queries[0].out.inputs.lenses.map((l) => l.id), ['purpose', 'layer'])
   const files = claimedTasks(calls).filter((x) => x.kind === 'file')
   assert.deepEqual(files.map((x) => x.unit.path).sort(), [paths['a.md'], paths['b.md']].sort())
