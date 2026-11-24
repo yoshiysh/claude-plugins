@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assetTexts } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/assets.mjs';
-import { specUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
+import { flowUnits, specUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { applicability, forcedReason } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
-import { CRITERIA, EXPECTED_FILE, FIXTURE_DIR, MEASURES, accompanyProblems, belongs, forcedBy, forcedReasons, inject, injectable, main, pick, read, render } from '../tools/read-bp-trial.mjs';
+import { CONFORMANT_BY_035, CRITERIA, EXPECTED_FILE, FIXTURE_DIR, MEASURES, accompanyProblems, belongs, forcedBy, forcedReasons, inject, injectable, main, pick, read, render } from '../tools/read-bp-trial.mjs';
 import { testTitles } from './helpers/bp-docs.mjs';
 import { verifiedTraceRows } from '../tools/lib/bp-docs.mjs';
 
@@ -47,6 +47,18 @@ test('検証方法（bp-conformance）: 試走の題材の正解表の単位が�
     }
     assert.ok(!ROW.forced.includes(i.unit), i.unit);
   }
+});
+
+test('検証方法（bp-conformance）: SP-BPCONFORMANCE-035 が照らさずに適合とする行（effort の測り直しと、xhigh と max を限る行）の単位は、仕込める単位に入らない', () => {
+  const meaning = new Map(flowUnits(CRITERIA).map((u) => [u.value, u.meaning]));
+  const [remeasure, xhigh] = CONFORMANT_BY_035;
+  assert.match(meaning.get(remeasure) ?? '', /^effort はモデルをまたいで同じ思考量を指さない。モデルを変えたら測り直す/);
+  assert.match(meaning.get(xhigh) ?? '', /^`xhigh` と `max` は、/);
+  // 除外が無ければ候補になる単位であること（フローの観点の閉集合にあることは上の meaning が、題材の行にあり強いられた未検査でないことはここで確かめる）。
+  for (const u of CONFORMANT_BY_035) assert.ok(ROW.units.some((x) => x.value === u) && !ROW.forced.includes(u), `035 の行が題材の行で候補にならない（除外が空振りする）: ${u}`);
+  const candidates = injectable(CRITERIA, EXPECTED.row, 'SP-BPCONFORMANCE-013');
+  assert.ok(candidates.length > 0);
+  for (const u of CONFORMANT_BY_035) assert.ok(!candidates.includes(u), u);
 });
 
 test('検証方法（bp-conformance）: フローの観点の仕込む単位は、種と仕様項目から決まる単位で、人が選んでいない', () => {
@@ -190,15 +202,23 @@ test('検証方法（bp-conformance）: 行の仕様項目の偽陽性（どの�
   }
 });
 
+// 伴う単位の読み取りは、本物の正解表が宣言を持つかに頼らず、本物の正解表から条件で選んだ仕込みに宣言を足した合成の正解表で確かめる。
+// 条件：フローの観点で資産がファイル全体（section が null）、同じファイル全体に仕様の観点の仕込みがある（別の観点の吸収を確かめるため）。
+const HOST = EXPECTED.injections.findIndex((i) => i.viewpoint === 'flow' && i.section === null && i.unseen.length >= 2 && EXPECTED.injections.some((x) => x.viewpoint === 'spec' && x.file === i.file && x.section === null));
+const NO_HOST = '伴う単位を足せる仕込み（フローの観点のファイル全体で、同じファイル全体に仕様の観点の仕込みがある）が正解表に無い';
+const ACCOMPANIED = { ...MEASURED, injections: MEASURED.injections.map((x, k) => (k === HOST ? { ...x, accompanies: [x.unseen[0]] } : x)) };
+
 test('検証方法（bp-conformance）: 正解表が仕込みに伴うと宣言した単位の指摘は、仕込んだ資産に出ても干渉・偽陽性にならず、当たりにも数えない', () => {
-  const declaring = EXPECTED.injections.filter((i) => i.accompanies);
-  assert.ok(declaring.length > 0);
   assert.deepEqual(accompanyProblems(EXPECTED), []);
+  assert.ok(HOST >= 0, NO_HOST);
+  assert.deepEqual(accompanyProblems(ACCOMPANIED), []);
+  const declaring = ACCOMPANIED.injections.filter((i) => i.accompanies);
+  assert.ok(declaring.length > 0);
   for (const i of declaring) {
-    const rowsOf = EXPECTED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(i.unit, sp))).map(pairKey);
+    const rowsOf = ACCOMPANIED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(i.unit, sp))).map(pairKey);
     const extra = i.accompanies.map((u) => finding({ ...i, unit: u }));
-    const with_ = read({ baseline: CLEAN, injected: injectedResult([...ALL(), ...extra]), expected: MEASURED });
-    const base = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: MEASURED });
+    const with_ = read({ baseline: CLEAN, injected: injectedResult([...ALL(), ...extra]), expected: ACCOMPANIED });
+    const base = read({ baseline: CLEAN, injected: injectedResult(ALL()), expected: ACCOMPANIED });
     assert.equal(with_.valid, true, i.unit);
     assert.equal(with_.interference, 0, i.unit);
     assert.deepEqual(with_.falsePositives, [], i.unit);
@@ -206,23 +226,24 @@ test('検証方法（bp-conformance）: 正解表が仕込みに伴うと宣言�
     assert.deepEqual(with_.rows.map((r) => r.status), base.rows.map((r) => r.status), i.unit);
     assert.ok(render(with_).split('\n').some((l) => l.startsWith('伴う単位の指摘: ') && l.includes(i.accompanies[0]) && l.includes(i.file)), i.unit);
 
-    const only = read({ baseline: CLEAN, injected: injectedResult([...ALL().filter((f) => f.kind !== i.unit), ...extra]), expected: MEASURED });
+    const only = read({ baseline: CLEAN, injected: injectedResult([...ALL().filter((f) => f.kind !== i.unit), ...extra]), expected: ACCOMPANIED });
     assert.equal(only.valid, true, i.unit);
     assert.equal(only.hitList.find((h) => h.unit === i.unit).hit, false, i.unit);
     for (const r of only.rows.filter((x) => rowsOf.includes(pairKey(x)))) assert.equal(r.status, '作成中', r.req);
 
-    const elsewhere = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: i.accompanies[0], file: 'SKILL.md', section: ['trace-cause'] })]), expected: MEASURED });
+    const elsewhere = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: i.accompanies[0], file: 'SKILL.md', section: ['trace-cause'] })]), expected: ACCOMPANIED });
     assert.equal(elsewhere.accompanied.length, 0, i.unit);
     for (const r of elsewhere.rows.filter((x) => rowsOf.includes(pairKey(x)))) assert.equal(r.status, '作成中', r.req);
   }
 });
 
 test('検証方法（bp-conformance）: 伴う単位の種類の指摘でも、別の観点で出たもの・別の仕込みの資産に出たもの・仕込んだ資産の外にまたがるものは吸収せず、干渉か偽陽性に残す', () => {
-  const i = EXPECTED.injections.find((x) => x.accompanies);
+  assert.ok(HOST >= 0, NO_HOST);
+  const i = ACCOMPANIED.injections.find((x) => x.accompanies);
   const kind = i.accompanies[0];
-  const otherView = EXPECTED.injections.find((x) => x.viewpoint !== i.viewpoint && x.file === i.file && x.section === i.section);
+  const otherView = ACCOMPANIED.injections.find((x) => x.viewpoint !== i.viewpoint && x.file === i.file && x.section === i.section);
   assert.ok(otherView, '仕込んだ資産に別の観点の仕込みが無い');
-  const otherAsset = EXPECTED.injections.find((x) => x.viewpoint === i.viewpoint && (x.file !== i.file || JSON.stringify(x.section) !== JSON.stringify(i.section)));
+  const otherAsset = ACCOMPANIED.injections.find((x) => x.viewpoint === i.viewpoint && (x.file !== i.file || JSON.stringify(x.section) !== JSON.stringify(i.section)));
   const own = finding(i);
   const spanning = { ...finding({ ...i, unit: kind }), assets: [...own.assets, { id: 'B', path: 'SKILL.md', loc: { k: 'sec', h: [[1, 'trace-cause']], n: 1 } }] };
   const cases = {
@@ -231,7 +252,7 @@ test('検証方法（bp-conformance）: 伴う単位の種類の指摘でも、�
     仕込んだ資産の外にまたがる: spanning,
   };
   for (const [label, f] of Object.entries(cases)) {
-    const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), f]), expected: MEASURED });
+    const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), f]), expected: ACCOMPANIED });
     assert.equal(r.accompanied.length, 0, label);
     assert.equal(r.falsePositives.length, 1, label);
     assert.equal(r.interference, 1, label);
@@ -241,24 +262,26 @@ test('検証方法（bp-conformance）: 伴う単位の種類の指摘でも、�
 });
 
 test('検証方法（bp-conformance）: 伴う単位と宣言していない確かめていない単位の指摘が仕込んだ資産に出ると、従来どおり干渉で全ての行を作成中にする', () => {
-  const i = EXPECTED.injections.find((x) => x.accompanies && x.unseen.some((u) => !x.accompanies.includes(u)));
+  assert.ok(HOST >= 0, NO_HOST);
+  const i = ACCOMPANIED.injections.find((x) => x.accompanies && x.unseen.some((u) => !x.accompanies.includes(u)));
   assert.ok(i);
   const undeclared = i.unseen.find((u) => !i.accompanies.includes(u));
-  const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: undeclared })]), expected: MEASURED });
+  const r = read({ baseline: CLEAN, injected: injectedResult([...ALL(), finding({ ...i, unit: undeclared })]), expected: ACCOMPANIED });
   assert.equal(r.valid, false);
   assert.equal(r.interference, 1);
   assert.ok(allPending(r));
 });
 
 test('検証方法（bp-conformance）: 伴う単位の宣言は、空でない重なりの無い配列で、その仕込みの確かめていない単位に限り、外れた正解表は読み取りを拒む', () => {
-  const at = EXPECTED.injections.findIndex((x) => x.accompanies);
-  const target = EXPECTED.injections[at];
-  const other = EXPECTED.injections.find((x, n) => n !== at && x.viewpoint === target.viewpoint);
-  const spec = EXPECTED.injections.find((x) => x.viewpoint === 'spec');
-  const forcedAt = EXPECTED.injections.findIndex((x) => x.viewpoint === 'flow' && EXPECTED.forced.some((f) => belongs(f.unit, spOf(x.unit))));
+  assert.ok(HOST >= 0, NO_HOST);
+  const at = ACCOMPANIED.injections.findIndex((x) => x.accompanies);
+  const target = ACCOMPANIED.injections[at];
+  const other = ACCOMPANIED.injections.find((x, n) => n !== at && x.viewpoint === target.viewpoint);
+  const spec = ACCOMPANIED.injections.find((x) => x.viewpoint === 'spec');
+  const forcedAt = ACCOMPANIED.injections.findIndex((x) => x.viewpoint === 'flow' && ACCOMPANIED.forced.some((f) => belongs(f.unit, spOf(x.unit))));
   assert.ok(forcedAt >= 0, '同じ仕様項目の強いられた未検査を持つ仕込みが正解表に無い');
-  const ownForced = EXPECTED.forced.find((f) => belongs(f.unit, spOf(EXPECTED.injections[forcedAt].unit))).unit;
-  const withDecl = (n, accompanies) => ({ ...EXPECTED, injections: EXPECTED.injections.map((x, k) => (k === n ? { ...x, accompanies } : x)) });
+  const ownForced = ACCOMPANIED.forced.find((f) => belongs(f.unit, spOf(ACCOMPANIED.injections[forcedAt].unit))).unit;
+  const withDecl = (n, accompanies) => ({ ...ACCOMPANIED, injections: ACCOMPANIED.injections.map((x, k) => (k === n ? { ...x, accompanies } : x)) });
   const cases = {
     空: withDecl(at, []),
     配列でない: withDecl(at, target.accompanies[0]),
@@ -266,7 +289,7 @@ test('検証方法（bp-conformance）: 伴う単位の宣言は、空でない�
     仕込んだ単位: withDecl(at, [target.unit]),
     別の仕込みの単位: withDecl(at, [other.unit]),
     同じ仕様項目の強いられた未検査: withDecl(forcedAt, [ownForced]),
-    仕様の観点の仕込み: withDecl(EXPECTED.injections.indexOf(spec), [target.accompanies[0]]),
+    仕様の観点の仕込み: withDecl(ACCOMPANIED.injections.indexOf(spec), [target.accompanies[0]]),
   };
   for (const [label, expected] of Object.entries(cases)) {
     assert.ok(accompanyProblems(expected).length > 0, label);

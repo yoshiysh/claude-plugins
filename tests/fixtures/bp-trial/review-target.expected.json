@@ -55,11 +55,14 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
-      "file": "scripts/trace.js",
-      "section": null,
-      "from": "    if (!p) throw new Stop('blocked', '計画役が結果を返さなかった')",
-      "to": "    if (!p) { await cli(u, [['plan', { round, intents: [], rerank: [], hintsRead: s.hints }]]); throw new Stop('blocked', '計画役が結果を返さなかった') }",
+      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r18",
+      "file": "SKILL.md",
+      "section": [
+        "trace-cause",
+        "返り値"
+      ],
+      "from": "- `reasonClass`（BLOCKED のとき。理由の区分で、失敗なら `failure`。このスキルは対象のリポジトリを直さないと進めない停止を持たないので、BLOCKED は全て `failure` になる。起動の項目の欠けや上限の誤りも失敗に含める）",
+      "to": "- `reasonClass`（BLOCKED のとき。区分は付け分けず、どの BLOCKED にも `failure` を入れる。失敗か対象の欠けかは、`reason` の文から読む）",
       "unseen": [
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r1",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r2",
@@ -67,6 +70,7 @@
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r4",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r5",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r8",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r10",
@@ -77,9 +81,6 @@
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r15",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r16",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r17"
-      ],
-      "accompanies": [
-        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6"
       ]
     },
     {
@@ -104,20 +105,19 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r6",
-      "file": "references/roles/executor.md",
+      "unit": "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r8",
+      "file": "references/design.md",
       "section": [
-        "実行役",
-        "返すもの"
+        "設計の説明",
+        "役とモデル"
       ],
-      "from": "- 事実ごとに、検証方式（再取得・再実行・出典照合・検証不能のどれか）と、その事実を示したツールの結果（読んだパスと行・実行したコマンドと出力の要点）を添える。検証役はこれを手がかりに確かめ直す。",
-      "to": "- 事実ごとに、検証方式（再取得・再実行・出典照合・検証不能のどれか）を添える。どのファイルやコマンドで確かめたかは書かなくてよい（返り値を短く保つため）。",
+      "from": "モデルを変えるときは effort を引き継がず、eval で測り直す（effort はモデルをまたいで同じ思考量を指さない）。",
+      "to": "モデルを変えるときは effort を引き継がず、eval で測り直す（effort はモデルをまたいで同じ思考量を指さない）。完了の照合の検証役は、完了を主張する計画役と同じモデルで起動してよい（計画役と同じ読み方で主張を照らせるため）。",
       "unseen": [
-        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r1",
-        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r2",
         "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r3",
         "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r4",
         "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r5",
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r6",
         "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r7"
       ]
     },
@@ -181,13 +181,13 @@
     {
       "viewpoint": "flow",
       "unit": "SP-BPCONFORMANCE-016/状態の書き込み/t1/r5",
-      "file": "SKILL.md",
+      "file": "references/roles/executor.md",
       "section": [
-        "trace-cause",
-        "起動"
+        "実行役",
+        "返すもの"
       ],
-      "from": "止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`・`resumeKey`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。",
-      "to": "止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`・`resumeKey`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。再開のときは、状態 ID を新しく作り直し、新しい状態として始める。",
+      "from": "prompt の「既知の事実を引く CLI」で引ける。",
+      "to": "既知かどうかは、prompt の「既知の事実を引く CLI」で引いた一覧と見比べて、あなたが判断する。言い換えただけで同じだと思う事実も返さない。",
       "unseen": [
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r1",
         "SP-BPCONFORMANCE-016/状態の書き込み/t1/r2",
@@ -204,19 +204,18 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-017/資産台帳/t2/r12",
+      "unit": "SP-BPCONFORMANCE-017/資産台帳/t2/r4",
       "file": "references/design.md",
       "section": [
         "設計の説明",
         "資産台帳"
       ],
-      "from": "- このスキルは指摘を持たない。台帳に結び付くのは「見た」だけで、事実は探索グラフの層の記録として意図に結び付く。対象のリポジトリを run の中で書き換えないので、指摘の状態（open / dismissed、resolved / regressed）を追う記録も無い。",
-      "to": "- 台帳に結び付く「見た」を指摘として扱い、対象のリポジトリを run の中で書き換えなくても、状態に open / dismissed に加えて resolved / regressed を持たせ、周ごとに前の周の結果と照らして遷移させる。",
+      "from": "- 周の終わりに、skip 一覧に残った資産だけを渡して実行役を追加で起動する。新しく見た資産が無くなった回で止め、残った skip 一覧を返り値に載せる。",
+      "to": "- 周の終わりに、skip 一覧に残った資産だけを渡して実行役を追加で起動する。新しく見た資産が無くなった回で止め、残った skip 一覧を返り値に載せる。追加の実行役が新しく見た資産を出さなかったときは、残った skip 一覧を次の周の検証役にも渡し、事実の候補を確かめるついでに読ませてよい（取りこぼしを減らすため）。",
       "unseen": [
         "SP-BPCONFORMANCE-017/資産台帳/t2/r1",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r2",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r3",
-        "SP-BPCONFORMANCE-017/資産台帳/t2/r4",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r5",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r6",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r7",
@@ -224,7 +223,9 @@
         "SP-BPCONFORMANCE-017/資産台帳/t2/r9",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r10",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r11",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r12",
         "SP-BPCONFORMANCE-017/資産台帳/t2/r13",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r14",
         "SP-BPCONFORMANCE-017/資産台帳/b1",
         "SP-BPCONFORMANCE-017/資産台帳/b2",
         "SP-BPCONFORMANCE-017/資産台帳/b3",
