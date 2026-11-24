@@ -194,3 +194,33 @@ test('--context（reframe）: 段を変えて参照を差し替えられ、参�
   assert.equal(stop && stop.stop, 'complete', JSON.stringify(stop))
   assert.equal(stop.coverage.units, 1)
 })
+
+test('--context: 場所が参照の単位だけにある指摘は、確認が検証不能（引用が合わない）でも unverifiable に入れず参考に回し、それを理由に needs_input で止まらない', async (t) => {
+  const r = repo(t)
+  const { state, out } = checkedInit(r, { extra: ['--context', r.ref] })
+  assert.equal(out.code, 0, JSON.stringify(out))
+  const CLAIM = 'CTX-検証不能になる参照だけの指摘'
+  let unverified = 0
+  const a = noProposalAct({
+    goal: (task, ctx) => {
+      const q = ctx.query(task)
+      const cu = (q.units || []).find((u) => u.context === true)
+      if (!cu || task.intent.item !== 'G1') return undefined
+      return { verdict: 'gap', quote: REF_LINE, findings: [{ claim: CLAIM, locations: [{ unit: cu.id, quote: REF_LINE }], confidence: 'high', severity: 'HIGH', layer: '実装' }] }
+    },
+    // 確認役: 参照だけの指摘への確認は、根拠の単位に無い引用で答える（検証不能の判定になる）。
+    confirm: (task, ctx) => {
+      const q = ctx.query(task)
+      if (!(q.basis || []).some((f) => f && f.claim === CLAIM)) return undefined
+      unverified += 1
+      return { verdict: 'agree', reason: '本文が判定を支える', quote: 'どの単位の本文にも無い引用の文をここに書いておく' }
+    },
+  })
+  const { stop } = await drive(state, a, { maxSteps: 40 })
+  assert.ok(unverified >= 1, '前提: 参照だけの指摘への確認が検証不能の答えを返した')
+  assert.equal(stop && stop.stop, 'complete', `参照だけの指摘の検証不能で needs_input に止まらない: ${JSON.stringify(stop).slice(0, 400)}`)
+  const s = status(state)
+  assert.ok(!s.findings.unverifiable.some((f) => f.claim === CLAIM), `unverifiable に入れない: ${JSON.stringify(s.findings.unverifiable)}`)
+  assert.ok(!s.findings.confirmed.some((f) => f.claim === CLAIM))
+  assert.ok(s.references.some((x) => x.claim === CLAIM), `参考に回す: ${JSON.stringify(s.references.map((x) => x.claim))}`)
+})

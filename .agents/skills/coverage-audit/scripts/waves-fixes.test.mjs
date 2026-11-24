@@ -11,6 +11,7 @@ import path from 'node:path'
 import {
   ROLES, argOf, cli, cliArgvOf, driveScript, project, readArgs, runScript, scriptAgent, status, tmp, wavesOf,
 } from './blackboard-fixture.mjs'
+import { MAX_ATTEMPTS } from './ledger-core.mjs'
 import { standalone } from './launch-fixture.mjs'
 import { noProposalAct, planAct } from './plan-roles.mjs'
 
@@ -134,7 +135,7 @@ for (const key of ['wave_seq', 'contexts', 'target_gaps', 'repo']) {
 
 // ---------------- 6. 環境の失敗は呼び出しの全ての波で判じる ----------------
 
-test('6. 環境の失敗: 呼び出しの前の波に進み（受理・提出）があれば、最後の波で読む役が落ちても fail_streak と環境の試行に数えない', async (t) => {
+test('6. 環境の失敗: 呼び出しの前の波に進み（受理・提出）があれば、最後の波で読む役が落ちても fail_streak に数えない', async (t) => {
   const { state } = project(t, FILES)
   const a = noProposalAct({ facts: FACTS, file: () => { throw new Error('読む役が落ちた') } })
   const log = []
@@ -142,9 +143,8 @@ test('6. 環境の失敗: 呼び出しの前の波に進み（受理・提出）
   const stages = wavesOf(r.steps, log).map((w) => w.stage)
   assert.deepEqual(stages, ['plan', 'full_review', 'file'], `前提: 計画と全文レビューの波に進みがあり、ファイルの段の波で落ちる: ${stages}`)
   const L = ledger(state)
-  assert.equal(L.fail_streak, 0, '前の波に進みのあった呼び出しは環境の失敗に数えない')
-  assert.ok(Object.values(L.assets).every((x) => !x.env_attempts), `環境の試行に数えない: ${JSON.stringify(Object.entries(L.assets).map(([id, x]) => [id, x.env_attempts]))}`)
-  assert.deepEqual(L.env_attempts, {})
+  assert.equal(L.fail_streak, 0, '前の波に進みのあった呼び出しは fail_streak に数えない')
+  // 落ちた波で取ったまま出さなかった単位の環境の試行は、波ごとの印で数える（下の「環境の失敗の印は波ごと」が固める）。
 })
 
 test('6. 環境の失敗（守り）: どの波にも進みの無い呼び出しは、今のとおり fail_streak に数える', async (t) => {
@@ -196,4 +196,104 @@ test('7. 振り返りが 2 波以上に分かれるとき、先の波で読ん�
   assert.ok(miss && laterIds.includes(miss.id), '新しく増えた出来事（取り残しの missing_read）を次の波で読む')
   const abandonedIds = before.find((x) => x.unit === abandoned).ids
   assert.ok(abandonedIds.every((id) => laterIds.includes(id)), '読まなかった単位の出来事は次の波で読む')
+})
+
+// ---------------- 1（2 回目の検証）. 環境の失敗の印は、締める波ごとに、その波の進みで付ける ----------------
+
+const ONE = { 'a.md': `# A\n\n## 保証\n${QA}\n` }
+test('環境の失敗の印は波ごと: 前の波に進みがあっても、後の波で取ったまま出さなかった単位は環境の失敗の試行に数える（fail_streak には数えない）', async (t) => {
+  const { state } = project(t, ONE)
+  const log = []
+  const r = await driveScript(state, scriptAgent(noProposalAct({ facts: FACTS, file: () => { throw new Error('読む役が落ちた') } }), log), { maxSteps: 1 })
+  assert.deepEqual(wavesOf(r.steps, log).map((w) => w.stage), ['plan', 'full_review', 'file'], '前提: 計画と全文レビューの波に進みがあり、ファイルの段の波で取ったまま落ちる')
+  const L = ledger(state)
+  assert.equal(L.fail_streak, 0, '呼び出し全体に進みがあるので fail_streak には数えない')
+  const a = Object.values(L.assets).find((x) => !x.retro && !x.context)
+  assert.equal(a.attempts, 1)
+  assert.equal(a.env_attempts, 1, `進みの無い波で取ったまま出さなかった単位は、環境の失敗の試行: ${JSON.stringify(a)}`)
+})
+
+test('環境の失敗の印は波ごと: 環境の失敗が続けば blocked で止まり、開示を抱えたまま complete に進まない。blocked から再開すれば試行が戻り、読み直せる', async (t) => {
+  const { state } = project(t, ONE)
+  let failing = true
+  let failsAfterResume = 0
+  const a = noProposalAct({ facts: FACTS, file: (task) => { if (failing) throw new Error('読む役が落ちた'); if (failsAfterResume-- > 0) throw new Error('もう 1 回落ちた'); return undefined } })
+  const first = await driveScript(state, scriptAgent(a, []), { maxSteps: 8 })
+  assert.equal(first.stop && first.stop.stop, 'blocked', `環境の失敗が続けば blocked: ${JSON.stringify(first.stop).slice(0, 300)}`)
+  assert.equal(first.stop.cause, 'failure')
+  // 再開: 環境の失敗に数えた試行が全て戻る（前の波に進みがあった呼び出しの試行も環境の失敗に数えたので）。もう 1 回落ちても単位は開示されず、次で読める。
+  failing = false
+  failsAfterResume = 1
+  const once = await driveScript(state, scriptAgent(a, []), { maxSteps: 1 })
+  assert.equal(once.steps.length, 1)
+  const u = status(state).units[0]
+  assert.equal(u.state, 'unseen', `再開の後に 1 回落ちても開示しない（試行が全て戻った）: ${JSON.stringify(u)}`)
+  const again = await driveScript(state, scriptAgent(a, []), { maxSteps: 8 })
+  assert.equal(again.stop && again.stop.stop, 'complete', `再開で試行が戻り、読み直して complete: ${JSON.stringify(again.stop).slice(0, 300)}`)
+  assert.equal(again.stop.coverage.seen, 1, '単位を読んだ')
+  assert.deepEqual(again.stop.coverage.disclosed, [], '開示を抱えたまま complete に進まない')
+})
+
+// ---------------- 2（2 回目の検証）. 振り返りの単位を作り直すときの端のケース ----------------
+
+// 振り返りが 2 波以上に分かれる場面（テスト 7 と同じ）を流す。abandon(ids) が真の単位は読まずに取り残す。
+async function retroScene(t, abandon, maxSteps = 2) {
+  const d = tmp(t)
+  const roles = path.join(d, 'roles-small.json')
+  writeFileSync(roles, JSON.stringify({ file_reader: { ...ROLES.file_reader, context_tokens: 1200 } }))
+  const { state } = standalone(t, FILES, { lenses: null, extra: ['--roles', roles] })
+  const rejectedOnce = new Set()
+  const reads = []
+  const a = planAct({
+    facts: FACTS,
+    file: (task) => { if (rejectedOnce.has(task.unit.id)) return undefined; rejectedOnce.add(task.unit.id); return { seen: [], findings: [], references: [], guarantees: [], premises: [] } },
+    retro: (task) => {
+      const ids = eventIds(readFileSync(task.unit.file, 'utf8'))
+      const drop = abandon(ids, reads)
+      reads.push({ unit: task.unit.id, ids, dropped: drop })
+      return drop ? null : undefined
+    },
+  })
+  const log = []
+  const r = await driveScript(state, scriptAgent(a, log), { maxSteps })
+  return { state, r, log, reads }
+}
+const firstOnce = (ids, reads) => !reads.length
+
+test('振り返りの作り直し (a): 作り直した単位の id は、同じ周で読み終えた単位の id と重ならず、読んだ単位の読みの記録は消えない', async (t) => {
+  const { state, reads } = await retroScene(t, firstOnce)
+  const accepted = reads.filter((x, i) => !x.dropped && reads.findIndex((y) => y.unit === x.unit) === i)
+  assert.ok(accepted.length >= 1 && reads.some((x) => x.dropped), `前提: 取り残した単位と読んだ単位がある: ${JSON.stringify(reads)}`)
+  // 読んだ単位の id が、後で別の本文の単位として読まれない（重なれば同じ id で違う出来事を読むことになる）。
+  for (const x of accepted) {
+    const later = reads.filter((y) => y.unit === x.unit && y !== x)
+    assert.deepEqual(later.map((y) => y.ids), [], `読み終えた単位の id ${x.unit} を作り直しに使った: ${JSON.stringify(later)}`)
+  }
+  const units = status(state).retro.units
+  for (const x of accepted) {
+    const u = units.find((y) => y.id === x.unit)
+    assert.ok(u && u.state === 'seen', `読んだ単位の読みの記録が残る: ${x.unit} → ${JSON.stringify(u)}`)
+    assert.deepEqual(eventIds(readFileSync(u.file, 'utf8')), x.ids, '読んだ単位の写しは読んだときの出来事のまま')
+  }
+})
+
+test('振り返りの作り直し (b): どの出来事も、振り返りの単位か events_not_in_retro のどちらかに出る（本文の無い単位で消えない）', async (t) => {
+  const { state } = await retroScene(t, firstOnce)
+  const s = status(state)
+  const inRetro = new Set(s.retro.units.flatMap((u) => eventIds(readFileSync(u.file, 'utf8'))))
+  const outside = new Set(s.events_not_in_retro.map((e) => e.id))
+  for (const u of s.retro.units) assert.ok(readFileSync(u.file, 'utf8').trim().length > 0, `本文の無い振り返りの単位: ${u.id}`)
+  const lost = s.events.filter((e) => e.stage !== 'retro' && !inRetro.has(e.id) && !outside.has(e.id))
+  assert.deepEqual(lost.map((e) => e.id), [], `振り返りの単位にも events_not_in_retro にも無い出来事: ${JSON.stringify(lost)}`)
+})
+
+test('振り返りの作り直し (c): 作り直した単位の試行は元の単位の試行を引き継ぎ、取り残し続ければ MAX_ATTEMPTS で開示される', async (t) => {
+  let target = null
+  const abandon = (ids) => { if (!target) target = ids[0]; return ids.includes(target) }
+  const { state, reads } = await retroScene(t, abandon, 3)
+  const tries = reads.filter((x) => x.ids.includes(target))
+  assert.equal(tries.length, MAX_ATTEMPTS, `同じ出来事を含む単位を読ませた回数は MAX_ATTEMPTS（${MAX_ATTEMPTS}）まで: ${JSON.stringify(tries)}`)
+  const units = status(state).retro.units
+  const holder = units.filter((u) => eventIds(readFileSync(u.file, 'utf8')).includes(target))
+  assert.ok(holder.length >= 1 && holder.every((u) => u.state === 'disclosed'), `取り残し続けた出来事の単位は開示される: ${JSON.stringify(holder)}`)
 })
