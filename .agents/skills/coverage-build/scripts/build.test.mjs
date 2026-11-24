@@ -205,7 +205,7 @@ test('取り込み（importAudit）: 終わっていない検査を拒否し、�
   const io = { readText: () => text, unitOfPath: () => ({ unit: 'U1', test: false }) }
   assert.throws(() => importAudit(L, auditStatus({ phase: 'design', stop: 'needs_input', pending: ['c1'] }), 'design', io), /読み終えていない単位/)
   assert.throws(() => importAudit(L, auditStatus({ phase: 'design', stop: 'blocked' }), 'design', io), /終わっていない/)
-  assert.throws(() => importAudit(L, { ...auditStatus({ phase: 'design' }), pending: { call_id: 'x', step: 'group' } }, 'design', io), /途中にある/, '前の停止の記録が残っていても、途中の検査は受けない')
+  assert.throws(() => importAudit(L, { ...auditStatus({ phase: 'design' }), pending: { call_id: 'x', step: 'group' } }, 'design', io), /途中にある/, '停止の記録があっても、呼び出しが途中なら受けない')
   importAudit(L, auditStatus({ phase: 'design', confirmed: [{ path: path.join(state, 'design', 'U1.md'), quote: '設計に無い架空の引用の一文', layer: '詳細設計' }] }), 'design', io)
   const e = L.events.find((x) => x.kind === 'import_mismatch')
   assert.ok(e, JSON.stringify(L.events))
@@ -452,6 +452,17 @@ test('全件失敗から再開: 全ての役が欠けた呼び出しで増えた
   assert.equal(dead.stop.cause, 'failure')
   const again = await drive(state, mockAgent())
   assert.equal(again.stop.stop, 'complete', JSON.stringify(again.stop))
+})
+
+test('全件失敗から再開: 再開の後も全ての役が欠け続ければ、再び blocked（cause: failure）で止まる', async (t) => {
+  const { state } = setup(t)
+  const dead = await drive(state, async () => null)
+  assert.equal(dead.stop.stop, 'blocked', `前提: ${JSON.stringify(dead.stop)}`)
+  assert.equal(dead.stop.cause, 'failure')
+  const again = await drive(state, async () => null)
+  assert.ok(again.steps.length >= 1, `前提: 再開で呼び出しを開き直した: ${JSON.stringify(again.stop)}`)
+  assert.equal(again.stop.stop, 'blocked', `再開の後も失敗が続けば blocked で止まる: ${JSON.stringify(again.stop)}`)
+  assert.equal(again.stop.cause, 'failure')
 })
 
 test('answer: 回答から作る制約の id は、既にある目標・基準・制約の id と重ならない', async (t) => {

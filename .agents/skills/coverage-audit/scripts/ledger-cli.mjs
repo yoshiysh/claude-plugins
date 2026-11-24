@@ -697,6 +697,8 @@ function next(dir) {
     writeAtomic(statusPath(dir, L), JSON.stringify(statusOf(L)))
     return { ...d, changes, coverage: coverage(L), status_path: statusPath(dir, L), next_args: d.stop === 'complete' ? null : { state: dir } }
   }
+  // 呼び出しを開いたら止まっていない。前の停止を外し、blocked（failure）からの再開の戻しを次の next で繰り返さない（戻しは再開の 1 回だけ）。
+  L.stopped = null
   L.call_seq += 1
   const callId = sha(`${dir}|${L.call_seq}|${d.step}|${L.cycle}|${L.rev}`).slice(0, 12)
   const argsPath = path.join(dir, `call-${callId}.json`)

@@ -416,7 +416,7 @@ export function findingPath(f) {
 export function importAudit(L, status, phase, { readText, unitOfPath }) {
   const st = status && status.stopped
   if (!st || !['complete', 'needs_input'].includes(st.stop)) throw new Error(`coverage-audit が終わっていない（stopped: ${st ? st.stop : 'なし'}）。coverage-audit の「止まったとき」に従ってから取り込む`)
-  if (status.pending != null) throw new Error('coverage-audit の呼び出しが途中にある（stopped は前の停止の記録）。coverage-audit を止まるまで回してから取り込む')
+  if (status.pending != null) throw new Error('coverage-audit の呼び出しが途中にある。coverage-audit を止まるまで回してから取り込む')
   if (arr(status.coverage && status.coverage.pending).length) throw new Error(`coverage-audit に読み終えていない単位が ${status.coverage.pending.length} 件ある。coverage-audit を続けてから取り込む`)
   const stage = `${phase}_review`
   // coverage-audit の群の id は段の始まりごとに数え直されるので、build の周と段を前に付けて別の群にする。
