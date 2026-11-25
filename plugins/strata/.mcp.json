@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "strata": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/strata-mcp",
-      "args": []
-    }
-  }
-}
