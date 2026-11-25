@@ -25,6 +25,7 @@ const ARCH_INVARIANTS = [
   `code の単位の tests は 1〜${MAX_UNIT_PATHS} 件`,
   'doc の単位は tests と test_uses を持たない',
   '1 つのファイルは 1 つの単位だけが持つ',
+  'paths と tests の path は、どれも別の path の祖先（a と a/...）でない',
   '境界の行は、使う単位ごとに扱いを 1 つずつ持つ',
 ]
 // id の形。境界の約束 X<n>、その行 X<n>-<k>（行の位置から決める）、振る舞い U<n>S<k>、受け入れ U<n>A<k>、写し C<n>。
@@ -97,6 +98,8 @@ function checkArch(a, ctx) {
     if (!arr(u.covers).length) p.push(`${u.id}: covers が空（どの基準・制約に効くかが無い）`)
     for (const c of arr(u.covers)) if (!ctx.coverIds.includes(c)) p.push(`${u.id}: 実在しない基準・制約: ${c}`)
   }
+  // 祖先と子: 子を書くと祖先がディレクトリになり、祖先をファイルとして持てない（まだ無い path どうしでも）。接頭辞が同じだけの a/b と a/bc は別。
+  for (const [f, o] of owned) for (const [g, q] of owned) if (g.startsWith(`${f}/`)) p.push(`${o} の ${f} は ${q} の ${g} の祖先（ファイルの下に path を置けない）`)
   if (units.length && !p.length && !waves(units)) p.push('depends_on に循環か実在しない単位がある')
   // 依存の閉包（depends_on を辿って届く単位。自分は含めない）。
   const byId = new Map(units.filter((u) => u && ids.has(u.id)).map((u) => [u.id, u]))

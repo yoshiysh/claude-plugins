@@ -294,8 +294,10 @@ function submitGoal(L, rep) {
 // 方式設計: 形・不変条件と、入力の引用を照らす。受理したら単位を作り直す。ctx.inputs は読んだかを申告する入力、readText(path) は読めるファイルの本文か null。
 // fresh(rel) は、呼び出しを開いた後に書かれたファイル（開いた時に照らしていなかったもの）か。方式設計が新しく単位に持たせたファイルのうち、
 // この呼び出しの中で書かれたもの（方式設計の役が書いたもの）は、書く段の担当が書き直すまで受けない（tainted）。
-function submitArch(L, a, { inputs, readText, fresh = () => false }) {
+// isDir(rel) は repo に既にディレクトリとして在るか。単位が持つのはファイルなので、ディレクトリを挙げた提出は拒む（受けると単位のファイルの hash が読めない）。
+function submitArch(L, a, { inputs, readText, fresh = () => false, isDir = () => false }) {
   const p = C.checkArch(a, { coverIds: coverIds(L), inputs })
+  if (!p.length) for (const u of a.units) for (const f of [...u.paths, ...u.tests]) if (isDir(f)) p.push(`${u.id}: ${f} は repo に既にあるディレクトリ（単位はファイルを挙げる）`)
   if (!p.length) for (const r of a.inputs_read) { const t = readText(r.path); for (const q of r.quotes) { const e = t == null ? '入力が読めない' : C.quoteProblem(q, t); if (e) p.push(`入力 ${r.path}: ${e}`) } }
   if (p.length) return p
   const ids = a.units.map((u) => u.id)
@@ -382,7 +384,7 @@ function submitJudge(L, it, j) {
   return []
 }
 // 担当の結果を照らし、受理なら台帳に書く。結果の形（schema）を先に照らし、合わなければ照合の式に渡さない。返すのは拒む理由（空なら受理）。
-// ctx は { inputs, readText, readable, looks, after, outside, before, fresh }（CLI がファイルから作る）。
+// ctx は { inputs, readText, readable, looks, after, outside, before, fresh, isDir }（CLI がファイルから作る）。
 export function submitTask(L, t, rep, ctx) {
   if (rep == null) return ['結果の JSON が読めない']
   const shape = C.shapeProblems(rep, C.RESULT_SCHEMAS[TASK_ROLE[t.kind]])

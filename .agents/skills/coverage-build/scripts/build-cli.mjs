@@ -615,6 +615,11 @@ function freshFile(L, P, rel) {
   return statSync(f).mtimeMs >= P.started
 }
 
+// repo に既にディレクトリとして在るか（symlink は辿る）。無い path は false。
+function isDirIn(L, rel) {
+  try { return statSync(abs(L, rel)).isDirectory() } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e }
+}
+
 // 起動の記録を台帳に取り込む（段と波の印つき）。model・effort・段が台帳の波の記録と違う起動と、記録に無い波の起動は、欠けとして出来事に残す
 // （列挙は coverage-audit の launchMismatches。その起動の提出は、claim が台帳の行と照らして既に拒んでいる）。
 function recordCall(L, P, res, failed) {
@@ -950,7 +955,7 @@ function cmdSubmit(o) {
       const outside = write ? outsideChanges(L, P) : []
       if (outside.length) addEvent(L, { stage: P.step, kind: 'write_outside', unit: t.unit || null, text: `受け持ちの外のファイルが変わった: ${outside.join(', ')}（${t.unit} を受け付けない）` })
       const after = write ? Object.fromEntries(ownedPaths(L).map((p) => [p, fileHash(abs(L, p))])) : {}
-      const problems = submitTask(L, t, rep, { inputs: archInputs(L, dir), readText: reader(L, dir), readable: premisePaths(L), looks: readableOf(L, dir), after, outside, fresh: (rel) => freshFile(L, P, rel), before: Object.fromEntries(Object.entries(P.before || {}).filter(([f]) => f.startsWith(L.repo + path.sep)).map(([f, h]) => [path.relative(L.repo, f), h])) })
+      const problems = submitTask(L, t, rep, { inputs: archInputs(L, dir), readText: reader(L, dir), readable: premisePaths(L), looks: readableOf(L, dir), after, outside, fresh: (rel) => freshFile(L, P, rel), isDir: (rel) => isDirIn(L, rel), before: Object.fromEntries(Object.entries(P.before || {}).filter(([f]) => f.startsWith(L.repo + path.sep)).map(([f, h]) => [path.relative(L.repo, f), h])) })
       let dropped = false
       if (problems.length) {
         rmSync(f, { force: true })
