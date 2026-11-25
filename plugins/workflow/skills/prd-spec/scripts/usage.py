@@ -37,7 +37,7 @@ usage: python3 usage.py --workspace <W> <transcript のディレクトリかフ�
   間は agent が動いていないので除かれる。段の依存から導く critical path そのものではないが、並列の agent は
   重なった区間として 1 回だけ数えるので、直列の段を積み上げた長さに当たる
 - 指摘の件数: W/findings/r<n>-*.json の件数、blocking の件数、指摘の当たった項目（doc と item_id の組）の
-  数を周回ごとに。項目の数は観点の重複を除いた件数の上限の目安であって、同じ欠陥かの判定はしていない
+  数を周回ごとに。同じ回の whole reviewer が rejected に挙げた writer reviewer の指摘は数えない（script と同じ集合）。項目の数は観点の重複を除いた件数の上限の目安であって、同じ欠陥かの判定はしていない
 """
 
 import argparse
@@ -182,6 +182,7 @@ def busy_seconds(records):
 
 def findings_summary(workspace):
     rounds = collections.defaultdict(lambda: {"findings": 0, "blocking": 0, "items": set()})
+    bodies = []
     for path in sorted(glob.glob(os.path.join(workspace, "findings", "r*-*.json"))):
         m = re.match(r"r(\d+)-", os.path.basename(path))
         if not m:
@@ -191,8 +192,14 @@ def findings_summary(workspace):
                 body = json.load(fh)
         except (OSError, json.JSONDecodeError):
             continue
-        r = rounds[f"r{m.group(1)}"]
-        for f in body.get("findings", []) if isinstance(body, dict) else []:
+        if isinstance(body, dict):
+            bodies.append((f"r{m.group(1)}", os.path.basename(path), body))
+    rejected = {(key, x.get("id")) for key, name, body in bodies if name.startswith(f"{key}-wh-") for x in body.get("rejected", []) if isinstance(x, dict)}
+    for key, name, body in bodies:
+        r = rounds[key]
+        for f in body.get("findings", []):
+            if name.startswith(f"{key}-wr-") and (key, f.get("id")) in rejected:
+                continue
             r["findings"] += 1
             r["blocking"] += 1 if f.get("blocking") else 0
             r["items"].add((f.get("doc"), f.get("item_id")))

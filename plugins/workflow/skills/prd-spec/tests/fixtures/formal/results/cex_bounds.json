@@ -1,0 +1,120 @@
+{
+ "properties": [
+  {
+   "id": "P1",
+   "statement": "P1 の性質",
+   "sources": [
+    {
+     "kind": "goal",
+     "id": "@goal:SP-AUTH-011.bounds",
+     "source": null
+    }
+   ],
+   "formalizable": true,
+   "nonformal_reason": null,
+   "verdict": [
+    "反例"
+   ],
+   "assurance": null,
+   "detection": {
+    "status": "検出を確認",
+    "mutations": [],
+    "reason": "変異を検出した"
+   },
+   "method": null,
+   "check_ids": [
+    "C1"
+   ],
+   "confirmation_ids": [],
+   "evidence_refs": [],
+   "reason": "P1 の判定の理由",
+   "depends_on_questions": []
+  }
+ ],
+ "checks": [
+  {
+   "id": "C1",
+   "kind": "property",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 C1.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "反例",
+   "end": {
+    "started": true,
+    "tool_result": "反する",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が sat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  }
+ ],
+ "counterexamples": [
+  {
+   "id": "X1",
+   "property_id": "P1",
+   "sources": [
+    {
+     "kind": "goal",
+     "id": "@goal:SP-AUTH-011.bounds"
+    }
+   ],
+   "check_id": "C1",
+   "input_and_trace": "入力 1 の値と経路",
+   "violated_condition": "違反した条件 1",
+   "replay": {
+    "confirmation_id": "confirm-replay-1",
+    "steps_ref": "checks/C1/steps.json"
+   }
+  }
+ ],
+ "causes": [
+  {
+   "subject": {
+    "kind": "counterexample",
+    "id": "X1"
+   },
+   "cause": "対象が性質を満たさない",
+   "grounds": "原因の根拠 1",
+   "classified_by": "task-classify-1"
+  }
+ ],
+ "confirmations": {
+  "deterministic": [
+   {
+    "id": "confirm-replay-1",
+    "kind": "replay",
+    "property_ids": [
+     "P1"
+    ],
+    "model_property_id": null,
+    "plan_id": null,
+    "item": "反例 X1 の再生",
+    "result": "成り立つ",
+    "checker": "cli",
+    "materials": [],
+    "end": {
+     "started": true,
+     "tool_result": "反する",
+     "abnormal_exit": false,
+     "unreadable_output": false,
+     "stopped_by": null,
+     "time_limit_hit": null
+    },
+    "reason": "再生で同じ違反"
+   }
+  ],
+  "meaning": [],
+  "judgments": []
+ }
+}

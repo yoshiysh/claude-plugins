@@ -47,11 +47,11 @@ stateDiagram-v2
 
 ## 実行
 
-TLC `v1.7.4` の `tla2tools.jar`、Java 11 以降、Rust (`rustc`)、`shasum` が必要。TLC は公式リリースから取得する。jar の SHA-256 は `check.sh` の `expected_jar` を正とする。
+TLC の `tla2tools.jar`、Java 11 以降、Rust (`rustc`)、`shasum` が必要。jar の版と SHA-256 は root の `versions.mk` を正とし、`check.sh` もそこから読む。`make setup-formal` が同じ版を `tools/formal/` に置く。
 
 ```bash
-gh release download v1.7.4 --repo tlaplus/tlaplus --pattern tla2tools.jar --dir /path/to/tools
-TLA2TOOLS=/path/to/tools/tla2tools.jar JAVA=/path/to/java RUSTC=/path/to/rustc tests/formal/bp-prd/check.sh
+make setup-formal
+TLA2TOOLS="$PWD/tools/formal/tla2tools.jar" JAVA=/path/to/java RUSTC=/path/to/rustc tests/formal/bp-prd/check.sh
 ```
 
 `JAVA` と `RUSTC` は省略すれば PATH の `java` と `rustc`。指定した jar の SHA-256 が違えば停止する。各検査の TLC 作業ディレクトリは repo 外の一時領域に置く。終了時と中断時に削除する。図の投影元である状態全体の DOT を保存するには、出力先の**絶対パス**を指定する。

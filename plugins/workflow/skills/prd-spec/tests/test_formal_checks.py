@@ -866,7 +866,7 @@ class FlowFailHandling(unittest.TestCase):
         f4 = _el(flow, "F-004")
         f4["inputs"] = [{"name": "分類", "values": ["p", "q"], "from": "F-003"}]
         f4["cases"] = [{"when": {"分類": "p"}, "branch": "p", "source": {"input": "依頼文"}}, {"when": {"分類": "q"}, "branch": "q", "source": {"input": "依頼文"}}]
-        self.assertEqual(_flow_table(flow), [("FLOW_INPUT_UNKNOWN", ["F-005", "値", ""])], "F-003 の枝（成功・失敗）と違う値でも、集約は resolver-verifier が見る")
+        self.assertEqual(_flow_table(flow), [("FLOW_INPUT_UNKNOWN", ["F-005", "値", ""])], "F-003 の枝（成功・失敗）と違う値でも、集約は plan reviewer が見る")
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

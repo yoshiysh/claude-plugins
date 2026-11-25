@@ -67,7 +67,7 @@ OWNED = [
     "checks/INDEX.requirements.md",
     "checks/audited-1.snapshot.json",
     "answers/g2.md",
-    "findings/r2-grx-requirements__auth.json",
+    "findings/r2-wr-p1.json",
     "questions.md",
     "questions.json",
     "report.md",
@@ -92,7 +92,7 @@ class Stray(unittest.TestCase):
         self.assertEqual(_stray_list(self.ws, _ok(self.ws, "tree-digest")), STRAY)
 
     def test_liveのlabelの作業用ディレクトリは出ない(self):
-        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r1__x,resolver__3a")
+        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "writerReviewer__r1__all,resolver__3a")
         self.assertEqual(_stray_list(self.ws, out), [s for s in STRAY if not s.startswith("tmp/")])
         self.assertIn("tmp/resolver__3a/apply3a.py", _stray_list(self.ws, _ok(self.ws, "tree-digest", "--live", "resolver__3b")))
 
@@ -106,15 +106,15 @@ class Sweep(unittest.TestCase):
         self.ws = Path(self._tmp.name) / "W"
         shutil.copytree(FIXTURE, self.ws)
         _touch(self.ws, "tmp/verifier__3bv-settle/v.json")
-        _touch(self.ws, "tmp/grounding__r2__x/rs.txt")
+        _touch(self.ws, "tmp/writerReviewer__r2__all/rs.txt")
         (self.ws / "tmp" / "resolver__6-fix").mkdir(parents=True)
 
     def tearDown(self):
         self._tmp.cleanup()
 
     def test_liveに無いlabelのディレクトリを消しliveのものは残す(self):
-        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r2__x", "--sweep")
-        self.assertEqual(sorted(p.name for p in (self.ws / "tmp").iterdir()), ["grounding__r2__x"])
+        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "writerReviewer__r2__all", "--sweep")
+        self.assertEqual(sorted(p.name for p in (self.ws / "tmp").iterdir()), ["writerReviewer__r2__all"])
         swept = json.loads((self.ws / out["swept"]["path"]).read_text(encoding="utf-8"))["swept"]
         self.assertEqual(swept, ["tmp/verifier__3bv-settle/v.json"], "中身の無いディレクトリは消すが数えない")
         self.assertFalse((self.ws / "tmp" / "resolver__6-fix").exists())
@@ -122,7 +122,7 @@ class Sweep(unittest.TestCase):
         self.assertEqual(_stray_list(self.ws, out), [])
 
     def test_sweepを付けない呼び出しは消さない(self):
-        for mode, *args in (("snapshot", "--save", "w", "--live", "grounding__r2__x"), ("tree-digest",)):
+        for mode, *args in (("snapshot", "--save", "w", "--live", "writerReviewer__r2__all"), ("tree-digest",)):
             out = _ok(self.ws, mode, *args)
             self.assertNotIn("swept", out)
         self.assertTrue((self.ws / "tmp" / "resolver__6-fix").is_dir())
@@ -143,7 +143,7 @@ class Sweep(unittest.TestCase):
         outside = Path(self._tmp.name) / "outside"
         _touch(outside, "keep.txt")
         (self.ws / "tmp" / "verifier__3bv-settle" / "link").symlink_to(outside)
-        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r2__x", "--sweep")
+        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "writerReviewer__r2__all", "--sweep")
         swept = json.loads((self.ws / out["swept"]["path"]).read_text(encoding="utf-8"))["swept"]
         self.assertEqual(swept, ["tmp/verifier__3bv-settle/link", "tmp/verifier__3bv-settle/v.json"])
         self.assertTrue((outside / "keep.txt").exists())
@@ -184,7 +184,7 @@ class OwnershipComesFromContract(unittest.TestCase):
         text = CONTRACTS.read_text(encoding="utf-8")
         self.contract.write_text(text, encoding="utf-8")
         self.assertEqual(self._stray(), ["extra.txt"])
-        row = "| `findings/r<n>-<役>-<文書>.json` |"
+        row = "| `findings/r<n>-<役>-<組>.json` |"
         self.assertIn(row, text)
         self.contract.write_text(text.replace(row, "| `extra.txt` | 試験 | — | — |\n" + row, 1), encoding="utf-8")
         self.assertEqual(self._stray(), [])
@@ -312,7 +312,7 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
             asked = [r["id"] for r in body["resolutions"] if "question" in r]
             answered = [r["id"] for r in body["resolutions"] if "question" in r and "answer" in r]
             self.assertTrue(answered)
-            # 回答の当たった問いは聞き直せない。同じ ID の続きの問いにするときは answer と value を null で消す（resolver.md の「回答の反映」）。
+            # 回答の当たった問いは聞き直せない。同じ ID の続きの問いにするときは answer と value を null で消す（planner.md の「回答の反映」）。
             self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked), "--check")["bad_ids"], answered)
             _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin={"resolutions": [{"id": i, "answer": None, "value": None} for i in answered]})
             self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked))["questions"], len(asked))
@@ -418,12 +418,12 @@ class ContractCommand(unittest.TestCase):
         self.assertEqual(min(counts.values()), 1)
 
     def test_書かない役には書き込みの規則を配らない(self):
-        self.assertTrue(set(self.common) <= set(self.table["resolver"]))
+        self.assertTrue(set(self.common) <= set(self.table["planner"]))
         self.assertFalse(set(self.common) & set(self.table["flow-check"]))
 
     def test_節が上限を超えれば行の頭で切る(self):
         text = CONTRACTS.read_text(encoding="utf-8")
-        body = "".join(f"長い行の {i} 番目。{'あ' * 300}\n" for i in range(40))
+        body = "".join(f"長い行の {i} 番目。{'あ' * 300}\n" for i in range(70))
         self.contract.write_text(text.replace("## §flow-check\n", f"## §flow-check\n{body}", 1), encoding="utf-8")
         parts = [self._part("flow-check", n) for n in range(1, self.parts + 1)]
         self.assertTrue(all(parts))

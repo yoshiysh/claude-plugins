@@ -46,12 +46,12 @@ workspace を用意し、保存することだけである。** 決定・問い�
 | 段 | 何をするか |
 |---|---|
 | S0 | 司令塔: workspace を作り、依頼文を逐語で書き、先例を並べる |
-| 1〜3 | 依頼を仕分け（intake）、流れを閉じ（flow-framer）、未決と矛盾を裁定する（resolver → resolver-verifier） |
+| 1〜3 | planner 1 体が依頼を仕分け、流れを閉じ、未決と矛盾を裁定し、plan reviewer が検証する |
 | ゲート | プロダクトの価値の判断だけを聞く（流れの抜けもここで届く）。最初のゲートは初稿の監査の裁定（段 6）の後に開き、それまでの段で出た問いをまとめて聞く。その後は価値の問いが出た段の終わりに聞き、何パス目かでは閉じない。聞ける回数の上限に達した後と改稿の輪を出た後に出た論点だけを保持規則にする |
 | 3a・3b | 最初のゲートの回答を当てて flow を組み直し、初稿を書き直す（最初の初稿は回答待ちの論点を決めずに書いたもの）。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
-| 4〜5 | 初稿を書き（writer）、implementer・grounding・cross-doc で 1 回監査する |
+| 4〜5 | 初稿を書き（writer）、writer reviewer と whole reviewer で 1 回監査する（網羅の r1）。指摘が blocking を含まず改稿の理由も無ければ 6〜8 を飛ばして 9 へ |
 | 6・3a' | 決定が要る指摘を裁定する。価値の問いはどのパスでも聞き、回答を当ててから改稿する。答えたか保持規則にした論点の再発は聞き直さない |
-| 7〜8 | 改稿し、変えた範囲だけを監査する。blocking が 0 になるか進展が止まるまで回す（上限は `MAX_AUDIT_PASSES`。残れば blocked） |
+| 7〜8 | 改稿と範囲の再監査は `MAX_AUDIT_PASSES` 回。最後の監査の後に決定が要る論点が残り聞ける回数があれば、段 6 で聞き、回答を当てて改稿と監査を 1 回だけ延ばす。それでも blocking が残れば blocked |
 | 9 | 事後報告（resolver）→ 司令塔が照合して保存する |
 
 段ごとの入出力、返り値の読み方、再実行は `references/workflow-io.md` を正とする。
@@ -98,7 +98,25 @@ Workflow({
 args に打ち直すのは ID・件数・digest と、返った `next_args`・回答済みのゲートだけにする（依頼文は W/input.md に、flow などの本体は W に
 ある。why は `references/workflow-io.md` §1）。model / effort は全役に既定があり、`role_opts` で上書きできる
 （`references/workflow-io.md` §2）。返った `next_args` は変えずに渡す（変えてよい欄と、変えたときに止まる仕組みは
-`references/workflow-io.md` §3）。返り値の `status` で次を決める。
+`references/workflow-io.md` §3）。
+
+**最初の呼び出し**で `args.formal` を決める（呼び直しのたびに決めるのではない）。session のスキル一覧に `formal-method` が無いとき、
+または Codex runner で動かすときは、先に `node [SKILL_DIR]/scripts/doc_check.mjs formal-off --workspace <W> --reason skill_missing|host_unsupported`
+を実行し、args に `formal: false` を付けて呼ぶ（形式検証をせず、report.md の「形式検証」の節に行わなかったことを書く）。それ以外は欄を付けない。
+`formal` は返った `next_args` に写るので、呼び直しで付け直さず、外しもしない（途中で変えた `next_args` は止まる）。
+
+返り値の `status` で次を決める。
+
+- **`needs_formal`**（段 5・8 の監査の前に、形式検証の依頼を返した）:
+  1. session に `formal-method` があれば、スキル呼び出しで `formal-method` を呼ぶ。`formal_request.request_path` の JSON を書き換えずに依頼にし、
+     `start` の cwd は `formal_request.cwd` にする（無ければ作る）。以後は formal-method の SKILL.md の司令塔の手順に従う。
+  2. formal-method の手順が終わったら、次の 1 つを実行する。
+     - `status.action` が `terminal` に達した: `node [SKILL_DIR]/scripts/doc_check.mjs formal-import --workspace <W> --rid <formal_request.rid> --run-dir <run_dir>`
+     - formal-method が結果を作らずに終えた、`start` が `run_dir: null` の仮の結果を返した、又は session に `formal-method` が無かった:
+       `node [SKILL_DIR]/scripts/doc_check.mjs formal-import --workspace <W> --rid <formal_request.rid> --unavailable no_result [--run-dir <run_dir>]`（`run_dir` があるときだけ `--run-dir` を付ける）
+  3. formal-import はどの結果でも exit 0 で終わる。exit 2（使い方の誤り）のときだけ、stdout と stderr をそのまま伝えて止まる。同じ rid の 2 回目の formal-import は何も変えない。
+  4. formal-method の問いを依頼者に聞かない。結果を要約しない（判定は doc_check が結果のファイルから決め、問いは監査役が決定の要る指摘にする）。
+  5. 返った `next_args` を変えずに渡して呼び直す（resume しない。下の「呼び直し」）。
 
 - **`needs_answers`**（ゲート `g1`・`g2`・…）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
@@ -113,10 +131,10 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
   しなかったなど）のときで、原因を除いてから下の「呼び直し」のとおりに呼び直す。`report_path` があれば
-  `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
+  `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>" --findings "<返り値の unreflected をカンマで>" [--formal-off <理由>]`（`--formal-off` は下の「保存と事後報告」の 1 と同じ）で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
-  `stop_reason` が `upstream_gap` なら、固定の要求文書に答えが見つからなかった価値の論点が出ている（初稿の監査の裁定までに出た論点がまとめて載る）。問いとして聞かずに、
+  `stop_reason` が `upstream_gap` なら、仕様書だけを書く run で固定の要求文書の抜け（要求の論点）が出ている（最初のゲートの前に出た論点は、初稿の監査の裁定でまとめて載る。最初のゲートの後は、要求の論点が出た段で止まる。仕様の論点だけなら needs_answers で聞く）。問いとして聞かずに、
   `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>` で導出した `questions_path` の本文をそのまま見せ、
   要求文書の改訂（`entry: existing`）を先に走らせてから仕様書を起こし直すことを伝える。
   ここで答えをもらって仕様書の run に渡すと、要求文書に無い判断が仕様書にだけ入る。
@@ -139,8 +157,9 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   agent のプロンプトか opts が変わり、そこから後が live で走る（`skillDir` はすべてのプロンプトに入るので、段 1 の入口の reset から走り直し、
   書いた回答ごと W を S0 の直後に戻す）。W を手で変えてもプロンプトは変わらないが、保存された結果が今の W と合わなくなり、
   script はそれに気づかない。変えたときは `next_args` で呼び直す。
+- **`needs_formal` は resume せず、`next_args` で呼び直す**（入口の flow-check が formal-import の取り込みを照らす。resume すると保存された結果で同じ所へ戻る）。
 - **`next_args` で呼び直すのは次のときだけ**: `resumable` が false（失敗した agent が無い blocked と、回答のファイルの検査に落ちた
-  needs_answers。resume すると保存された結果が同じ理由で同じ所に戻る）、resume が起動の前に拒まれた（別のセッションの `runId`・
+  needs_answers と、needs_formal。resume すると保存された結果が同じ理由で同じ所に戻る）、resume が起動の前に拒まれた（別のセッションの `runId`・
   plugin の更新の後・Workflow ツールのエラー）、上の理由で args か W を変えた。`next_args` は変えずに渡す（どの段から始めるかは `next_args.from` が決め、状態は W と `next_args.state` に
   ある。`references/workflow-io.md` §3）。`next_args` で起動する（resume しない）ときは `gates_answered` を足さない（回答は answers にあり、`from` がゲートの後の段から始める）。
 - resume で起動した run の返り値も、同じ規則で扱う。
@@ -151,7 +170,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 不変条件（`.claude/rules/`・`CLAUDE.md`・PR のマージ・外部公開）に触れるとき、保存先が git 管理下でないとき、
 このランの生成物でない既存ファイルを上書きするとき（下の衝突）だけである。
 
-1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む。
+1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --findings "<返り値の unreflected をカンマで>" [--formal-off <最初の呼び出しで formal-off に渡した理由>]`（`--formal-off` は返り値に `formal_off` があるときだけ付ける）で `W/report.md` を導出する（3・4・5 が読む。
    report は `tmp/` の作業用ディレクトリも消すので、後の tree-digest の `stray` に消えるファイルが載らない）。続けて
    `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
    `tree_digest` を文字列で比べる（digest は文書だけから取るので、report の後でも変わらない）。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
@@ -172,10 +191,11 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    `node [SKILL_DIR]/scripts/doc_check.mjs formal-model --workspace <W> --doc specifications/<topic>`
    を実行し、出力の `formal_models[].files`（`W/formal/<topic>/` の TLA+ モデル・TLC 設定・README・有界モデル検査 `check.test.mjs`）を
    保存先の `tests/formal/<topic>/` 配下へ逐語で写す。これにより、仕様書とともに多層防御（Layer 2 状態遷移モデル検査）のモデルが成果物として納品され、`node --test tests/formal/<topic>/check.test.mjs` で即座に機械検証できる。
-5. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
+5. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・本文に反映していない指摘・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
-   できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
+   できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、監査役に diff から範囲に足させたが、申告漏れがあった事実は依頼者に見えるようにする）。
    `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
+   report.md の「形式検証」の節の未検証（`未検証` の目標・送らなかった単位・今の版で事実の無い単位）を、検証済みと述べない。
 6. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。
 7. **経緯は commit と PR に残す**: 文書には決定ログも経緯も書かない（`references/document-structure.md` §4）。
@@ -195,6 +215,11 @@ native の Workflow で、名前付き workflow `/workflow:prd-spec-run` を呼�
 Claude Code で Workflow ツールが無いときは、有効にする方法（Pro は `/config` の Dynamic workflows の行、無効にしているのは
 `disableWorkflows` の設定か環境変数 `CLAUDE_CODE_DISABLE_WORKFLOWS`）を伝えて終える。runner には回さない（runner は Codex の前提で、
 Claude Code の中で混ぜると W を 2 つの経路で書く）。
+
+formal-method（形式検証）は、session のスキル一覧にあるときだけ、司令塔がスキル呼び出しで使う（prd-spec の script からは呼ばない。公開済みの
+plugin から未公開のスキルをパスで呼べないため）。使えないときの呼び方は上の「中継」の最初の呼び出しの項。
+
+doc_check は静的な検査と、既存の文書を改訂する run（entry が existing）の影響の範囲に `scripts/prd-graph`（Rust）を使う。binary が無いか crate の source より古ければ cargo で作り直すので、Rust の toolchain（1.88 以上）が要る（初回は crates.io から依存を取る。無ければ doc_check が理由を出して止まる）。
 
 1 run の agent は 25 体を超えることが多く、本家の進捗の行に `Large workflow` の警告が出ることがある（体数と費用の実測は
 `references/telemetry.md`）。

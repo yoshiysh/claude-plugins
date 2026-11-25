@@ -98,7 +98,7 @@ class TestExtract(unittest.TestCase):
 
     def test_hold_draftsはholdsと別に数える(self):
         blocked = {"status": "blocked", "holds": ["RS-009"], "hold_drafts": ["RS-057", "RS-058"],
-                   "remaining_blocking": ["r3-gr-a-001", "r3-gr-a-002"], "carried_blocking": ["r3-gr-a-002"], "next_args": None}
+                   "remaining_blocking": ["r3-wr-all-001", "r3-wr-all-002"], "carried_blocking": ["r3-wr-all-002"], "next_args": None}
         with tempfile.TemporaryDirectory() as td:
             record(td, "s", "b", blocked, run_id="run1", input_ref="in1")
             rec = json.loads((Path(td) / "s" / "b.json").read_text())
@@ -108,13 +108,13 @@ class TestExtract(unittest.TestCase):
             self.assertIn("remaining_blocking=2 carried_blocking=1", tail)
 
     def test_止まった理由とパスの数と経路を変えた項目の数を終端legから採る(self):
-        blocked = {"status": "blocked", "stop_reason": "no_progress", "passes": 3, "item_routes": {"requirements/a#PR-A-001": "exhausted", "requirements/a#PR-A-002": "hold"}, "next_args": None}
+        blocked = {"status": "blocked", "stop_reason": "pass_limit", "passes": 2, "item_routes": {"requirements/a#PR-A-001": "decision", "requirements/a#PR-A-002": "decision"}, "next_args": None}
         with tempfile.TemporaryDirectory() as td:
             record(td, "s", "b", blocked, run_id="run1", input_ref="in1")
             rec = json.loads((Path(td) / "s" / "b.json").read_text())
-            self.assertEqual((rec["stop_reason"], rec["pass_count"], rec["rerouted_count"]), ("no_progress", 3, 2))
+            self.assertEqual((rec["stop_reason"], rec["pass_count"], rec["rerouted_count"]), ("pass_limit", 2, 2))
             tail = [l for l in run(["summary", "--skill", "s"], td).stdout.splitlines() if l.startswith("-- run1")][0]
-            self.assertIn("stop_reason=no_progress passes=3 rerouted=2", tail)
+            self.assertIn("stop_reason=pass_limit passes=2 rerouted=2", tail)
 
     def test_noticesはintegrityと別に数える(self):
         with tempfile.TemporaryDirectory() as td:

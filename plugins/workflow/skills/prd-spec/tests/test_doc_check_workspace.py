@@ -99,6 +99,71 @@ def _findings(ws, name="doc.json"):
     return [f["id"] for f in json.loads((Path(ws) / "checks" / name).read_text())["findings"]]
 
 
+# D 段（document-structure.md §2.9）の書き方の fixture。宣言の項目と使う項目は互いの ID を書かない（ROLE は ID を書かない。
+# ENUM の書き直しの項目も参照先の ID を書かない）ので、影響の範囲（1 hop）でつながらない。
+ROLE_BLOCK = "\n".join([
+    "#### SP-AUTH-003 検査役に渡すもの",
+    "",
+    "> 渡すもの: 検査役 = 対象の文書 / 観点の一覧",
+    "> 渡すもの: 司令塔 = 判定の記録",
+    "",
+    "検査役は渡された「対象の文書」を読まなければならない。",
+    "",
+    "#### SP-AUTH-004 検査の規則",
+    "",
+    "検査役は、渡された「前の巡の指摘」を読まなければならない。",
+    "検査役は、渡された「観点の一覧」で検査しなければならない。",
+    "検査役は、渡された「司令塔の記録」を読まなければならない。",
+    "",
+    "#### SP-AUTH-005 印の無い規則",
+    "",
+    "検査役は、渡された前の巡の指摘と照らさなければならない。",
+    "",
+])
+ENUM_CANON = "\n".join([
+    "## 結末",
+    "",
+    "#### SP-AUTH-006 結末",
+    "",
+    "> 条件の値: 結末 = 完了 / 中断 / 失敗",
+    "",
+    "システムは run の結末を 1 つに決めなければならない。",
+    "",
+])
+ENUM_REF = "\n".join([
+    "## 通知",
+    "",
+    "#### SP-AUTH-007 結末ごとの通知",
+    "",
+    "> 条件の値: 結末 = SP-AUTH-006",
+    "",
+    "| 条件: 結末 | 結果 |",
+    "|---|---|",
+    "| 完了 | 通知しない |",
+    "| 中断 | 再開の手順を通知する |",
+    "| 失敗 | 原因を通知する |",
+    "",
+])
+ENUM_REDECL = "\n".join([
+    "## 再掲",
+    "",
+    "#### SP-AUTH-008 結末の再掲",
+    "",
+    "> 条件の値: 結末 = 完了 / 失敗",
+    "",
+    "システムは結末を記録しなければならない。",
+    "",
+])
+
+
+def _spec_block(*blocks):
+    return "\n".join(blocks) + "\n## トレーサビリティ表"
+
+
+def _found(ws, out):
+    return {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+
+
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -237,7 +302,7 @@ class SnapshotAndDiff(_Workspace):
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
         doc = stdout_body(r.stdout)
-        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
+        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "preexisting_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
         del doc["flow_refs"]
         self.assertNotIn("PR-AUTH", json.dumps(doc))
@@ -252,6 +317,21 @@ class SnapshotAndDiff(_Workspace):
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class DocChecks(_Workspace):
+    def test_prd_graphの静的な検査の指摘がdocに届く(self):
+        # 決定が名指す項目に決定の trace が無い・略記の ID。どちらも監査役が言い直していた型で、prd-graph check が拾う。
+        dec = self.ws / "decisions.json"
+        body = json.loads(dec.read_text())
+        body["decisions"].append({**body["decisions"][0], "id": "D-004", "value": "SP-AUTH-001 は監査の記録を残す"})
+        dec.write_text(json.dumps(body, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        doc = self.ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("応答を返さなければならない。", "応答を返さなければならない。UTH003 と同じ形にする。UTH002 は PR と SP のどちらの略記か決まらない。"))
+        out = _ok(self.ws, "doc")
+        found = {f["id"]: f for f in json.loads((self.ws / out["path"]).read_text())["findings"]}
+        self.assertEqual(found["ST-DECISION-UNAPPLIED-D-004"]["location"], "SP-AUTH-001")
+        self.assertEqual(found["ST-ABBREV-ID-SP-AUTH-001-UTH003"]["document"], "specifications/auth")
+        self.assertIn("PR-AUTH-003", found["ST-ABBREV-ID-SP-AUTH-001-UTH003"]["fix"])
+        self.assertNotIn("ST-ABBREV-ID-SP-AUTH-001-UTH002", found, "当たる ID が 2 つ以上なら拾わない")
+
     def test_既定の_fixture_で拾うものと拾わないもの(self):
         out = _ok(self.ws, "doc")
         ids = _findings(self.ws)
@@ -667,7 +747,7 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "resolutions", {"resolutions": [
             {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
             {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "value": "v", "why": "w"},
-            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
+            {"id": "RS-003", "about": {"finding": "r1-wh-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}},
         ]})
         self.assertEqual([x["verdict"] for x in _rulings(self.ws)], [None] * 4)
@@ -680,7 +760,7 @@ class FlowAndConflicts(_Workspace):
         want = [
             {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "has_answer": False, "verdict": None},
             {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
-            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "has_answer": False, "verdict": "fail", "fail_kind": "value_as_method"},
+            {"id": "RS-003", "about": {"finding": "r1-wh-all-001"}, "ruling": "internal", "has_answer": False, "verdict": "fail", "fail_kind": "value_as_method"},
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "has_answer": False, "verdict": "fail", "fail_kind": "insufficient_grounds"},
         ]
         self.assertEqual(got, want)
@@ -705,6 +785,25 @@ class FlowAndConflicts(_Workspace):
                                          "verdicts": {x["id"]: {"verdict": x["verdict"], "v": 0, **({"kind": x["fail_kind"]} if "fail_kind" in x else {})} for x in want if x["verdict"]}}))
             stub = stages.run({"args": stages.args(**{"from": "9", "state": state}), "world": str(world)})
         self.assertEqual(stub["disk"]["resolutions"], rewritten)
+
+    def test_仕様の論点の問いの行にだけspec_layerを付ける(self):
+        # 仕様の論点: ruling が question で、layer が「手段」で、upstream_revision が無い（prd-spec.js は仕様書だけを書く run でそれだけを聞く）。
+        options = [{"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
+                   {"label": "メール", "description": "メールで送る", "flow_effect": "F-003 がメール送信になる", "decision_text": "結果はメールで送る"}]
+        q = lambda id_, about, **kw: {"id": id_, "about": about, "ruling": "question", "options": options,
+                                      "question": {"header": "h", "text": "t", "searched": "s"}, **kw}
+        _put(self.ws, "resolutions", {"resolutions": [
+            q("RS-001", {"open": "O-001"}, layer="手段"),
+            q("RS-002", {"tbd": "TBD-X-001"}, layer="要求"),
+            q("RS-003", {"finding": "r1-wh-all-001"}),
+            q("RS-004", {"finding": "r1-wh-all-002"}, layer="手段", upstream_revision="要求文書の PR-X-001 に上限を足す"),
+            {"id": "RS-005", "about": {"finding": "r1-wh-all-003"}, "ruling": "internal", "value": "v", "why": "w", "layer": "手段"},
+        ]})
+        groups = _ok(self.ws, "flow", "--rulings")["resolutions"]
+        marked = [g for g in groups if "spec_layer" in g]
+        self.assertEqual([(g["spec_layer"], sorted(g["about"])) for g in marked], [(True, ["RS-001"])], "当たる行の組だけが spec_layer: true を持つ")
+        self.assertEqual([x["id"] for x in _rulings(self.ws) if x.get("spec_layer")], ["RS-001"], "prd-spec.js が読む行にも写る")
+        self.assertFalse(any("spec_layer" in x for x in _rulings(self.ws) if x["id"] != "RS-001"), "当たらない行は今の形のまま")
 
     def _verdict(self, rs_id):
         return next(x for x in _rulings(self.ws) if x["id"] == rs_id)["verdict"]
@@ -763,7 +862,7 @@ class FlowAndConflicts(_Workspace):
     def test_保持規則への書き換えは不合格だけを持ち越す(self):
         # hold.rule は保持規則として writer に届く規範文なので、合格の後に書いた rule は検証していない。
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
-                                                      {"id": "RS-007", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+                                                      {"id": "RS-007", "about": {"finding": "r1-wh-all-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
         self._judge([{"id": "RS-006", "verdict": "pass"}, {"id": "RS-007", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}])
         held = lambda rule: {"ruling": "hold", "value": None, "hold": {"rule": rule, "issue_draft": "d", "item_ids": []}}
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A")}, {"id": "RS-007", **held("保持規則 B")}]})
@@ -952,6 +1051,98 @@ class InvariantBinding(_Workspace):
         self.assertEqual(self._destructive("D-004")[0]["stale_refs"], [])
 
 
+UNSETTLED_OPTIONS = [{"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
+                     {"label": "メール", "description": "メールで送る", "flow_effect": "F-003 がメール送信になる", "decision_text": "結果はメールで送る"}]
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class UnsettledRefs(_Workspace):
+    """unsettled_refs: 決まっていない裁定（合格していない・hold・answer の無い question）を出典か constrained_by に持つ要素（設計 3.10）。
+
+    要素の出典は flow.json・resolutions.json・verifications.json だけで決まるので、planner の自己申告に頼らずに
+    「検証を通っていない裁定を flow に写した」ことを verifier の stdout から拾える。"""
+
+    def _rs(self, id_, about, **kw):
+        return {"id": id_, "about": about, "ruling": "internal", "value": "v", "why": "w", **kw}
+
+    def _question(self, id_, about):
+        return {"id": id_, "about": about, "ruling": "question", "options": UNSETTLED_OPTIONS,
+                "question": {"header": "返し方", "text": "結果をどう返しますか", "searched": "依頼文に無い"}}
+
+    def _hold(self, id_, about):
+        return {"id": id_, "about": about, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}}
+
+    def _refs(self, *args):
+        return sorted((x["el"], x["ref"]) for x in _ok(self.ws, "flow", *args)["unsettled_refs"])
+
+    def _world(self):
+        """RS-001（合格）・RS-002（合否なし）・RS-003（不合格）・RS-004（合格した hold）・RS-005（合格した answer の無い question）を
+        source・case・on_fail・constrained_by の各位置から引く flow。"""
+        _put(self.ws, "resolutions", {"resolutions": [
+            self._rs("RS-001", {"finding": "r1-wh-all-001"}), self._rs("RS-002", {"finding": "r1-wh-all-002"}),
+            self._rs("RS-003", {"finding": "r1-wh-all-003"}), self._hold("RS-004", {"finding": "r1-wh-all-004"}),
+            self._question("RS-005", {"finding": "r1-wh-all-005"}),
+        ]})
+        _judge = lambda items: _put(self.ws, "verifications", {"items": items}, "--expect-resolutions", _sha(self.ws, "resolutions"), "--expect-decisions", _sha(self.ws, "decisions"))
+        _judge([{"id": "RS-001", "verdict": "pass"}, {"id": "RS-003", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"},
+                {"id": "RS-004", "verdict": "pass"}, {"id": "RS-005", "verdict": "pass"}])
+        f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
+        f4["cases"][0]["source"] = {"decision": "RS-003"}
+        f4["cases"][1]["source"] = {"decision": "RS-001"}
+        _put(self.ws, "flow", {"elements": [
+            {"id": "F-002", "source": {"decision": "RS-002"}, "obtain": "may_fail", "on_fail": {"as": "得られない", "source": {"decision": "RS-005"}}},
+            {"id": "F-003", "constrained_by": ["RS-004"]},
+            {"id": "F-004", "cases": f4["cases"]},
+        ]})
+
+    def test_決まっていない裁定を引く要素は位置によらず挙がり合格した裁定を引く要素は挙がらない(self):
+        self.assertEqual(_ok(self.ws, "flow")["unsettled_refs"], [], "裁定を引かない flow では空の一覧を出す（欄は常にある）")
+        self._world()
+        want = [("F-002", "RS-002"), ("F-002", "RS-005"), ("F-003", "RS-004"), ("F-004", "RS-003")]
+        self.assertEqual(self._refs(), want)
+        self.assertEqual(self._refs("--rulings"), want, "--rulings の有無によらず出す")
+        self.assertNotIn(("F-004", "RS-001"), self._refs(), "合格した裁定を出典に書くのは settle の正しい写し")
+
+    def test_候補を選んだ回答は合格を持ち越して挙がらず自由記述の回答は検証を通るまで挙がる(self):
+        self._world()
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g1.md").write_text("RS-005: 画面に出してください\n")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面に出す", "answer": {"path": "answers/g1.md", "quote": "画面に出して"}}]})
+        self.assertNotIn(("F-002", "RS-005"), self._refs(), "候補の選択は検証した decision_text を写すだけで、合格を持ち越す")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面とメールの両方に出す"}]})
+        self.assertIn(("F-002", "RS-005"), self._refs(), "候補の外の value は検証していない")
+        _put(self.ws, "verifications", {"items": [{"id": "RS-005", "verdict": "pass"}]}, "--expect-resolutions", _sha(self.ws, "resolutions"), "--expect-decisions", _sha(self.ws, "decisions"))
+        self.assertNotIn(("F-002", "RS-005"), self._refs(), "検証を通った自由記述の回答は合格")
+
+    def test_Dと台帳に無いRSは挙げない(self):
+        self._world()
+        flow = json.loads((self.ws / "flow.json").read_text())
+        els = {e["id"]: e for e in flow["elements"]}
+        els["F-003"]["constrained_by"] = ["RS-004", "RS-099"]
+        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(self.ws, "flow")
+        refs = {x["ref"] for x in out["unsettled_refs"]}
+        self.assertFalse({r for r in refs if r.startswith("D-")}, "D- は見ない（決定の無効は stale_refs が見る）")
+        self.assertNotIn("RS-099", refs, "台帳に無い RS- は実在の検査（出典は FLOW_SOURCE_UNKNOWN、constrained_by は FLOW_CONSTRAINT_UNKNOWN）に任せる")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "supersedes": ["D-001"]}]})
+        out = _ok(self.ws, "flow")
+        self.assertTrue([x for x in out["stale_refs"] if x["ref"] == "D-001"], "覆された D- は stale_refs に出る")
+        self.assertFalse([x for x in out["unsettled_refs"] if x["ref"].startswith("D-")], "覆された D- も unsettled_refs には出さない")
+
+    def test_findingsとcodesとdigestとlintは裁定の合否で変わらない(self):
+        self._world()
+        before = _ok(self.ws, "flow", "--lint")
+        self.assertTrue(before["unsettled_refs"])
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-004", "ruling": "internal", "value": "v", "why": "w", "hold": None},
+                                                      {"id": "RS-005", "ruling": "internal", "value": "v", "why": "w", "question": None, "options": None}]})
+        _put(self.ws, "verifications", {"items": [{"id": i, "verdict": "pass"} for i in ("RS-002", "RS-003", "RS-004", "RS-005")]},
+             "--expect-resolutions", _sha(self.ws, "resolutions"), "--expect-decisions", _sha(self.ws, "decisions"))
+        after = _ok(self.ws, "flow", "--lint")
+        self.assertEqual(after["unsettled_refs"], [])
+        for key in ("findings", "codes", "digest", "content_sha256", "lint", "lint_codes"):
+            with self.subTest(key=key):
+                self.assertEqual(before[key], after[key], "unsettled_refs は findings・codes・digest・lint のどれにも入れない（flow の書き手の不合格に数えない）")
+
 def _aspect_keys():
     text = (SKILL / "references" / "domain-analysis.md").read_text(encoding="utf-8")
     sec = text[text.index("\n## 2. "):text.index("\n## 3. ")]
@@ -1122,7 +1313,8 @@ class Report(_Workspace):
     def test_resolutionsが無くても型どおりに0件を書く(self):
         out = _ok(self.ws, "report")
         self.assertEqual((out["method"], out["answered_by"], out["measured"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0, 0))
-        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 6)
+        # 6 つの節と、本文に反映していない指摘の節（checks/doc.json が無い W では doc_check の指摘も 0 件）。
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 7)
 
     def test_既にある回答を別の論点に当てた裁定は依頼者に見せる(self):
         # answered_by は依頼者の回答を依頼者の知らない論点に広げる。事後報告に出さないと、依頼者は覆す機会を持てない。
@@ -1162,6 +1354,238 @@ class Report(_Workspace):
         r = _run(self.ws, "report", "--drafts", "RS-003")
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse((self.ws / "report.md").exists())
+
+    # --- 本文に反映していない指摘の節（--findings と checks/doc.json の blocking） ---
+
+    UNREFLECTED = "## 本文に反映していない指摘"
+
+    def _write_findings(self, name, findings):
+        (self.ws / "findings").mkdir(exist_ok=True)
+        (self.ws / "findings" / f"{name}.json").write_text(json.dumps({"findings": findings, "checked": "全文"}, ensure_ascii=False))
+
+    def _finding(self, id_, item, blocking, issue, doc="requirements/auth"):
+        return {"id": id_, "doc": doc, "item_id": item, "quote": "q", "issue": issue, "repro": "r", "blocking": blocking, "route": "writer", "direction": "remove", "origin": "text"}
+
+    def _section(self):
+        text = (self.ws / "report.md").read_text()
+        self.assertIn(self.UNREFLECTED, text)
+        section = text.split(self.UNREFLECTED)[1]
+        self.assertIn("## 上位文書の改訂の文案", section, "節は上位文書の改訂の文案の前に置く")
+        return section.split("## 上位文書の改訂の文案")[0]
+
+    def test_findingsの指摘はissueとblockingを出しblockingの真を先に並べる(self):
+        self._write_findings("r2-wr-all", [self._finding("r2-wr-all-001", "PR-AUTH-001", False, "曖昧語が残る"),
+                                           self._finding("r2-wr-all-002", "PR-AUTH-002", True, "主体が決まっていない")])
+        self._write_findings("r2-wh-all", [self._finding("r2-wh-all-001", "SP-AUTH-001", True, "要求と食い違う", doc="specifications/auth")])
+        doc = _ok(self.ws, "doc")
+        out = _ok(self.ws, "report", "--findings", "r2-wr-all-001,r2-wr-all-002,r2-wh-all-001")
+        lines = [l for l in self._section().split("\n") if l.startswith("- r2-")]
+        self.assertEqual(sorted(lines[:2]), ["- r2-wh-all-001（specifications/auth SP-AUTH-001。blocking: true）: 要求と食い違う",
+                                             "- r2-wr-all-002（requirements/auth PR-AUTH-002。blocking: true）: 主体が決まっていない"])
+        self.assertEqual(lines[2:], ["- r2-wr-all-001（requirements/auth PR-AUTH-001。blocking: false）: 曖昧語が残る"], "blocking の真を先に並べる")
+        # 件数に doc_check の blocking も足すかは設計が決めていないので、--findings の分を下限にだけ置く。
+        self.assertGreaterEqual(out["unreflected"], 3)
+        self.assertGreater(doc["blocking"], 0, "doc_check の blocking のある W で確かめる")
+
+    def test_findingsのIDがファイルにも要素にも無ければ何も書かない(self):
+        self._write_findings("r2-wr-all", [self._finding("r2-wr-all-001", "PR-AUTH-001", True, "x")])
+        _ok(self.ws, "doc")
+        for ids in ("r2-wr-all-009", "r9-wr-all-001", "r2-wr-all-001,r2-wr-all-002"):
+            with self.subTest(ids=ids):
+                r = _run(self.ws, "report", "--findings", ids)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertFalse((self.ws / "report.md").exists())
+
+    def test_doc_checkのblockingに数える指摘を並べる(self):
+        doc = _ok(self.ws, "doc")
+        _ok(self.ws, "report", "--findings", "")
+        section = self._section()
+        found = json.loads((self.ws / "checks" / "doc.json").read_text())["findings"]
+        for f in found:
+            self.assertIn(f"- {f['id']}（{f['document']} {f['location']}）", section)
+        self.assertEqual(len(found), doc["blocking"], "この fixture の doc の指摘はすべて blocking に数える")
+
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class FormalWriting(_Workspace):
+    """document-structure.md §2.9 の書き方を前提にした優先度 2 の検査（ST-ROLE-INPUT-COVERAGE-・ST-ENUM-SET-MISMATCH-）。"""
+
+    def test_役の渡すものに無い入力を使う規則を拾う(self):
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ROLE_BLOCK))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        role = {i: f for i, f in found.items() if i.startswith("ST-ROLE-INPUT-COVERAGE-")}
+        hit = role.get("ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘")
+        self.assertIsNotNone(hit, sorted(role))
+        self.assertEqual((hit["document"], hit["location"], hit.get("related")), ("specifications/auth", "SP-AUTH-004", ["SP-AUTH-003"]))
+        self.assertNotIn("severity", hit, "blocking（degraded にしない）")
+        self.assertNotIn("ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-観点の一覧", role, "宣言にある入力は拾わない")
+        self.assertNotIn("ST-ROLE-INPUT-COVERAGE-SP-AUTH-003-検査役-対象の文書", role, "宣言の項目の中の規則は役の名前で照らす")
+        # 「」の中の「司令塔」は役に数えない。数えると文の役が 2 つになり、拾われなくなる。
+        self.assertIn("ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-司令塔の記録", role)
+        self.assertFalse([i for i in role if role[i]["location"] == "SP-AUTH-005"], "印（「」）の無い文は拾わない")
+
+    def test_役の宣言が無ければ渡された印があっても拾わない(self):
+        self.assertIn("> 渡すもの: 検査役 = 対象の文書 / 観点の一覧\n> 渡すもの: 司令塔 = 判定の記録\n", ROLE_BLOCK)
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ROLE_BLOCK.replace("> 渡すもの: 検査役 = 対象の文書 / 観点の一覧\n> 渡すもの: 司令塔 = 判定の記録\n", "")))
+        _ok(self.ws, "doc")
+        self.assertFalse([i for i in _findings(self.ws) if i.startswith("ST-ROLE-INPUT-COVERAGE-")])
+
+    def test_値の集合の参照を解いて判定表を検査し書き直しを拾う(self):
+        # 参照先の宣言（SP-AUTH-006）は、参照元の判定表（SP-AUTH-007）と別の ## 節に置く。同じ節に置くと、参照を解かなくても
+        # 直書きの宣言が値を供給してしまう。
+        self.assertIn("| 失敗 | 原因を通知する |", ENUM_REF)
+        ref = ENUM_REF.replace("| 失敗 | 原因を通知する |", "| 失敗 | 原因を通知する |\n| 保留 | 通知しない |")
+        unresolved = "\n".join([
+            "## 通知の種類",
+            "",
+            "#### SP-AUTH-009 種類ごとの通知",
+            "",
+            "> 条件の値: 通知の種類 = SP-AUTH-001",
+            "",
+            "| 条件: 通知の種類 | 結果 |",
+            "|---|---|",
+            "| メール | 宛先に送る |",
+            "| 画面 | 一覧に出す |",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ref, ENUM_REDECL, unresolved))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        dt = sorted(i for i in found if i.startswith("ST-DT-VALUE-"))
+        self.assertEqual(dt, ["ST-DT-VALUE-specifications/auth-SP-AUTH-007 結末ごとの通知-結末-保留"], "解いた値（完了 / 中断 / 失敗）で検査し、集合に無い値だけを拾う。解けない参照の表は検査しない")
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末", "ST-ENUM-SET-MISMATCH-SP-AUTH-009-通知の種類"])
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"]["location"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"].get("related")), ("SP-AUTH-008", ["SP-AUTH-006", "SP-AUTH-007"]))
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-009-通知の種類"]["location"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-009-通知の種類"].get("related")), ("SP-AUTH-009", ["SP-AUTH-001"]))
+        self.assertFalse([f for f in enum.values() if "severity" in f], "blocking（degraded にしない）")
+
+    def test_参照の無い直書きの宣言どうしは食い違っても拾わない(self):
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REDECL))
+        _ok(self.ws, "doc")
+        self.assertFalse([i for i in _findings(self.ws) if i.startswith("ST-ENUM-SET-MISMATCH-")])
+
+    def test_条件の値の直後の渡すものの宣言は条件の値に混ざらない(self):
+        # AXIS_START: 続けて並べた「> 渡すもの:」を前の宣言の段落に連結すると、最後の値が「人間渡すもの: …」になる。
+        table = "\n".join([
+            "## 判定",
+            "",
+            "> 条件の値: 呼び手 = 司令塔 / 人間",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "| 条件: 呼び手 | 結果 |",
+            "|---|---|",
+            "| 司令塔 | 承認を求めない |",
+            "| 人間 | 承認を求める |",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(table))
+        _ok(self.ws, "doc")
+        self.assertEqual([i for i in _findings(self.ws) if i.startswith("ST-DT-VALUE-")], [])
+
+    # 以下は doc_check を通した確かめ（Rust の単体のテストだけでは見えない経路）。
+    def test_同じ名前の参照先どうしの集合が違えば参照ごとに拾い本文の参照の行を引く(self):
+        other = "\n".join([
+            "## 結末（別）",
+            "",
+            "#### SP-AUTH-010 別の結末",
+            "",
+            "> 条件の値: 結末 = 完了 / 失敗",
+            "",
+            "システムは結末を記録しなければならない。",
+            "",
+            "#### SP-AUTH-011 別の結末の通知",
+            "",
+            "> 条件の値: 結末 = SP-AUTH-010",
+            "",
+            "システムは結末を通知しなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REF, other))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末", "ST-ENUM-SET-MISMATCH-SP-AUTH-011-結末"], "参照先（SP-AUTH-006・SP-AUTH-010）そのものは拾わない")
+        related = ["SP-AUTH-006", "SP-AUTH-007", "SP-AUTH-010", "SP-AUTH-011"]
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["quote"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["related"]), ("結末 = SP-AUTH-006", related), "quote は本文の参照の行")
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-011-結末"]["quote"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-011-結末"]["related"]), ("結末 = SP-AUTH-010", related))
+        text = (self.ws / "specifications-auth.md").read_text()
+        self.assertFalse([f for f in enum.values() if f["quote"] not in text], "quote が本文の逐語")
+
+    def test_区間が宣言する1つの役で役の名前の無い文を照らす(self):
+        block = "\n".join([
+            "#### SP-AUTH-012 検査役の入力",
+            "",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "渡された「前の巡の指摘」を読まなければならない。",
+            "渡された「対象の文書」を読まなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(block))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        role = {i: f for i, f in found.items() if i.startswith("ST-ROLE-INPUT-COVERAGE-")}
+        self.assertEqual(sorted(role), ["ST-ROLE-INPUT-COVERAGE-SP-AUTH-012-検査役-前の巡の指摘"])
+        self.assertEqual(role["ST-ROLE-INPUT-COVERAGE-SP-AUTH-012-検査役-前の巡の指摘"]["related"], ["SP-AUTH-012"])
+
+    def test_参照先の同じ名前の宣言どうしが食い違えば参照は解けない(self):
+        self.assertIn("> 条件の値: 結末 = 完了 / 中断 / 失敗\n", ENUM_CANON)
+        canon = ENUM_CANON.replace("> 条件の値: 結末 = 完了 / 中断 / 失敗\n", "> 条件の値: 結末 = 完了 / 中断 / 失敗\n\n> 条件の値: 結末 = 完了 / 失敗\n")
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(canon, ENUM_REF))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"])
+        self.assertEqual((enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["quote"], enum["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]["related"]), ("結末 = SP-AUTH-006", ["SP-AUTH-006"]))
+        self.assertFalse([i for i in found if i.startswith("ST-DT-") and "SP-AUTH-007" in i], "解けない参照の表は宣言の無い条件と同じ扱い")
+
+    def test_参照の参照は辿らず解けない参照にする(self):
+        chained = "\n".join([
+            "## 再通知",
+            "",
+            "#### SP-AUTH-013 結末ごとの再通知",
+            "",
+            "> 条件の値: 結末 = SP-AUTH-007",
+            "",
+            "システムは結末を再び通知しなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REF, chained))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        enum = {i: f for i, f in found.items() if i.startswith("ST-ENUM-SET-MISMATCH-")}
+        self.assertEqual(sorted(enum), ["ST-ENUM-SET-MISMATCH-SP-AUTH-013-結末"], "SP-AUTH-007 は参照だけを持つので、その参照は解けない")
+        self.assertEqual(enum["ST-ENUM-SET-MISMATCH-SP-AUTH-013-結末"]["related"], ["SP-AUTH-007"])
+
+    def test_フェンスの中と引用の行の宣言と印は読まず複合動詞の渡されたは印にしない(self):
+        block = "\n".join([
+            "#### SP-AUTH-003 検査役に渡すもの",
+            "",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "#### SP-AUTH-004 検査の規則",
+            "",
+            "```markdown",
+            "> 渡すもの: 司令塔 = 判定の記録",
+            "> 条件の値: 結末 = SP-AUTH-099",
+            "検査役は、渡された「フェンスの入力」を読まなければならない。",
+            "```",
+            "",
+            "> 検査役は、渡された「引用の入力」を読む。",
+            "",
+            "検査役は、引き渡された「複合動詞の入力」を読まなければならない。",
+            "司令塔は、渡された「判定の記録の写し」を読まなければならない。",
+            "検査役は、渡された「本文の入力」を読まなければならない。",
+            "",
+        ])
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(block))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        role = sorted(i for i in found if i.startswith("ST-ROLE-INPUT-COVERAGE-"))
+        # 対照の本文の印だけを拾う。フェンスの中の宣言を読むと司令塔が役になり、「判定の記録の写し」も拾われる。
+        self.assertEqual(role, ["ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-本文の入力"])
+        self.assertFalse([i for i in found if i.startswith("ST-ENUM-SET-MISMATCH-")], "フェンスの中の参照は読まない")
+
+    def test_参照で解いた値の判定表の欠けを拾う(self):
+        self.assertIn("| 失敗 | 原因を通知する |\n", ENUM_REF)
+        _edit(self.ws, "specifications-auth.md", "## トレーサビリティ表", _spec_block(ENUM_CANON, ENUM_REF.replace("| 失敗 | 原因を通知する |\n", "")))
+        found = _found(self.ws, _ok(self.ws, "doc"))
+        self.assertEqual(sorted(i for i in found if i.startswith("ST-DT-")), ["ST-DT-GAP-specifications/auth-SP-AUTH-007 結末ごとの通知-結末=失敗"])
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
@@ -1322,6 +1746,224 @@ class CarriedTbd(_Workspace):
         out = _ok(ws, "index", "--req-dir", "docs/requirements", "--open-tbd", "TBD-RAUTH-002")
         self.assertEqual((out["open_tbd_files"], out["open_tbd_clear"]), ([], ["requirements/auth"]))
 
+    def test_入口から変わらない既存の項目の機械検査は既存の指摘としてblockingに数えない(self):
+        # 改訂していない既存の項目には trace が無い。数えると、根拠を捏造しない限り blocking が 0 にならない（実 run で 117 件が残った）。
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答などを返さなければならない。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        reset = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self.assertEqual(reset["entry"], ["specifications/auth"], "固定の文書は書き換えないので入口を持たない")
+        self.assertEqual(sorted(k for k in json.loads((ws / "checks/entry.json").read_text())["specifications/auth"] if k.startswith("SP-")), ["SP-AUTH-001", "SP-AUTH-002"])
+        self._intake(ws)
+        # writer が SP-AUTH-002 だけを改訂し、その項目の trace だけを申告した。
+        doc = ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("PR-AUTH-002 と PR-AUTH-009 を実現する。", "PR-AUTH-002 と PR-AUTH-009 を実現する。承認を記録しなければならない。"))
+        meta = ws / "specifications-auth.meta.json"
+        meta.write_text(json.dumps({"tbd": [], "trace": [{"item_id": "SP-AUTH-002", "kind": "flow", "ref": "F-003"}]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        found = {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+        self.assertTrue(found["ST-NO-EVIDENCE-SP-AUTH-001"].get("preexisting"), "改訂していない項目の trace の無さは既存の指摘")
+        self.assertTrue(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"), "改訂前からある曖昧語も既存の指摘")
+        self.assertEqual(json.loads((ws / "checks/impact.json").read_text())["changed"], ["SP-AUTH-002"])
+        self.assertEqual(out["preexisting_findings"], 2)
+        counted = [i for i, f in found.items() if not f.get("preexisting") and f["document"] == "specifications/auth"]
+        self.assertEqual(out["blocking"], len(counted))
+        # 同じ項目を改訂したら、その項目の指摘は今回の改訂の分として数える。
+        doc.write_text(doc.read_text().replace("応答などを返さなければならない。", "応答などを必ず返さなければならない。"))
+        again = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        found = {f["id"]: f for f in json.loads((ws / again["path"]).read_text())["findings"]}
+        self.assertFalse(found["ST-NO-EVIDENCE-SP-AUTH-001"].get("preexisting"), "改訂した項目は trace を申告しなければならない")
+        self.assertFalse(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"))
+        self.assertEqual((again["preexisting_findings"], again["blocking"]), (0, out["blocking"] + 2))
+
+    def _entry_ws(self):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答などを返さなければならない。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        reset = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        return ws, reset
+
+    def _put_trace(self, ws, items):
+        meta = ws / "specifications-auth.meta.json"
+        meta.write_text(json.dumps({"tbd": [], "trace": [{"item_id": i, "kind": "flow", "ref": "F-003"} for i in items]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+
+    def test_この_runで付けたtraceは本文が同じでも項目の変更に数える(self):
+        # 入口の直後は trace が空なので、trace を付けた項目はこの run が触った項目である。trace が原因の指摘（発生源・flow の参照）を隠さない。
+        ws, _ = self._entry_ws()
+        self._put_trace(ws, ["SP-AUTH-001"])
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertEqual(json.loads((ws / out["impact"]["path"]).read_text())["changed"], ["SP-AUTH-001"])
+        found = {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+        self.assertFalse(found["ST-AMBIGUOUS-specifications/auth-SP-AUTH-001-など"].get("preexisting"))
+        self.assertTrue(found["ST-NO-EVIDENCE-SP-AUTH-002"].get("preexisting"))
+
+    def test_同じIDの見出しの2つ目の区間の改訂も項目の変更に数える(self):
+        ws, _ = self._entry_ws()
+        doc = ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("## トレーサビリティ表", "#### SP-AUTH-001 ログイン処理（続き）\n\n記録を残さなければならない。\n\n## トレーサビリティ表"))
+        before = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertEqual(json.loads((ws / before["impact"]["path"]).read_text())["changed"], ["SP-AUTH-001"])
+
+    def test_resetを流し直しても入口は同じでdocの入口のdigestと一致する(self):
+        ws, reset = self._entry_ws()
+        entry = (ws / "checks/entry.json").read_bytes()
+        again = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self.assertEqual(((ws / "checks/entry.json").read_bytes(), again["entry_digest"]), (entry, reset["entry_digest"]))
+        self._intake(ws)
+        self.assertEqual(_ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")["entry_digest"], reset["entry_digest"])
+        self.assertEqual(_ok(ws, "doc", "--doc", "specifications/auth", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")["impact"]["path"], "checks/impact.specifications__auth.json", "--doc ごとに分ける")
+
+    def test_変わらない節の略記は既存の指摘で当てていない決定は既存の指摘にしない(self):
+        # 略記は区間の本文で決まるので、変わらない節なら改訂の誤りではない。決定の未反映は改訂していないこと自体が誤りなので数える。
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答を返さなければならない。UTH003 に従う。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        dec = ws / "decisions.json"
+        body = json.loads((self.ws / "decisions.json").read_text())
+        body["decisions"].append({**body["decisions"][0], "id": "D-004", "value": "SP-AUTH-002 は承認を記録する"})
+        dec.write_text(json.dumps(body, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        found = {f["id"]: f for f in json.loads((ws / out["path"]).read_text())["findings"]}
+        self.assertTrue(found["ST-ABBREV-ID-SP-AUTH-001-UTH003"].get("preexisting"))
+        self.assertFalse(found["ST-DECISION-UNAPPLIED-D-004"].get("preexisting"))
+        # 覆された決定は当てなくてよい。
+        res = ws / "resolutions.json"
+        res.write_text(json.dumps({"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w", "supersedes": "D-004"}]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        again = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertNotIn("ST-DECISION-UNAPPLIED-D-004", [f["id"] for f in json.loads((ws / again["path"]).read_text())["findings"]])
+
+    def test_入口の無いrunは影響の範囲を求めず全ての指摘を数える(self):
+        out = _ok(self.ws, "doc", "--open-tbd", "")
+        self.assertNotIn("impact", out)
+        self.assertEqual(out["preexisting_findings"], 0)
+        self.assertFalse((self.ws / "checks/impact.json").exists())
+
+    # 宣言とつながる指摘（D 段 §2.4 の第 3 の規則）: 使う区間が入口にあって変わっておらず、related のどの key も changed ∪ removed に
+    # 無いときだけ既存の指摘にする。使う区間は宣言の区間と ID でつながらないので影響の範囲の外にあり、旧い規則では既存の指摘に紛れる。
+    def _entry_with(self, block):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("## トレーサビリティ表", block))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        return ws
+
+    def _swap(self, doc, base, old, new):
+        self.assertIn(old, base)
+        doc.write_text(base.replace(old, new, 1))
+
+    def _doc_with_impact(self, ws):
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        return out, _found(ws, out), json.loads((ws / out["impact"]["path"]).read_text())
+
+    def test_宣言とつながる役の指摘は宣言も使う項目も変わらなければ既存の指摘(self):
+        ws = self._entry_with(_spec_block(ROLE_BLOCK))
+        missing = "ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘"
+        out, found, _ = self._doc_with_impact(ws)
+        self.assertTrue(found[missing].get("preexisting"), "宣言も使う項目も変えていない古い指摘は既存の指摘")
+        # 宣言の項目だけを変える（入力を 1 つ消す）。
+        doc = ws / "specifications-auth.md"
+        self._swap(doc, doc.read_text(), "> 渡すもの: 検査役 = 対象の文書 / 観点の一覧", "> 渡すもの: 検査役 = 対象の文書")
+        again, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-003"])
+        self.assertNotIn("SP-AUTH-004", impact["impact"], "前提: 使う項目は影響の範囲の外（旧い規則なら既存の指摘になる）")
+        self.assertFalse(found[missing].get("preexisting"), "宣言を変えた run では、使う項目が変わっていなくても数える")
+        self.assertFalse(found["ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-観点の一覧"].get("preexisting"), "宣言から消した入力の退行は数える")
+        self.assertGreaterEqual(again["blocking"], out["blocking"] + 2)
+
+    def test_宣言とつながる値の集合の指摘は宣言も参照元も変わらなければ既存の指摘(self):
+        ws = self._entry_with(_spec_block(ENUM_CANON, ENUM_REF, ENUM_REDECL))
+        doc = ws / "specifications-auth.md"
+        original = doc.read_text()
+        redecl = "ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"
+        out, found, _ = self._doc_with_impact(ws)
+        self.assertTrue(found[redecl].get("preexisting"))
+        # 参照先の宣言だけを変える。
+        self._swap(doc, original, "> 条件の値: 結末 = 完了 / 中断 / 失敗", "> 条件の値: 結末 = 完了 / 中断 / 失敗 / 取消")
+        again, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-006"])
+        self.assertNotIn("SP-AUTH-008", impact["impact"], "前提: 書き直しの項目は影響の範囲の外")
+        self.assertFalse(found[redecl].get("preexisting"), "宣言を変えた run では、書き直しの項目が変わっていなくても数える")
+        self.assertGreater(again["blocking"], out["blocking"])
+        # 参照先の項目を消す（impact の removed にだけ入る）。
+        self._swap(doc, original, "#### SP-AUTH-006 結末\n\n> 条件の値: 結末 = 完了 / 中断 / 失敗\n\nシステムは run の結末を 1 つに決めなければならない。\n", "")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertIn("SP-AUTH-006", impact["removed"])
+        unresolved = found["ST-ENUM-SET-MISMATCH-SP-AUTH-007-結末"]
+        self.assertEqual(unresolved.get("related"), ["SP-AUTH-006"])
+        self.assertFalse(unresolved.get("preexisting"), "参照先を消して生じた解けない参照は数える")
+
+    def test_変わらない直書きの項目は別の項目に参照を足すと既存の指摘にならない(self):
+        # 参照を足しただけで、変わっていない直書きが新しく食い違いになる。related に参照元の key が入るので数える。
+        self.assertIn("> 条件の値: 結末 = SP-AUTH-006\n\n", ENUM_REF)
+        plain = ENUM_REF.replace("> 条件の値: 結末 = SP-AUTH-006\n\n", "")
+        ws = self._entry_with(_spec_block(ENUM_CANON, plain, ENUM_REDECL))
+        _, found, _ = self._doc_with_impact(ws)
+        self.assertFalse([i for i in found if i.startswith("ST-ENUM-SET-MISMATCH-")], "参照が無ければ直書きどうしは見ない")
+        _edit(ws, "specifications-auth.md", "#### SP-AUTH-007 結末ごとの通知\n\n", "#### SP-AUTH-007 結末ごとの通知\n\n> 条件の値: 結末 = SP-AUTH-006\n\n")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-007"])
+        self.assertNotIn("SP-AUTH-008", impact["impact"], "前提: 書き直しの項目は影響の範囲の外")
+        redecl = found["ST-ENUM-SET-MISMATCH-SP-AUTH-008-結末"]
+        self.assertEqual(redecl.get("related"), ["SP-AUTH-006", "SP-AUTH-007"])
+        self.assertFalse(redecl.get("preexisting"))
+
+    # 入口の役の宣言（entry.json の §roles）: 今の宣言（related）だけでは、宣言を消した改訂を見分けられない。
+    def test_同じ役の2か所の宣言の片方を消すと役の指摘は既存の指摘にならない(self):
+        extra = "#### SP-AUTH-009 検査役に渡す基準\n\n> 渡すもの: 検査役 = 判定の基準\n\nシステムは判定の基準を検査役に渡さなければならない。\n"
+        ws = self._entry_with(_spec_block(ROLE_BLOCK, extra))
+        roles = json.loads((ws / "checks/entry.json").read_text())["§roles"]
+        self.assertEqual(roles, {"検査役": ["SP-AUTH-003", "SP-AUTH-009"], "司令塔": ["SP-AUTH-003"]})
+        missing = "ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘"
+        _, found, _ = self._doc_with_impact(ws)
+        self.assertEqual(found[missing]["related"], ["SP-AUTH-003", "SP-AUTH-009"])
+        self.assertTrue(found[missing].get("preexisting"), "何も変えなければ既存の指摘")
+        doc = ws / "specifications-auth.md"
+        self._swap(doc, doc.read_text(), extra, "")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertEqual((impact["changed"], impact["removed"]), ([], ["SP-AUTH-009"]))
+        self.assertEqual(found[missing]["related"], ["SP-AUTH-003"], "前提: 今の宣言の区間は変わっていない（旧い規則なら既存の指摘になる）")
+        self.assertFalse(found[missing].get("preexisting"), "入口で同じ役を宣言していた区間を消した run では数える")
+
+    def test_文の2つの役の片方の宣言を消して役が1つに決まると既存の指摘にならない(self):
+        block = "\n".join([
+            "#### SP-AUTH-003 検査役に渡すもの",
+            "",
+            "> 渡すもの: 検査役 = 対象の文書",
+            "",
+            "#### SP-AUTH-010 司令塔に渡すもの",
+            "",
+            "> 渡すもの: 司令塔 = 判定の記録",
+            "",
+            "システムは判定の記録を残さなければならない。",
+            "",
+            "#### SP-AUTH-004 検査の規則",
+            "",
+            "司令塔は、検査役に渡された「前の巡の指摘」を記録しなければならない。",
+            "",
+        ])
+        ws = self._entry_with(_spec_block(block))
+        missing = "ST-ROLE-INPUT-COVERAGE-SP-AUTH-004-検査役-前の巡の指摘"
+        _, found, _ = self._doc_with_impact(ws)
+        self.assertNotIn(missing, found, "入口では文に役が 2 つあり、拾わない")
+        doc = ws / "specifications-auth.md"
+        self._swap(doc, doc.read_text(), "> 渡すもの: 司令塔 = 判定の記録\n\n", "")
+        _, found, impact = self._doc_with_impact(ws)
+        self.assertEqual(impact["changed"], ["SP-AUTH-010"])
+        self.assertEqual(found[missing]["related"], ["SP-AUTH-003"], "前提: 検査役の宣言の区間は変わっていない（旧い規則なら既存の指摘になる）")
+        self.assertFalse(found[missing].get("preexisting"), "文に現れる役の入口の宣言を変えた run では数える")
+
+    def test_役の宣言の無い入口は今までと同じ形(self):
+        ws = self._entry_with(_spec_block(ENUM_CANON))
+        self.assertNotIn("§roles", json.loads((ws / "checks/entry.json").read_text()), "宣言が無ければ entry.json の形と entry_digest は変わらない")
+
     def test_書き換えてよい既存文書の写しはtraceを未検査のままmetaのtbdになりstrayに出ない(self):
         repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
         ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
@@ -1335,7 +1977,11 @@ class CarriedTbd(_Workspace):
         self._intake(ws)
         after = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
         no_evidence = lambda o: [f for f in json.loads((ws / o["path"]).read_text())["findings"] if "NO-EVIDENCE" in f["id"]]
-        self.assertEqual((no_evidence(after), after["blocking"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
+        self.assertEqual((no_evidence(after), after["blocking"] + after["preexisting_findings"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
+        self.assertEqual(after["preexisting_findings"], 1, "reset の後は何も変えていないので、項目の本文だけで決まる指摘は既存の指摘になる")
+        self.assertEqual(sorted(f["id"] for f in json.loads((ws / after["path"]).read_text())["findings"] if f["id"].startswith("ST-TBD-ASSERT-") and not f.get("preexisting")),
+                         ["ST-TBD-ASSERT-requirements/auth-TBD-RAUTH-001-PR-AUTH-002", "ST-TBD-ASSERT-requirements/auth-TBD-RAUTH-002-PR-AUTH-003"],
+                         "開いている TBD は prd-graph の事実に無いので、TBD に触れる断定は既存の指摘にしない")
         self.assertEqual(_ok(ws, "tree-digest")["stray"]["count"], 0)
 
     def test_写しの形が違えばresetは何も消さない(self):
@@ -1425,6 +2071,166 @@ stateDiagram-v2
         self.assertIn("認証成功", tla_text)
         proc = subprocess.run(["node", "--test", str(formal_dir / "check.test.mjs")], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, f"check.test.mjs failed: {proc.stderr}")
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class ReportPreexisting(_Workspace):
+    """既存の指摘（preexisting）と固定の文書の指摘は、本文に反映していない指摘の節に一覧を載せず、既存の指摘を件数の 1 行にする。"""
+
+    _save = CarriedTbd._save
+    _intake = CarriedTbd._intake
+    _next_ws = CarriedTbd._next_ws
+
+    def test_既存の指摘は件数の1行にし数えるものだけを並べる(self):
+        # CarriedTbd.test_入口から変わらない既存の項目の機械検査は既存の指摘としてblockingに数えない と同じ W（既存の指摘 2 件、固定の要求文書）。
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        spec = repo / "docs/specifications/auth.md"
+        spec.write_text(spec.read_text().replace("応答を返さなければならない。", "応答などを返さなければならない。"))
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self._intake(ws)
+        doc = ws / "specifications-auth.md"
+        doc.write_text(doc.read_text().replace("PR-AUTH-002 と PR-AUTH-009 を実現する。", "PR-AUTH-002 と PR-AUTH-009 を実現する。承認を記録しなければならない。"))
+        meta = ws / "specifications-auth.meta.json"
+        meta.write_text(json.dumps({"tbd": [], "trace": [{"item_id": "SP-AUTH-002", "kind": "flow", "ref": "F-003"}]}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        self.assertEqual(out["preexisting_findings"], 2)
+        _ok(ws, "report", "--findings", "")
+        section = (ws / "report.md").read_text().split(Report.UNREFLECTED)[1].split("## 上位文書の改訂の文案")[0]
+        found = json.loads((ws / "checks" / "doc.json").read_text())["findings"]
+        counted = [f for f in found if not f.get("preexisting") and f["document"] == "specifications/auth"]
+        self.assertEqual(len(counted), out["blocking"])
+        for f in counted:
+            self.assertIn(f"- {f['id']}（{f['document']} {f['location']}）", section)
+        for f in found:
+            if f not in counted:
+                self.assertNotIn(f"- {f['id']}（", section, "既存の指摘と固定の文書の指摘は一覧に載せない")
+        self.assertIn("既存の指摘（blocking に数えない）: 2 件", section)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Quotes(_Workspace):
+    """quotes: writer reviewer の指摘の quote が W の原文（文書の本文・meta・入力・回答・台帳）のどれかに在るかを、緩い正規化で照らす。
+    どの原文にも無い（not_found）指摘だけを script が退けるので、在るものを not_found にしない（設計 §4.1）。"""
+
+    def _write(self, name, quotes):
+        (self.ws / "findings").mkdir(exist_ok=True)
+        fs = []
+        for i, q in enumerate(quotes, 1):
+            f = {"id": f"{name}-{i:03d}", "doc": "specifications/auth", "item_id": "SP-AUTH-001", "issue": "i", "repro": "r", "blocking": True,
+                 "route": "writer", "direction": "remove", "origin": "text"}
+            if q is not None:
+                f["quote"] = q
+            fs.append(f)
+        (self.ws / "findings" / f"{name}.json").write_text(json.dumps({"findings": fs, "checked": "全文"}, ensure_ascii=False))
+        return [f["id"] for f in fs]
+
+    def _reasons(self, out):
+        # 結果のファイルの形は {id, reason} の要素を持つこと以外を決めないので、入れ子のどこにあっても拾う。
+        got = {}
+
+        def walk(x):
+            if isinstance(x, dict):
+                if "id" in x and "reason" in x:
+                    got[x["id"]] = x["reason"]
+                for v in x.values():
+                    walk(v)
+            elif isinstance(x, list):
+                for v in x:
+                    walk(v)
+        walk(json.loads((self.ws / out["path"]).read_text()))
+        return {k: v for k, v in got.items() if v in ("not_found", "no_quote")}
+
+    def _check(self, quotes):
+        ids = self._write("r1-wr-all", quotes)
+        out = _ok(self.ws, "quotes", "--findings", "r1-wr-all")
+        return ids, out
+
+    def test_原文にある引用は書き方が揺れても在るとする(self):
+        _edit(self.ws, "requirements-auth.md", "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。",
+              "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。\n\n"
+              "| 入力 | 結果 \\| 備考 |\n|---|---|\n| 誤った鍵 | 拒否 \\| 記録する |\n\n"
+              "- 詳細は[認証の仕様](specifications-auth.md)を参照する。\n"
+              "- 失敗理由<br>記録先\n\n"
+              "### 「通知の宛先」は利用者とする")
+        meta = json.loads((self.ws / "requirements-auth.meta.json").read_text())
+        (self.ws / "requirements-auth.meta.json").write_text(json.dumps({**meta, "fixed": True}, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g1.md").write_text("RS-001: 画面の右上に出す\n")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "method", "value": 'ボタンに "送信" と出す', "why": "依頼文のとおり"}]})
+        cases = {
+            "逐語": "利用者は 3 秒まで待たされてもよい。",
+            "改行またぎ": "承認された操作は pdca が実行しなければならない（TBD-RAUTH-001）。 TBD-RAUTH-001 の裁定が下るまで",
+            "表の行（| と \\|）": "| 誤った鍵 | 拒否 | 記録する |",
+            # リンクの記号だけが消える（URL の文字は残るので、URL を落とした quote は在るにならない）。
+            "リンクの記号": "詳細は認証の仕様（specifications-auth.md）を参照する",
+            # 確かめるのは <br> の前後の空白の差だけ（手順 3 は文字の br を残すので、<br> を改行に替えた quote は在るにならない）。
+            "<br> を残した quote の前後の空白": "失敗理由 <br> 記録先",
+            "リストの印": "詳細は[認証の仕様](specifications-auth.md)を参照する。",
+            "見出しの印と両端の「」": "「通知の宛先」は利用者とする",
+            "全角と半角": "利用者は３秒まで待たされてもよい",
+            "… の省略": "利用者は…待たされてもよい。",
+            "... の省略": "システムは...記録しなければならない",
+            "meta.json の文（tbd の text）": "承認された操作の実行主体。解消: 依頼者の回答",
+            "固定の文書（仕様書の指摘が要求文書の文を写す）": "システムはこれまでの設定を保たなければならない。",
+            "input.md": "認証に失敗したら通知する。",
+            "answers": "画面の右上に出す",
+            "decisions.json の文": "承認は人間が行う",
+            "resolutions.json の文（JSON のエスケープ \\\"）": 'ボタンに "送信" と出す',
+            "flow.json の文": "依頼文の工程を列挙した",
+        }
+        ids, out = self._check(list(cases.values()))
+        self.assertEqual(out["unquoted"], [], {name: id_ for name, id_ in zip(cases, ids) if id_ in out["unquoted"]})
+        self.assertEqual(self._reasons(out), {})
+        self.assertEqual((out["findings"], out["files"], out["ids"]), (len(cases), ["r1-wr-all"], ids))
+
+    def test_タグとリンクの行き先とJSONのエスケープを外した形でも在るとする(self):
+        # 手順 3 だけでは <br> の br・リンクの行き先の文字・JSON の \n の n が原文の側に残り、それを落として写した正しい quote を not_found にする。
+        # 両側からこの 3 つを外した形でも照らす（退けない向きにだけ倒す）。
+        _edit(self.ws, "requirements-auth.md", "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。",
+              "認証に失敗したならば、システムは失敗理由を記録しなければならない（TBD-RAUTH-002）。\n\n"
+              "- 通知の宛先<br>管理者の窓口\n"
+              "- 手順は[運用の手引き](https://example.com/ops-guide)に従う。")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "method", "value": "一行目は概要とする\n二行目は詳細とする", "why": "依頼文のとおり"}]})
+        cases = {
+            "<br> を改行に替えた quote": "通知の宛先\n管理者の窓口",
+            "<br> を落とした quote": "通知の宛先 管理者の窓口",
+            "リンクの行き先を落とした quote": "手順は運用の手引きに従う。",
+            "JSON の \\n をまたぐ quote": "一行目は概要とする 二行目は詳細とする",
+        }
+        ids, out = self._check(list(cases.values()))
+        self.assertEqual(out["unquoted"], [], {name: id_ for name, id_ in zip(cases, ids) if id_ in out["unquoted"]})
+        self.assertEqual(self._reasons(out), {})
+        # 対照: 外す形は原文に無い文字を足さないので、原文に無い quote は今どおり not_found にする。
+        ids, out = self._check(["手順は運用の手順書に従う。", "通知の宛先 利用者の窓口"])
+        self.assertEqual(sorted(out["unquoted"]), sorted(ids))
+
+    def test_1字違いはnot_foundで空の引用はno_quote(self):
+        ids, out = self._check(["利用者は 4 秒まで待たされてもよい。", "", "「」…", None, "利用者は…認証に失敗したら通知する", "利用者は 3 秒まで待たされてもよい。"])
+        miss, empty, blank, absent, split, ok = ids
+        # 省略で分けた断片は同じファイルの中にこの順で在るときだけ在るとする（前半は文書、後半は input.md）。
+        self.assertEqual(sorted(out["unquoted"]), sorted([miss, split]), "退けるのは not_found だけ")
+        self.assertEqual(self._reasons(out), {miss: "not_found", split: "not_found", empty: "no_quote", blank: "no_quote", absent: "no_quote"})
+        self.assertNotIn(ok, self._reasons(out))
+        self.assertEqual(out["path"], "checks/quotes-r1.json")
+
+    def test_filesは引数の名前でtree_digestはtree_digestのモードと一致する(self):
+        a = self._write("r2-wr-p1", ["利用者は 3 秒まで待たされてもよい。"])
+        b = self._write("r2-wr-p2", ["存在しない文"])
+        out = _ok(self.ws, "quotes", "--findings", "r2-wr-p1,r2-wr-p2")
+        self.assertEqual((sorted(out["files"]), out["ids"], out["unquoted"], out["path"]), (["r2-wr-p1", "r2-wr-p2"], a + b, b, "checks/quotes-r2.json"))
+        self.assertEqual(out["tree_digest"], _ok(self.ws, "tree-digest")["digest"])
+        snap = _ok(self.ws, "snapshot", "--save", "audited-2", "--role", "auditor")
+        self.assertEqual(out["tree_digest"], snap["digest"], "script は監査の基準の digest と照らす")
+
+    def test_名前の形が違うかファイルが読めなければ止まる(self):
+        self._write("r1-wr-all", ["利用者は 3 秒まで待たされてもよい。"])
+        (self.ws / "findings" / "r1-wr-p1.json").write_text("{ not json")
+        self._write("r1-wh-all", ["利用者は 3 秒まで待たされてもよい。"])
+        for names in ("r1-wh-all", "r1-wr-all.json", "wr-all", "r1-wr-x1", "r1-wr-all,r1-wr-p2", "r1-wr-p1"):
+            with self.subTest(names=names):
+                r = _run(self.ws, "quotes", "--findings", names)
+                self.assertNotEqual(r.returncode, 0, r.stdout)
 
 
 if __name__ == "__main__":

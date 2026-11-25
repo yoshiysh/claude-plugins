@@ -95,23 +95,6 @@ class Pure(unittest.TestCase):
         self.assertEqual(p["decision"], ["f3"])
         self.assertEqual(p["blocking"], ["f2", "f3"])
 
-    def test_scopedAuditPlanは指摘を出した観点だけを当て直す(self):
-        changes = {"requirements/a": ["PR-A-001", "PR-A-002"], "specifications/b": ["SP-B-001"]}
-        roles = {"PR-A-001": ["implementer"], "SP-B-001": ["crossDoc"]}
-        plan = value(f"scopedAuditPlan({json.dumps(changes)}, {json.dumps(roles)})")
-        self.assertEqual(
-            plan,
-            [
-                {"role": "grounding", "doc": "requirements/a", "items": ["PR-A-001", "PR-A-002"], "designated": True},
-                {"role": "implementer", "doc": "requirements/a", "items": ["PR-A-001"]},
-                {"role": "grounding", "doc": "specifications/b", "items": ["SP-B-001"]},
-                {"role": "crossDoc", "doc": "all", "items": ["SP-B-001"]},
-            ],
-        )
-
-    def test_scopedAuditPlanは変更の無い文書に起動しない(self):
-        self.assertEqual(value("scopedAuditPlan({}, {})"), [])
-
     def test_undeclaredChangesは申告に無い項目だけを返す(self):
         diff = {"changed": ["PR-A-001"], "added": ["PR-A-009"], "removed": ["requirements/a§用語"]}
         self.assertEqual(value(f"undeclaredChanges({json.dumps(diff)}, ['PR-A-001'])"), ["PR-A-009", "requirements/a§用語"])
@@ -172,7 +155,7 @@ class Pure(unittest.TestCase):
         "passed": ["RS-004", "RS-017", "RS-020", "RS-030", "RS-035", "RS-041", "RS-050"],
         "failed_ids": ["RS-030"],
         "about": {"RS-004": "open:O-004", "RS-017": "verification:F-003", "RS-020": "verification:F-009", "RS-030": "verification:F-003",
-                  "RS-035": "pair:F-003|RS-011", "RS-041": "pair:F-007|O-004", "RS-050": "finding:r1-im-x-001"},
+                  "RS-035": "pair:F-003|RS-011", "RS-041": "pair:F-007|O-004", "RS-050": "finding:r1-wr-all-001"},
     }
 
     def _pointed(self, items, state=None, mutate=None):
@@ -216,31 +199,25 @@ class Pure(unittest.TestCase):
 
     def test_pointedGroundsは指摘の項目と項目のtraceが指す要素で引く(self):
         state = {**self.POINTED, "pending": {
-            "findings": {"requirements/x": {"PR-X-001": {"r2-im-x-004": {"route": "decision"}}}},
+            "findings": {"requirements/x": {"PR-X-001": {"r2-wr-all-004": {"route": "decision"}}}},
             "flow": {"requirements/x": {"PR-X-001": ["F-003"]}},
-            "recurring": {"requirements/x#PR-X-001": ["r1-im-x-001"]},
+            "recurring": {"requirements/x#PR-X-001": ["r1-wr-all-001"]},
         }}
-        got = self._pointed([{"key": "finding:r2-im-x-004"}, {"key": "tbd:TBD-RX-001"}], state)
-        self.assertEqual(got, {"finding:r2-im-x-004": ["RS-017", "RS-035", "RS-050"]})
+        got = self._pointed([{"key": "finding:r2-wr-all-004"}, {"key": "tbd:TBD-RX-001"}], state)
+        self.assertEqual(got, {"finding:r2-wr-all-004": ["RS-017", "RS-035", "RS-050"]})
 
     def test_再発した項目の裁定し直しは前のパスでその項目を閉じた裁定を指さない(self):
         # 改稿で直らなかった前の裁定を「食い違うな」と指すと、項目の次元をまとめて裁定し直す代わりに保持規則へ寄る。
         state = {**self.POINTED, "pending": {
-            "findings": {"requirements/x": {"PR-X-001": {"r2-im-x-004": {"route": "decision"}}, "PR-X-002": {"r2-im-x-005": {"route": "decision"}}}},
+            "findings": {"requirements/x": {"PR-X-001": {"r2-wr-all-004": {"route": "decision"}}, "PR-X-002": {"r2-wr-all-005": {"route": "decision"}}}},
             "flow": {"requirements/x": {"PR-X-001": ["F-003"]}},
-            "recurring": {"requirements/x#PR-X-001": ["r1-im-x-001"]},
+            "recurring": {"requirements/x#PR-X-001": ["r1-wr-all-001"]},
         }, "item_routes": {"requirements/x#PR-X-001": "decision"}}
-        items = "findingItems(['r2-im-x-004', 'r2-im-x-005'], STATE)"
-        self.assertEqual(self._pointed(items, state), {"finding:r2-im-x-004": ["RS-017", "RS-035"]})
+        items = "findingItems(['r2-wr-all-004', 'r2-wr-all-005'], STATE)"
+        self.assertEqual(self._pointed(items, state), {"finding:r2-wr-all-004": ["RS-017", "RS-035"]})
         # 変異: 前のパスの裁定を除かないと、RS-050 を指す。
         keep = ("self: Object.entries(state.about || {}).filter(([, k]) => before(id).some((x) => k === `finding:${x}`)).map(([rs]) => rs)", "self: []")
-        self.assertIn("RS-050", self._pointed(items, state, mutate=keep)["finding:r2-im-x-004"])
-        # 経路が hold の項目は decide の再発した項目の行に載らないので、前の裁定はここで指す。
-        held = {**state, "item_routes": {"requirements/x#PR-X-001": "hold"}}
-        self.assertIn("RS-050", self._pointed(items, held)["finding:r2-im-x-004"])
-        # 変異: 経路を見ないと、hold の項目でも前の裁定が誰にも渡らない。
-        any_route = ("(state.item_routes || {})[itemOf[id]] === 'decision' && ", "")
-        self.assertNotIn("RS-050", self._pointed(items, held, mutate=any_route)["finding:r2-im-x-004"])
+        self.assertIn("RS-050", self._pointed(items, state, mutate=keep)["finding:r2-wr-all-004"])
 
     def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
         state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"]}
@@ -309,8 +286,6 @@ class Pure(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(again(st, now, changed), [])
         self.assertEqual([x["id"] for x in again(state, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "writer の指摘を渡さずに裁定を渡した項目の変更は裁定を当てただけ")
-        stuck = {**state, "item_routes": {"requirements/a#PR-A-001": "exhausted"}}
-        self.assertEqual(again(stuck, [self._f("n1")], {"requirements/a": ["PR-A-001"]}), [], "段 6 に渡さなかった（尽きた項目の）指摘の裁定はこのパスで渡していない")
         carried = {**state, "pending": {"findings": decided, "carried": ["p1"]}}
         self.assertEqual([x["id"] for x in again(carried, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "持ち越しでも段 6 に渡して裁定した指摘の裁定はこのパスで渡した")
         prev_again = [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}]
@@ -318,18 +293,16 @@ class Pure(unittest.TestCase):
         self.assertEqual([x["id"] for x in chained({})], ["m1"], "前のパスの再出が持ち越した裁定でも数えない")
         self.assertEqual(chained({"requirements/a": ["PR-A-001"]}), [], "前のパスの再出だけが持つ裁定はこのパスで渡していないので、変わった項目は当てただけではない")
 
-    def test_pendingViewは束とdecisionとblockingを指摘から導き尽きた項目を経路から外す(self):
+    def test_pendingViewは束とdecisionとblockingを指摘から導く(self):
         f = lambda route, blocking=True: {"blocking": blocking, "route": route, "direction": "tighten", "origin": "text"}
         p = {"findings": {"requirements/a": {"PR-A-001": {"w1": f("writer"), "d1": f("decision")}, "PR-A-002": {"w2": f("writer", False)}, "PR-A-003": {"w3": f("writer")}}},
              "flow": {"requirements/a": {"PR-A-001": ["F-001"]}}, "doc_blocking": 0}
-        v = value(f"pendingView({json.dumps(p)}, {{'requirements/a#PR-A-003': 'exhausted'}})")
-        self.assertEqual([(b["item_id"], b["findings"], b.get("flow")) for b in v["bundles"]], [("PR-A-001", ["w1"], ["F-001"]), ("PR-A-002", ["w2"], None)])
+        v = value(f"pendingView({json.dumps(p)})")
+        self.assertEqual([(b["item_id"], b["findings"], b.get("flow")) for b in v["bundles"]], [("PR-A-001", ["w1"], ["F-001"]), ("PR-A-002", ["w2"], None), ("PR-A-003", ["w3"], None)])
         self.assertEqual((v["decision"], sorted(v["blocking"]), v["doc_blocking"]), (["d1"], ["d1", "w1", "w3"], 0))
 
-    def test_routeRecurringはdecisionからholdを経て尽きた項目にする(self):
-        routes = {"k2": "decision", "k3": "hold", "k4": "exhausted"}
-        self.assertEqual(value(f"routeRecurring(['k1', 'k2', 'k3', 'k4'], {{item_routes: {json.dumps(routes)}}})"),
-                         {"k1": "decision", "k2": "hold", "k3": "exhausted", "k4": "exhausted"})
+    def test_routeRecurringは再発した項目を全てdecisionにする(self):
+        self.assertEqual(value("routeRecurring(['k1', 'k2'])"), {"k1": "decision", "k2": "decision"})
 
     def _rework(self, counts, limit=3):
         # counts[0] は最初の返り値の件数、counts[n] は n 回目の差し戻しの件数（None は stdout が無い）。
@@ -387,9 +360,9 @@ class Pure(unittest.TestCase):
                 self.assertIsNotNone(value(f"unverifiedLeft({json.dumps(fc)}, {json.dumps(st)}, false)"))
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "answer_holds": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "answer_holds": [], "open_only": [], "stale_refs": [], "unsettled_refs": [], "open_ids": [], "pair_keys": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(base))}, true)"))
-        for k in ("codes", "unverified", "failed_current", "resolutions", "answer_holds", "open_only", "stale_refs", "open_ids", "pair_keys"):
+        for k in ("codes", "unverified", "failed_current", "resolutions", "answer_holds", "open_only", "stale_refs", "unsettled_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped(broken))}, true)"), k)
             if k != "resolutions":
@@ -409,13 +382,13 @@ class Pure(unittest.TestCase):
 
     def test_flowDefectは生成者に消せない指摘を数えず表に無い符号では差し戻さずに止める(self):
         only = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
-        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p', 'settle の flow-framer')"))
-        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p', 'settle の flow-framer')")["count"], 1)
+        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p', 'settle の planner')"))
+        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p', 'settle の planner')")["count"], 1)
         mixed = {"codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
-        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p', 'settle の flow-framer')")
+        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p', 'settle の planner')")
         self.assertEqual(d["count"], 1)
-        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は settle の flow-framer が直すので触らない", d["text"])
-        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p', 'settle の flow-framer')")
+        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は settle の planner が直すので触らない", d["text"])
+        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p', 'settle の planner')")
         self.assertTrue(unknown["stop"])
         calls = value("(async () => { const calls = []; await rework(1, () => ({ count: 1, stop: true, text: 't' }), async () => { calls.push(1); return 2 }, 3); return calls })()")
         self.assertEqual(calls, [], "stop の不合格は生成者に差し戻さない")
@@ -430,10 +403,6 @@ class Pure(unittest.TestCase):
         self.assertEqual(value("stateErrors('4', {units: [], flow: {}, failed_ids: ['F-001']})"),
                          ['from "4" には state.flow_digest が要ります'])
         self.assertIn("段の境界", value("stateErrors('x', {})")[0])
-
-    def test_rolesByItemは観点を重ねて持つ(self):
-        h = value("rolesByItem({'PR-A-1': ['grounding']}, [{item_id: 'PR-A-1'}, {item_id: 'PR-A-2'}], 'implementer')")
-        self.assertEqual(h, {"PR-A-1": ["grounding", "implementer"], "PR-A-2": ["implementer"]})
 
     def test_parseStdoutは最後のJSON行を読みdigestの合う写しだけを受け取る(self):
         text = stamped({"digest": "x", "ids": ["RS-001", "RS-002"]})
@@ -548,8 +517,14 @@ class ContractEnums(unittest.TestCase):
                 self.assertEqual(value(f"fnv(canonicalText({json.dumps(body, ensure_ascii=False)}))"),
                                  _exported(f"m.fnv(m.canonicalText({json.dumps(body, ensure_ascii=False)}))"))
 
+    def test_DOC_BYTESはdoc_checkのSIZE_BUDGETの文書の目安と同じ(self):
+        # writer reviewer の詰め合わせは 1 文書の分量を doc_check の目安で数える（目安を測り直したら両方を変える）。
+        # DOC_BYTES は PURE の区間の外（段 5・8 の監査の組み方の隣）にあるので、本文の定義で照合する。
+        src = PRD.read_text(encoding="utf-8")
+        self.assertEqual(int(re.search(r"^const DOC_BYTES = (\d+)$", src, re.M).group(1)), _exported("m.SIZE_BUDGET.document"))
+
     RULING_ROWS = [
-        {"id": "RS-10", "about": {"finding": "r1-gr-requirements__x-012"}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
+        {"id": "RS-10", "about": {"finding": "r1-wr-all-012"}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
         {"id": "RS-2", "about": {"open": "O-002"}, "ruling": "question", "has_answer": True, "verdict": "pass"},
         {"id": "RS-1", "about": {"pair": ["D-001", "F-002"]}, "ruling": "hold", "has_answer": False, "verdict": "fail", "fail_kind": "decidable"},
         {"id": "RS-3", "about": None, "ruling": None, "has_answer": False, "verdict": None},
@@ -558,7 +533,7 @@ class ContractEnums(unittest.TestCase):
     ]
 
     def _rulings_stdout(self, groups):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "answer_holds": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "answer_holds": [], "open_only": [], "stale_refs": [], "unsettled_refs": [], "open_ids": [], "pair_keys": []}
         return stamped({**base, "resolutions": groups})
 
     def test_束ねたresolutionsはflowCheckOfが同じ行にID順で戻す(self):
@@ -569,6 +544,20 @@ class ContractEnums(unittest.TestCase):
         self.assertEqual(swapped, got, "組の並びによらず ID の番号順（合否が変わって組を移っても行の並びは変わらない）")
         plain = value(f"flowCheckOf({json.dumps(self._rulings_stdout(groups))})")
         self.assertEqual(plain["resolutions"], got, "--rulings を付けて実行した生成者の stdout も行に戻す")
+
+    def test_rulingRowsはspec_layerを真だけ受け取り行に写す(self):
+        # 仕様書だけを書く run の仕様の論点（doc_check flow --rulings の spec_layer）。無いか true だけを受け取り、無い行には欄を足さない。
+        spec_q = {"id": "RS-11", "about": {"open": "O-011"}, "ruling": "question", "has_answer": False, "verdict": "pass", "spec_layer": True}
+        rows = [*self.RULING_ROWS, spec_q]
+        groups = _exported(f"m.rulingsCompact({json.dumps(rows)})")
+        self.assertEqual([g for g in groups if g.get("spec_layer")], [{"ruling": "question", "has_answer": False, "verdict": "pass", "spec_layer": True, "about": {"RS-11": {"open": "O-011"}}}],
+                         "doc_check は spec_layer のある行を別の組に束ね、組の頭に spec_layer を入れる")
+        got = value(f"rulingRows({json.dumps(groups)})")
+        self.assertEqual(got, sorted(rows, key=lambda x: int(x["id"][3:])), "spec_layer の無い行に欄を足さない")
+        head = {"ruling": "question", "has_answer": False, "verdict": "pass", "about": {"RS-1": {"open": "O-001"}}}
+        for bad in (False, None, "true", 1):
+            with self.subTest(spec_layer=bad):
+                self.assertIsNone(value(f"rulingRows({json.dumps([{**head, 'spec_layer': bad}])})"))
 
     def test_束ねたresolutionsは行の形より短い(self):
         rows = [{"id": f"RS-{i:03d}", "about": {"open": f"O-{i:03d}"}, "ruling": ["internal", "question", "hold"][i % 3], "has_answer": i % 3 == 1, "verdict": "pass"} for i in range(1, 57)]

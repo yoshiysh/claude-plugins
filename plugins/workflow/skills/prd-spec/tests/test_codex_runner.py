@@ -58,14 +58,14 @@ class CodexRunner(unittest.TestCase):
         self.assertIsNone(got["error"])
         self.assertEqual(got["result"]["status"], "done")
         self.assertIn("writer:U-1:draft", got["labels"])
-        self.assertIn("grounding:r1:requirements/x", got["labels"])
+        self.assertIn("writerReviewer:r1:all", got["labels"])
         self.assertEqual(got["receipt"]["namedWorkflow"]["name"], "workflow:prd-spec-run")
 
     def test_all_human_gates_use_next_args_and_do_not_replay_intake(self):
         # ゲートは開いた順に g1, g2, … と名乗る。段 3 の題材も段 6 の題材も、その run で最初に開くゲートなので g1。
         for name, spec, stage, ruled in [
             ("段 3", {"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, "3a", "RS-001"),
-            ("段 6", {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, "3a'", "RS-010"),
+            ("段 6", {"findings": {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, "3a'", "RS-010"),
         ]:
             with self.subTest(name):
                 stopped = run({"args": self.args(), **spec})["result"]
@@ -76,7 +76,7 @@ class CodexRunner(unittest.TestCase):
                 done = run({"args": stopped["next_args"], "ruled_at": {stage: [ruled]}})
                 self.assertIsNone(done["error"])
                 self.assertEqual(done["result"]["status"], "done")
-                self.assertNotIn("intake", done["labels"])
+                self.assertNotIn("planner:1", done["labels"])
         g0 = run({"args": self.args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         g02 = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
         self.assertEqual((g02["status"], g02["gate"]), ("needs_answers", "g2"))
@@ -86,7 +86,7 @@ class CodexRunner(unittest.TestCase):
         self.assertEqual(done["result"]["status"], "done")
 
     def test_failed_agent_and_corrupted_continuation_fail_closed(self):
-        got = run({"args": self.args(), "null_labels": ["intake"]})
+        got = run({"args": self.args(), "null_labels": ["planner:1"]})
         self.assertEqual(got["result"]["status"], "blocked")
         stopped = run({"args": self.args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         broken = {**stopped["next_args"], "from": "4"}

@@ -38,7 +38,7 @@ def _build_worker_script():
     target_end = (
         "console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, "
         "resolverSchema, disk: { ...onDisk(false), resolutions: rulingRowsOnDisk() }, writerDisk, "
-        "docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, "
+        "docs: disk.docs || {}, opts: optsSeen, attempted, stubErrors, calls, replayed, "
         "atReads: atReads() }))\n"
     )
 
@@ -50,7 +50,7 @@ def _build_worker_script():
         "    delete globalThis.budget\n"
         "    return { result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, "
         "disk: { ...onDisk(false), resolutions: rulingRowsOnDisk() }, writerDisk, docs: disk.docs || {}, "
-        "heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }\n"
+        "opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }\n"
         "  } catch (err) {\n"
         "    delete globalThis.budget\n"
         "    throw err\n"

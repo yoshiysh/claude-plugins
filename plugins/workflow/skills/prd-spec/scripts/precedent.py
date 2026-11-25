@@ -14,7 +14,7 @@ convert: 旧い形式のラン（決定を args の `decisions` に、依頼者�
 持っていたもの）を、`<out>/decisions.json` と `<out>/answers.md` に変換する。
 - decisions.json は `{"legacy": true, "source_file": ..., "decisions": [...]}`。決定は中身を変えずに写す。
 - answers.md は依頼者の回答を逐語で写す（どの欄から来たかの見出しだけを足す）。
-- verifications.json は作らない。旧いランの決定は resolver-verifier を通っていないので、合格として書くと
+- verifications.json は作らない。旧いランの決定は plan reviewer を通っていないので、合格として書くと
   検証していないものを検証済みに見せることになる。
 """
 

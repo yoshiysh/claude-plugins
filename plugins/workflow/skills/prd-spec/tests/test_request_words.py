@@ -39,7 +39,7 @@ class RequestWords(unittest.TestCase):
         self.assertEqual(rows["両方"], ["要件", "要件定義"])
 
     def test_intakeは表を参照し語を写さない(self):
-        intake = (SKILL / "agents" / "intake.md").read_text()
+        intake = (SKILL / "agents" / "planner.md").read_text()
         self.assertIn("`references/document-splitting.md` §0", intake)
         self.assertNotRegex(intake, r"要件定義\s*/|/\s*要件定義")
 

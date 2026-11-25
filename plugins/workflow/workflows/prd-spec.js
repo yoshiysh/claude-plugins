@@ -3,12 +3,11 @@ export const meta = {
   description: '依頼を仕分けて流れを閉じ、前提を裁定してから要求・仕様を書き、監査と範囲を絞った再監査を収束するまで回す',
   whenToUse: 'prd-spec の SKILL.md から、workspace を作ったあとに名前（/workflow:prd-spec-run）で呼ぶ。needs_answers で止まったら回答を answers に逐語で書き、SKILL.md「## 中継」の「呼び直し」のとおりに同じ名前で呼び直す。args に打ち直す値は ID・件数・digest に限る（本文や JSON の本体は W に置く）',
   phases: [
-    { title: 'Intake', detail: '段 1: 依頼を確定・決定・未決に仕分け、分割と writer の単位を決める' },
-    { title: 'Flow', detail: '段 2: 出典付きの流れを描き、閉包を検査する' },
-    { title: 'Resolve', detail: '段 3・3v: 未決と組を裁定し、独立に検証する（差し戻しは 1 回）' },
+    { title: 'Intake', detail: '段 1: planner が依頼を仕分け、流れを閉じ、未決と組を裁定する（1 体）' },
+    { title: 'Resolve', detail: '段 3・3v: 段 1 の前提と裁定を plan reviewer が検証する（plan の照合を含む。差し戻しは 1 回）' },
     { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、最初のゲートの後は回答で flow を組み直す' },
     { title: 'Draft', detail: '段 4: writer の単位ごとに初稿を書く（依存の向きに順番、独立な単位は並列）' },
-    { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当てる' },
+    { title: 'Audit', detail: '段 5: writer reviewer を全文書に当て、whole reviewer がその指摘を確かめて文書をまたいで見る' },
     { title: 'Decide', detail: '段 6: 決定が要る指摘と新しい TBD を裁定する' },
     { title: 'Revise', detail: '段 7・8: 改稿し、変えた範囲だけを監査する（収束の条件と上限の定数で回す）' },
     { title: 'Report', detail: '段 9: 収束せずに止まったときは残った論点を保持規則にする（事後報告は司令塔が doc_check report で導出する）' },
@@ -21,46 +20,54 @@ export const meta = {
 // state は plain JSON に限る。Map・Set・class を pipeline / parallel の境界や返り値に載せると、runtime で中身が失われる。
 
 // ROLE_OPTS: 全役に既定を置く。省略するとセッションの設定を継承し、全呼び出しが最重量で走って利用上限に達する。
-// intake〜writer は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。implementer・grounding の見落としはそのまま
-// 欠陥（着手不能・捏造）になる。crossDoc は項目の間の関係を見るだけで、1 文ずつの深い判断は要らない。flowCheck は判断を要しないが、
+// planner〜writer と 2 つの監査役は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。flowCheck は判断を要しないが、
 // 数 KB の stdout を逐語で写す。値は既定であって、E2 の実測で較正する。
 const ROLE_OPTS = {
-  intake: { model: 'opus', effort: 'medium' },
-  flowFramer: { model: 'opus', effort: 'medium' },
-  resolver: { model: 'opus', effort: 'medium' },
-  verifier: { model: 'opus', effort: 'medium' },
+  planner: { model: 'opus', effort: 'medium' },
+  planReviewer: { model: 'opus', effort: 'medium' },
   writer: { model: 'opus', effort: 'medium' },
-  implementer: { model: 'opus', effort: 'high' },
-  grounding: { model: 'opus', effort: 'high' },
-  crossDoc: { model: 'sonnet', effort: 'medium' },
+  writerReviewer: { model: 'opus', effort: 'medium' },
+  wholeReviewer: { model: 'opus', effort: 'medium' },
   flowCheck: { model: 'sonnet', effort: 'low' },
 }
 
 // ROLE_FILES: 役の名前から agents/ のファイル名（拡張子なし）。読む契約の節の表は doc_check の CONTRACT_SECTIONS が持ち、contract --role に
 // このファイル名を渡す（節の一覧を script に写すと、片方だけ直されて役が読む節がずれる）。
 const ROLE_FILES = {
-  intake: 'intake',
-  flowFramer: 'flow-framer',
-  resolver: 'resolver',
-  verifier: 'resolver-verifier',
+  planner: 'planner',
+  planReviewer: 'plan-reviewer',
   writer: 'writer',
-  implementer: 'implementer',
-  grounding: 'grounding',
-  crossDoc: 'cross-doc',
+  writerReviewer: 'writer-reviewer',
+  wholeReviewer: 'whole-reviewer',
   flowCheck: 'flow-check',
 }
 
-// 上限は暴走を止めるためだけに置く。止まる条件は収束（残りが 0 か、減らなくなった）で、回数で打ち切ると連鎖が途中で止まるだけで項目は直らない。
-const MAX_AUDIT_PASSES = 4
+// ROLE_OF・JOB: 呼び出しの種類（planner・resolver・verifier）から役と、planner の仕事の節。script の分岐（sha の照合・unchecked の印・
+// 差し戻しの直し手）は呼び出しの種類で決まるので種類のまま持ち、model・effort・役のファイル・契約だけを役から引く。
+// kind planner は 1 回の起動で仕事を続けて行う（段 1 は仕分け → 流れ → 裁定、settle と 3b は流れ → 裁定）。仕事の列は呼び出しが header に渡す。
+const ROLE_OF = { resolver: 'planner', verifier: 'planReviewer' }
+const roleOf = (kind) => ROLE_OF[kind] || kind
+const JOB = { resolver: '裁定' }
+
+// 網羅の監査 r1 の後の、改稿と範囲の再監査のパスの数（監査は r1 と r2 の 2 回、改稿は 1 回）。r1 の指摘が blocking を含まなければ改稿と
+// 2 巡目を飛ばす（段 5 の lowOnly）。残った指摘は、輪を出た後の resolver が保持規則と Issue の文案にし、全件は report.md の節に載せる。
+const MAX_AUDIT_PASSES = 1
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
-// 依頼者を止める回数の上限。最初のゲートは初稿の監査の後に開き（collecting）、そこまでに出た問いをまとめて聞く。その後に聞けるのは、
-// 回答で flow を組み直した後の問いと、改稿のパスごとの問い。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖は
-// ここで必ず終わる。
-const MAX_GATES = 2 + MAX_AUDIT_PASSES
+// 依頼者を止める回数の上限。内訳は、初稿の監査の後の段 6 で開く最初のゲート（collecting。そこまでに出た問いをまとめて聞く）、回答の反映
+// （3a・3b）から出る続きの問いのゲート、改稿のパスの段 6 のゲート（MAX_AUDIT_PASSES 回）、最後の監査の後の延長のゲート（段 8 が延長に入ったときだけ）。問いを持ち越さない run では
+// 最初のゲートが改稿のパスの段 6 を兼ねるので 1 回余る。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖はここで必ず終わる。
+const MAX_GATES = 3 + MAX_AUDIT_PASSES
+// NEXT_ARGS_MAX_CHARS: 司令塔が next_args を打ち直せる字数の上限（tests の NextArgsBudget と同じ値。tests が照合する）。収まるのはこれ未満で、
+// 延長のパスは、そのゲートの next_args がこれ以上なら入らない（段 8・延長の段 6・延長の 3a'）。超える next_args を返すと、回答を当てて再開できない。
+const NEXT_ARGS_MAX_CHARS = 8000
+// FORMAL_LIMIT: 段の種類（5・8）ごとに、formal-method への依頼 a（と、反例の差し戻しの後の依頼 b）の組を何回行うかの上限。数えた値は state.formal_by。
+// new・expand は formal-method を最大 4 回、existing（段 5 で送る単位が 0）は最大 2 回呼ぶ（利用者の決定）。全体で数えると、書き直しの経路で
+// 最後の改稿の後の段 8 が上限で消える。延長のパスの 2 回目の段 8 は上限で依頼せず、そこで変わった単位は report.md が未検証として載せる。
+const FORMAL_LIMIT = { 5: 1, 8: 1 }
 
 const ENTRIES = ['new', 'existing', 'expand']
-const STAGES = ['1', '2', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
+const STAGES = ['1', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
 const GATE_NAME = /^g([1-9]\d*)$/
 const gateAnswers = (gate) => `answers/${gate}.md`
 
@@ -234,11 +241,11 @@ const ownItems = (ids, state) =>
 
 // findingItems: 段 6 の指摘の pointedGrounds の items。route が decision の再発した項目（裁定し直す項目）では、前のパスでその項目の指摘を閉じた
 // 裁定を指さない（改稿で直らなかった裁定を「食い違うな」と指すと、項目の次元をまとめて裁定し直す代わりに保持規則へ寄る。その裁定は decide の
-// 再発した項目の行で別に渡る）。route が hold の項目はその行に載らないので外さない。
+// 再発した項目の行で別に渡る）。
 function findingItems(ids, state) {
   const pending = state.pending || {}
   const itemOf = Object.fromEntries(pendingFindings(pending).map((f) => [f.id, itemKey(f)]))
-  const before = (id) => ((state.item_routes || {})[itemOf[id]] === 'decision' && (pending.recurring || {})[itemOf[id]]) || []
+  const before = (id) => (pending.recurring || {})[itemOf[id]] || []
   return (ids || []).map((id) => ({ key: `finding:${id}`, self: Object.entries(state.about || {}).filter(([, k]) => before(id).some((x) => k === `finding:${x}`)).map(([rs]) => rs) }))
 }
 
@@ -360,9 +367,9 @@ function pendingFindings(p) {
   return Object.entries((p || {}).findings || {}).flatMap(([doc, items]) => Object.entries(items).flatMap(([item_id, fs]) => Object.entries(fs).map(([id, f]) => ({ id, doc, item_id, ...FINDING_DEFAULTS, ...f }))))
 }
 
-function pendingView(p, routes) {
+function pendingView(p) {
   const findings = pendingFindings(p)
-  const part = partitionFindings(findings.filter((f) => (routes || {})[itemKey(f)] !== 'exhausted'))
+  const part = partitionFindings(findings)
   const flow = (p || {}).flow || {}
   return {
     ...p,
@@ -374,6 +381,42 @@ function pendingView(p, routes) {
 }
 
 // canonicalText・fnv: この script は sha256 を計算できないので、next_args が打ち直しで変わっていないかをこの 2 つで照合する。
+// jsonChars: 区切りに空白を入れた JSON（`, ` と `: `。Python の json.dumps の既定と同じ）の字数。文字列は作らずに数える（プロンプトに JSON を
+// 埋め込まないため）。非 ASCII は写したままの字数で、制御文字は \u00XX の 6 字で数える。
+const jsonStrChars = (t) => 2 + t.length + (t.match(/["\\\n\r\t\b\f]/g) || []).length + 5 * (t.match(/[\u0000-\u0007\u000b\u000e-\u001f]/g) || []).length
+function jsonChars(v) {
+  if (Array.isArray(v)) return 2 + 2 * Math.max(v.length - 1, 0) + v.reduce((n, x) => n + jsonChars(x === undefined || typeof x === 'function' ? null : x), 0)
+  if (v && typeof v === 'object') {
+    const ks = Object.keys(v).filter((k) => v[k] !== undefined && typeof v[k] !== 'function')
+    return 2 + 2 * Math.max(ks.length - 1, 0) + ks.reduce((n, k) => n + jsonStrChars(k) + 2 + jsonChars(v[k]), 0)
+  }
+  if (typeof v === 'string') return jsonStrChars(v)
+  return v === null || (typeof v === 'number' && !Number.isFinite(v)) ? 4 : String(v).length
+}
+const FORMAL_OUTCOMES = ['result', 'rejected', 'provisional', 'no_result']
+// formalEntryNotice: 入口の取り込み（formalEntry）が notices に足す 1 行。W の絶対パスも件数も入れず（件数は fm/facts.json と report.md にある）、
+// outcome を最も長い語の幅に詰めて、rid が同じ桁なら長さが変わらない形にする（next_args の字数を見積もれるようにする）。
+const FORMAL_OUTCOME_WIDTH = Math.max(...FORMAL_OUTCOMES.map((o) => o.length))
+const formalEntryNotice = (rid, outcome) => `形式検証 ${rid} の取り込み: ${String(outcome).padEnd(FORMAL_OUTCOME_WIDTH)}`
+// FORMAL_OFF_NOTICE: args.formal が false の run が notices に足す 1 行（noteFormalOff）。
+const FORMAL_OFF_NOTICE = '形式検証を行わない run（args.formal が false）。report.md の「形式検証」の節に開示する'
+// FORMAL_WORST: next_args の state に載る形式検証の欄の最悪の形（取り込む前の rid と fnv の 8 字、段 5・8 の両方で依頼した回数）と、notices に
+// 足しうる行の最悪の形（依頼の数の上限 f1a・f1b・f2a・f2b の取り込みの行と、FORMAL_OFF_NOTICE の 1 行の長い方）。worstNextArgsChars が足す。
+// この足し分で、tests の NextArgsBudget.ITEMS_N は 32 から 30 に下がった（実測: 31 項目の段 8（existing・当て損ね 7 件）の最悪の形が 8059 字で
+// 上限を超え、30 項目で 7932 字に収まる）。測った値で決まる境界なので、欄か行の形を変えたら測り直す。
+const FORMAL_WORST = { formal: { rid: 'f9b', fnv: 'x'.repeat(8) }, formal_by: { 5: 1, 8: 1 } }
+const FORMAL_WORST_NOTICES = (() => {
+  const entry = ['f1a', 'f1b', 'f2a', 'f2b'].map((rid) => formalEntryNotice(rid, 'result'))
+  return jsonChars(entry) >= jsonChars([FORMAL_OFF_NOTICE]) ? entry : [FORMAL_OFF_NOTICE]
+})()
+// worstNextArgsChars: next_args を、その段（from）の再実行の最悪の形にした字数（tests の NextArgsBudget._chars と同じ測り方。tests が照合する）。
+// 再実行を重ねると tx の try と restore が伸び、flow を書く段（段 8 のほか）では tx.flow（flow の digest）が付く。形式検証の欄は FORMAL_WORST の形で足す。
+function worstNextArgsChars(a) {
+  const tx = (a.state && a.state.tx) || {}
+  const worst = { ...tx, stage: a.from, try: 9, restore: `t${tx.seq}r8`, ...(a.from === '8' ? {} : { flow: 'f'.repeat(64) }) }
+  return jsonChars({ ...a, state: { ...a.state, tx: worst, ...FORMAL_WORST, notices: [...((a.state && a.state.notices) || []), ...FORMAL_WORST_NOTICES] } })
+}
+
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -389,6 +432,7 @@ function fnv(text) {
 // ENV_ARGS: 司令塔が next_args で変えてよい欄（run のデータではない環境。どれを変えてよいかは references/workflow-io.md §3）。
 // nextArgsHash はこれと state_hash の外をすべて覆う。state だけを覆うと workspace・existing_docs・from の写し間違いが通る。
 // 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（この script がそう読むので、打ち直しで [] を落としても意味は変わらない）。
+// formal（args.formal）は最初の呼び出しで決め、途中で変えない（SKILL.md「## 中継」）。ここに入れず state_hash に数えるので、変えた next_args は止まる。
 const ENV_ARGS = ['skillDir', 'role_opts']
 // RESUME_ARGS: resumeFromRunId で呼び直すときに元の run の args へ足す欄。next_args には載らないので hash の外に置く（入れると、next_args から
 // 始めた run の resume が state_hash で止まる）。
@@ -408,11 +452,11 @@ function reRaised(prevFindings, prevAgain, findings, state, changed) {
     if (f && ids && ids.length) ruled[key(f)] = uniq([...(ruled[key(f)] || []), ...ids])
   }
   for (const f of prevFindings || []) add(f, rulings[f && f.id])
-  // このパスの段 6 に渡した decision の指摘の裁定は、この段 7 で渡した。それ以外（前のパスの再出・尽きた項目の持ち越し）の裁定は前に渡し終えている。
-  const decided = new Set(pendingView(state.pending, state.item_routes).decision)
+  // このパスの段 6 に渡した decision の指摘の裁定は、この段 7 で渡した。それ以外（前のパスの再出）の裁定は前に渡し終えている。
+  const decided = new Set(pendingView(state.pending).decision)
   const given = new Set((prevFindings || []).filter((f) => f && decided.has(f.id) && rulings[f.id]).map(key))
   for (const f of prevAgain || []) add(f, f && f.rulings)
-  const bundled = new Set(pendingView(state.pending, state.item_routes).bundles.map(itemKey))
+  const bundled = new Set(pendingView(state.pending).bundles.map(itemKey))
   const onlyRuling = (f) => !((changed || {})[f.doc] || []).includes(f.item_id) || (!bundled.has(itemKey(f)) && given.has(key(f)))
   return (findings || [])
     .filter((f) => f && f.id && ruled[key(f)] && onlyRuling(f))
@@ -427,11 +471,11 @@ function recurringItems(prevFindings, findings, again) {
   return uniq([...blockingItems(findings)].filter((k) => before.has(k)))
 }
 
-// routeRecurring: 回数で打ち切らず、改稿で直らない項目の経路を decision → hold → 尽きた、と進める。
-function routeRecurring(recurring, state) {
-  const nextOf = { decision: 'hold', hold: 'exhausted', exhausted: 'exhausted' }
+// routeRecurring: 改稿で直らない項目（再発）は writer に回さず、裁定（decision）に回す。裁定の後にまた再発した項目は、MAX_AUDIT_PASSES で
+// 輪を出た後の finalHold が保持規則と Issue の文案にする。
+function routeRecurring(recurring) {
   const out = {}
-  for (const k of recurring || []) out[k] = nextOf[(state.item_routes || {})[k]] || 'decision'
+  for (const k of recurring || []) out[k] = 'decision'
   return out
 }
 
@@ -467,40 +511,13 @@ function settledFlowFindings(pendingFindings, state, before, recurring) {
   return uniq((pendingFindings || []).filter((f) => f && toFlow(f) && closed.has(f.id)).map((f) => f.id))
 }
 
-function rolesByItem(history, findings, role) {
-  const out = JSON.parse(JSON.stringify(history || {}))
-  for (const f of findings || []) {
-    if (!f || !f.item_id) continue
-    out[f.item_id] = uniq([...(out[f.item_id] || []), role])
-  }
-  return out
-}
-
-// scopedAuditPlan: grounding は新しく入った規範文を見るので、変えた文書すべてに起動する。先頭を指名するのは、
-// 改稿の後は必ず 1 体以上起動し、木全体の diff の照合が飛ばないため。
-function scopedAuditPlan(changes, roles) {
-  const plan = []
-  const docs = Object.keys(changes || {}).sort()
-  let crossItems = []
-  for (const doc of docs) {
-    const items = uniq(changes[doc])
-    plan.push({ role: 'grounding', doc, items })
-    const im = items.filter((i) => (roles[i] || []).includes('implementer'))
-    if (im.length) plan.push({ role: 'implementer', doc, items: im })
-    crossItems = crossItems.concat(items.filter((i) => (roles[i] || []).includes('crossDoc')))
-  }
-  if (crossItems.length) plan.push({ role: 'crossDoc', doc: 'all', items: uniq(crossItems) })
-  if (plan.length) plan[0].designated = true
-  return plan
-}
-
-// undeclaredChanges: 生成した側だけに検証の範囲を決めさせないため、申告に無い項目には監査を追加で起動する。
+// undeclaredChanges: 生成した側だけに検証の範囲を決めさせないため、申告に無い項目も監査の範囲に入れる。
 function undeclaredChanges(diff, declared) {
   const all = uniq([...((diff && diff.changed) || []), ...((diff && diff.added) || []), ...((diff && diff.removed) || [])])
   return minus(all, declared)
 }
 
-// undeclaredByDoc: 監査は文書単位で起動するので、木全体の集合だけでは、何も申告しなかった単位の文書に監査が届かない。
+// undeclaredByDoc: 申告は単位ごとなので、木全体の集合だけでは、何も申告しなかった単位の文書の変更を文書に結び付けられない。
 function undeclaredByDoc(diff, changes, targetDocs) {
   const byDoc = diff && diff.by_doc
   const out = {}
@@ -554,7 +571,7 @@ function planCheckOf(text) {
 const unitsOf = (pc) => pc.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
 
 // rulingRows: doc_check flow --rulings の resolutions（ruling・has_answer・verdict・fail_kind の組ごとに束ねたもの。束ね方は doc_check の rulingsCompact）を
-// resolution ごとの行 {id, about, ruling, has_answer, verdict}（不合格は fail_kind も）に戻す。形の外の組が 1 つでもあれば null。並びは ID の番号順にする
+// resolution ごとの行 {id, about, ruling, has_answer, verdict}（不合格は fail_kind も、仕様の論点の問いは spec_layer: true も）に戻す。形の外の組が 1 つでもあれば null。並びは ID の番号順にする
 // （束ねた順のままだと、合否が変わっただけで行の並びが変わり、state の holds・questions の並びと next_args が揺れる）。
 const VERDICTS = ['pass', 'fail', null]
 const isMap = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x)
@@ -567,9 +584,10 @@ function rulingRows(groups) {
   const rows = []
   for (const g of groups) {
     if (!isMap(g) || typeof g.has_answer !== 'boolean' || !VERDICTS.includes(g.verdict) || Object.hasOwn(g, 'fail_kind') !== (g.verdict === 'fail') || !isMap(g.about)) return null
+    if (Object.hasOwn(g, 'spec_layer') && g.spec_layer !== true) return null
     for (const [id, about] of Object.entries(g.about)) {
       if (about !== null && !isMap(about)) return null
-      rows.push({ id, about, ruling: g.ruling ?? null, has_answer: g.has_answer, verdict: g.verdict, ...(g.verdict === 'fail' ? { fail_kind: g.fail_kind } : {}) })
+      rows.push({ id, about, ruling: g.ruling ?? null, has_answer: g.has_answer, verdict: g.verdict, ...(g.verdict === 'fail' ? { fail_kind: g.fail_kind } : {}), ...(g.spec_layer ? { spec_layer: true } : {}) })
     }
   }
   if (new Set(rows.map((x) => x.id)).size !== rows.length) return null
@@ -582,7 +600,7 @@ function rulingRows(groups) {
 function flowCheckOf(text, rulings = false) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  if (!ok || !['answer_holds', 'unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
+  if (!ok || !['answer_holds', 'unverified', 'failed_current', 'open_only', 'stale_refs', 'unsettled_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
   const rows = o.resolutions === undefined ? undefined : rulingRows(o.resolutions)
   if (rows === null || (rulings && !rows)) return null
   if (!o.answer_holds.every((x) => x && typeof x.id === 'string' && typeof x.file === 'string' && Number.isInteger(x.from) && Number.isInteger(x.to))) return null
@@ -633,8 +651,7 @@ function questionsDefect(text, ids) {
 // REQUIRES: from の入口ごとに、state に要る値。script はファイルを読めないので、ここに無ければ再開できない。
 const REQUIRES = {
   1: [],
-  2: ['units', 'plan_sha256'],
-  3: ['units', 'flow_digest'],
+  3: ['units', 'flow_digest', 'plan_sha256', 'covers'],
   '3a': ['units', 'flow_digest', 'gate', 'gates', 'questions'],
   '3b': ['units', 'flow_digest', 'gate', 'gates', 'questions'],
   4: ['units', 'flow_digest'],
@@ -643,7 +660,7 @@ const REQUIRES = {
   "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'gates', 'questions'],
   7: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
   8: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'revised'],
-  9: ['units', 'tree_digest'],
+  9: ['units', 'tree_digest', 'pending'],
 }
 function stateErrors(from, state) {
   if (!Object.prototype.hasOwnProperty.call(REQUIRES, from)) return [`from "${from}" は段の境界ではありません（${Object.keys(REQUIRES).join(' / ')}）`]
@@ -670,7 +687,8 @@ const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
-const SKIP = { unchanged: 'unchanged', carriedOnly: 'carried_only' }
+// no_formal_target: 段 5・8 の formal-request の送る単位が 0（step は formal-method:<rid>）。formal_unavailable: args.formal が false（step は formal-method）。
+const SKIP = { unchanged: 'unchanged', low_only: 'low_only', no_formal_target: 'no_formal_target', formal_unavailable: 'formal_unavailable' }
 const SKIP_FACTS = Object.values(SKIP)
 const skipped = []
 
@@ -738,23 +756,33 @@ const ABOUT = {
 }
 const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, about: ABOUT }, required: ['id', 'about'] } }
 
-const INTAKE_SCHEMA = { type: 'object', properties: { plan_check: STR }, required: ['plan_check'] }
-
-const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
-const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, required: ['restore_check'] }
+const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR, answers_check: STR, formal_status: STR }, required: ['flow_check'] }
+// FORMAL_CHECK_SCHEMA: 段 5・8 の本体の最初に flow-check が実行する doc_check formal-request の stdout。
+const FORMAL_CHECK_SCHEMA = { type: 'object', properties: { formal_check: STR }, required: ['formal_check'] }
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
-const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
-const STASH_SCHEMA = { type: 'object', properties: { stash_check: STR, unstash_check: STR, flow_check: STR } }
 const RECOPY_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, stash_check: STR, unstash_check: STR, doc_check: STR, tree_digest: STR },
+  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR, quotes: STR, formal_check: STR, formal_status: STR },
 }
 
-const FLOW_SCHEMA = {
+// PLANNER_SCHEMA: 流れと裁定を同じ起動で行う planner の返り値（流れの stdout と §resolver の裁定の欄。routes は持たない）。flow_check・conflicts_check は
+// 裁定の前に実行した stdout、plan_check は planner:1 の仕分けの stdout、questions_check は回答待ちの問いとこの起動の問いを合わせた 1 回の検査。
+const PLANNER_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, questions_check: STR, plan_check: STR },
-  required: ['flow_check', 'conflicts_check'],
+  properties: {
+    flow_check: STR,
+    conflicts_check: STR,
+    plan_check: STR,
+    questions_check: STR,
+    ruled: RULED,
+    questions: RULED,
+    holds: RULED,
+    supersedes: STRS,
+    free_text: STRS,
+    resolutions_sha256: STR,
+  },
+  required: ['flow_check', 'conflicts_check', 'ruled', 'questions', 'holds', 'supersedes', 'free_text', 'resolutions_sha256'],
 }
 
 const RESOLVER_SCHEMA = {
@@ -775,7 +803,7 @@ const RESOLVER_SCHEMA = {
 }
 
 // FAIL_KINDS: verifier の不合格の種類（意味は契約「## 決定の台帳」の verifications.json）。decidable だけが決める出典（source）を持つ。
-const FAIL_KINDS = ['value_as_method', 'not_reproduced', 'insufficient_grounds', 'mapping', 'decidable']
+const FAIL_KINDS = ['value_as_method', 'not_reproduced', 'insufficient_grounds', 'mapping', 'decidable', 'layer']
 const VERIFIER_SCHEMA = {
   type: 'object',
   properties: {
@@ -790,6 +818,8 @@ const VERIFIER_SCHEMA = {
     },
     resolutions_sha256: STR,
     flow_check: STR,
+    // plan_check: 段 3 の最初の検証だけが返す doc_check plan の stdout（planner:1 の plan の照合。PLAN_LINE）。
+    plan_check: STR,
   },
   required: ['pass', 'fail', 'resolutions_sha256', 'flow_check'],
 }
@@ -808,14 +838,16 @@ const WRITER_SCHEMA = {
     applied_findings: STRS,
     applied_routes: STRS,
     resolutions_sha256: STR,
+    backup_check: STR,
   },
-  required: ['unit', 'docs', 'changed_items', 'open_tbd', 'new_tbd', 'applied_findings', 'applied_routes', 'resolutions_sha256'],
+  required: ['unit', 'docs', 'changed_items', 'open_tbd', 'new_tbd', 'applied_findings', 'applied_routes', 'resolutions_sha256', 'backup_check'],
 }
 
 const AUDIT_SCHEMA = {
   type: 'object',
   properties: {
     path: STR,
+    rejected: STRS,
     findings: {
       type: 'array',
       items: {
@@ -850,6 +882,7 @@ const AUDIT_SCHEMA = {
         diff_error: STR,
         audited: STR,
         tree_digest: STR,
+        quotes: STR,
       },
     },
   },
@@ -871,14 +904,16 @@ const badDocs = EXISTING.filter((d) => !d || typeof d !== 'object' || typeof d.k
 if (badDocs.length) throw new Error(`args.existing_docs の要素は { key: "<requirements|specifications>/<topic>"（${DOC_KEY.source}）, fixed: true|false } です（合わない要素の key: ${badDocs.map((d) => String(d && d.key)).join(', ')}）`)
 if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" には args.existing_docs（W に置いた既存文書のキーと fixed）が要ります`)
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
+// FIXED_SHA_CHARS: 照合に持つ sha256 の桁数（48 bit）。所有表の外の書き込みを見つけるためのもので、衝突を狙う書き手は想定しない。
+const FIXED_SHA_CHARS = 12
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, STASH_SCHEMA, RECOPY_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { FLOW_CHECK_SCHEMA, FORMAL_CHECK_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, RECOPY_SCHEMA, PLANNER_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
     ...Object.entries(SCHEMAS).flatMap(([name, schema]) => schemaDefects(schema, name)),
-    ...Object.entries(OPTS).map(([role, o]) => callDefect('-', { ...o, schema: INTAKE_SCHEMA, phase: 'Intake', label: role }, KNOWN_CALL)).filter(Boolean),
+    ...Object.entries(OPTS).map(([role, o]) => callDefect('-', { ...o, schema: PLANNER_SCHEMA, phase: 'Intake', label: role }, KNOWN_CALL)).filter(Boolean),
   ]
   if (defects.length) throw new Error(`script の欠陥（schema か役の opts。prd-spec.js を直すまで run を続けない）: ${defects.join(' / ')}`)
 }
@@ -900,16 +935,27 @@ const startErrors = stateErrors(FROM, state)
 if (state.gate !== undefined && state.gates === undefined) startErrors.push('state.gate があるのに state.gates がありません（ゲートを開いた数を持たない版の next_args です。S0 から流し直してください）')
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
 // 固定の文書の照合の基準は段 1 の入口の reset だけが作る。基準の無い run を通すと、照合が黙って飛ぶ。
-if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canonicalText(FIXED_KEYS)) {
-  throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256）が existing_docs と合いません。返った next_args を変えずに渡すか、段 1 から始めてください`)
+if (FROM !== '1' && !(Array.isArray(state.fixed_sha) ? state.fixed_sha.length === FIXED_KEYS.length && state.fixed_sha.every((v) => typeof v === 'string' && v) : !FIXED_KEYS.length)) {
+  throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256 の先頭 ${FIXED_SHA_CHARS} 桁を、キーの辞書順に並べた配列）が existing_docs と合いません。${Array.isArray(state.fixed_sha) ? '返った next_args を変えずに渡すか、段 1 から始めてください' : '固定の文書の sha256 をキーとの組で持つ版の next_args です。段 1 から始めてください'}`)
 }
 
-const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
+if (input.formal !== undefined && input.formal !== false) throw new Error(`args.formal は false だけを受け付けます（formal-method を使わないとき。使うときは欄を付けない）: ${canonicalText(input.formal)}`)
+// existing_docs の source は、書き換えてよい文書の分だけを next_args に写す。script は source を読まないが、司令塔の保存の段（SKILL.md「保存と
+// 事後報告」の 3）は、セッションをまたいで next_args から再開しても、改訂した文書を source に書き戻す。固定の文書は保存しないので写さない。
+// 全部を写すと既存の文書の数だけ絶対パスが字数を使い、文書の多い run で延長のゲートが上限を超えて開けなくなる（実測: 固定の 18 本で約 1,900 字）。
+const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING.map((d) => (d.fixed || d.source === undefined ? { key: d.key, fixed: d.fixed } : { key: d.key, source: d.source, fixed: d.fixed })), role_opts: input.role_opts || {}, ...(input.formal === false ? { formal: false } : {}) }
 const argsFrom = (from, st) => {
   const out = { ...BASE_ARGS, from, state: JSON.parse(JSON.stringify(st)) }
   return { ...out, state_hash: nextArgsHash(out) }
 }
 const nextArgs = (from) => argsFrom(from, state)
+// extensionOver: 延長のゲート（from 3a'、ゲートを 1 つ開いた state）で返すことになる next_args が上限を超えるか。st は延長の段 6 の入口の state。
+// 段の token（tx）は、ゲートを開く段 6 の seq（段 8 から測るときは次の段の分）を 1 つ先に見積もる（桁が増える向き。延長しない側に倒す）。
+const extensionOver = (st) => {
+  const seq = ((st.tx || {}).seq || 0) + 1
+  return worstNextArgsChars(argsFrom("3a'", { ...st, tx: { ...(st.tx || {}), seq }, gates: (st.gates || 0) + 1, gate: `g${(st.gates || 0) + 1}` })) >= NEXT_ARGS_MAX_CHARS
+}
+const OVER_WHY = `延長すると next_args が打ち直しの上限（NEXT_ARGS_MAX_CHARS = ${NEXT_ARGS_MAX_CHARS}）を超えるので延長しない`
 
 let running = null
 let entryState = null
@@ -922,7 +968,7 @@ if (RESUME_TX && !(Number.isInteger(RESUME_TX.try) && RESUME_TX.try > 0)) throw 
 // txTry は state.tx に置かない（段を出た後の next_args を止まらなかった run と同じにする）。
 let txTry = 0
 const txToken = () => `t${state.tx.seq}${txTry ? `r${txTry}` : ''}`
-const TX_ROLES = ['intake', 'flowFramer', 'resolver', 'verifier', 'writer']
+const TX_ROLES = ['planner', 'resolver', 'verifier', 'writer']
 
 // failedCalls: 結果を返さずに終わった agent() の数。resume は完了した agent を保存された結果で返すので、失敗した agent が無い blocked を
 // resume すると同じ結果を同じ所で返す（resumable が false）。
@@ -950,6 +996,8 @@ function finish(status, extra) {
     passes: state.pass || 0,
     item_routes: state.item_routes || {},
     skipped,
+    // formal_off: formal: false の run が report に渡す値（司令塔が doc_check report --formal-off に渡す。SKILL.md「## 保存と事後報告」）。
+    ...(input.formal === false ? { formal_off: true } : {}),
     ...extra,
   }
   const retry = Boolean(out.next_args) && (failedCalls > 0 || out.stop_reason === 'budget')
@@ -958,9 +1006,9 @@ function finish(status, extra) {
 // blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す（W は再実行の入口の restore で段に入った時点に戻る）。
 // tx.flow は止まった run が最後に照合を通した flow の版で、段に入った時点の版と同じなら載せない（next_args の上限）。
 // 入口の restore が返る前に止まったら W は戻っていないかもしれないので、前の回の戻す token と版を渡し直す。
-// tx.flow を読むのは restore が flow.json を戻したときの照合だけなので、flow を書く役のいない段（段 2 と settle を持つ段の外）には載せない。
+// tx.flow を読むのは restore が flow.json を戻したときの照合だけなので、flow を書く役のいない段（settle を持つ段の外）には載せない。
 let restorePending = Boolean(RESUME_TX)
-const writesFlow = (stage) => stage === '2' || Object.hasOwn(ASKS, stage)
+const writesFlow = (stage) => Object.hasOwn(ASKS, stage)
 const rerunFlow = () => (!writesFlow(running) ? undefined : restorePending ? RESUME_TX.flow : state.flow_digest !== entryState.flow_digest ? state.flow_digest : undefined)
 const rerunTx = () => {
   const flow = rerunFlow()
@@ -981,15 +1029,20 @@ const fileKey = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '__')
 // header: 作業用ディレクトリは起動の label ごとに分ける。役と段の組で分けると、同じ波の writer や文書ごとの
 // 監査役が同じディレクトリを使い、片方の後片付けが他方の作業中のファイルを消す。
 // 行は run の中で変わらないもの → 役で決まるもの → 呼び出しで決まるものの順に並べる。前半が同じ呼び出しどうしは prompt の先頭が揃い、
-// キャッシュが効く。
-function header(role, stage, label) {
+// キャッシュが効く。jobs: planner の仕事の列（1 つなら今の節を指す文、2 つ以上なら続けて行う順）。
+const jobLine = (jobs) =>
+  jobs.length > 1
+    ? `仕事: ${jobs.join(' → ')}（同じ体で続けて行う。agents/planner.md の「## 続けて行う仕事」と各仕事の節）`
+    : `仕事: ${jobs[0]}（agents/planner.md の「## ${jobs[0]}」の節）`
+function header(role, stage, label, jobs = JOB[role] ? [JOB[role]] : []) {
   return [
     `W（workspace）: ${W}`,
     `SKILL_DIR: ${SKILL_DIR}`,
     `entry: ${ENTRY}`,
     `台帳を ID で引くとき: \`${GET_TEMPLATE}\`（台帳の名前と欄: \`${cli('describe')}\`）`,
     `台帳を全件読むとき: \`${VIEW_TEMPLATE}\``,
-    `最初の 1 ターンで ${SKILL_DIR}/agents/${ROLE_FILES[role]}.md の Read と ${contractCmds(role)} を並べて実行する。前者の指示に従い、ファイルと返り値の形は後者の stdout をつなげた契約の節を正とする。`,
+    `最初の 1 ターンで ${SKILL_DIR}/agents/${ROLE_FILES[roleOf(role)]}.md の Read と ${contractCmds(roleOf(role))} を並べて実行する。前者の指示に従い、ファイルと返り値の形は後者の stdout をつなげた契約の節を正とする。`,
+    ...(jobs.length ? [jobLine(jobs)] : []),
     `段: ${stage}`,
     `作業用ディレクトリ: ${W}/tmp/${fileKey(label)}/`,
     ...(TX_ROLES.includes(role)
@@ -1016,7 +1069,7 @@ function pointedLines(items) {
   if (!got.length) return ''
   const ids = uniq(got.flatMap((x) => x.grounds.map((g) => g.id)))
   return [
-    `指された根拠（同じ要素・不変条件・項目に触れる、根拠にしてよい resolution。値は \`${getCli('resolutions', ids)} --fields id,ruling,value\` で読む。扱いは resolver.md の「指された根拠」）:`,
+    `指された根拠（同じ要素・不変条件・項目に触れる、根拠にしてよい resolution。値は \`${getCli('resolutions', ids)} --fields id,ruling,value\` で読む。扱いは planner.md の「指された根拠」）:`,
     ...got.map((x) => `- ${x.key}: ${x.grounds.map((g) => `${g.id}（${g.about || 'about なし'}）`).join('、')}`),
   ].join('\n')
 }
@@ -1046,7 +1099,7 @@ function domainAssessmentNote() {
 }
 
 // CONTRACT_PARTS: doc_check の CONTRACT_PARTS と同じ（tests が照合する）。契約の節は Bash の出力の上限ごとに分かれて出るので、全部を同じターンに並べる。
-const CONTRACT_PARTS = 2
+const CONTRACT_PARTS = 3
 const contractCmds = (role) => Array.from({ length: CONTRACT_PARTS }, (_, i) => `\`${cli('contract', `--role ${ROLE_FILES[role]} --part ${i + 1}`)}\``).join('・')
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 const GET_TEMPLATE = cli('get', '--ledger <台帳> --ids <ID,…>')
@@ -1054,14 +1107,11 @@ const VIEW_TEMPLATE = cli('view', '--ledger <台帳> [--fields <欄,…>]')
 const getCli = (ledger, ids) => cli('get', `--ledger ${ledger} --ids ${ids.join(',')}`)
 const FINDINGS_READ = `中身の読み方は契約の「### 指摘の形」。ファイルは ${W}/findings/`
 const questionsCheck = (ids) => cli('questions', `--ids ${ids.join(',')} --check`)
-// recheckWaiting: flow-framer が flow を書き換えると、回答待ちの問いの候補の flow_refs が消えた要素を指しうる（ゲートで司令塔の doc_check questions が
-// 止まり、戻る段が無い）。flow を書く同じ呼び出しに検査させ、checkQuestions に渡す。
-const recheckWaiting = (ids) => (ids.length ? `続けて \`${questionsCheck(ids)}\` を実行する（返し方は §flow-framer の返り値）。` : '')
 const RULINGS_FLOW = cli('flow', '--rulings')
 
 // unchecked: 最後の独立な doc_check flow（verifier か flow-check が実行したもの）より後に起動した resolver の label と stdout。
 // resolver はどの呼び出しでも台帳を書き、台帳の kind・supersedes・hold は flow.json を変えずに flow の指摘と stale_refs を変える。
-// 印は起動の前に付ける（書いてから応答しなかった resolver:final の後も flow-check が数え直す。ほかの呼び出しの null は段を止める）。判断に使う stdout は independentFlow だけが返し、
+// 印は起動の前に付ける（書いてから応答しなかった resolver:final の後も flow-check が数え直す。ほかの呼び出しの null は段を止める）。判断に使う stdout は independentFlow と、問いへの変換の後の verifier（convertFailed）が返し、
 // 段の境界で印が残っていれば止める（段を回す loop）。
 // 呼び出しの場所ごとに flow-check を足す形にすると、足し忘れた呼び出しの後の判断が resolver の自己申告で決まる。
 // ownsFlow: flow.json を書ける resolver の cycle で verifier を外した（unchanged）。flow-check が版の食い違いを見つけても所有表の外の書き込みとは限らず、
@@ -1165,26 +1215,29 @@ async function call(prompt, opts) {
 // issue: 返り値の無い呼び出しは null で返す（段を止めずに続ける呼び出しは finalHold だけ）。
 // resolutions_sha256 の無い resolver の返り値を受け取ると、verifier・writer との照合が黙って飛ぶ。出し直すと
 // 済んだ put（flow の put / del を含む）を二重に走らせるので、段を頭からやり直させる。
+// planner（流れと裁定を同じ起動で行う）は裁定の欄の検査を resolver と同じく受けるが、unchecked の印は付けない（後に必ず verifier が起動する）。
+// 聞ける段の指定の外の hold は takeRulings が段の state のもとで書き換え直させる。
 async function issue(label, role, prompt, schema, phaseTitle, cmds) {
+  const rules = role === 'resolver' || role === 'planner'
   if (role === 'resolver') unchecked = { tag: label.replace(/^resolver:/, ''), responded: false, claimed: null }
-  if (role === 'resolver' || role === 'flowFramer') {
+  if (rules) {
     seen = null
     wrote = true
   }
-  const got = await call(prompt, { ...OPTS[role], schema, phase: phaseTitle, label })
+  const got = await call(prompt, { ...OPTS[roleOf(role)], schema, phase: phaseTitle, label })
   if (!got && budgetOut()) throw budgetStop(label)
   const r = got && (await recopy(label, got, { ...copyCmds(role), ...cmds }, phaseTitle))
   if (r && role === 'resolver') unchecked = { ...unchecked, responded: true, claimed: flowCheckOf(r.flow_check) }
-  // flow を数え直さない flow-check（入口の reset・restore だけ、本文の控え）は印を消さない。
+  // flow を数え直さない flow-check（段 1 の入口の reset、単独の answers）は印を消さない。
   if (r && (role === 'verifier' || (role === 'flowCheck' && r.flow_check !== undefined))) unchecked = null
-  if (r && role === 'resolver' && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: resolver が resolutions_sha256 を返しませんでした`), { rerunStage: true })
-  const badIds = r && role === 'resolver' ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
-  if (badIds.length) throw Object.assign(new Error(`${label}: resolver が resolution の ID の形（${RESOLUTION_ID.source}）に合わない ID を返しました: ${badIds.map((id) => `「${id}」`).join(', ')}`), { rerunStage: true })
+  if (r && rules && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: ${role} が resolutions_sha256 を返しませんでした`), { rerunStage: true })
+  const badIds = r && rules ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
+  if (badIds.length) throw Object.assign(new Error(`${label}: ${role} が resolution の ID の形（${RESOLUTION_ID.source}）に合わない ID を返しました: ${badIds.map((id) => `「${id}」`).join(', ')}`), { rerunStage: true })
   // 1 つの ID は 1 つの種類でしか返せない（問いと回答の両方で返すと、回答待ちか回答済みかが返り値から決まらない）。
-  if (r && role === 'resolver') noTwice(label, r)
+  if (r && rules) noTwice(label, r)
   const unordered = r && role === 'resolver' ? unorderedHolds(r) : []
   if (!unordered.length) return r || null
-  const stop = () => Object.assign(new Error(`${label}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(unordered)} を resolver が hold で返しました（聞ける段の価値の判断は question にする。resolver.md「## 裁定の種類」）`), { rerunStage: true })
+  const stop = () => Object.assign(new Error(`${label}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(unordered)} を resolver が hold で返しました（聞ける段の価値の判断は question にする。planner.md「### 裁定の種類」）`), { rerunStage: true })
   if (label.endsWith(TO_QUESTION)) throw stop()
   return holdsToQuestions(label, r, unordered, phaseTitle, stop)
 }
@@ -1201,7 +1254,7 @@ function noTwice(label, r) {
 const TO_QUESTION = '-toquestion'
 async function rewriteHolds(l, ids, checkIds, phaseTitle, stop) {
   const lines = ids.map((id) => `- ${id} → question`).join('\n')
-  const task = keepFlow(`この段では依頼者に聞けるので、script が指定していない hold は受け取れない。次の ID を、値を決めずに question（候補と影響を付ける）に書き換え直す（ID は変えない。欄の消し方は resolver.md の「差し戻し」）。返り値の questions にはこの ID だけを入れる。\n${lines}`)
+  const task = keepFlow(`この段では依頼者に聞けるので、script が指定していない hold は受け取れない。次の ID を、値を決めずに question（候補と影響を付ける）に書き換え直す（ID は変えない。欄の消し方は planner.md の「差し戻し」）。返り値の questions にはこの ID だけを入れる。\n${lines}`)
   const r2 = await issue(l, 'resolver', resolverPrompt(l, `${running}（hold を問いに）`, task, checkIds), RESOLVER_SCHEMA, phaseTitle, { questions_check: questionsCheck(checkIds) })
   if (!r2) throw notRun(l)
   if (onlyAsked(l, r2, ids, ['questions'])) throw stop()
@@ -1210,9 +1263,10 @@ async function rewriteHolds(l, ids, checkIds, phaseTitle, stop) {
 
 // holdsToQuestions: 返り値の指定の外の hold を書き換え直させ、その ID の分だけを返り値に写す（ほかの ID の裁定は最初の返り値のまま）。
 // flow_check は書き換え直しの stdout を使う（台帳が変わった後の指摘）ので、flow.json が同じ版かを確かめる（conflicts_check は最初の返り値のまま使う）。
-async function holdsToQuestions(label, r, ids, phaseTitle, stop) {
+// also: 同じ questions --check に含める回答待ちの問い（写した返り値の questions_check が、後の形の検査に足りるように）。
+async function holdsToQuestions(label, r, ids, phaseTitle, stop, also = []) {
   const l = `${label}${TO_QUESTION}`
-  const r2 = await rewriteHolds(l, ids, uniq([...idsOf(r, 'questions'), ...ids]), phaseTitle, stop)
+  const r2 = await rewriteHolds(l, ids, uniq([...idsOf(r, 'questions'), ...ids, ...also]), phaseTitle, stop)
   const [before, after] = [flowCheckOf(r.flow_check), flowCheckOf(r2.flow_check)]
   if (!after || (before && after.content_sha256 !== before.content_sha256)) {
     noteIntegrity(`${l} の後の flow.json（${after && after.content_sha256}）が、書き換え直す前の版（${before && before.content_sha256}）と違う`)
@@ -1238,7 +1292,9 @@ const orderHolds = (ids, abouts = []) => {
   for (const id of ids) holdOrders.ids.add(id)
   for (const k of abouts) holdOrders.abouts.add(k)
 }
-const asksNow = () => Object.hasOwn(ASKS, running) && ASKS[running]()
+// closing: finalHold に入った（輪を出て、残った論点を保持規則にする）。その後は依頼者に聞かない。
+let closing = false
+const asksNow = () => !closing && Object.hasOwn(ASKS, running) && ASKS[running]()
 // designatedHold: 聞ける段で resolver が新しく hold にしてよい ID。script の指定（holdOrders）と、依頼者のその問いへの回答を根拠にした hold
 // （doc_check flow の answer_holds）。後者を問いに書き換えると、保留と答えた依頼者に聞き直す。unorderedHolds に渡す fc は resolver 自身の stdout なので
 // 早い書き換え直しは申告で飛びうる。台帳で決めるのは、独立な stdout を渡す adopt と段の出口の newHoldsInW である。
@@ -1303,7 +1359,7 @@ function absorbResolver(r, reRuled) {
   state.about = { ...(state.about || {}), ...about }
   const asked = (r.questions || []).map((x) => x.id)
   state.questions = minus(uniq([...(state.questions || []), ...asked]), reRuled ? (r.ruled || []).map((x) => x.id) : [])
-  // 問いとして返した ID は、前に回答が当たっていても今は回答待ちである（同じ ID の続きの問い。resolver.md の「回答の反映」）。
+  // 問いとして返した ID は、前に回答が当たっていても今は回答待ちである（同じ ID の続きの問い。planner.md の「回答の反映」）。
   if (asked.some((id) => (state.answered || []).includes(id))) state.answered = minus(state.answered, asked)
   state.holds = uniq([...(state.holds || []), ...(r.holds || []).map((x) => x.id)])
   state.superseded = uniq([...(state.superseded || []), ...(r.supersedes || [])])
@@ -1322,9 +1378,11 @@ function absorbResolver(r, reRuled) {
 // ledgerMoved: settle の flow-framer が返した後に台帳が変わったか（settle の外では null）。flow-framer の返した stdout は指摘 0 件でしか
 // 受け取らないので、変わっていればこの stdout の指摘は台帳の書き込みで出たもので、生成者に差し戻しても消えず settle の次の回に渡す。
 // 変わっていなければ生成者の過少申告である。
-function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMoved = null) {
+// planned: この cycle の planner の label（by）と裁定（ids）。verifier の stdout の unsettled_refs がそれを引けば、planner が検証を通っていない
+// 自分の裁定を flow に書いた（裁定を flow に写すのは検証の後の別の起動）。rerunFrom はその書き込みを戻せる段（段 3 の planner:1 は段 1）。
+function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMoved = null, planned = null) {
   const fc = flowCheckOf(v.flow_check, true)
-  if (!fc) return { error: `resolver-verifier（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
+  if (!fc) return { error: `plan reviewer（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
   if (fc.content_sha256 !== state.flow_digest) {
     noteIntegrity(`verifier（段 ${stage}）が検査した flow.json（${fc.content_sha256}）が、生成者が検査した版（${state.flow_digest}）と違う`)
     const noFixer = flowChecked ? '' : '。この段には flow を書く生成者がいないので、同じ段からやり直しても直らない。所有表の外で flow.json を書いたものを確かめる'
@@ -1336,6 +1394,12 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMov
   if (differ.length) {
     noteIntegrity(`${told.by} が申告した ${differ.join('・')} が、verifier（段 ${stage}）の doc_check flow の stdout と違う`)
     return { error: `段 ${stage}: 裁定に回した未裁定の論点（${differ.join('・')}）が、verifier が同じ flow.json で数えたものと違います（${told.by} の申告）`, rerun: true }
+  }
+  const own = planned ? fc.unsettled_refs.filter((x) => planned.ids.includes(x.ref)) : []
+  if (own.length) {
+    for (const x of own) noteIntegrity(`${planned.by} が、検証を通っていない裁定 ${x.ref} を要素 ${x.el} の出典に書いた（verifier（段 ${stage}）の doc_check flow の unsettled_refs）`)
+    const where = { ...(planned.rerunFrom ? { rerunFrom: planned.rerunFrom } : { rerun: true }) }
+    return { error: `段 ${stage}: ${planned.by} が、検証を通っていない自分の裁定を flow の要素の出典に書きました（${own.map((x) => `${x.el} ← ${x.ref}`).join(', ')}。裁定を flow に写すのは検証の後の別の起動）`, ...where }
   }
   const split = splitFlowFindings(fc, generator)
   if (split.unknown.length) return { error: `段 ${stage}: verifier の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${split.unknown.join(', ')}`, rerun: false }
@@ -1446,6 +1510,7 @@ function verifierPrompt(label, stage, ids, extra) {
     `根拠にしてよい resolution（合格・回答済み。decidable の source に挙げてよい）: ${list(usableResolutions(state))}`,
     `decidable の source の形（例）: ${DECIDING_EXAMPLE}`,
     VERIFY_ALL,
+    specOnly() ? '仕様書だけを書く run である。問いの `layer` を確かめる（plan-reviewer.md）。' : '',
     extra || '',
     `検証の最後に \`${RULINGS_FLOW}\` を実行し、stdout を加工せずに flow_check に入れる。`,
   ]
@@ -1503,13 +1568,16 @@ async function ruleAndVerify(stage, opt) {
   const phaseTitle = opt.phase
   const writesFlow = Boolean(opt.answered)
   const entryDigest = state.flow_digest
-  // framed: cycle の前に flow-framer が flow を書いた（3b-reframe）ときの台帳の版。resolver が書かなければその書き込みとして照合し、settle と同じく
-  // 台帳が動いたかで flow-framer の過少申告と台帳由来の指摘を分ける（null にすると過少申告が settle へ素通りする）。
+  // framed: cycle の前に planner が flow を書いた（planner:3b）ときの起動の前の台帳の版。resolver が書かなければその書き込みとして照合し、settle と同じく
+  // 台帳が動いたかで流れの仕事の過少申告と台帳由来の指摘を分ける（null にすると過少申告が settle へ素通りする）。
+  // given: 生成者（planner）が既に裁定し、state に取り込んだ ID（v1 に検証させる）。planned: その planner の label と裁定（unsettled_refs の照合）。
+  // flowFrom: flow.json を書いた前の段の planner（段 3 の planner:1）。v1 の flow がその返した版と違えば、この段の restore では戻らないので段 1 からやり直させる。
+  // checkPlan: v1 の返り値に当てる追加の照合（段 3 の plan）。wasQuestion: cycle の入口で回答待ちだった問い（planner の裁定を受け取る前に数えたもの）。
   const flowWriter = () => (state.flow_digest !== entryDigest ? 'resolver' : opt.framed ? 'flowFramer' : null)
   const ledgerMoved = () => (flowWriter() === 'flowFramer' ? state.resolutions_sha256 !== opt.framed.ledger : null)
-  const asTask = (t) => (writesFlow ? `${t}\n\ndoc_check flow の指摘のうち ${FRAMER_ONLY_CODES.join('・')} は触らない（${reflector(running)} が open.json に起票して直す。resolver.md の「回答の反映」）。` : keepFlow(t, '裁定を flow に写すのは flow-framer である'))
-  const wasQuestion = new Set(pendingQuestions(state))
-  let ids = []
+  const asTask = (t) => (writesFlow ? `${t}\n\ndoc_check flow の指摘のうち ${FRAMER_ONLY_CODES.join('・')} は触らない（${reflector(running)} が open.json に起票して直す。planner.md の「回答の反映」）。` : keepFlow(t, '裁定を flow に写すのは settle の planner である'))
+  const wasQuestion = opt.wasQuestion || new Set(pendingQuestions(state))
+  let ids = uniq(opt.given || [])
   let flowChecked = Boolean(opt.flowChanged)
   let returned = null
   let byOption = []
@@ -1518,7 +1586,7 @@ async function ruleAndVerify(stage, opt) {
   if (opt.task) {
     const label = `resolver:${stage}`
     const r = await once(label, 'resolver', resolverPrompt(label, stage, asTask(opt.task)), RESOLVER_SCHEMA, phaseTitle)
-    ids = absorbResolver(r, !writesFlow)
+    ids = uniq([...ids, ...absorbResolver(r, !writesFlow)])
     if (opt.targets) state.missed = uniq([...(state.missed || []), ...missedTargets(opt.targets, r)])
     const fe = await takeFlow(stage, r, phaseTitle, writesFlow, Boolean(opt.requireFlow))
     if (fe.error) return fe
@@ -1547,8 +1615,17 @@ async function ruleAndVerify(stage, opt) {
     return { ok: true, passed: [], kinds }
   }
   const v1 = await askVerifier(v1Label, `${stage}v`, ids, opt.verifyExtra || '', phaseTitle)
-  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter(), ledgerMoved())
+  const v1fc = opt.flowFrom ? flowCheckOf(v1.flow_check, true) : null
+  if (v1fc && v1fc.content_sha256 !== state.flow_digest) {
+    noteIntegrity(`verifier（段 ${stage}v）が検査した flow.json（${v1fc.content_sha256}）が、${opt.flowFrom} が返した版（${state.flow_digest}）と違う`)
+    return { error: `段 ${stage}v: verifier が検査した flow.json が、${opt.flowFrom} が doc_check flow で検査した版と違います（${opt.flowFrom} が返した後に flow.json が書かれた）。段 1 からやり直す`, rerunFrom: '1' }
+  }
+  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter(), ledgerMoved(), opt.planned)
   if (ve1) return ve1
+  if (opt.checkPlan) {
+    const pe = opt.checkPlan(v1)
+    if (pe) return pe
+  }
   let verified = flowCheckOf(v1.flow_check, true)
   if (!v1.fail.length) return { ok: true, passed: v1.pass, verified, kinds }
 
@@ -1559,7 +1636,7 @@ async function ruleAndVerify(stage, opt) {
   const r2 = await once(
     r2Label,
     'resolver',
-    resolverPrompt(r2Label, `${fix}（差し戻し）`, asTask([`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。`, reworkLines(v1.fail), pointedLines(ownItems(v1.fail.map((f) => f.id), state)), opt.answered ? answerExcerpt(state.gate, v1.fail.map((f) => f.id)) : '', `${askNote(opt.allowQuestions)}${DECIDABLE_NOTE}`].filter(Boolean).join('\n'))),
+    resolverPrompt(r2Label, `${fix}（差し戻し）`, asTask([`verifier が不合格にした項目だけを 1 回直す（planner.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。`, reworkLines(v1.fail), pointedLines(ownItems(v1.fail.map((f) => f.id), state)), opt.answered ? answerExcerpt(state.gate, v1.fail.map((f) => f.id)) : '', `${askNote(opt.allowQuestions)}${DECIDABLE_NOTE}`].filter(Boolean).join('\n'))),
     RESOLVER_SCHEMA,
     phaseTitle
   )
@@ -1609,8 +1686,12 @@ async function ruleAndVerify(stage, opt) {
 const reworkLines = (fails) => fails.map((f) => `- ${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}${f.kind === 'decidable' ? `（決める出典: ${f.source}）` : ''}`).join('\n')
 const askNote = (allowQuestions) =>
   allowQuestions
-    ? 'この段では依頼者に聞けるので、script が指定しない hold を作らない（根拠を補えない価値の判断は question にする）。'
-    : 'この段では依頼者に聞けないので、根拠を補えない価値の判断は question ではなく hold にする。'
+    ? `この段では依頼者に聞けるので、script が指定しない hold を作らない（根拠を補えない価値の判断は question にする）。${specOnly() ? `\n${SPEC_LAYER_NOTE}` : ''}`
+    : `この段では依頼者に聞けないので、根拠を補えない価値の判断は question ではなく hold にする。${specOnly() ? `\n${SPEC_REQ_NOTE}` : ''}`
+// SPEC_LAYER_NOTE: 仕様書だけを書く run の問いの layer。手段の問いだけを依頼者に聞き、ほかは要求文書の抜け（upstream_gap）にする（needsAnswers）。
+const SPEC_LAYER_NOTE = '仕様書だけを書く run: 問いには `layer` を付ける（契約 §resolver）。'
+// SPEC_REQ_NOTE: 聞けない段でも、仕様書だけを書く run の要求の論点は question のまま返させる（script が upstream_gap にする。requirementGap）。
+const SPEC_REQ_NOTE = '仕様書だけを書く run: `layer: 要求` の問いは hold にせず question のまま返す（契約 §resolver）。'
 const DECIDABLE_NOTE = 'decidable の項目は、その出典で値を決める。'
 
 // convertible: 差し戻しの後も落ちた裁定のうち、変換に回すもの。hold のまま落ちた保持規則は書き直し（reholdFailed）に回すが、decidable で
@@ -1626,11 +1707,11 @@ async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   const r = await once(
     label,
     'resolver',
-    resolverPrompt(label, `${owner}（差し戻し）`, keepFlow([`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」。理由は \`${getCli('verifications', ids)}\`）。`, reworkLines(fails), pointedLines(ownItems(ids, state)), answerExcerpt(state.gate, ids), `${askNote(allowQuestions)}${DECIDABLE_NOTE}`].filter(Boolean).join('\n'))),
+    resolverPrompt(label, `${owner}（差し戻し）`, keepFlow([`verifier が不合格にした項目だけを 1 回直す（planner.md の「差し戻し」。理由は \`${getCli('verifications', ids)}\`）。`, reworkLines(fails), pointedLines(ownItems(ids, state)), answerExcerpt(state.gate, ids), `${askNote(allowQuestions)}${DECIDABLE_NOTE}`].filter(Boolean).join('\n'))),
     RESOLVER_SCHEMA,
     phaseTitle
   )
-  const bad = onlyAsked(`${owner}-fix`, r, ids, ['ruled', ...answerKinds(allowQuestions)])
+  const bad = onlyAsked(`${owner}-fix`, r, ids, ['ruled', ...takenKinds(allowQuestions)])
   if (bad) return { error: bad }
   absorbResolver(r)
   const kept = flowKept(`${owner}-fix`, r)
@@ -1671,13 +1752,21 @@ async function independentFlow(verified, phaseTitle) {
   if (unknown.length) return { error: `段 ${tag}: flow-check の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${unknown.join(', ')}`, rerun: false }
   see(fc)
   // resolutions は --rulings、lint の欄は --lint の実行にだけ出るので、両側から外して比べる（付けて実行しても申告の食い違いにしない）。
-  const plain = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'resolutions' && !k.startsWith('lint')))
-  const [ran, said] = [plain(fc), claimed && plain(claimed)]
-  const differ = !responded ? [] : said ? uniq([...Object.keys(ran), ...Object.keys(said)].filter((k) => canonicalText(ran[k]) !== canonicalText(said[k]))) : ['stdout']
-  if (differ.length) noteIntegrity(`resolver（段 ${tag}）が返した doc_check flow の stdout が、flow-check が同じ flow.json で実行した stdout と ${differ.join('・')} で違う`)
+  if (responded) noteClaim(tag, claimed, fc, 'flow-check')
   if (!verified) return { fc }
   const stale = [...verified.stale_refs, ...fc.stale_refs.filter((x) => !verified.stale_refs.some((y) => y.el === x.el && y.ref === x.ref))]
   return { fc: { ...fc, open_only: verified.open_only, stale_refs: stale } }
+}
+
+// noteClaim: resolver の申告した doc_check flow の stdout（said）を、別の役が同じ flow.json で実行した stdout（fc）と欄ごとに照らす。
+// resolutions は --rulings、lint の欄は --lint の実行にだけ出るので、両側から外して比べる（付けて実行しても申告の食い違いにしない）。
+// drop: 照らさない欄（問いへの変換の後の verifier は verifications.json を put してから flow を実行するので、合否を読む欄は正当に違いうる）。
+const VERDICT_KEYS = ['unverified', 'failed_current', 'unsettled_refs', 'stale_refs']
+function noteClaim(tag, said, fc, who, drop = []) {
+  const plain = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'resolutions' && !k.startsWith('lint') && !drop.includes(k)))
+  const [ran, told] = [plain(fc), said && plain(said)]
+  const differ = told ? uniq([...Object.keys(ran), ...Object.keys(told)].filter((k) => canonicalText(ran[k]) !== canonicalText(told[k]))) : ['stdout']
+  if (differ.length) noteIntegrity(`resolver（段 ${tag}）が返した doc_check flow の stdout が、${who} が同じ flow.json で実行した stdout と ${differ.join('・')} で違う`)
 }
 
 // unreturned: 求めた ID を resolver が求めた種類で返したか。台帳の集合に入れる前に確かめる。返らない ID はどの検証にも変換にも
@@ -1702,6 +1791,9 @@ function onlyAsked(stage, r, asked, kinds) {
 // answerKinds: 値を決めずに返す種類。聞けない段の question は、聞くゲートにも保持規則への変換（holdLeft は段の最後に 1 回）にも
 // 届かないまま回答待ちで残るので、聞けない段の settle の中の resolver からは受け取らない。
 const answerKinds = (allowQuestions) => (allowQuestions ? ['questions', 'holds'] : ['holds'])
+// takenKinds: 裁定の呼び出し（段の本体・settle・差し戻し）から受け取る種類。仕様書だけを書く run では、聞けない段でも question を受け取る
+// （要求の論点を段の出口で upstream_gap にするため。仕様の論点の問いは段の最後の holdLeft が保持規則にする）。変換は指定どおりの種類だけ。
+const takenKinds = (allowQuestions) => answerKinds(allowQuestions || specOnly())
 
 function outsideKinds(stage, r, kinds) {
   const extra = uniq(['ruled', 'questions', 'holds'].filter((k) => !kinds.includes(k)).flatMap((k) => idsOf(r, k)))
@@ -1759,13 +1851,14 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
   if (qe) return qe
   const questions = todo.filter((f) => to(f) === 'question').map((f) => f.id)
   if (!questions.length) return null
-  const checked = await independentFlow(null, phaseTitle)
-  if (checked.error) return checked
-  if (!checked.fc) return { error: `段 ${stage}: 問いへの変換後に resolver の doc_check flow を独立に確認できませんでした`, rerun: false }
+  // 問いへの変換の後は flow-check で数え直さず、直後の verifier の stdout を判断に使う（absorbVerifier が版・符号・see を行う）。
+  // resolver の申告は verifier の issue が unchecked を消す前に取り、verifier の put で変わらない欄で照らす（VERDICT_KEYS を外す）。
+  const claim = unchecked && unchecked.responded ? { tag: unchecked.tag, said: unchecked.claimed } : null
   const labelV = `verifier:${owner}-convertv`
   const v = await askVerifier(labelV, `${owner}v（問いへの変換）`, questions, '', phaseTitle)
   const ve = absorbVerifier(v, state.resolutions_sha256, `${owner}-convertv`, false, null)
   if (ve) return ve
+  if (claim) noteClaim(claim.tag, claim.said, flowCheckOf(v.flow_check, true), `verifier（段 ${owner}-convertv）`, VERDICT_KEYS)
   const rejected = v.fail.filter((f) => questions.includes(f.id))
   if (rejected.length) {
     return { error: `段 ${stage}: 問いへの変換後も関連性・根拠の検証に落ちました（${rejected.map((f) => `${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}`).join(' / ')}）。条件を満たす質問として確認できるまで依頼者に提示できません`, rerun: false }
@@ -1810,7 +1903,7 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
   const tag = opens.length ? 'opens' : 'pairs'
   const label = `resolver:${owner}-${tag}`
   const task = [
-    `flow を変えた後に、まだ裁定の無い論点がある。これだけを裁定する（resolver.md の「flow を変えた後の未裁定の論点」）。`,
+    `flow を変えた後に、まだ裁定の無い論点がある。これだけを裁定する（planner.md の「flow を変えた後の未裁定の論点」）。`,
     pairs.length ? `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}` : '',
     opens.length ? `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}（\`${getCli('open', opens.map((k) => k.slice(5)))}\`）` : '',
     pointedLines(issueItems([...opens, ...pairs])),
@@ -1819,7 +1912,7 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
     .filter(Boolean)
     .join('\n')
   const r = await once(label, 'resolver', resolverPrompt(label, `${owner}（未裁定の論点）`, keepFlow(task, '組と未決の裁定は flow を変えない')), RESOLVER_SCHEMA, phaseTitle)
-  const outside = outsideKinds(`${owner}-${tag}`, r, ['ruled', ...answerKinds(allowQuestions)])
+  const outside = outsideKinds(`${owner}-${tag}`, r, ['ruled', ...takenKinds(allowQuestions)])
   if (outside) return { error: outside }
   const ids = absorbResolver(r)
   state.missed = uniq([...(state.missed || []), ...missedTargets([...opens, ...pairs], r)])
@@ -1830,12 +1923,14 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
   return { ids }
 }
 
-// frameRun: lint は flow を起草する段（2・3b-reframe）の flow-framer だけに付ける。settle の flow-framer は裁定を写すだけで、lint で要素を
-// 書き換えさせると <段>v-settle が検証する要素が増え、settle の収束（MAX_SETTLE_ROUNDS）が変わる。
+// frameRun: lint は flow を起草する planner（planner:1・planner:3b）だけに付ける。settle の planner は裁定を写すだけで、lint で要素を
+// 書き換えさせると <段>v-settle が検証する要素が増え、settle の収束（MAX_SETTLE_ROUNDS）が変わる。流れの仕事の後に同じ体が裁定するので、
+// 返す 2 つの stdout は裁定の前のもの（裁定で台帳から出る指摘を流れの仕事の不合格にしない）。
+const FLOW_THEN_RULE = '流れを閉じてから裁定に移る。裁定の後は flow.json・open.json・plan.json・decisions.json を書かない（その裁定を flow に写すのは、検証の後の別の起動）。'
 const frameRun = (lint) =>
   lint
-    ? `実行する: \`${cli('flow', '--lint')}\` を findings と lint の両方が 0 件になるまで（3 回まで。lint の直し方は ${W}/checks/flow.lint.json の fix）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`
-    : `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`
+    ? `実行する: \`${cli('flow', '--lint')}\` を findings と lint の両方が 0 件になるまで（3 回まで。lint の直し方は ${W}/checks/flow.lint.json の fix）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。${FLOW_THEN_RULE}`
+    : `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。${FLOW_THEN_RULE}`
 
 const reworkLabel = (label, n) => (n === 1 ? label : `${label}-${n}`)
 // fixOf: v1 の不合格の差し戻しの段名。段名（STAGES）に 3a' があるので、`'` を足す形にすると段 3a の差し戻しと段 3a' の本体が同じ label になり、
@@ -1849,72 +1944,113 @@ function lintOf(fc) {
   return codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === fc.lint ? fc.lint : null
 }
 
-// frameFlow: lint の指摘と lint の欄の無い stdout は、flow が閉じた後に 1 回だけ差し戻し、残っても段を止めない（notices に出す）。lint は
-// 生成者の自己点検で、止める判断は verifier の flow の検査が持つ。差し戻しで flow が閉じなくなったら、差し戻しの前の版に戻して進む
-// （通常の差し戻しに入ると、直らないときに段が止まり、next_args の再実行も同じ差し戻しを通るので抜けられない）。
-async function frameFlow(label, lines, phaseTitle, { lint = false } = {}) {
-  const run = frameRun(lint)
-  const prompt = (l) => {
-    const [head, ...rest] = lines(l, run)
-    // 仕様書を書かない run では、flow の要素は要求文書の要求になる。発生源の無い要素は doc_check が振らず NC_FLOW_NO_ORIGIN に回す（prd-and-spec.md §11.1）ので、描く範囲を絞らせる。
-    return [head, !writesSpec() ? '作る文書は要求文書だけなので、flow-framer.md の「### 要求文書だけのラン」で描く。' : null, ...rest].filter(Boolean).join('\n\n')
+// ruleLine・plannerQuestions: planner の裁定の仕事の行と、問いの検査の行。questions --check は回答待ちの問い（waiting）とこの起動で question にした ID を
+// 合わせて 1 回にする（別々に実行させると、どちらかの stdout だけが返る）。resolutions_sha256 は何も書かなくても返させる（返り値の検査が要る）。
+const ruleLine = (what) => `裁定: ${what}指された根拠は、根拠一式の「根拠にしてよい resolution」から自分で引く。返る前に \`${cli('sha', `--ledger resolutions`)}\` を実行し、その sha256 を resolutions_sha256 に入れる（何も書かなくても）。`
+const plannerQuestions = (waiting) =>
+  waiting.length
+    ? `返る前に、回答待ちの問い ${list(waiting)} とこの起動で question にした ID を合わせて 1 回 \`${questionsCheck(waiting)}\` を実行し（question にした ID があれば --ids に足す）、stdout を加工せずに questions_check に入れる。`
+    : `問いを出したら、返る前に \`${questionsCheck(['<question にした ID をカンマで>'])}\` を実行し、stdout を加工せずに questions_check に入れる。`
+
+// planCall: 流れと裁定を同じ起動で行う planner の呼び出し（段 1 は仕分けも）。返った stdout が plan（plan のとき）・flow・conflicts・lint（lint のとき）の検査に
+// 落ちれば、不合格をまとめて 1 回だけ差し戻し（planRework）、それでも plan か flow か conflicts が落ちれば止める。lint だけが残ったときは止めずに notices に出す
+// （lint は生成者の自己点検で、止める判断は verifier の flow の検査が持つ）。差し戻しで flow が閉じなくなっても前の版には戻さない（戻す控えを取らない）。
+// 表に無い符号（stop）は誰が消せるか分からないので差し戻さずに止める。lines は label を受ける（差し戻しは header の label と作業用ディレクトリを組み直す）。
+// specNote: 仕様書を書かない run では、flow の要素は要求文書の要求になる。発生源の無い要素は doc_check が振らず NC_FLOW_NO_ORIGIN に回す（prd-and-spec.md §11.1）ので、
+// 描く範囲を絞らせる。writesSpec は state.units を読むので、units の無い段 1 は外し、段 1 のプロンプトが条件付きの行を持つ。
+async function planCall(label, lines, phaseTitle, { lint = false, plan = false, specNote = true } = {}) {
+  // redo: 差し戻しでやり直す範囲（'仕分け' か '流れ'。元の起動は null）。流れからの差し戻しには仕分けの行を載せない（lines が redo で決める）。
+  const prompt = (l, redo = null) => {
+    const [head, ...rest] = lines(l, redo)
+    return [head, specNote && !writesSpec() ? '作る文書は要求文書だけなので、planner.md の「#### 要求文書だけのラン」で描く。' : null, ...rest].filter(Boolean).join('\n\n')
   }
-  const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check, plan_check: x.plan_check })
-  const defectOf = (x) => {
-    const { fc, cc } = read(x)
-    return flowDefect(fc, 'flowFramer', `${W}/checks/flow.json`, reflector(running)) || (cc ? null : { count: Infinity, text: 'doc_check conflicts の stdout がありません' })
+  const cmds = lint ? { flow_check: cli('flow', '--lint') } : undefined
+  const faults = (x) => {
+    const out = []
+    if (plan) {
+      const pc = planCheckOf(x.plan_check)
+      if (!pc) out.push({ kind: 'plan', text: 'doc_check plan の stdout が無いか、plan.json の units が形（id・空でない docs・depends_on）を満たしません' })
+      else if (pc.findings > 0) out.push({ kind: 'plan', text: `doc_check plan の指摘が ${pc.findings} 件あります（${W}/checks/plan.json）` })
+    }
+    const fc = flowCheckOf(x.flow_check)
+    const fd = flowDefect(fc, 'flowFramer', `${W}/checks/flow.json`, reflector(running))
+    if (fd) out.push({ kind: 'flow', text: fd.text, stop: Boolean(fd.stop) })
+    if (!conflictsCheckOf(x.conflicts_check)) out.push({ kind: 'conflicts', text: 'doc_check conflicts の stdout がありません' })
+    const n = lint && fc ? lintOf(fc) : 0
+    if (n !== 0) out.push({ kind: 'lint', n, text: n === null ? `\`${cli('flow', '--lint')}\` の stdout ではない（lint の欄が無い）` : `doc_check flow --lint の lint が ${n} 件あります（${W}/checks/flow.lint.json）` })
+    return out
   }
-  const lintCmd = cli('flow', '--lint')
-  const cmds = lint ? { flow_check: lintCmd } : undefined
-  const redo = (base) => (_, d, n) => {
-    const l = reworkLabel(base, n)
-    return once(l, 'flowFramer', `${prompt(l)}\n\n返した stdout が不合格だった: ${d.text}。直して返す。`, FLOW_SCHEMA, phaseTitle, cmds)
-  }
-  const r = await once(label, 'flowFramer', prompt(label), FLOW_SCHEMA, phaseTitle, cmds)
-  const done = await rework(r, defectOf, redo(`${label}:rework`), MAX_CHECK_REWORK)
-  let got = read(done.got)
-  // 閉じていない版でも W の flow.json は flow-framer が書いた版で、照合を通った書き込みとして入口の照合（enterFromDisk）に渡す。
-  if (got.fc) state.flow_digest = got.fc.content_sha256
-  if (done.defect) return { error: `flow が閉じていません: ${done.defect.text}`, rerun: !done.defect.stop }
-  const n = lint ? lintOf(got.fc) : 0
-  if (n !== 0) got = await lintOnce(label, got, n, redo(`${label}:lint`), defectOf, read, phaseTitle)
-  if (got.error) return got
-  const left = lint ? lintOf(got.fc) : 0
-  if (left !== 0) state.notices = [...(state.notices || []), `${label} が lint を残して返した（${left === null ? 'lint の欄が無い' : `${left} 件。${W}/checks/flow.lint.json`}。verifier の検査は変わらない）`]
-  return got
+  let x = await once(label, 'planner', prompt(label), PLANNER_SCHEMA, phaseTitle, cmds)
+  let f = faults(x)
+  const stopNow = f.filter((d) => d.stop)
+  if (!stopNow.length && f.length) x = await planRework(label, prompt, x, f, phaseTitle, cmds)
+  const fc = flowCheckOf(x.flow_check)
+  // 閉じていない版でも W の flow.json は planner が書いた版で、照合を通った書き込みとして入口の照合（enterFromDisk）に渡す。
+  if (fc) state.flow_digest = fc.content_sha256
+  f = stopNow.length ? stopNow : faults(x)
+  const stops = f.filter((d) => d.kind !== 'lint')
+  if (stops.length) return { error: `${stopNow.length ? '' : '差し戻しの後も'}検査に落ちました: ${stops.map((d) => d.text).join(' / ')}`, rerun: !stops.some((d) => d.stop) }
+  const left = f.find((d) => d.kind === 'lint')
+  if (left) state.notices = [...(state.notices || []), `${label} が lint を残して返した（${left.n === null ? 'lint の欄が無い' : `${left.n} 件。${W}/checks/flow.lint.json`}。verifier の検査は変わらない）`]
+  return { fc, cc: conflictsCheckOf(x.conflicts_check), r: x }
 }
 
-// lintOnce: 差し戻しの前に flow と open を控え（doc_check stash）、差し戻しの返り値が閉じていなければ控えに戻して（unstash）、戻した版の
-// flow の stdout で進む。控えを取れなければ差し戻さない（戻せない差し戻しは、lint で段を止めうる）。
-async function lintOnce(label, before, n, redoLint, defectOf, read, phaseTitle) {
-  const tag = `${label.replace(/:/g, '-')}-lint`
-  const call = (send, suffix, cmds) => {
-    const l = `flow-check:${tag}-${suffix}`
-    const lines = Object.entries(cmds).map(([k, c]) => `実行する: \`${c}\`。stdout を加工せずに ${k} に入れる。`)
-    return send(l, 'flowCheck', [header('flowCheck', running, l), ...lines].join('\n\n'), STASH_SCHEMA, phaseTitle, cmds)
+// planRework: 不合格をまとめた 1 回の差し戻し。plan が落ちていれば仕分けから、ほかは流れから直させる。前の体の裁定は resolutions.json に残っているので
+// 書き直させず、直した flow でまだ裁定の無い組と O- だけを裁定させ、返り値の裁定の欄にはこの体で書いた ID だけを入れさせる（mergeRulings が合わせる）。
+async function planRework(label, prompt, first, f, phaseTitle, cmds) {
+  const l = `${label}:rework`
+  const from = f.some((d) => d.kind === 'plan') ? '仕分け' : '流れ'
+  const asked = idsOf(first, 'questions')
+  const note = [
+    `返した stdout が不合格だった: ${f.map((d) => d.text).join(' / ')}。`,
+    `「${from}」から直して返す（planner.md の「## 続けて行う仕事」の差し戻し）。前の体が書いた裁定は resolutions.json にある。書き直さず、`,
+    `直した flow でまだ裁定の無い組と O- だけを裁定し、返り値の裁定の欄にはこの体で書いた（書き直した）ID だけを入れる。`,
+    asked.length ? `questions --check には前の体が question にした ${list(asked)} も含める。` : '',
+  ].join('')
+  const again = await once(l, 'planner', `${prompt(l, from)}\n\n${note}`, PLANNER_SCHEMA, phaseTitle, cmds)
+  const merged = mergeRulings(l, first, again)
+  // 流れからの差し戻しは仕分けをやり直さないので、仕分けの結果（plan_check）は前の体の返り値のものを使う（plan.json は段 3 の plan reviewer が照らし直す）。
+  return from === '流れ' && first.plan_check !== undefined ? { ...merged, plan_check: first.plan_check } : merged
+}
+
+// mergeRulings: 差し戻しの返り値に元の返り値の裁定を合わせる。stdout の欄と resolutions_sha256 は差し戻しの値、裁定の欄は元の返り値から差し戻しに
+// 現れる ID を除いて差し戻しを足す（同じ ID は差し戻しの種類が勝つ）。
+function mergeRulings(l, first, again) {
+  const redone = new Set(Object.keys(KIND_WORDS).flatMap((k) => idsOf(again, k)))
+  const merged = { ...again, supersedes: uniq([...(first.supersedes || []), ...(again.supersedes || [])]) }
+  for (const k of Object.keys(KIND_WORDS)) merged[k] = [...(first[k] || []).filter((x) => !redone.has(typeof x === 'string' ? x : x && x.id)), ...(again[k] || [])]
+  noTwice(l, merged)
+  return merged
+}
+
+// takeRulings: planner の返り値の裁定を state に取り込む（issue が resolver の返り値に行う後処理と同じ: 聞ける段の指定の外の hold の書き換え直し・
+// 聞けない段の問いの拒否・問いの形の検査）。owner は書き換え直しと形の修正の label（resolver:<owner>-toquestion・-questions）で、保険の resolver の派生と
+// 重ならないものにする。回答の節を持ちうる ID（recheck と回答済みの問い）の hold は、planner の stdout が裁定の前のもので answer_holds に載らないので
+// 早い書き換え直しから外し、段の出口の adopt（独立な stdout）に任せる。裁定の欄が空の返り値は取り込まない（自己申告の sha で台帳が動いたことにしない）。
+async function takeRulings(stage, owner, r, phaseTitle, { allowQuestions, recheck = null, reRuled = false, targets = [] } = {}) {
+  let got = r
+  const late = new Set([...(recheck || []), ...(state.answered || [])])
+  const unordered = unorderedHolds(r).filter((id) => !late.has(id))
+  if (unordered.length) {
+    const l = `resolver:${owner}`
+    const stop = () => Object.assign(new Error(`${l}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(unordered)} を planner が hold で返しました（聞ける段の価値の判断は question にする。planner.md「### 裁定の種類」）`), { rerunStage: true })
+    got = await holdsToQuestions(l, r, unordered, phaseTitle, stop, minus(recheck, [...idsOf(r, 'ruled'), ...idsOf(r, 'holds'), ...idsOf(r, 'free_text')]))
   }
-  const sx = await call(issue, 'stash', { stash_check: cli('stash', `--save ${tag}`) })
-  const st = sx && parseStdout(sx.stash_check)
-  if (!st || st.stash !== tag || st.flow_sha256 !== before.fc.content_sha256) {
-    state.notices = [...(state.notices || []), `${label} の lint を差し戻さなかった（差し戻しの前の flow の控えを取れなかった）`]
-    return before
-  }
-  const text = n === null ? `\`${cli('flow', '--lint')}\` の stdout ではない（lint の欄が無い）` : `doc_check flow --lint の lint が ${n} 件あります（${W}/checks/flow.lint.json）`
-  const again = await redoLint(before, { text }, 1)
-  const after = read(again)
-  if (after.fc) state.flow_digest = after.fc.content_sha256
-  const broke = defectOf(again)
-  if (!broke) return after
-  const ux = await call(once, 'unstash', { unstash_check: cli('unstash', `--against ${tag} --token ${txToken()}`), flow_check: cli('flow', '--lint') })
-  const us = parseStdout(ux.unstash_check)
-  const fc = flowCheckOf(ux.flow_check)
-  const sha = before.fc.content_sha256
-  if (!us || us.unstash !== tag || us.flow_sha256 !== sha || !fc || fc.content_sha256 !== sha) {
-    return { error: `${label} の lint の差し戻しで flow が閉じなくなり（${broke.text}）、差し戻しの前の版（${sha}）に戻せませんでした`, rerun: true }
-  }
-  state.flow_digest = sha
-  state.notices = [...(state.notices || []), `${label} の lint の差し戻しで flow が閉じなくなった（${broke.text}）ので、差し戻しの前の版に戻した`]
-  return { ...before, fc }
+  const outside = outsideKinds(owner, got, ['ruled', ...takenKinds(allowQuestions)])
+  if (outside) return { error: outside }
+  const ruledNothing = [...Object.keys(KIND_WORDS), 'supersedes'].every((k) => !(got[k] || []).length)
+  const ids = ruledNothing ? [] : absorbResolver(got, reRuled)
+  if (targets.length) state.missed = uniq([...(state.missed || []), ...missedTargets(targets, got)])
+  const qe = await checkQuestions(stage, owner, got, phaseTitle, recheck)
+  if (qe) return qe
+  return { ids }
+}
+
+// staleOf: settle の planner に直させる出典の食い違い。覆された決定を引く要素（stale_refs）と、決まっていない裁定を引く要素（unsettled_refs。
+// 前の段の裁定が検証に落ちた・問いや保持規則に変わった後も引いている）。その cycle の planner の裁定を引くものは、ここに来る前に absorbVerifier が止める。
+const staleOf = (fc) => {
+  const seenRefs = new Set(fc.stale_refs.map((x) => `${x.el}|${x.ref}`))
+  return [...fc.stale_refs, ...(fc.unsettled_refs || []).filter((x) => !seenRefs.has(`${x.el}|${x.ref}`))]
 }
 
 function reflection(fc, before) {
@@ -1925,14 +2061,14 @@ function reflection(fc, before) {
     left: settledTerminals(fc.open_only, state),
     found: settledFlowFindings(pendingFindings(state.pending), state, before, (state.pending || {}).recurring),
     verdicts: failed.filter(ruled),
-    stale: fc.stale_refs,
+    stale: staleOf(fc),
     handoff: flowFindings(fc),
     redo: failed.filter((el) => !ruled(el)),
   }
 }
 const reflects = (m) => Object.values(m).some((xs) => xs.length)
 
-// reflectLines: 裁定の反映のプロンプトの行。settle の flow-framer と、3a の反映を引き受ける 3b-reframe で同じ文面にする。
+// reflectLines: 裁定の反映のプロンプトの行。settle の planner と、3a の反映を引き受ける planner:3b で同じ文面にする。
 function reflectLines(m) {
   const settled = new Set(usableResolutions(state))
   const closers = (key) => uniq(Object.entries(state.about || {}).filter(([id, k]) => k === key && settled.has(id)).map(([id]) => id))
@@ -2043,28 +2179,38 @@ async function verifyLeft(stage, tag, verified, phaseTitle, allowQuestions) {
   return after
 }
 
+// settleRound: settle の planner が裁定を flow に写し（流れ）、流れを変えた後のまだ裁定の無い組と O- を同じ体で裁定する（裁定）。裁定し漏らした分だけを
+// 保険の resolver（ruleIssues）に回す。ledgerAtCall は起動の前の台帳の版で、流れの仕事は resolutions を書かないので、動いていれば裁定の仕事か後の resolver の
+// 書き込みである（差し戻しの体だけが裁定しても「台帳が動いた」）。
 async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const tag = reworkLabel(`${stage}-settle`, n)
+  const label = `planner:${tag}`
   const waiting = pendingQuestions(state)
-  const got = await frameFlow(`flow-framer:${tag}`, (label, run) => [
-    header('flowFramer', `${stage}（裁定の反映${n > 1 ? ` ${n} 回目` : ''}）`, label),
-    `裁定を flow に写す（flow-framer.md の「裁定の反映」）。`,
+  const ledgerAtCall = state.resolutions_sha256
+  const got = await planCall(label, (l) => [
+    header('planner', `${stage}（裁定の反映${n > 1 ? ` ${n} 回目` : ''}）`, l, ['流れ', '裁定']),
+    groundsBlock(),
+    `${W}/checks/conflicts.json、${W}/precedent.json も読む。`,
+    existingNote(),
+    `流れ: 裁定を flow に写す（planner.md の「裁定の反映」）。`,
     ...reflectLines(m),
-    run,
-    recheckWaiting(waiting),
+    frameRun(false),
+    ruleLine('流れの最後の stdout の open_ids と conflicts の pair_keys のうち、resolutions.json のどの resolution の about にも無いものがあれば裁定する（planner.md の「flow を変えた後の未裁定の論点」）。無ければ裁定しない。'),
+    askNote(allowQuestions),
+    plannerQuestions(waiting),
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}`, rerun: got.rerun }
-  const ledgerAtFrame = state.resolutions_sha256
-  const qe = await checkQuestions(tag, tag, { questions_check: got.questions_check }, phaseTitle, waiting)
-  if (qe) return qe
+  claimIssues(label, got.cc.pair_keys, got.fc.open_ids)
+  const t = await takeRulings(tag, tag, got.r, phaseTitle, { allowQuestions, recheck: waiting })
+  if (t.error) return t
   const fc = got.fc
-  const pe = await ruleUnruled(tag, tag, got.conflicts, fc.open_ids, phaseTitle, allowQuestions)
+  const pe = await ruleIssues(tag, tag, got.cc.pair_keys, fc.open_ids, phaseTitle, allowQuestions)
   if (pe.error) return pe
   const vLabel = `verifier:${reworkLabel(`${stage}v-settle`, n)}`
   // 書き換えた要素は VERIFY_ALL が検証させる。直させたのに書き換えなかった不合格の要素は VERIFY_ALL から外れるので、名指しで検証させる。
   const asked = new Set([...m.left.map((x) => x.el), ...m.verdicts, ...m.stale.map((x) => x.el), ...m.redo])
-  const v = await askVerifier(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc.failed_current.filter((id) => asked.has(id))), phaseTitle)
-  const ve = absorbVerifier(v, state.resolutions_sha256, reworkLabel(`${stage}v-settle`, n), true, 'flowFramer', state.resolutions_sha256 !== ledgerAtFrame)
+  const v = await askVerifier(vLabel, `${stage}v（裁定の反映）`, uniq([...t.ids, ...pe.ids]), flowExtra(fc.failed_current.filter((id) => asked.has(id))), phaseTitle)
+  const ve = absorbVerifier(v, state.resolutions_sha256, reworkLabel(`${stage}v-settle`, n), true, 'flowFramer', state.resolutions_sha256 !== ledgerAtCall, { by: label, ids: t.ids })
   if (ve) return ve
   let vfc = flowCheckOf(v.flow_check, true)
   // flow-framer に直せない裁定（RS-）の不合格は、段の本体と同じく 1 回差し戻し、まだ落ちれば問いか保持規則に変える（fixFailed）。止めると、
@@ -2082,7 +2228,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const now = await verifyLeft(stage, reworkLabel('left', n + 1), vfc, phaseTitle, allowQuestions)
   if (now.error) return now
   const after = now.fc
-  const stale = after.stale_refs
+  const stale = staleOf(after)
   const still = settledTerminals(after.open_only, state)
   const found = flowFindings(after)
   const count = still.length + stale.length + failed.length + found.length
@@ -2094,7 +2240,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   }
 }
 
-// reholdFailed: hold のまま検証に落ちた保持規則を、同じ ID のまま書き直させて検証し直す（resolver.md の「保持規則の書き直し」）。
+// reholdFailed: hold のまま検証に落ちた保持規則を、同じ ID のまま書き直させて検証し直す（planner.md の「保持規則の書き直し」）。
 // 書き直しても落ちるか、前に書き直した（差し戻しを含む）後に落ちたものがあれば、段の頭からやり直させる。
 async function reholdFailed(stage, owner, phaseTitle) {
   const failing = Object.keys(holdFails).sort()
@@ -2192,12 +2338,13 @@ let gatePassed = null
 
 // collecting: 最初のゲートを開く前の、段 6 より前の段。問いを見つけた段ごとに止めると、後の段（初稿・監査）でしか見えない論点が次のゲートか
 // 次の run に回り、依頼者を止める回数と要求文書の改訂が、論点の見つかった段の数だけ増える（実測: 仕様書だけの run が初稿の前の 3 問で止まり、
-// 要求文書を改訂して起こし直した run が初稿の監査で 4 問目に止まった）。初稿の監査は全文書を読むので、最初のゲート（仕様書だけを書く run では
-// upstream_gap）は、その裁定の段 6 で開く。
-const collecting = () => running !== '6' && (specOnly() || gatesOpened() === 0)
-// carrying: 持ち越した問いを持って、最初のゲート（仕様書だけを書く run では upstream_gap）までの段を通っている。聞くゲートを通ったのと同じく、
-// 回答待ちの問いを持って段を出てよい（exitViolation）。
-const carrying = () => specOnly() || Boolean(state.deferred)
+// 要求文書を改訂して起こし直した run が初稿の監査で 4 問目に止まった）。初稿の監査は全文書を読むので、最初のゲート（仕様書だけを書く run で
+// 要求の論点があれば upstream_gap）は、その裁定の段 6 で開く。
+const collecting = () => running !== '6' && gatesOpened() === 0
+// carrying: 持ち越した問いを持って、最初のゲートまでの段を通っている。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい
+// （exitViolation）。仕様書だけを書く run の項は最初のゲートの前に限る: ゲートの後も真のままだと、3b の続きの問いが持ち越しになって
+// 初稿の書き直しと段 5 の監査が繰り返され、回答待ちの検査も外れる。
+const carrying = () => (specOnly() && gatesOpened() === 0) || Boolean(state.deferred)
 
 // needsAnswers: 開いた順に g1, g2, … と名乗る。resume も next_args の再開も同じ段を同じ順に通るので、同じ名前になる。
 // gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
@@ -2206,10 +2353,11 @@ const carrying = () => specOnly() || Boolean(state.deferred)
 // 知らないので、最初のゲートの後は 3a から入り、組み直した flow で書き直す（state.deferred）。
 async function needsAnswers(from, onward) {
   if (onward && collecting()) {
-    if (!specOnly()) state.deferred = true
+    state.deferred = true
     return onward
   }
-  if (specOnly()) return upstreamGap()
+  const gap = requirementGap()
+  if (gap) return gap
   if (state.deferred) {
     from = '3a'
     delete state.deferred
@@ -2233,18 +2381,34 @@ async function needsAnswers(from, onward) {
 // よいのは価値の判断だけなので、この run で出る問いは要求文書の抜けである。聞いて仕様書に書くと、要求文書に無い判断が仕様書にだけ入り、
 // 仕様項目が要求に辿れなくなる。covers を見ないと、INDEX のために並べただけの無関係な固定の文書で、聞けば済む run まで止まる。
 const fixedRequirements = () => new Set(EXISTING.filter((d) => d.fixed && String(d.key).startsWith('requirements/')).map((d) => d.key))
+// plan の前（planner:1 のプロンプトを作る時点）は run の種類が分からないので偽にする（planner.md が問いの layer の付け方を静的に持つ）。
 const specOnly = () => {
+  if (!state.units) return false
   const docs = auditDocs()
   const fixed = fixedRequirements()
   return docs.length > 0 && docs.every((k) => k.startsWith('specifications/') && ((state.covers || {})[k] || []).some((r) => fixed.has(r)))
 }
 
-// upstreamGap: 仕様書だけを書く run が、初稿の監査の裁定（段 6）までに出た価値の問いをまとめて返す。要求文書を直すと固定の文書の sha が変わり、
+// specQuestion: 仕様の論点の問い。最後に受け取った独立な flow --rulings の stdout（seen）の行が spec_layer（ruling が question、layer が
+// 手段、upstream_revision が無い。doc_check の wsFlow）を持ち、verifier が合格にしたもの。seen か行が無ければ要求の論点に倒す。
+const specQuestion = (id) => Boolean(seen && seen.resolutions && seen.resolutions.some((x) => x.id === id && x.spec_layer === true && x.verdict === 'pass'))
+
+// requirementGap: 仕様書だけを書く run の回答待ちの問いに要求の論点（specQuestion でないもの）があれば、upstream_gap の結果を返す。
+// ゲートを開くか保持規則にするかの判定（next_args の字数・聞ける回数）より先に当てる: 要求の論点を保持規則にすると、要求文書に無い判断が
+// 仕様書の本文にだけ入る。upstream_gap は next_args を付けないので、字数の上限とは関わらない。
+function requirementGap() {
+  if (!specOnly()) return null
+  const up = pendingQuestions(state).filter((id) => !specQuestion(id))
+  return up.length ? upstreamGap(up) : null
+}
+
+// upstreamGap: 仕様書だけを書く run が、要求の論点 ids をまとめて返す（question_ids は要求の論点だけ）。要求文書を直すと固定の文書の sha が変わり、
 // この run は再開できないので next_args を付けない。
-function upstreamGap() {
-  const ids = pendingQuestions(state)
+function upstreamGap(ids) {
+  const spec = minus(pendingQuestions(state), ids)
+  const deferredSpec = spec.length ? `。仕様書の範囲の問い ${spec.length} 件（${list(spec)}）は、要求文書を改訂した後の run で聞く` : ''
   return finish('blocked', {
-    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が ${ids.length} 件出ました（${list(ids)}）。仕様書では決めずに、初稿と監査を終えるまでに出た論点をまとめて返します。要求文書を改訂してから仕様書を起こし直してください`,
+    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が ${ids.length} 件出ました（${list(ids)}）。仕様書では決めずに、初稿と監査を終えるまでに出た論点をまとめて返します。要求文書を改訂してから仕様書を起こし直してください${deferredSpec}`,
     stop_reason: 'upstream_gap',
     questions_path: `${W}/questions.md`,
     questions_json_path: `${W}/questions.json`,
@@ -2267,10 +2431,15 @@ function answersStop(gate, from, ids, extra) {
 // answersUnchecked: 回答を当てる段に入る前に、回答のファイルが問いのすべてに答えているかを doc_check answers で確かめる。gates_answered の
 // resume と next_args の再開（段 3a・3a' から始める run）の両方が通る。落ちたら resumable を偽にする: resume すると落ちた検査の保存された結果が
 // 返り、同じ所で止まり続ける。
+// entryAnswers: next_args で 3a・3a' から始めた run の入口の flow-check が返した answers の stdout（state に載せない）。入口の後に回答待ちの問いが
+// 変われば（入口の verifyLeft が W から問いを受け取った）使わずに単独で起動する。
+let entryAnswers = null
 async function answersUnchecked(gate, from, ids) {
   const label = `flow-check:${gate}-answers`
   const cmd = cli('answers', `--file ${gateAnswers(gate)} --ids ${ids.join(',')}`)
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
+  const pre = entryAnswers && entryAnswers.gate === gate && canonicalText(entryAnswers.ids) === canonicalText(uniq(ids)) ? entryAnswers.text : undefined
+  entryAnswers = null
+  const x = pre !== undefined ? { answers_check: pre } : await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
   const ac = parseStdout(x && x.answers_check)
   const echoed = ac && ac.file === gateAnswers(gate) && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
   if (echoed && !ac.missing.length) {
@@ -2290,13 +2459,13 @@ function answerExcerpt(gate, ids) {
   const rows = (answersFree[gate] || []).filter((x) => ids.includes(x.id))
   if (!rows.length) return ''
   return [
-    `候補の label だけでない回答（${gateAnswers(gate)} の逐語。doc_check answers の stdout から写した。当て方は resolver.md の「回答の反映」）:`,
+    `候補の label だけでない回答（${gateAnswers(gate)} の逐語。doc_check answers の stdout から写した。当て方は planner.md の「回答の反映」）:`,
     ...rows.map((x) => `- ${x.id}（L${x.from}${x.to > x.from ? `〜L${x.to}` : ''}）: ${x.text.split('\n').map((l) => `「${l}」`).join('')}`),
   ].join('\n')
 }
 
-// resetEntry: 段 1 から始める run（新しい run も、段 1 からの再実行も）は、W を S0 の直後に戻した stdout を見てから intake を起動する。
-// 戻さずに始めると、前のランや止まった段 1・2 の台帳の要素と欄が、再実行の put（キー単位で足す）の後にも残る。
+// resetEntry: 段 1 から始める run（新しい run も、段 1 からの再実行も）は、W を S0 の直後に戻した stdout を見てから planner:1 を起動する。
+// 戻さずに始めると、前のランや止まった段 1 の台帳の要素と欄が、再実行の put（キー単位で足す）の後にも残る。
 const RESET_FLAGS = [KEEP_KEYS.length ? `--keep ${KEEP_KEYS.join(',')}` : '', FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''].filter(Boolean).join(' ')
 async function resetEntry() {
   const label = 'flow-check:1-entry'
@@ -2310,7 +2479,10 @@ async function resetEntry() {
   const carriedOk = carried && typeof carried === 'object' && !Array.isArray(carried) &&
     Object.entries(carried).every(([key, ids]) => KEEP_KEYS.includes(key) && Array.isArray(ids) && ids.length && ids.every((id) => typeof id === 'string' && id))
   if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk && carriedOk) {
-    if (FIXED_KEYS.length) state.fixed_sha = shas
+    // 固定の文書ごとの sha256 の先頭 FIXED_SHA_CHARS 桁を、FIXED_KEYS の順の配列で持つ。キーと全桁の組で持つと、固定の文書の数だけ next_args の字数を使う。
+    if (FIXED_KEYS.length) state.fixed_sha = FIXED_KEYS.map((k) => String(shas[k]).slice(0, FIXED_SHA_CHARS))
+    // entry_digest: 入口（checks/entry.json）の digest。doc_check はこれで既存の指摘を決めるので、監査の doc の値と照らす（entryMoved）。
+    if (typeof rc.entry_digest === 'string' && rc.entry_digest) state.entry_digest = rc.entry_digest
     const all = Object.values(carried).flat()
     const editable = Object.entries(carried).filter(([key]) => !FIXED_KEYS.includes(key)).flatMap(([, ids]) => ids)
     if (all.length) state.open_tbd = uniq([...(state.open_tbd || []), ...all])
@@ -2320,6 +2492,14 @@ async function resetEntry() {
   return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')
 }
 
+// entryMoved: 段 1 の入口で reset が返した entry_digest と、監査の doc_check の entry_digest が違えば、入口が書き換わっている。
+// 入口はどの指摘を blocking から外すかを決めるので、書き換わったまま数えると、生成者が自分の指摘を既存の指摘にできる。
+function entryMoved(docCheck) {
+  if (!state.entry_digest) return null
+  if (docCheck && docCheck.entry_digest === state.entry_digest) return null
+  return `監査の doc_check の入口（checks/entry.json）の digest が段 1 の reset の値 ${state.entry_digest} と違います（${docCheck ? docCheck.entry_digest || '無い' : 'doc_check の stdout が無い'}）。既存の指摘を決める入口が書き換わっているので、数えた blocking を信用できません。段 1 からやり直してください`
+}
+
 // FIXED_FLAG・fixedMoved: 監査の snapshot に固定の文書の sha256 を返させ、段 1 の入口の値と照合する。固定の文書を書く役はいないので、
 // 変わっていれば別のランの承認を迂回した書き込みで、どの段からやり直しても本文は戻らない（reset は W の本文を残す）。
 const FIXED_FLAG = FIXED_KEYS.length ? ` --fixed ${FIXED_KEYS.join(',')}` : ''
@@ -2327,45 +2507,42 @@ function fixedMoved(audited, label) {
   if (!FIXED_KEYS.length) return null
   const got = audited.fixed_sha256
   if (!got || typeof got !== 'object') return { error: `監査役が ${label} の snapshot の fixed_sha256（固定の文書 ${list(FIXED_KEYS)} の sha256）を返しませんでした`, rerun: true }
-  const moved = FIXED_KEYS.filter((k) => got[k] !== state.fixed_sha[k])
+  const moved = FIXED_KEYS.filter((k, i) => typeof got[k] !== 'string' || got[k].slice(0, FIXED_SHA_CHARS) !== state.fixed_sha[i])
   if (!moved.length) return null
   noteIntegrity(`固定の文書 ${moved.join(', ')} の本文か meta が、段 1 の入口から変わった（${label} の snapshot で照合）`)
-  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
+  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を S0 で置いた元の文書から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
 }
 
+// stage1: planner:1 が 1 体で依頼を仕分け（plan.json・decisions・open）、流れを閉じ（flow.json）、未決と組を裁定する（resolutions）。裁定は段 3 の
+// state に入れる（段 1 の state に入れると、回答待ちの問いを持って段を出ることになり、聞ける段の hold の検査も段 1 では効かない）。
 async function stage1() {
   const entry = await resetEntry()
   if (entry) return entry
-  const prompt = (label) =>
-    [
-      header('intake', '1', label),
-      `読む: ${W}/input.md、${W}/precedent.json（とそこに並ぶファイル）`,
-      existingNote(),
-      `書く: plan.json と、put で \`--ledger decisions\`・\`--ledger open\`。返る前に \`${cli('plan')}\` を実行して指摘を直し、最後の stdout を加工せずに plan_check に入れる。`,
-    ]
-      .filter(Boolean)
-      .join('\n\n')
-  const defectOf = (x) => {
-    const pc = planCheckOf(x.plan_check)
-    if (!pc) return { count: Infinity, text: 'doc_check plan の stdout が無いか、plan.json の units が形（id・空でない docs・depends_on）を満たしません' }
-    return pc.findings > 0 ? { count: pc.findings, text: `doc_check plan の指摘が ${pc.findings} 件あります（${W}/checks/plan.json）` } : null
-  }
-  const first = await once('intake', 'intake', prompt('intake'), INTAKE_SCHEMA, 'Intake')
-  const done = await rework(first, defectOf, (_, d, n) => {
-    const l = reworkLabel('intake:rework', n)
-    return once(l, 'intake', `${prompt(l)}\n\n返した stdout が不合格だった: ${d.text}。直して返す。`, INTAKE_SCHEMA, 'Intake')
-  }, MAX_CHECK_REWORK)
-  if (done.defect) return blocked(`intake の出力が検査を通りません: ${done.defect.text}`, '1')
-  const pc = planCheckOf(done.got.plan_check)
+  const got = await planCall('planner:1', (l, redo) => [
+    header('planner', '1', l, ['仕分け', '流れ', '裁定']),
+    groundsBlock(),
+    `読む: ${W}/input.md、${W}/precedent.json（とそこに並ぶファイル）`,
+    existingNote(),
+    redo === '流れ'
+      ? '仕分け: 前の体の結果のまま（plan.json・decisions.json は書かず、plan_check は返さない）。'
+      : `仕分け: plan.json と、put で \`--ledger decisions\`・\`--ledger open\` を書く。\`${cli('plan')}\` を指摘が 0 件になるまで実行し（3 回まで）、最後の stdout を加工せずに plan_check に入れる。`,
+    `流れ: ${frameRun(true)}`,
+    '仕分けで plan.json の docs が requirements だけなら、流れは planner.md の「要求文書だけのラン」の小節で描く。',
+    ruleLine('流れの最後の stdout の open_ids と conflicts の pair_keys のうち、resolutions.json のどの resolution の about にも無いものを裁定する（planner.md の「段ごとの仕事」の段 1）。'),
+    askNote(ASKS[3]()),
+    plannerQuestions([]),
+  ], 'Intake', { lint: true, plan: true, specNote: false })
+  if (got.error) return blocked(`初稿を始めません: ${got.error}`, got.rerun === false ? null : '1')
+  const pc = planCheckOf(got.r.plan_check)
   const units = unitsOf(pc)
   try {
     unitWaves(units)
   } catch (e) {
-    return blocked(`intake の writer の単位が不正です: ${e.message}`, '1')
+    return blocked(`planner:1 の writer の単位が不正です: ${e.message}`, '1')
   }
   // 単位の文書のキーは段 4・7 の本文の控え（doc_check backup）のコマンド文に入る。
   const badKeys = uniq(units.flatMap((u) => u.docs).filter((k) => !DOC_KEY.test(k)))
-  if (badKeys.length) return blocked(`intake の writer の単位に文書のキーの形（${DOC_KEY.source}）でない文書があります: ${badKeys.join(', ')}`, '1')
+  if (badKeys.length) return blocked(`planner:1 の writer の単位に文書のキーの形（${DOC_KEY.source}）でない文書があります: ${badKeys.join(', ')}`, '1')
   const inUnits = new Set(units.flatMap((u) => u.docs))
   const fixed = EXISTING.filter((d) => d.fixed).map((d) => d.key)
   const wrongFixed = fixed.filter((k) => inUnits.has(k))
@@ -2375,33 +2552,7 @@ async function stage1() {
   state.units = units
   state.plan_sha256 = pc.content_sha256
   state.covers = pc.covers
-  return '2'
-}
-
-async function stage2() {
-  const planSha = state.plan_sha256
-  delete state.plan_sha256
-  const got = await frameFlow('flow-framer', (label, run) => [
-    header('flowFramer', '2', label),
-    `読む: ${W}/input.md、${W}/decisions.json、${W}/precedent.json、${W}/open.json`,
-    existingNote(),
-    run,
-    `続けて \`${cli('plan')}\` を実行し、stdout を加工せずに plan_check に入れる。`,
-  ], 'Flow', { lint: true })
-  if (got.error) return blocked(`初稿を始めません（writer には flow を直す手段が無い）: ${got.error}`, got.rerun === false ? null : '2')
-  // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
-  const pc = planCheckOf(got.plan_check)
-  if (!pc) return blocked('flow-framer が doc_check plan の stdout を返しませんでした', '2')
-  // covers・units も intake の写した stdout だけから入るので、同じ照合に含める（specOnly・writesSpec が読む）。
-  const coversMoved = canonicalText(pc.covers) !== canonicalText(state.covers)
-  const unitsMoved = canonicalText(unitsOf(pc)) !== canonicalText(state.units)
-  if (pc.content_sha256 !== planSha || pc.findings > 0 || coversMoved || unitsMoved) {
-    if (pc.content_sha256 !== planSha) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${planSha}）と違う`)
-    else if (coversMoved) noteIntegrity(`flow-framer が返した plan の covers が、intake が返した covers と違う（${canonicalText(pc.covers)} / ${canonicalText(state.covers)}）`)
-    else if (unitsMoved) noteIntegrity(`flow-framer が返した plan の units が、intake が返した units と違う（${canonicalText(unitsOf(pc))} / ${canonicalText(state.units)}）`)
-    return blocked(`plan.json が intake の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, '1')
-  }
-  framed = { open_ids: got.fc.open_ids, pair_keys: got.cc.pair_keys }
+  planned = got
   return '3'
 }
 
@@ -2414,13 +2565,14 @@ const canAsk = () => (entryState.gates || 0) < MAX_GATES
 const ASKS = { 3: canAsk, '3a': canAsk, '3b': canAsk, 6: canAsk, "3a'": canAsk }
 const LIMIT_WHY = `依頼者に聞ける回数の上限（MAX_GATES = ${MAX_GATES}）に達した`
 
-// REFLECT_STAGE: 聞ける回答の段（3b の組み直しの前の 3a）が settle の裁定の反映を回さずに渡す段。3b-reframe は同じ回答で flow を組み直すので、3a の反映も
-// そこで書かせ、未裁定の組と O- は resolver:3b に、flow の検証は 3bv に 1 回にまとめる（別々に回すと同じ回答の反映を 2 回書いて 2 回検証する）。
+// REFLECT_STAGE: 聞ける回答の段（3b の組み直しの前の 3a）が settle の裁定の反映を回さずに渡す段。planner:3b は同じ回答で flow を組み直すので、3a の反映も
+// そこで書かせ、未裁定の組と O- の裁定も planner:3b に、flow の検証は 3bv に 1 回にまとめる（別々に回すと同じ回答の反映を 2 回書いて 2 回検証する）。
 // 3a は回答を当てた resolver の書き込みを 3av と verifyLeft で検証し終えてから出るので、渡すのは検証に落ちた要素と未反映の裁定だけで、
 // 検証を通っていない書き込みは渡らない。渡した不合格の要素は 3b の出口の不変条件（緩めない）が止めるので、writer（段 4）には届かない。
 const REFLECT_STAGE = '3b'
 const defersReflection = (stage) => stage === '3a' && !state.reframed
-const reflector = (stage) => (defersReflection(stage) ? `flow-framer:${REFLECT_STAGE}-reframe` : 'settle の flow-framer')
+// 流れの仕事の直し手の呼び名（差し戻しのプロンプトの「… が直すので触らない」）。settle の流れの仕事は settle の planner が行う。
+const reflector = (stage) => (defersReflection(stage) ? `planner:${REFLECT_STAGE}` : 'settle の planner')
 // reflectable: 3a が渡せる不合格の要素。3a の verifier に落ちた F- には差し戻しが必ず検証の裁定を返す（ruleAndVerify）ので、裁定の無い不合格は
 // 3a の書き込みではなく、渡さずに 3a の settle で直す（REFLECT_STAGE の入口では所有表の外の書き込みとして止める）。
 const reflectable = (el) => verificationRulings(state, el).length > 0
@@ -2428,18 +2580,48 @@ const reflectable = (el) => verificationRulings(state, el).length > 0
 // 入口の verifyLeft の fc を使う。state に載せない（W から導ける）。
 let reflectFc = null
 
-// framed: 段 2 の flow-framer が数えた O- と組（段 3 の裁定の対象）。入口から始めた run は、入口の独立な stdout（seen）から数える。
-let framed = null
+// planned: 段 1 の planner:1 の返り値（流れの stdout と裁定。メモリだけ）。段 3 はこの裁定を resolver なしで受け取る。段 3 から始めた run には無く、
+// 入口の独立な stdout（seen）から未裁定の組と O- を数えて resolver:3 に裁定させる。
+let planned = null
+
+// PLAN_LINE・planMoved: plan の照合。planner:1 の申告だけにすると、検査の後に書き換えた plan.json が通る。段 3 の最初の検証で plan reviewer が
+// 実行した stdout と照らす（covers・units も planner:1 の写した stdout だけから入るので、同じ照合に含める。specOnly・writesSpec が読む）。
+const PLAN_LINE = `検証の最後に \`${cli('plan')}\` も実行し、stdout を加工せずに plan_check に入れる。`
+function planMoved(v, planSha) {
+  const pc = planCheckOf(v.plan_check)
+  if (!pc) return { error: 'plan reviewer（段 3v）が doc_check plan の stdout を返しませんでした', rerun: true }
+  const coversMoved = canonicalText(pc.covers) !== canonicalText(state.covers)
+  const unitsMoved = canonicalText(unitsOf(pc)) !== canonicalText(state.units)
+  if (pc.content_sha256 === planSha && !pc.findings && !coversMoved && !unitsMoved) return null
+  if (pc.content_sha256 !== planSha) noteIntegrity(`plan reviewer が検査した plan.json（${pc.content_sha256}）が、planner:1 が検査した版（${planSha}）と違う`)
+  else if (coversMoved) noteIntegrity(`plan reviewer が返した plan の covers が、planner:1 が返した covers と違う（${canonicalText(pc.covers)} / ${canonicalText(state.covers)}）`)
+  else if (unitsMoved) noteIntegrity(`plan reviewer が返した plan の units が、planner:1 が返した units と違う（${canonicalText(unitsOf(pc))} / ${canonicalText(state.units)}）`)
+  else noteIntegrity(`plan reviewer が検査した plan.json に doc_check plan の指摘が ${pc.findings} 件ある（planner:1 は 0 件の stdout を返した）`)
+  return { error: `plan.json が planner:1 の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, rerunFrom: '1' }
+}
 
 async function stage3() {
-  const src = seen || framed
-  if (!seen) claimIssues('flow-framer（段 2）', src.pair_keys, src.open_ids)
+  const planSha = state.plan_sha256
+  delete state.plan_sha256
+  const p = planned
+  planned = null
+  // 回答待ちの問いは planner の裁定を受け取る前に数える（planner の新しい問いを cycle の入口の問いに数えない）。
+  const wasQuestion = new Set(pendingQuestions(state))
+  let given = []
+  if (p) {
+    claimIssues('planner:1', p.cc.pair_keys, p.fc.open_ids)
+    const t = await takeRulings('3', '1', p.r, 'Resolve', { allowQuestions: ASKS[3](), reRuled: true })
+    if (t.error) return blocked(t.error, t.rerun === false ? null : '3')
+    given = t.ids
+  }
+  const src = p ? { open_ids: p.fc.open_ids, pair_keys: p.cc.pair_keys } : seen
   const { opens, pairs } = unruledIssues(src.open_ids, src.pair_keys)
   const res = await resolveCycle('3', {
     phase: 'Resolve',
+    given,
     task: opens.length || pairs.length
       ? [
-          `段 3（resolver.md の「段 3」）:`,
+          `段 3（planner.md の「段ごとの仕事」の段 3。プロンプトが渡した ID だけを裁定する）:`,
           `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}${opens.length ? `（\`${getCli('open', opens.map((k) => k.slice(5)))}\`）` : ''}`,
           `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
           pointedLines(issueItems([...opens, ...pairs])),
@@ -2448,11 +2630,17 @@ async function stage3() {
           .filter(Boolean)
           .join('\n')
       : null,
-    verifyExtra:
-      'あわせて検証する: decisions.json の source が default / precedent の決定と kind が invariant の決定すべて。これらの D- も pass / fail に入れる（open も組も 0 件でも省かない。intake の既定が残るため）。',
+    verifyExtra: [
+      'あわせて検証する: decisions.json の source が default / precedent の決定と kind が invariant の決定すべて。これらの D- も pass / fail に入れる（open も組も 0 件でも省かない。仕分けの既定が残るため）。',
+      PLAN_LINE,
+    ].join('\n\n'),
+    checkPlan: (v) => planMoved(v, planSha),
+    wasQuestion,
+    flowFrom: p ? 'planner:1' : null,
+    planned: p ? { by: 'planner:1', ids: given, rerunFrom: '1' } : null,
     allowQuestions: ASKS[3](),
   })
-  if (res.error) return blocked(res.error, res.rerun === false ? null : '3')
+  if (res.error) return blocked(res.error, res.rerunFrom || (res.rerun === false ? null : '3'))
   const onward = ENTRY === 'existing' ? '5' : '4'
   if (pendingQuestions(state).length) return needsAnswers('3a', onward)
   return onward
@@ -2473,11 +2661,11 @@ async function stageApply(stageId) {
   const res = await resolveCycle(stageId, {
     phase: 'Answers',
     task: [
-      `段 ${stageId}: ${W}/${gateAnswers(gate)} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
+      `段 ${stageId}: ${W}/${gateAnswers(gate)} の回答を、問い ${list(pending)} に当てる（planner.md の「回答の反映」）。`,
       answerExcerpt(gate, pending),
       `同じ回答で、初期 plan.domain の verdict / categories を変える具体的な signal があれば about.domain の effective assessment を作成または更新する。初期 verdict は該当・非該当・未評価のいずれでもよい。signal が無ければ変更しない。`,
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
-      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（resolver.md の「8'」）。`,
+      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（planner.md の「8'」）。${specOnly() ? SPEC_REQ_NOTE : ''}`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2490,58 +2678,72 @@ async function stageApply(stageId) {
   if (nextStage) return nextStage
   const left = pendingQuestions(state)
   if (left.length) {
-    if (allowQuestions) return needsAnswers(stageId)
-    const he = await holdLeft(stageId, left, 'Answers', LIMIT_WHY)
+    const gap = requirementGap()
+    if (gap) return gap
+    // 延長の 3a' から出た続きの問いのゲートも、延長のゲートと同じく next_args の字数を測る。
+    const over = stageId === "3a'" && state.pass > MAX_AUDIT_PASSES && extensionOver(state)
+    if (allowQuestions && !over) return needsAnswers(stageId)
+    const he = await holdLeft(stageId, left, 'Answers', over ? OVER_WHY : LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : stageId)
   }
   if (stageId === "3a'") return '7'
   return ENTRY === 'existing' ? '5' : '4'
 }
 
+// stage3b: planner:3b が回答で flow を組み直し（3a の反映も同じ書き込みで）、組み直した flow のまだ裁定の無い組と O- と 3a から持ち越した問いを
+// 同じ体で裁定する。裁定し漏らした組と O- だけを保険の resolver:3b に回す。持ち越した問いだけなら planner は裁定せずに返し、問いは次のゲートで聞く
+// （決まっていたかの判定は依頼者の回答に委ねる。推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
 async function stage3b() {
   state.reframed = true
   const waiting = pendingQuestions(state)
   const carriedIn = reflectFc ? reflection(reflectFc, null) : null
-  const reframe = await frameFlow('flow-framer:3b-reframe', (label, run) => [
-    header('flowFramer', '3b（回答での組み直し）', label),
+  const wasQuestion = new Set(waiting)
+  // framedAt: 起動の前の台帳の版。planner の裁定か保険の resolver で台帳が動けば、3bv の指摘は台帳由来として settle に渡し、動かなければ過少申告として止める。
+  const framedAt = { ledger: state.resolutions_sha256 }
+  const got = await planCall('planner:3b', (l) => [
+    header('planner', '3b（回答での組み直し）', l, ['流れ', '裁定']),
     groundsBlock(),
-    `${W}/open.json も読む。`,
+    `${W}/open.json、${W}/checks/conflicts.json、${W}/precedent.json も読む。`,
     existingNote(),
-    '回答を入力に加えて flow を組み直す（flow-framer.md の「回答での組み直し」）。',
-    ...(carriedIn && reflects(carriedIn) ? ['組み直しと同じ書き込みで、3a の裁定も flow に写す（flow-framer.md の「裁定の反映」）。', ...reflectLines(carriedIn)] : []),
-    run,
-    recheckWaiting(waiting),
+    '流れ: 回答を入力に加えて flow を組み直す（planner.md の「回答での組み直し」）。',
+    ...(carriedIn && reflects(carriedIn) ? ['組み直しと同じ書き込みで、3a の裁定も flow に写す（planner.md の「裁定の反映」）。', ...reflectLines(carriedIn)] : []),
+    frameRun(true),
+    ruleLine(`組み直しの後、まだ裁定の無い open・組があれば、それと 3a から持ち越した問い ${list(waiting)} を裁定する（planner.md の「回答での組み直しの後（3b）」）。無ければ裁定しない。`),
+    pointedLines(ownItems(waiting, state)),
+    `回答で組み直した flow に初期 plan.domain の verdict / categories を変える新しいユーザー由来の signal が現れた場合は、domain assessment を同じ resolution ID で更新する。新しい signal が無ければ触らない。`,
+    domainAssessmentNote(),
+    askNote(ASKS['3b']()),
+    plannerQuestions(waiting),
   ], 'Answers', { lint: true })
-  if (reframe.error) return blocked(`段 3b: ${reframe.error}`, reframe.rerun === false ? null : '3b')
-  const framed = { ledger: state.resolutions_sha256 }
-  claimIssues('flow-framer:3b-reframe', reframe.cc.pair_keys, reframe.fc.open_ids)
-  const qe = await checkQuestions('3b', '3b-reframe', { questions_check: reframe.questions_check }, 'Answers', waiting)
-  if (qe) return blocked(qe.error, qe.rerun === false ? null : '3b')
-  const { opens, pairs } = unruledIssues(reframe.fc.open_ids, reframe.cc.pair_keys)
-  const carried = pendingQuestions(state)
-  // 持ち越した問いだけなら resolver を起動しない。問いの形は上の検査が組み直した flow で確かめており、決まっていたかの判定は依頼者の回答に委ねる
-  // （次のゲートで 1 問余分に聞くことはあっても、推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
-  if (!opens.length && !pairs.length && carried.length) skipped.push({ step: 'resolver:3b', fact: SKIP.carriedOnly, ids: carried })
+  if (got.error) return blocked(`段 3b: ${got.error}`, got.rerun === false ? null : '3b')
+  claimIssues('planner:3b', got.cc.pair_keys, got.fc.open_ids)
+  const before = unruledIssues(got.fc.open_ids, got.cc.pair_keys)
+  // 持ち越した問いの裁定漏れは、裁定する組か O- があった（裁定の仕事を行った）ときだけ数える（今の resolver:3b と同じ）。
+  const targets = before.opens.length || before.pairs.length ? waiting.map((id) => (state.about || {})[id]).filter(Boolean) : []
+  const t = await takeRulings('3b', '3b-reframe', got.r, 'Answers', { allowQuestions: ASKS['3b'](), recheck: waiting, reRuled: true, targets })
+  if (t.error) return blocked(t.error, t.rerun === false ? null : '3b')
+  const { opens, pairs } = unruledIssues(got.fc.open_ids, got.cc.pair_keys)
   const res = await resolveCycle('3b', {
     phase: 'Answers',
+    given: t.ids,
     task:
       opens.length || pairs.length
         ? [
-            `段 3b（resolver.md の「回答での組み直しの後」）:`,
+            `段 3b（planner.md の「回答での組み直しの後」）: planner:3b が裁定し漏らした論点だけを裁定する。`,
             `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}`,
             `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
-            `- 3a から持ち越した問い: ${list(carried)}`,
-            pointedLines([...issueItems([...opens, ...pairs]), ...ownItems(carried, state)]),
-            `回答で組み直した flow に初期 plan.domain の verdict / categories を変える新しいユーザー由来の signal が現れた場合は、domain assessment を同じ resolution ID で更新する。新しい signal が無ければ触らない。`,
+            pointedLines(issueItems([...opens, ...pairs])),
             askNote(ASKS['3b']()),
           ]
             .filter(Boolean)
             .join('\n')
         : null,
-    targets: [...opens, ...pairs, ...carried.map((id) => (state.about || {})[id]).filter(Boolean)],
-    recheck: carried,
+    targets: [...opens, ...pairs],
+    recheck: null,
+    wasQuestion,
     flowChanged: true,
-    framed,
+    framed: framedAt,
+    planned: { by: 'planner:3b', ids: t.ids },
     allowQuestions: ASKS['3b'](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3b')
@@ -2563,8 +2765,9 @@ function waitingNote(role) {
 function writerPrompt(unit, mode, extra) {
   const deps = state.units.filter((u) => (unit.depends_on || []).includes(u.id)).flatMap((u) => u.docs)
   return [
-    header('writer', mode === 'draft' ? '4（初稿）' : '7（改稿）', writerLabel(unit, mode)),
+    header('writer', mode === 'draft' ? '4（初稿）' : mode.startsWith('formal-') ? `${running}（形式検証の反例の差し戻し）` : '7（改稿）', writerLabel(unit, mode)),
     groundsBlock(),
+    `最初のコマンド（Write・Edit・put より前）: \`${backupCmd()}\`。stdout を加工せずに backup_check に入れる。控えを取る前に書いた本文は、この段の再実行で戻せない。`,
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
     deps.length ? `依存先の単位の文書（読むだけ）: ${deps.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}` : '',
     existingNote(),
@@ -2585,66 +2788,122 @@ function absorbWriter(r) {
   }
 }
 
-// backupDocs: writer は本文を Edit で書き doc_check を通らないので、writer を起動する前に段の token で本文の控えを取らせる（doc_check backup）。
-// 控えが無いと、blocked の後の同じ段の再実行の入口の restore が本文を戻せず、止まった run が途中まで書いた本文が再実行の入力になる
-// （expand の既存文書は S0 の原文が W から失われる）。
-async function backupDocs(stage, docs) {
-  const label = `flow-check:${stage}-backup`
-  const keys = uniq(docs)
-  const token = txToken()
-  const cmd = cli('backup', `${keys.map((k) => `--doc ${k}`).join(' ')} --token ${token}`)
-  const x = await once(label, 'flowCheck', [header('flowCheck', stage, label), `実行する: \`${cmd}\`。stdout を加工せずに backup_check に入れて返す。`].join('\n\n'), BACKUP_SCHEMA, PHASE_OF[stage], { backup_check: cmd })
-  const bc = parseStdout(x.backup_check)
-  if (bc && bc.backup === true && bc.token === token && canonicalText(bc.docs) === canonicalText(keys)) return
-  throw Object.assign(new Error(`flow-check（段 ${stage}）が token ${token} で文書 ${list(keys)} の本文の控えを取った doc_check backup の stdout を返しませんでした（控えが無いまま writer を起動すると、この段の再実行が止まった run の途中の本文から始まる）`), { rerunStage: true })
+// backupCmd: writer は本文を Edit で書き doc_check を通らないので、段 4・7 の writer はどれも最初のコマンドで段の token の控えを全文書について取る
+// （doc_check backup）。txBegin は同じ token・同じファイルの 2 回目から何もしないので、どの文書も最初に書いた writer の控えが段の入口の本文になる。
+// 控えが無いと、blocked の後の同じ段の再実行の入口の restore が本文を戻せない（references/workflow-io.md §3）。
+const backupCmd = () => cli('backup', `${uniq(auditDocs()).sort().map((k) => `--doc ${k}`).join(' ')} --token ${txToken()}`)
+
+// docsShaped: backup・restore の stdout の文書の digest（digests・entry_digest・tree_digest）の形。keys があれば digests のキーがちょうどそれ（backup）。
+const docsShaped = (o, keys = null) => Boolean(o) && isMap(o.digests) && (!keys || canonicalText(Object.keys(o.digests).sort()) === canonicalText(keys))
+  && Object.values(o.digests).every((v) => v === null || (typeof v === 'string' && Boolean(v)))
+  && (o.entry_digest === null || (typeof o.entry_digest === 'string' && Boolean(o.entry_digest))) && typeof o.tree_digest === 'string' && Boolean(o.tree_digest)
+// docsMoved: 文書が段の入口の本文と違う理由（同じなら null）。最初の段 4 の入口: existing_docs に無い単位の文書は無く（reset が消す）、既存の文書は
+// 段 1 の reset の直後のまま（state.entry_digest）。段 7 の入口と、最初のゲートの後に書き直す段 4 の入口（state.deferred で初稿を監査した後）:
+// 直前の監査の snapshot の木（state.audit.digest。その後の段は文書を書かない）。digests に無いキーは本文が無い。
+// bornOnly: 違うのが最初の段 4 で新しく生まれた文書だけ（段 1 の入口の reset が消すので段 1 から戻せる）。
+function docsMoved(stage, o) {
+  if (stage === '4' && !state.audit) {
+    const born = auditDocs().filter((k) => !KEEP_KEYS.includes(k) && o.digests[k] != null)
+    const moved = (o.entry_digest ?? null) !== (state.entry_digest ?? null)
+    const why = [...born.map((k) => `${k} がある`), ...(moved ? [`既存の文書の digest ${o.entry_digest} が段 1 の reset の値 ${state.entry_digest ?? null} と違う`] : [])]
+    return why.length ? { text: `段 4 の入口の本文と違う（${why.join('・')}）`, bornOnly: !moved } : null
+  }
+  return o.tree_digest === state.audit.digest ? null : { text: `木 ${o.tree_digest} が段 ${stage} の入口の監査の基準 audited-${state.audit.n}（${state.audit.digest}）と違う`, bornOnly: false }
+}
+// noteBackup: writer の返した backup の stdout（自己申告）を照らす。違えば integrity に 1 行足して段は進める（控えが要るのはこの段を同じ段から
+// 再実行するときだけで、その正否は再実行の入口で別の体が写す restore の stdout で決まる）。
+// moved: 照らす先（既定は段の入口の本文。形式検証の差し戻しでは formal-status の tree_digest_request）。
+function noteBackup(stage, label, text, moved = docsMoved) {
+  const keys = uniq(auditDocs()).sort()
+  const bc = parseStdout(text)
+  const shaped = bc && bc.backup === true && bc.token === txToken() && canonicalText(bc.docs) === canonicalText(keys) && docsShaped(bc, keys)
+  const m = shaped && moved(stage, bc)
+  // 控えの版は、その文書に最初に控えを取った writer の時点で決まる（並列なら別の writer のことがある）ので、誰が書いたかは断定しない。
+  const d = !shaped ? `token ${txToken()} で文書 ${list(keys)} の控えを取った stdout ではない` : m ? `この token の控えの版が${m.text}` : null
+  if (d) noteIntegrity(`${label} の doc_check backup（token ${txToken()}）: ${d}（この段が止まって同じ段から再実行すると、入口の照合で止まりうる）`)
+}
+// writerBackups: writer の backup_check の写しが checksum に合わなければ取り直し（recopy）、照らす。
+async function writerBackups(stage, labels, results, phaseTitle, moved) {
+  for (let i = 0; i < results.length; i++) {
+    results[i] = await recopy(labels[i], results[i], { backup_check: backupCmd() }, phaseTitle)
+    noteBackup(stage, labels[i], results[i].backup_check, moved)
+  }
 }
 
-// designatedCmds: 指名された監査役の doc と tree-digest は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
+// designatedCmds: 指名された監査役の doc と tree-digest と quotes は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
 // 監査役の実行中の値なので、取り直さずに段からやり直させる（snapshotFault）。
-const designatedCmds = () => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`), tree_digest: cli('tree-digest') })
+const quotesCmd = (round, packs) => cli('quotes', `--findings ${packs.map((p) => findingsName(p, round)).join(',')}`)
+const designatedCmds = (round, packs) => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`), tree_digest: cli('tree-digest'), quotes: quotesCmd(round, packs) })
 const snapshotFault = (d) => (d && copyFault(d.audited) ? `（snapshot の stdout の写しが checksum（${STDOUT_FNV}）に合いません。snapshot は基準を書き直すので取り直しません）` : '')
 
 async function stage4() {
   const waves = unitWaves(state.units)
-  await backupDocs('4', auditDocs())
   for (const wave of waves) {
     const units = wave.map((id) => state.units.find((u) => u.id === id))
     const results = await runEach(units, (u) => call(writerPrompt(u, 'draft'), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: 'Draft', label: writerLabel(u, 'draft') }))
     const missing = units.filter((_, i) => !results[i]).map((u) => writerLabel(u, 'draft'))
     // 一度も書かれていない単位を監査に回さない。
     if (missing.length) throw notRun(missing.join(', '))
+    await writerBackups('4', units.map((u) => writerLabel(u, 'draft')), results, 'Draft')
     for (const r of results) absorbWriter(r)
   }
   state.settled_written = uniq([...usableResolutions(state), ...(state.holds || [])])
   return '5'
 }
 
-function auditorPrompt(role, doc, round, opt) {
-  const docs = auditDocs()
-  const prev = uniq(pendingFindings(state.pending).filter((f) => (opt.items || []).includes(f.item_id)).map((f) => f.id))
-  const ruled = uniq(((state.pending || {}).again || []).filter((f) => (opt.items || []).includes(f.item_id)).flatMap((f) => f.rulings))
-  const target = doc === 'all' ? `全文書: ${docs.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}、${W}/plan.json` : `文書: ${W}/${doc.replace('/', '-')}.md とその .meta.json`
+// REVIEW_MAX_BYTES・DOC_BYTES: writer reviewer 1 体が読む文書の上限と、1 文書の分量の目安（doc_check の SIZE_BUDGET.document と同じ。tests が
+// 照合する）。script はファイルの大きさを読めず、agent に申告させた値は検査できないので、文書の数で静的に決める。全文書が上限に収まる間は 1 体にする。
+const REVIEW_MAX_BYTES = 100000
+const DOC_BYTES = 23378
+const DOCS_PER_REVIEW = Math.max(1, Math.floor(REVIEW_MAX_BYTES / DOC_BYTES))
+// reviewPacks: writer reviewer の組。文書の並びの順に前から詰め、組が 1 つなら名前は all。whole reviewer は文書をまたぐ矛盾を見るので分けない。
+function reviewPacks(docs) {
+  const groups = []
+  for (let i = 0; i < docs.length; i += DOCS_PER_REVIEW) groups.push(docs.slice(i, i + DOCS_PER_REVIEW))
+  return groups.map((ds, i) => ({ role: 'writerReviewer', pack: groups.length === 1 ? 'all' : `p${i + 1}`, docs: ds }))
+}
+const wholePlan = () => ({ role: 'wholeReviewer', pack: 'all', docs: auditDocs() })
+const ROLE_TAG = { writerReviewer: 'wr', wholeReviewer: 'wh' }
+const findingsName = (p, round) => `r${round}-${ROLE_TAG[p.role]}-${p.pack}`
+const auditorLabel = (p, round) => `${p.role}:r${round}:${p.pack}`
+const docFile = (k) => `${W}/${k.replace('/', '-')}.md`
+
+// auditorPrompt: opt.changes は段 8 の writer の申告（文書ごとの項目）、opt.diff は段 8 の writer reviewer が判定の前に実行する diff、
+// opt.reviewed は whole reviewer に渡す同じ回の writer reviewer の指摘。
+function auditorPrompt(p, round, opt) {
+  const all = auditDocs()
+  const whole = p.role === 'wholeReviewer'
+  const declared = opt.changes ? p.docs.filter((d) => (opt.changes[d] || []).length).map((d) => `- ${d}: ${list(uniq(opt.changes[d]))}`) : []
+  // 前のパスの指摘は組の文書のもの全部を渡す。申告に無い変更の項目は writer reviewer が diff で読むまで script に分からないので、申告の項目に
+  // 絞ると、その項目への前の指摘と裁定が届かない。
+  const inPack = (f) => opt.changes && p.docs.includes(f.doc)
+  const prev = uniq(pendingFindings(state.pending).filter(inPack).map((f) => f.id))
+  const ruled = uniq(((state.pending || {}).again || []).filter(inPack).flatMap((f) => f.rulings))
+  const target = whole
+    ? `全文書: ${all.map(docFile).join('、')}、${W}/plan.json`
+    : `${p.docs.length === all.length ? '全文書' : `詰め合わせの組 ${p.pack} の文書（ほかの文書は別の writer reviewer が見る）`}: ${p.docs.map(docFile).join('、')} とその .meta.json`
   const lines = [
-    header(role, opt.stage, opt.label),
+    header(p.role, opt.stage, opt.label),
     groundsBlock(),
     target,
     existingNote(),
     waitingNote('auditor'),
-    opt.items ? `範囲を絞った監査: 対象は項目 ${list(opt.items)}（その項目の節から読む）。` : '',
-    opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（${FINDINGS_READ}）` : '',
-    opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
-    `指摘は ${W}/findings/${findingsName(role, doc, round, opt.extra)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
+    opt.changes ? `範囲を絞った監査: writer の申告の項目は次のとおり（その項目の節から読む）。\n${declared.join('\n') || '（なし）'}` : '',
+    opt.diff ? `判定の前に \`${opt.diff}\` を実行し、結果ファイルの by_doc のうち自分の組の文書の changed・added の項目も範囲に足す（申告に無い変更。exit 3 なら判定せずに findings: [] を返す。契約 §writer-reviewer）。` : '',
+    prev.length ? `この文書への前のパスの指摘（範囲の項目のものを照らす）: ${list(prev)}（${FINDINGS_READ}）` : '',
+    ruled.length ? `この文書への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
+    opt.reviewed
+      ? `同じ回の writer reviewer の指摘: ${list(opt.reviewed.ids)}（${opt.reviewed.files.map((f) => `${W}/findings/${f}.json`).join('、')}）。確かめて、退けるものを rejected に返す（agents/whole-reviewer.md「writer reviewer の指摘を確かめる」）。`
+      : '',
+    `指摘は ${W}/findings/${findingsName(p, round)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
+    formalAuditNote(),
   ]
   if (opt.designated) lines.push(`あなたは指名された監査役である。${opt.designated}`)
   return lines.filter(Boolean).join('\n\n')
 }
-const ROLE_TAG = { implementer: 'im', grounding: 'gr', crossDoc: 'cd' }
-// 追加の監査役は役の印に x を付ける（文書の側に付けると、キーが -extra で終わる文書の 1 体目と名前が重なる）。
-const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}${extra ? 'x' : ''}-${doc === 'all' ? 'all' : fileKey(doc)}`
-const auditorLabel = (p, round) => `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`
 
-// liveDirs: 指名された監査役が snapshot を取る間も、同じ plan の他の監査役が作業用ディレクトリを使っている。snapshot の --sweep は
-// ここに無い label の作業用ディレクトリを消すので、snapshot と並行して動く呼び出しはすべてここに挙がっていなければならない。
+// liveDirs: 指名された whole reviewer が snapshot を取るとき、同じ段の writer reviewer の作業用ディレクトリも残す（並列だった以前と同じく、
+// その段の監査役の tmp を --sweep で消さず stray にも数えない）。snapshot の --sweep はここに無い label の作業用ディレクトリを消す。
 function liveDirs(plan, round) {
   return plan.map((p) => fileKey(auditorLabel(p, round))).join(',')
 }
@@ -2668,9 +2927,9 @@ function auditDocs() {
 }
 
 // runAuditors: 未実施の監査を「指摘 0 件」にしないため、返り値の無い監査役は missing に挙げる（呼び出した段が止める）。
-async function runAuditors(plan, round, stage) {
+async function runAuditors(plan, round, stage, opt = {}) {
   const results = await runEach(plan, (p) =>
-    call(auditorPrompt(p.role, p.doc, round, { stage, items: p.items, designated: p.designatedText, extra: p.extra, label: auditorLabel(p, round) }), {
+    call(auditorPrompt(p, round, { ...opt, stage, designated: p.designatedText, label: auditorLabel(p, round) }), {
       ...OPTS[p.role],
       schema: AUDIT_SCHEMA,
       phase: stage === '5' ? 'Audit' : 'Revise',
@@ -2681,61 +2940,223 @@ async function runAuditors(plan, round, stage) {
   return { results, missing }
 }
 
-function recordFindings(plan, results) {
-  const all = []
-  plan.forEach((p, i) => {
-    const fs = (results[i] && results[i].findings) || []
-    state.roles_by_item = rolesByItem(state.roles_by_item, fs, p.role)
-    all.push(...fs)
+// reviewed: whole reviewer に渡す、同じ回の writer reviewer の指摘のファイルと ID。
+const reviewed = (packs, results, round) => ({ files: packs.map((p) => findingsName(p, round)), ids: uniq(results.flatMap((r) => ((r && r.findings) || []).map((f) => f.id))) })
+
+// staticUnquoted: 指名された whole reviewer が判定の前に実行した doc_check quotes の stdout から、quote がどの原文にも無い（not_found）同じ回の
+// writer reviewer の指摘の ID。照らした findings か版が期待と違うか stdout が無ければ、退けずに integrity に 1 行足す（静的な退けは LLM の判断を
+// 通らないので、退けない向きに倒す）。同じ回の writer reviewer の返り値に無い ID は照らせないので退けない。
+function staticUnquoted(d, audited, packs, results, round) {
+  const note = (why) => {
+    noteIntegrity(`監査 r${round}: ${why}ので、quote の照合で指摘を退けなかった`)
+    return []
+  }
+  const q = parseStdout(d && d.quotes)
+  const expected = packs.map((p) => findingsName(p, round))
+  if (!q || !Array.isArray(q.files) || !Array.isArray(q.unquoted)) return note('quote の照合の stdout が無い')
+  if (canonicalText([...q.files].sort()) !== canonicalText([...expected].sort())) return note('照らした findings が期待と違う')
+  if (q.tree_digest !== audited.digest) return note('照合の版が監査の基準と違う')
+  const own = new Set(results.flatMap((r) => (r && r.findings) || []).map((f) => f.id))
+  return uniq(q.unquoted.filter((id) => own.has(id)))
+}
+
+// auditFindings: その回の指摘の集合。whole reviewer が退けたのは同じ回の writer reviewer の指摘の ID だけで、それ以外の ID は退けない（自分の
+// 指摘・前の回の指摘を退けると、blocking を監査役が自分で消せる）。unquoted は quote の照合で静的に退ける ID（staticUnquoted）。
+// 退けた指摘は経路・再発・逆向きの判定より前に外す。
+function auditFindings(packs, results, whole, round, unquoted = []) {
+  const fromWriter = results.flatMap((r) => (r && r.findings) || [])
+  const own = new Set(fromWriter.map((f) => f.id))
+  const asked = uniq((whole && whole.rejected) || [])
+  const stray = asked.filter((id) => !own.has(id))
+  const statics = new Set(unquoted)
+  const rejected = asked.filter((id) => own.has(id) && !statics.has(id))
+  if (stray.length) noteIntegrity(`監査 r${round}: whole reviewer が同じ回の writer reviewer の指摘に無い ID を退けようとした（退けずに数えた）: ${list(stray)}`)
+  if (rejected.length) state.notices = [...(state.notices || []), `監査 r${round}: whole reviewer が writer reviewer の指摘 ${rejected.length} 件を退けた: ${list(rejected)}（理由は ${W}/findings/${findingsName(wholePlan(), round)}.json の rejected）`]
+  if (unquoted.length) state.notices = [...(state.notices || []), `監査 r${round}: 引用がどの原文にも無い writer reviewer の指摘 ${unquoted.length} 件を退けた: ${list(unquoted)}（${W}/checks/quotes-r${round}.json）`]
+  const out = new Set([...rejected, ...unquoted])
+  return [...fromWriter.filter((f) => !out.has(f.id)), ...((whole && whole.findings) || [])]
+}
+
+// ---------------------------------------------------------------- 形式検証（formal-method）への依頼と取り込み
+// 段 5・8 の本体の最初（writer の後・監査役の前）で、doc_check formal-request が送る単位を静的に決め、送る単位があれば needs_formal で返る。
+// 司令塔が formal-method を回して formal-import で結果を W に置き、next_args で呼び直す（resume は使わない。入口の flow-check が取り込みを照らす）。
+// 取り込んだ結果に反例があれば、監査役の前に、その文書の writer へ 1 回だけ差し戻し（formalRework）、変わった単位だけをもう 1 回依頼する（依頼 b）。
+// 依頼 b の後に残る反例は、doc_check の ST-FORMAL-CEX- として blocking のまま監査と輪の止め方に進む。正本は references/workflow-io.md §4 の段 5・8。
+const formalRid = (round, phase) => `f${round}${phase}`
+const formalRound = (rid) => Number(String(rid).slice(1, -1))
+const formalPhase = (rid) => String(rid).slice(-1)
+// entryFormal: 入口の flow-check が返した formal-status の stdout を照らした値（state に載せない。entryAnswers と同じ扱い）。
+let entryFormal = null
+let formalOffNoted = false
+const FORMAL_COUNTS = ['verified', 'counterexample', 'overlap', 'unverified', 'undetected']
+
+// formalCheckOf: formal-request の stdout。rid が違うか、送る単位があるのに依頼の digest・fnv・cwd が無ければ受け取らない。
+function formalCheckOf(text, rid) {
+  const o = parseStdout(text)
+  if (!o || o.rid !== rid || !Number.isInteger(o.goals) || !Number.isInteger(o.units) || typeof o.tree_digest !== 'string') return null
+  if (o.goals > 0 && !(typeof o.request_fnv === 'string' && /^[0-9a-f]{8}$/.test(o.request_fnv) && typeof o.request_digest === 'string' && o.request_digest && typeof o.cwd === 'string' && o.cwd)) return null
+  return o
+}
+// formalStatusOf: formal-status の stdout。取り込んだ後（outcome が null でない）は counts を持つ。
+function formalStatusOf(text) {
+  const o = parseStdout(text)
+  if (!o || typeof o.rid !== 'string' || typeof o.fnv !== 'string' || typeof o.units_digest_ok !== 'boolean' || !Array.isArray(o.cex_docs)) return null
+  if (typeof o.tree_digest_request !== 'string' || typeof o.tree_digest_now !== 'string') return null
+  if (o.outcome !== null && (!FORMAL_OUTCOMES.includes(o.outcome) || !isMap(o.counts) || !FORMAL_COUNTS.every((k) => Number.isInteger(o.counts[k])))) return null
+  return o
+}
+// formalEntryRid: next_args で段 5・8 から始めた run の入口で照らす依頼。取り込む前の依頼と、取り込んだ後でも同じ回の依頼（差し戻しの後に止まった
+// 再実行は、入口で照らし直して差し戻しからやり直す）。
+function formalEntryRid(from) {
+  const f = state.formal
+  if (input.formal === false || !['5', '8'].includes(from) || !f || !f.rid) return null
+  const round = state.audit ? state.audit.n + 1 : 1
+  return !f.ok || formalRound(f.rid) === round ? f.rid : null
+}
+
+function noteFormalOff() {
+  if (formalOffNoted) return
+  formalOffNoted = true
+  skipped.push({ step: 'formal-method', fact: SKIP.formal_unavailable, ids: [] })
+  if (!(state.notices || []).includes(FORMAL_OFF_NOTICE)) state.notices = [...(state.notices || []), FORMAL_OFF_NOTICE]
+}
+
+// formalGate: 段 5・8 の本体の最初。返り値は段の返り値（needs_formal か blocked）か null（監査役へ進む）。
+// 持ち越した問いのまま書いた段 5（state.deferred。最初のゲートの後に書き直す初稿）は依頼せず、上限にも数えない。
+async function formalGate(stage, round) {
+  if (input.formal === false) {
+    noteFormalOff()
+    return null
+  }
+  if (stage === '5' && state.deferred) return null
+  const f = state.formal
+  const phase = f && f.ok && formalRound(f.rid) === round ? formalPhase(f.rid) : null
+  if (phase === 'b') return null
+  if (phase === 'a') {
+    // 依頼 a を取り込んだ直後（入口で ok にした）。反例が無ければ監査役へ。差し戻しの後の依頼 b は上限に数えない。
+    if (!entryFormal || entryFormal.rid !== f.rid || !entryFormal.counts.counterexample) return null
+    await formalRework(stage, round, entryFormal)
+    return formalRequest(stage, round, 'b')
+  }
+  if (((state.formal_by || {})[stage] || 0) >= FORMAL_LIMIT[stage]) return null
+  return formalRequest(stage, round, 'a')
+}
+
+// formalRequest: flow-check に doc_check formal-request を実行させる。送る単位が無ければ戻らない（skipped に no_formal_target）。
+// 送る単位を決めるのは doc_check（差し戻しの writer が何も変えなかったかも、依頼 b の送る単位の数で決まる。writer の申告では決めない）。
+async function formalRequest(stage, round, phase) {
+  const rid = formalRid(round, phase)
+  const label = `flow-check:${stage}-formal-${rid}`
+  const cmd = cli('formal-request', `--rid ${rid} --stage ${stage} --phase ${phase}`)
+  const r = await once(label, 'flowCheck', [header('flowCheck', stage, label), `実行する: \`${cmd}\`。stdout を加工せずに formal_check に入れて返す。`].join('\n\n'), FORMAL_CHECK_SCHEMA, PHASE_OF[stage], { formal_check: cmd })
+  const fr = formalCheckOf(r.formal_check, rid)
+  if (!fr) return blocked(`flow-check（段 ${stage}）が ${rid} の doc_check formal-request の stdout を返しませんでした`, stage)
+  if (!fr.goals) {
+    skipped.push({ step: `formal-method:${rid}`, fact: SKIP.no_formal_target, ids: [] })
+    state.formal = { rid, ok: 1 }
+    return null
+  }
+  state.formal = { rid, fnv: fr.request_fnv }
+  if (phase === 'a') state.formal_by = { ...(state.formal_by || {}), [stage]: ((state.formal_by || {})[stage] || 0) + 1 }
+  return finish('needs_formal', {
+    formal_request: { rid, request_path: `${W}/fm/${rid}/request.json`, request_digest: fr.request_digest, cwd: fr.cwd, units: fr.units, goals: fr.goals },
+    next_args: nextArgs(stage),
+    resumable: false,
   })
-  return all
+}
+
+// formalRework: 依頼 a の反例のある文書（cex_docs）を持つ単位の writer を、段 7 と同じ改稿のプロンプトで 1 回だけ起動する（label writer:<unit>:formal-<回>）。
+// 控えの照らす先は依頼の木（段 5 には state.audit が無いことがある）。段 8 では申告を state.revised.changes に足す（足さないと段 8 の diff で
+// 申告に無い変更に数えられる）。
+async function formalRework(stage, round, st) {
+  const cex = new Set(st.cex_docs)
+  const targets = state.units.filter((u) => u.docs.some((k) => cex.has(k)))
+  if (!targets.length) return
+  const mode = `formal-${round}`
+  const labelOf = (u) => writerLabel(u, mode)
+  const extra = [
+    `形式検証の反例の差し戻し（${st.rid}）: doc_check の \`ST-FORMAL-CEX-\` の指摘を直す（事実は ${W}/fm/facts.json。指摘は内部ループの doc の findings に出る）。他の指摘には当てない（契約「## 形式検証の事実」）。`,
+    '直した項目を changed_items に入れる。',
+  ].join('\n\n')
+  const results = await runEach(targets, (u) => call(writerPrompt(u, mode, extra), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: PHASE_OF[stage], label: labelOf(u) }))
+  const missing = targets.filter((_, i) => !results[i]).map(labelOf)
+  if (missing.length) throw notRun(missing.join(', '))
+  const moved = (_, o) => (o.tree_digest === st.tree_digest_request ? null : { text: `木 ${o.tree_digest} が ${st.rid} の依頼の木（${st.tree_digest_request}）と違う`, bornOnly: false })
+  await writerBackups(stage, targets.map(labelOf), results, PHASE_OF[stage], moved)
+  targets.forEach((u, i) => {
+    const r = results[i]
+    absorbWriter(r)
+    if (stage !== '8' || !(r.changed_items && r.changed_items.length)) return
+    const changes = { ...state.revised.changes }
+    for (const k of u.docs) changes[k] = uniq([...(changes[k] || []), ...r.changed_items])
+    state.revised = { ...state.revised, changes, docs: uniq([...(state.revised.docs || []), ...u.docs]) }
+  })
+}
+
+// formalAuditNote: 形式検証の事実を監査役に渡す 1 行（依頼した run だけ）。判定し直さないものと、ふだんどおり判定するものを分ける。
+function formalAuditNote() {
+  if (!state.formal_by || !Object.keys(state.formal_by).length) return ''
+  return `形式検証の事実: ${W}/fm/facts.json（どの判定を意味で判定し直さないかは契約「## 形式検証の事実」の監査役の項）。`
 }
 
 async function stage5() {
-  state.pass = 1
-  // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路と項目の役を引き継がない（項目は書き直しで別物になる）。
+  // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路を引き継がない（項目は書き直しで別物になる）。
   // 回の番号は前の監査の続きにする。同じ回の番号で監査すると指摘の ID が前の監査の指摘と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことに
   // なって（unruled）、新しい指摘が段 6 に届かない。
   const round = state.audit ? state.audit.n + 1 : 1
+  // 形式検証は writer の後・監査役の前（formalGate）。needs_formal の next_args の state を、段の入口の state と形式検証の欄だけの違いにするため、
+  // state を書き換える行（pass・item_routes・reframed）より前に置く。
+  const formal = await formalGate('5', round)
+  if (formal) return formal
+  state.pass = 1
   const base = `audited-${round}`
   delete state.item_routes
-  delete state.roles_by_item
   // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
   delete state.reframed
   // existing は段 4 を通らず、この run の裁定をまだどの writer にも渡していない。
   if (ENTRY === 'existing') state.settled_written = []
-  const docs = auditDocs()
-  const plan = [
-    ...docs.flatMap((doc) => [
-      { role: 'implementer', doc },
-      { role: 'grounding', doc },
-    ]),
-    { role: 'crossDoc', doc: 'all' },
-  ]
-  plan[plan.length - 1].designatedText = [
+  const packs = reviewPacks(auditDocs())
+  const whole = wholePlan()
+  const wr = await runAuditors(packs, round, '5')
+  if (wr.missing.length) throw notRun(wr.missing.join(', '))
+  whole.designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
-    `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
+    `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、続けて（判定の前に）\`${quotesCmd(round, packs)}\` → designated.quotes`,
+    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs([...packs, whole], round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
-  const { results, missing } = await runAuditors(plan, round, '5')
-  if (missing.length) throw notRun(missing.join(', '))
-  const cd = results[results.length - 1]
-  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
-  const audited = parseStdout(cd.designated && cd.designated.audited)
-  const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
-  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
+  const wh = await runAuditors([whole], round, '5', { reviewed: reviewed(packs, wr.results, round) })
+  if (wh.missing.length) throw notRun(wh.missing.join(', '))
+  const wv = wh.results[0]
+  if (wv.designated) wv.designated = await recopy(auditorLabel(whole, round), wv.designated, designatedCmds(round, packs), 'Audit')
+  const audited = parseStdout(wv.designated && wv.designated.audited)
+  const docCheck = parseStdout(wv.designated && wv.designated.doc_check)
+  if (!audited || !audited.digest) return blocked(`whole reviewer が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(wv.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
   const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
+  const entry1 = entryMoved(docCheck)
+  if (entry1) return blocked(entry1, null)
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
   noteAudited(audited, base)
-  const findings = recordFindings(plan, results)
-  setPending(findings, docCheck, [])
+  setPending(auditFindings(packs, wr.results, wv, round, staticUnquoted(wv.designated, audited, packs, wr.results, round)), docCheck, [])
+  // lowOnly: 指摘が blocking を含まず、改稿の理由（doc_check の blocking・新しい TBD・回答待ちの問い・本文にまだ入っていない裁定・当てていない
+  // routes）も無ければ、段 6〜8 を飛ばして 9 へ進む。blocking でない指摘（route が decision のものも）は裁定せず、本文に反映しないまま
+  // unreflected で開示する。doc の stdout が無ければ doc_check の blocking を数えられないので飛ばさない（退けない向きと同じく、安全側に倒す）。
+  const p = pendingView(state.pending)
+  const unwritten = minus(uniq([...usableResolutions(state), ...(state.holds || [])]), state.settled_written || [])
+  const applied = new Set(state.applied_routes || [])
+  const unrouted = (state.routes || []).filter((x) => !applied.has(x.id))
+  const lowOnly = Boolean(docCheck) && !p.blocking.length && !p.doc_blocking && !(state.new_tbd || []).length && !pendingQuestions(state).length && !unwritten.length && !unrouted.length
+  if (lowOnly) {
+    if (p.findings.length) skipped.push({ step: auditorLabel(packs[0], round + 1), fact: SKIP.low_only, ids: p.findings.map((f) => f.id) })
+    log(`監査 r${round} の指摘が blocking を含まないので、改稿と 2 巡目の監査を飛ばします（残した指摘 ${p.findings.length} 件）`)
+    return '9'
+  }
   return '6'
 }
 
 // recurring: 再発した項目と、その項目への前のパスの指摘（段 6 に渡す）。again: 既裁定の再出。経路にも blocking にも入れず、次のパスの
-// 照合のために裁定の ID だけを持ち越す。尽きた項目の指摘は経路に回さず、blocking には残す。
+// 照合のために裁定の ID だけを持ち越す。
 function setPending(findings, docCheck, carried, opt = {}) {
   const drop = new Set((opt.again || []).map((x) => x.id))
   const recurring = opt.recurring || {}
@@ -2744,7 +3165,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const refs = (docCheck && docCheck.flow_refs) || {}
   // decision の指摘の項目も持つ: 段 6 の指された根拠（pointedGrounds）が、項目の trace が指す要素の検証の裁定を引く。
   const flow = {}
-  for (const f of all.filter((x) => (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {
+  for (const f of all) {
     const ids = uniq((refs[f.doc] || {})[f.item_id])
     if (ids.length) flow[f.doc] = { ...(flow[f.doc] || {}), [f.item_id]: ids }
   }
@@ -2766,8 +3187,11 @@ function setPending(findings, docCheck, carried, opt = {}) {
 // 裁定に回すのは、どの resolution の about にも無い指摘と TBD だけにする（unruled）。前のパスで裁定した指摘が pending に残っていて
 // 渡し直すと、同じ論点に 2 つ目の裁定を put させることになり、doc_check が拒んで段が止まる。回答待ちの問いは、裁定に回すものが無くても
 // 聞くか保持規則にする。
+// 延長のパス（state.pass > MAX_AUDIT_PASSES。最後の監査の後に聞く 1 回）では、blocking の decision だけを渡す。blocking でない decision は
+// 裁定せずに report.md の節に残す（段 5 の lowOnly と同じ扱い）。
 async function stage6() {
-  const decision = unruled(pendingView(state.pending, state.item_routes).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
+  const extended = state.pass > MAX_AUDIT_PASSES
+  const decision = extended ? blockingDecision(pendingView(state.pending)) : unruled(pendingView(state.pending).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
   const tbd = unruled((state.new_tbd || []).map((id) => `tbd:${id}`), 'tbd').map((k) => k.slice(4))
   const allowQuestions = ASKS[6]()
   const reasked = new Set(answeredRecurrences(decision).map((id) => `finding:${id}`))
@@ -2775,18 +3199,39 @@ async function stage6() {
     const res = await decide(decision, tbd, allowQuestions, reasked)
     if (res.error) return blocked(res.error, res.rerun === false ? null : '6')
   }
+  const left = extended ? remainingBlocking() : null
   state.new_tbd = []
   const again = pendingQuestions(state).filter((id) => reasked.has((state.about || {})[id]))
   if (again.length) {
     const he = await holdLeft('6', again, 'Decide', '前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない')
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
+  // 仕様書だけを書く run の要求の論点は、字数・聞ける回数の判定より先に upstream_gap にする（requirementGap）。
+  const gap = pendingQuestions(state).length ? requirementGap() : null
+  if (gap) return gap
+  // 延長の段 6 の裁定で state が増えるので、ゲートの next_args をここでも測る。超えるなら問いを保持規則にして輪を出る。
+  const over = extended && pendingQuestions(state).length > 0 && extensionOver(state)
   if (pendingQuestions(state).length) {
-    if (allowQuestions) return needsAnswers("3a'", '7')
-    const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)
+    if (allowQuestions && !over) return needsAnswers("3a'", '7')
+    const he = await holdLeft('6', pendingQuestions(state), 'Decide', over ? OVER_WHY : LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
+  // 延長で問いが無ければ 7 へ進まない。上限を越えて改稿と監査を延ばすのは、依頼者の回答を当てる 1 回だけである。
+  // 延長の段 6 が入口の論点（新しい TBD など）をすべて値で決めると、残りの数は 0 になる。そのときは延長に入った論点の数で書く。
+  if (extended) return finalHold(left.blocking || decision.length + tbd.length, left.newTbd, 'pass_limit', over ? `最後の監査の後の延長のパスで、${OVER_WHY}` : '最後の監査の後の延長のパスで、段 6 が依頼者への問いを出さなかった', '6')
   return '7'
+}
+
+// blockingDecision: まだ裁定の無い、blocking で route が decision の指摘。延長のパスの段 6・延長するかの判定（段 8）・resolver:final に渡す。
+// 裁定済みのものを渡し直すと、同じ論点に 2 つ目の裁定を put させることになり、doc_check が拒む。
+const blockingDecision = (p) => unruled(p.findings.filter((f) => f.blocking && f.route === 'decision').map((f) => `finding:${f.id}`), 'finding').map((k) => k.slice(8))
+
+// remainingBlocking: 監査の後に残った blocking の数（新しい TBD を含む）と、まだ閉じていない新しい TBD。段 8 と延長の段 6 の出口で同じ式を使う。
+// 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になるので、blocking と同じく数える。
+function remainingBlocking() {
+  const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
+  const now = pendingView(state.pending)
+  return { newTbd, blocking: now.blocking.length + now.doc_blocking + newTbd.length }
 }
 
 const rulingsOfFindings = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
@@ -2803,20 +3248,17 @@ function answeredRecurrences(decision) {
 
 function decide(decision, tbd, allowQuestions, reasked) {
   const rec = state.pending.recurring || {}
-  const routeOf = (k) => (state.item_routes || {})[k]
-  const redecide = Object.keys(rec).filter((k) => routeOf(k) === 'decision')
-  const toHold = uniq(pendingFindings(state.pending).filter((f) => rec[itemKey(f)] && routeOf(itemKey(f)) === 'hold').map((f) => f.id))
-  orderHolds([], [...toHold.map((id) => `finding:${id}`), ...reasked])
+  const redecide = Object.keys(rec)
+  orderHolds([], [...reasked])
   return resolveCycle('6', {
     phase: 'Decide',
     task: [
-      `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、meta の新しい TBD（保存した文書から引き継いだ TBD を含む） ${list(tbd)}。`,
+      `段 6（planner.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、meta の新しい TBD（保存した文書から引き継いだ TBD を含む） ${list(tbd)}。`,
       redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOfFindings(rec[k]))}`).join(' / ')}` : '',
-      toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
-      reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
+      reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（planner.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
       pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),
       waitingNote('resolver'),
-      allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（resolver.md の「8'」）。`,
+      allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（planner.md の「8'」）。${specOnly() ? SPEC_REQ_NOTE : ''}`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2826,7 +3268,7 @@ function decide(decision, tbd, allowQuestions, reasked) {
 }
 
 async function stage7() {
-  const p = pendingView(state.pending, state.item_routes)
+  const p = pendingView(state.pending)
   const routesByUnit = {}
   for (const { unit, id } of state.routes || []) routesByUnit[unit] = uniq([...(routesByUnit[unit] || []), id])
   const applied = new Set(state.applied_routes || [])
@@ -2843,13 +3285,11 @@ async function stage7() {
     }))
     .filter((t) => t.bundles.length || t.routes.length || p.doc_blocking > 0 || (newSettled.length && !anyRoutes))
   if (!targets.length) {
-    // blocking が残ったまま 9 へ進むと、止まる条件を通らずに done になる（尽きた項目・段 6 が裁定しなかった指摘）。
+    // blocking が残ったまま 9 へ進むと、止まる条件を通らずに done になる（段 6 が裁定しなかった指摘）。
     if (p.blocking.length) return finalHold(p.blocking.length, [], 'no_progress', '改稿に回せる指摘も裁定も無いまま blocking が残った', '7')
     log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')
     return '9'
   }
-  // 改稿する単位の文書だけでなく全文書を控える。writer が自分の単位の外の文書に書いても、再実行の restore がそれを戻せるように。
-  await backupDocs('7', auditDocs())
   const results = await runEach(targets, (t) => {
     const before = t.unit.docs.map((k) => `${k}: ${state.docs && state.docs[k] ? state.docs[k] : `${W}/checks/audited-${state.audit.n}.snapshot.json の docs["${k}"].digest`}`)
     const extra = [
@@ -2865,6 +3305,7 @@ async function stage7() {
   })
   const missing = targets.filter((_, i) => !results[i]).map((t) => writerLabel(t.unit, 'revise'))
   if (missing.length) throw notRun(missing.join(', '))
+  await writerBackups('7', targets.map((t) => writerLabel(t.unit, 'revise')), results, 'Revise')
   const changes = {}
   let unapplied = []
   targets.forEach((t, i) => {
@@ -2886,68 +3327,51 @@ async function stage7() {
 async function stage8() {
   const n = state.audit.n
   const round = n + 1
+  const formal = await formalGate('8', round)
+  if (formal) return formal
   const { changes } = state.revised
-  const plan = scopedAuditPlan(changes, state.roles_by_item || {})
-  const designatedText = [
+  const packs = reviewPacks(auditDocs())
+  const whole = wholePlan()
+  const diffCmd = cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)
+  // 範囲は writer の申告に、申告に無い変更（diff）を足したもの。writer reviewer は判定の前に同じ diff を実行して自分の組の文書の範囲を読み、
+  // whole reviewer は指名されて diff の結果を返す（監査の間は誰も本文を書かないので、2 体の見る diff は同じ）。
+  const wr = await runAuditors(packs, round, '8', { changes, diff: diffCmd })
+  if (wr.missing.length) throw notRun(wr.missing.join(', '))
+  whole.designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
-    `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
-    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
+    `最初に（判定の前に）: \`${diffCmd}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。続けて（判定の前に）\`${quotesCmd(round, packs)}\` → designated.quotes`,
+    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs([...packs, whole], round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
-  plan[0].designatedText = designatedText
-  const designatedOf = (h) => (h.results[0] && h.results[0].designated) || {}
-  const readDesignated = (d) => ({ audited: parseStdout(d.audited), tree: parseStdout(d.tree_digest) })
-  const usable = (d) => {
-    const { audited, tree } = readDesignated(d)
-    return !d.diff_error && d.diff && audited && audited.digest && tree && tree.digest
-  }
-  // 追加の監査役は指名された監査役の diff だけで決まるので、plan 全体を待たずにその返り値に連ねて起動する。起動はその返り値の後
-  // （指名された監査役の snapshot の後）なので、snapshot の --live に挙げなくても stray に出ない。
-  const extraOf = (d) => undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
-  const head = runAuditors([plan[0]], round, '8')
-  const rest = runAuditors(plan.slice(1), round, '8')
-  const extraRun = head.then(async (h) => {
-    if (h.results[0] && h.results[0].designated) h.results[0].designated = await recopy(auditorLabel(plan[0], round), h.results[0].designated, designatedCmds(), 'Revise')
-    const d = designatedOf(h)
-    if (!h.results[0] || !usable(d)) return null
-    const extra = extraOf(d)
-    const extraDocs = Object.keys(extra)
-    if (!extraDocs.length) return null
-    const shown = (doc) => `${doc}: ${extra[doc].slice(0, 5).join(', ')}${extra[doc].length > 5 ? ` ほか ${extra[doc].length - 5} 件（全件は返り値の undeclared）` : ''}`
-    log(`writer の申告に無い変更がある（${extraDocs.map(shown).join(' / ')}）。その文書の項目に implementer と grounding を追加で起動します`)
-    const extraPlan = extraDocs.flatMap((doc) => [
-      { role: 'implementer', doc, items: extra[doc], extra: true },
-      { role: 'grounding', doc, items: extra[doc], extra: true },
-    ])
-    return runAuditors(extraPlan, round, '8').then((more) => ({ extraPlan, more }))
-  })
-  // 1 つの枝が throw しても残りの監査役を待ってから止める（待たずに返ると、run の後に監査役が W に指摘を書く）。
-  const settled = await Promise.allSettled([head, rest, extraRun])
-  const thrown = settled.find((x) => x.status === 'rejected')
-  if (thrown) throw thrown.reason
-  const [first, others, added] = settled.map((x) => x.value)
-  const missing = [...first.missing, ...others.missing, ...(added ? added.more.missing : [])]
-  if (missing.length) throw notRun(missing.join(', '))
-  const d = designatedOf(first)
+  const wh = await runAuditors([whole], round, '8', { changes, reviewed: reviewed(packs, wr.results, round) })
+  if (wh.missing.length) throw notRun(wh.missing.join(', '))
+  const first = wh.results[0]
+  if (first.designated) first.designated = await recopy(auditorLabel(whole, round), first.designated, designatedCmds(round, packs), 'Revise')
+  const d = first.designated || {}
   if (d.diff_error) return blocked(`監査の基準 audited-${n} の digest が一致しません。基準が差し替わっているので、この監査が何と比べたのか分かりません: ${d.diff_error}`, null)
   if (!d.diff) return blocked('指名された監査役が diff の結果を返しませんでした', '8')
-  const { audited, tree } = readDesignated(d)
-  if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
+  const audited = parseStdout(d.audited)
+  const tree = parseStdout(d.tree_digest)
+  if (!(audited && audited.digest && tree && tree.digest)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
   const moved = fixedMoved(audited, `audited-${round}`)
   if (moved) return blocked(moved.error, moved.rerun ? '8' : null)
-  const extra = extraOf(d)
+  const extra = undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
   const extraDocs = Object.keys(extra)
-  const allPlan = [...plan, ...(added ? added.extraPlan : [])]
-  const allResults = [...first.results, ...others.results, ...(added ? added.more.results : [])]
+  if (extraDocs.length) {
+    const shown = (doc) => `${doc}: ${extra[doc].slice(0, 5).join(', ')}${extra[doc].length > 5 ? ` ほか ${extra[doc].length - 5} 件（全件は返り値の undeclared）` : ''}`
+    log(`writer の申告に無い変更がある（${extraDocs.map(shown).join(' / ')}）。writer reviewer と whole reviewer に diff から範囲に足させた（script は実際に見たかを確かめない）`)
+  }
   const undeclared = { ...(state.undeclared || {}) }
   for (const doc of extraDocs) undeclared[doc] = uniq([...(undeclared[doc] || []), ...extra[doc]])
   state.undeclared = undeclared
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
-  const findings = recordFindings(allPlan, allResults)
+  const findings = auditFindings(packs, wr.results, first, round, staticUnquoted(d, audited, packs, wr.results, round))
   const docCheck = parseStdout(d.doc_check)
+  const entryN = entryMoved(docCheck)
+  if (entryN) return blocked(entryN, null)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
-  const prev = pendingView(state.pending, state.item_routes)
+  const prev = pendingView(state.pending)
   const carried = prev.findings.filter((f) => state.revised.unapplied.includes(f.id))
   const changed = { ...changes }
   for (const doc of extraDocs) changed[doc] = uniq([...(changed[doc] || []), ...extra[doc]])
@@ -2957,39 +3381,44 @@ async function stage8() {
     state.notices = [...(state.notices || []), line]
     log(line)
   }
-  // 指摘ごとの役は持たず roles_by_item で代える（next_args の上限に収めるため）。
-  const reaudited = (f) => (state.roles_by_item[f.item_id] || []).every((role) => allPlan.some((p) => p.role === role && (p.doc === 'all' || p.doc === f.doc) && (p.items || []).includes(f.item_id)))
-  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reaudited(f))
   const recurring = recurringItems(prev.findings, [...findings, ...carried], again)
-  state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring, state) }
+  state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring) }
   const recurPrev = {}
   for (const k of recurring) recurPrev[k] = uniq(prev.findings.filter((f) => itemKey(f) === k).map((f) => f.id))
   // 既裁定の再出も直前のパスの指摘なので、逆向きの判定には入れる（外すと、裁定に逆らう向きの指摘が writer に届く）。
-  setPending(findings, docCheck, [...carried, ...stuck], { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
-  // 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になる。blocking と同じく
-  // もう 1 パスの理由にする。
-  const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
-  const now = pendingView(state.pending, state.item_routes)
-  const blocking = now.blocking.length + now.doc_blocking + newTbd.length
+  setPending(findings, docCheck, carried, { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
+  const { newTbd, blocking } = remainingBlocking()
   if (!blocking) return '9'
-  // 新しい TBD は段 6 が閉じうるので、残っていれば進展なしにしない。
-  const items = uniq(now.findings.filter((f) => f.blocking).map(itemKey))
-  // 指摘の blocking が無く doc_check の blocking だけが残るときは、writer が直せるので上限まで回す。
-  const exhausted = items.length > 0 && items.every((k) => state.item_routes[k] === 'exhausted')
-  if (!newTbd.length && exhausted && now.doc_blocking >= (prev.doc_blocking || 0)) {
-    return finalHold(blocking, newTbd, 'no_progress', '残った blocking の項目がすべて経路を変え尽くし（尽きた項目）、doc_check の blocking も減らなかった', '8')
+  // MAX_AUDIT_PASSES = 1 ではこの分岐を通らない。定数を戻せるように残す。
+  if (state.pass < MAX_AUDIT_PASSES) {
+    state.pass += 1
+    log(`blocking が ${blocking} 件残った（新しい TBD ${newTbd.length} 件を含む。経路を変えた項目 ${list(recurring)}）。段 6 → 7 → 8 をもう 1 パス回します（${state.pass}/${MAX_AUDIT_PASSES}）`)
+    return '6'
   }
-  if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit', `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した`, '8')
-  state.pass += 1
-  log(`blocking が ${blocking} 件残った（新しい TBD ${newTbd.length} 件を含む。経路を変えた項目 ${list(recurring)}）。段 6 → 7 → 8 をもう 1 パス回します（${state.pass}/${MAX_AUDIT_PASSES}）`)
-  return '6'
+  // 延長: 最後の監査の後に、まだ裁定の無い blocking の decision か新しい TBD が残り、聞ける回数があれば、延長のパスで依頼者に聞く
+  // （段 6 → ゲート → 3a' → 7 → 8）。延長は 1 回きりで、その後に残れば下の finalHold で止まる。
+  const asking = blockingDecision(pendingView(state.pending)).length + newTbd.length
+  const over = state.pass === MAX_AUDIT_PASSES && asking > 0 && canAsk() && extensionOver({ ...state, pass: state.pass + 1 })
+  if (state.pass === MAX_AUDIT_PASSES && asking && canAsk() && !over) {
+    state.pass += 1
+    log(`監査 r${round} の後に決定が要る論点が ${asking} 件残った（新しい TBD ${newTbd.length} 件を含む）。延長のパスで段 6 に渡し、問いがあれば回答を当てて改稿と監査を 1 回だけ延ばします`)
+    return '6'
+  }
+  const why =
+    state.pass > MAX_AUDIT_PASSES
+      ? `回答を反映した後の監査 r${round} でも blocking が残った（延長は 1 回きり）`
+      : `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した${over ? `（${OVER_WHY}）` : asking ? `（${LIMIT_WHY}ので延長しない）` : ''}`
+  return finalHold(blocking, newTbd, 'pass_limit', why, '8')
 }
 
 // finalHold: 改稿と監査の輪を出たので文書に反映せず、決定が要るものを保持規則と Issue の文案に変える。
+// 渡す decision は blocking でまだ裁定の無いものだけで（blockingDecision）、blocking でない decision は report.md の節に残す。
+// 延長の段 6 から呼ぶと聞ける段の中で走るが、輪を出た後は聞かないので、resolver:final の hold を問いに書き換え直させない（closing）。
 async function finalHold(blocking, newTbd, stopReason, why, stage) {
   phase('Report')
-  const p = pendingView(state.pending, state.item_routes)
-  const decision = p.decision
+  closing = true
+  const p = pendingView(state.pending)
+  const decision = blockingDecision(p)
   const routes = state.item_routes || {}
   const label = 'resolver:final'
   // 輪を出た後の blocked は同じ段をやり直しても同じ所で止まるので、返り値が無くても段を止め直さず、文案が無いことを理由に載せる。
@@ -3000,7 +3429,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
       [
         `${why}。blocking が ${blocking} 件残った。文書は直さない。`,
         decision.length || newTbd.length
-          ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にする（resolver.md の「8'」）。`
+          ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にする（planner.md の「8'」）。`
           : '',
       ]
         .filter(Boolean)
@@ -3016,7 +3445,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
     threw = e.message
   }
   if (r) absorbResolver(r)
-  const report = { report_path: `${W}/report.md`, remaining_blocking: p.blocking, carried_blocking: p.carried, doc_blocking: p.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
+  const report = { report_path: `${W}/report.md`, remaining_blocking: p.blocking, carried_blocking: p.carried, doc_blocking: p.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason, unreflected: unreflectedIds() }
   if (r) {
     const kept = flowKept('final', r)
     if (kept) return blocked(kept.error, kept.rerun ? stage : null, report)
@@ -3028,18 +3457,22 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
   const flowLeft = fc && (fc.findings || fc.stale_refs.length)
     ? `。保持規則への変換の後の flow に残ったもの（flow の指摘: ${list(flowFindings(fc).map((x) => `${x.at}（${x.code}）`))} / 覆された決定を引く要素: ${list(fc.stale_refs.map((x) => `${x.el}（${x.ref}）`))}）`
     : ''
-  const byRoute = (route) => list(Object.keys(routes).filter((k) => (routes[k] === 'exhausted') === (route === 'exhausted')))
+  const rerouted = list(Object.keys(routes))
   const noDrafts = r ? '' : `。${threw || `${label} が応答しなかった（${NOT_RUN_WHY}）`}ので、残った論点の保持規則と Issue の文案はありません`
-  return blocked(`${why}。blocking が ${blocking} 件残りました（尽きた項目: ${byRoute('exhausted')} / 経路を変えた項目: ${byRoute('rerouted')}）${flowLeft}${noDrafts}`, null, report)
+  return blocked(`${why}。blocking が ${blocking} 件残りました（全件は report.md の「本文に反映していない指摘」。再発で裁定に回した項目: ${rerouted}）${flowLeft}${noDrafts}`, null, report)
 }
+
+// unreflectedIds: 本文に反映していない指摘の全件（blocking によらない）。退けた指摘と既裁定の再出は pending に入らないので含まない。
+// 司令塔が doc_check report --findings に渡し、report.md の節の中身は doc_check が W の findings から引く。
+const unreflectedIds = () => pendingFindings(state.pending).map((f) => f.id)
 
 // stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。
 async function stage9() {
-  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })
+  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS, unreflected: unreflectedIds() })
 }
 
-const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 'Answers', 4: 'Draft', 5: 'Audit', 6: 'Decide', "3a'": 'Answers', 7: 'Revise', 8: 'Revise', 9: 'Report' }
-const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
+const PHASE_OF = { 1: 'Intake', 3: 'Resolve', '3a': 'Answers', '3b': 'Answers', 4: 'Draft', 5: 'Audit', 6: 'Decide', "3a'": 'Answers', 7: 'Revise', 8: 'Revise', 9: 'Report' }
+const STAGE_FNS = { 1: stage1, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
 // exitViolation: 段を出るときの不変条件。破ると、数え直していない台帳の flow の指摘か、誰にも聞かれない問いを持ったまま次の段が走る。
 // 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、問いを持ち越している段（carrying）と、組み直しの後の問いと一緒に聞くために 3b へ持ち越す 3a だけ。
@@ -3052,7 +3485,7 @@ function exitViolation(from, r) {
   if (waiting.length) return `回答待ちの問い ${list(waiting)} を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました`
   const failedHolds = Object.keys(holdFails).sort()
   if (failedHolds.length) return `検証に落ちた保持規則 ${list(failedHolds)} を、書き直して検証し直さないまま段を出ようとしました（writer に渡すと検証を通っていない規範文が本文に入る）`
-  if (['1', '2'].includes(from)) return null
+  if (from === '1') return null
   if (!seen) return wrote ? 'flow か台帳を書いた後に、doc_check flow を独立に実行しないまま段を出ようとしました' : null
   const left = unverifiedLeft(seen, state, asking, reflectNext)
   return left ? `検証を通っていないものを持ったまま段を出ようとしました（${left}）` : null
@@ -3068,13 +3501,6 @@ function questionsDrift() {
   const [onlyLedger, onlyScript] = [minus(ledger, script), minus(script, ledger)]
   if (!onlyLedger.length && !onlyScript.length) return null
   return `回答待ちの問いが台帳（ruling が question で answer の無い resolution）と script の数えたものとで違います（台帳にだけある: ${list(onlyLedger)} / script にだけある: ${list(onlyScript)}）。resolver の返り値と台帳の書き込みが食い違っています`
-}
-
-// restoreEntry: flow.json の版を state に持たない段（段 2）の同じ段の再実行の入口。restore だけを実行させる（flow.json がまだ無いことがある）。
-async function restoreEntry(from) {
-  const label = `flow-check:${from}-entry`
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cli('restore', `--token ${RESUME_TX.restore}`)}\`。stdout を加工せずに restore_check に入れて返す。`].join('\n\n'), RESTORE_SCHEMA, PHASE_OF[from])
-  return restored(from, x)
 }
 
 // restored: restore の stdout を確かめる。控えが後の段の token の書き込みで消えていれば（pruned_by）、W を段の入口に戻せず、同じ next_args で
@@ -3101,15 +3527,61 @@ function restored(from, x) {
 // 止まった run が段を出たときの W のまま（answers だけが増える）。違うのは所有表の外の書き込みだけで、flow.json の版が違えば integrity に 1 行足して
 // W の版を使い、今の版に合否の無い要素と resolution を段の本体と同じ verifyLeft で検証させる。それでも不合格の要素が残れば、直す役が
 // 段の本体に来るとは限らないので止める。
+// formalEntry: 入口の formal-status を state.formal と照らす。版の食い違い（rid・fnv・依頼のファイル・文書の木）は同じ next_args で直らないので
+// next_args を付けずに止め、取り込みの前（outcome が null）だけ同じ段の next_args を付ける。通れば state.formal を取り込んだ印にする。
+function formalEntry(from, text) {
+  const f = state.formal
+  const st = formalStatusOf(text)
+  if (!st) return blocked(`flow-check（段 ${from} の入口）が ${f.rid} の doc_check formal-status の stdout を返しませんでした`, from)
+  if (st.rid !== f.rid || (f.fnv !== undefined && st.fnv !== f.fnv) || !st.units_digest_ok) {
+    return blocked(`段 ${from} の入口: 形式検証の依頼 ${f.rid} が next_args の版と違います（formal-status の rid ${st.rid}・fnv ${st.fnv}・units_digest_ok ${st.units_digest_ok}）。依頼を作り直すため、返った next_args を変えずに渡すか、S0 からやり直してください`, null)
+  }
+  if (st.outcome === null) return blocked(`段 ${from} の入口: 形式検証の依頼 ${f.rid} の結果が W にありません。doc_check formal-import を実行してから、同じ next_args で呼び直す（SKILL.md「## 中継」）`, from)
+  if (st.tree_digest_now !== st.tree_digest_request) {
+    return blocked(`段 ${from} の入口: 文書の木（${st.tree_digest_now}）が、形式検証の依頼 ${f.rid} を作ったときの木（${st.tree_digest_request}）と違います（依頼の後に所有表の外で文書が書き換わった）。S0 からやり直してください`, null)
+  }
+  entryFormal = st
+  state.formal = { rid: f.rid, ok: 1 }
+  // 段に入った時点の state にも入れる（この段の再実行は、同じ rid を入口で照らし直して差し戻しからやり直す）。
+  entryState.formal = state.formal
+  state.notices = [...(state.notices || []), formalEntryNotice(f.rid, st.outcome)]
+  return null
+}
+
 async function enterFromDisk(from) {
   const label = `flow-check:${from}-entry`
   const restoring = restorePending ? RESUME_TX.restore : null
   const restore = restoring ? `最初に実行する: \`${cli('restore', `--token ${restoring}`)}\`。stdout を加工せずに restore_check に入れる。続けて ` : ''
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from])
+  // 回答を当てる段（3a・3a'）の入口は、flow の後に回答のファイルも確かめる（answersUnchecked がこの stdout を使い、単独の answers を起動しない）。
+  const answering = ['3a', "3a'"].includes(from) && pendingQuestions(state).length > 0
+  const answersCmd = answering ? cli('answers', `--file ${gateAnswers(state.gate)} --ids ${pendingQuestions(state).join(',')}`) : null
+  // 段 5・8 の入口は、形式検証の依頼の取り込みも照らす（formalEntryRid。照らした値は entryFormal）。
+  const formalRidAt = formalEntryRid(from)
+  const statusCmd = formalRidAt ? cli('formal-status', `--rid ${formalRidAt}`) : null
+  const flowLine = answering
+    ? `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れる。続けて実行する: \`${answersCmd}\`。stdout を加工せずに answers_check に入れる。すべて返す。`
+    : statusCmd
+      ? `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れる。続けて実行する: \`${statusCmd}\`。stdout を加工せずに formal_status に入れる。すべて返す。`
+      : `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`
+  const entryCmds = { ...(answering ? { answers_check: answersCmd } : {}), ...(statusCmd ? { formal_status: statusCmd } : {}) }
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), flowLine].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from], Object.keys(entryCmds).length ? entryCmds : undefined)
   if (restoring) {
     const re = restored(from, x)
     if (re) return re
   }
+  // 段 4・7 の再実行の入口: 戻した後の本文が段の入口の本文と違えば、戻らない本文の上で検証も改稿も回さない（references/workflow-io.md §3）。
+  if (restoring && ['4', '7'].includes(from)) {
+    const rc = parseStdout(x.restore_check)
+    if (!docsShaped(rc)) return blocked(`flow-check（段 ${from} の入口）の doc_check restore の stdout に、戻した後の文書の digest がありません`, from)
+    const m = docsMoved(from, rc)
+    if (m && m.bornOnly) return blocked(`段 4 の入口: restore の後の文書が${m.text}。止まった run の writer が控えの前に新しい文書を書いたので、同じ段からでは消えない。段 1 の入口の reset が消すので段 1 からやり直す`, '1')
+    if (m) return blocked(`段 ${from} の入口: restore の後の文書が${m.text}。止まった run の writer が控えの前に本文を書いたので、同じ段から再実行しても段の入口の本文に戻らない（reset は既存の文書の本文を残す）。S0 からやり直す（existing_docs の文書を doc_check place で置き直す）`, null)
+  }
+  if (statusCmd) {
+    const blockedBy = formalEntry(from, x.formal_status)
+    if (blockedBy) return blockedBy
+  }
+  if (answering) entryAnswers = { gate: state.gate, ids: uniq(pendingQuestions(state)), text: x.answers_check }
   const fc = x && flowCheckOf(x.flow_check, true)
   if (!fc) return blocked(`flow-check（段 ${from} の入口）が doc_check flow の stdout を返しませんでした`, from)
   if (fc.content_sha256 !== state.flow_digest) {
@@ -3150,7 +3622,7 @@ while (outcome === null) {
   let r
   try {
     phase(PHASE_OF[next])
-    r = next !== FROM ? null : ENTRY_CHECK ? await enterFromDisk(FROM) : restorePending ? await restoreEntry(FROM) : null
+    r = next !== FROM || !ENTRY_CHECK ? null : await enterFromDisk(FROM)
     if (!r) r = await STAGE_FNS[next]()
   } catch (e) {
     if (scriptDefect) r = null

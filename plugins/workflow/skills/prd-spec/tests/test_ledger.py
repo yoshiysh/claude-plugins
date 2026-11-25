@@ -171,11 +171,14 @@ class StageTransaction(_Workspace):
         self.assertEqual(self._files(), after, "2 回目の restore は何も変えない")
 
     def test_backupで控えを取った文書の本文はrestoreが段に入った時点へ戻す(self):
-        # writer は本文を Edit で書き doc_check を通らないので、writer の起動の前に backup で控えを取る。無い文書は restore が消す。
+        # writer は本文を Edit で書き doc_check を通らないので、段 4・7 の writer が最初のコマンドの backup で控えを取る。無い文書は restore が消す。
         doc = self.ws / "requirements-auth.md"
         before = doc.read_bytes()
+        auth, tree = self._digest("requirements/auth"), self._digest()
         out = _ok(self.ws, "backup", "--doc", "requirements/new", "--doc", "requirements/auth", "--token", "t4")
-        self.assertEqual(out, {"backup": True, "token": "t4", "docs": ["requirements/auth", "requirements/new"]})
+        # digests・entry_digest・tree_digest: 控えの版の文書の digest（tree-digest と同じ値。本文の無い文書は null、entry.json の無い W の entry_digest は null）。
+        self.assertEqual(out, {"backup": True, "token": "t4", "docs": ["requirements/auth", "requirements/new"],
+                               "digests": {"requirements/auth": auth, "requirements/new": None}, "entry_digest": None, "tree_digest": tree})
         doc.write_text(doc.read_text() + "\n途中まで直した\n")
         (self.ws / "requirements-new.md").write_text("# 途中の草稿\n")
         _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/new", "--token", "t4", stdin={"fixed": False})
@@ -189,6 +192,84 @@ class StageTransaction(_Workspace):
         for bad in (("--doc", "notes/x", "--token", "t5"), ("--token", "t5"), ("--doc", "requirements/auth")):
             with self.subTest(bad=bad):
                 self.assertEqual(_run(self.ws, "backup", *bad).returncode, 1)
+
+    def _digest(self, doc=None):
+        return _ok(self.ws, "tree-digest", *(("--doc", doc) if doc else ()))["digest"]
+
+    def _edit(self, text):
+        doc = self.ws / "requirements-auth.md"
+        doc.write_text(doc.read_text() + text)
+
+    def test_同じtokenの2回目のbackupは控えの版のdigestを返す(self):
+        # writer の backup_check の写しの取り直し（-recopy）は同じ backup を流し直すので、書いた後でも 1 回目と同じ stdout を返す。
+        docs = ("--doc", "requirements/auth", "--doc", "specifications/auth", "--token", "t4")
+        first = _ok(self.ws, "backup", *docs)
+        self._edit("\n途中まで直した\n")
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/auth", "--token", "t4", stdin={"fixed": True})
+        self.assertEqual(_ok(self.ws, "backup", *docs), first)
+        self.assertNotEqual(self._digest(), first["tree_digest"], "控えの版は今の W ではない")
+        self.assertNotEqual(self._digest("requirements/auth"), first["digests"]["requirements/auth"])
+
+    def test_書いてから取ったbackupは書いた後の版を控える(self):
+        # 控えの digest が段の入口の本文と違えば、script は控えの前に書いた writer を見つける。
+        entry = self._digest("requirements/auth")
+        self._edit("\n控えの前に書いた\n")
+        out = _ok(self.ws, "backup", "--doc", "requirements/auth", "--token", "t4")
+        self.assertNotEqual(out["digests"]["requirements/auth"], entry)
+        self.assertEqual(out["digests"]["requirements/auth"], self._digest("requirements/auth"))
+
+    def test_backupのentry_digestはresetの値と同じで残した文書を書けば変わる(self):
+        reset = _ok(self.ws, "reset", "--keep", "requirements/auth,specifications/auth", "--fixed", "requirements/auth")
+        self.assertTrue(reset["entry_digest"])
+        out = _ok(self.ws, "backup", "--doc", "specifications/auth", "--token", "t1")
+        self.assertEqual(out["entry_digest"], reset["entry_digest"], "段 4 の控えの照合の期待値（state.entry_digest）")
+        spec = self.ws / "specifications-auth.md"
+        spec.write_text(spec.read_text() + "\n控えの前に書いた\n")
+        moved = _ok(self.ws, "backup", "--doc", "specifications/auth", "--token", "t2")
+        self.assertNotEqual(moved["entry_digest"], reset["entry_digest"])
+
+    def test_restoreは戻した後の文書のdigestを返す(self):
+        # 同じ段の再実行の入口は、restore の stdout の digest を段の入口の本文と照らす。
+        first = _ok(self.ws, "backup", "--doc", "requirements/auth", "--doc", "requirements/new", "--token", "t4")
+        self._edit("\n途中まで直した\n")
+        (self.ws / "requirements-new.md").write_text("# 途中の草稿\n")
+        out = _ok(self.ws, "restore", "--token", "t4")
+        self.assertEqual((out["tree_digest"], out["entry_digest"]), (first["tree_digest"], first["entry_digest"]))
+        self.assertEqual(out["digests"]["requirements/auth"], first["digests"]["requirements/auth"])
+        self.assertEqual(sorted(out["digests"]), ["requirements/auth", "specifications/auth"], "W にある文書だけを載せ、restore が消した新しい文書は載らない")
+        self.assertEqual(_ok(self.ws, "restore", "--token", "t4")["tree_digest"], out["tree_digest"], "流し直しても同じ W の値")
+
+    def test_書いてから取った控えのrestoreは段の入口の版に戻らない(self):
+        entry = self._digest("requirements/auth")
+        self._edit("\n控えの前に書いた\n")
+        written = self._digest("requirements/auth")
+        _ok(self.ws, "backup", "--doc", "requirements/auth", "--token", "t4")
+        self._edit("\nさらに書いた\n")
+        out = _ok(self.ws, "restore", "--token", "t4")
+        self.assertNotEqual(out["digests"]["requirements/auth"], entry)
+        self.assertEqual(out["digests"]["requirements/auth"], written)
+
+    def test_正規形でないmetaのWではbackupとrestoreもtree_digestと同じく止まる(self):
+        # backup・restore の digest は tree-digest・snapshot と同じ読み手（workspaceDocs）を通る。meta の読み方が違うと、再実行の入口の
+        # restore の tree_digest と監査の snapshot の digest が同じ木で食い違う。
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/auth", "--token", "t4", stdin={"fixed": True})
+        meta = self.ws / "requirements-auth.meta.json"
+        meta.write_text(json.dumps(json.loads(meta.read_text()), indent=4) + "\n")
+        tree = _run(self.ws, "tree-digest")
+        self.assertNotEqual(tree.returncode, 0, "前提: tree-digest は正規形でない meta で止まる")
+        for args in (("backup", "--doc", "requirements/auth", "--token", "t5"), ("restore", "--token", "t5")):
+            with self.subTest(mode=args[0]):
+                r = _run(self.ws, *args)
+                self.assertEqual(r.returncode, tree.returncode, r.stdout)
+                self.assertIn("正規形ではありません", r.stderr)
+
+    def test_pruned_byのrestoreは今のWの文書のdigestを返す(self):
+        self._write_stage("t3")
+        _ok(self.ws, "put", "--ledger", "open", "--token", "t30", stdin={"open": [{"id": "O-003", "text": "通知の頻度"}]})
+        self._edit("\n後の段で書いた\n")
+        out = _ok(self.ws, "restore", "--token", "t3")
+        self.assertEqual(out["pruned_by"], ["t30"])
+        self.assertEqual((out["tree_digest"], out["digests"]["requirements/auth"], out["entry_digest"]), (self._digest(), self._digest("requirements/auth"), None))
 
     def test_新しいtokenの最初の書き込みは前のtokenの控えを消し済んだ段より前へ戻さない(self):
         self._write_stage("t1")
@@ -282,7 +363,7 @@ class FreshRunReset(_Workspace):
         (self.ws / "answers").mkdir()
         (self.ws / "answers" / "g1.md").write_text("RS-004: 画面\n")
         (self.ws / "findings").mkdir()
-        (self.ws / "findings" / "r2-gr-requirements__auth.json").write_text("{}")
+        (self.ws / "findings" / "r2-wr-all.json").write_text("{}")
         (self.ws / "questions.md").write_text("q")
         (self.ws / "questions.json").write_text("[]")
         (self.ws / "report.md").write_text("r")
@@ -300,14 +381,16 @@ class FreshRunReset(_Workspace):
         out = _ok(self.ws, "reset", *self.KEEP, *self.FIXED)
         kept = {"input.md", "precedent.json", "requirements-auth.md", "specifications-auth.md", "requirements-auth.meta.json", "tmp/writer__U-1__draft/gen.py", "notes.txt"}
         after = self._files()
-        self.assertEqual(set(after), kept)
+        self.assertEqual(set(after), kept | {"checks/entry.json"}, "reset は固定でない残した文書の入口を書く")
+        self.assertEqual(out["entry"], ["specifications/auth"])
+        after.pop("checks/entry.json")
         self.assertEqual({k: after[k] for k in kept - {"requirements-auth.meta.json"}}, {k: before[k] for k in kept - {"requirements-auth.meta.json"}}, "S0 が書いたものと所有表の外は触らない")
         self.assertEqual(after["requirements-auth.meta.json"], self._s0_meta())
         self.assertEqual((out["kept"], out["fixed"]), (["requirements/auth", "specifications/auth"], ["requirements/auth"]))
         self.assertEqual(out["removed"], sorted(["answers", "checks", "decisions.json", "findings", "flow.json", "open.json", "plan.json", "questions.json", "questions.md", "report.md",
                                                  "requirements-billing.md", "requirements-billing.meta.json", "resolutions.json", "specifications-auth.meta.json", "tx"]))
         self.assertEqual(_ok(self.ws, "reset", *self.KEEP, *self.FIXED)["removed"], [], "流し直しても同じ W になる")
-        self.assertEqual(self._files(), after)
+        self.assertEqual({k: v for k, v in self._files().items() if k != "checks/entry.json"}, after)
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が行う"}]})
 
     def test_resetとsnapshotは固定の文書の本文とmetaのsha256を同じ値で返し書き換えで変わる(self):
@@ -991,7 +1074,9 @@ class FieldTypes(_Workspace):
             ("flow", {"elements": [{**el, "label": "承認（段 3a で足した）"}]}),
             ("flow", {"kinds": [{"name": "工程", "definition": "段 3a' で分けた処理"}]}),
             ("decisions", {"decisions": [{"id": "D-001", "why": "段 3b の問いで決まった"}]}),
-            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-im-requirements__auth-002 への対応"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-wr-all-002 への対応"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r2-wh-all-001 の指摘で直した"}]}),
+            ("verifications", {"items": [{"id": "RS-001", "verdict": "pass", "reason": "r1-wr-p2-003 と同じ向き"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "続けるか止めるかは価値の判断で、段 3a では続きの問いを聞けない"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "段 9 で聞くゲートが残っていないため保持規則にした"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "O-011 は回答の反映で行き先が決まった"}]}),
@@ -1167,14 +1252,14 @@ class DomainAssessment(_Workspace):
         self.assertIn("`非該当`", domain)
         self.assertNotIn("非適用", domain)
 
-    def test_resolver_writer_crossdoc_prompt使う有効カテゴリと置換規則(self):
+    def test_resolver_writer_whole_reviewer_prompt使う有効カテゴリと置換規則(self):
         def contract(role):
-            return "\n".join(_run(self.ws, "contract", "--role", role, "--part", str(part)).stdout for part in (1, 2))
+            return "\n".join(_run(self.ws, "contract", "--role", role, "--part", str(part)).stdout for part in (1, 2, 3))
 
-        resolver = contract("resolver")
+        resolver = contract("planner")
         writer = contract("writer")
-        cross_doc_contract = contract("cross-doc")
-        cross_doc = (SKILL / "agents" / "cross-doc.md").read_text(encoding="utf-8")
+        whole_contract = contract("whole-reviewer")
+        whole_reviewer = (SKILL / "agents" / "whole-reviewer.md").read_text(encoding="utf-8")
         role_map = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
         contracts = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
         ledger = contracts.split("## 決定の台帳", 1)[1].split("\n## ", 1)[0]
@@ -1187,12 +1272,12 @@ class DomainAssessment(_Workspace):
         self.assertIn("この集合の導出と supersession はここを正とする", ledger)
         self.assertIn("有効な必須カテゴリの集合と supersession は「決定の台帳」", writer)
         self.assertIn("§11.1 に従って決めた項目の中身として実現", writer)
-        self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", cross_doc)
-        self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", cross_doc)
+        self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", whole_reviewer)
+        self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", whole_reviewer)
         self.assertIn("## 決定の台帳\n", writer)
-        self.assertIn("## 決定の台帳\n", cross_doc_contract)
-        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", cross_doc_contract)
-        self.assertNotIn("初期 decision に紐付いた `plan.required_categories` だけを除外", cross_doc)
+        self.assertIn("## 決定の台帳\n", whole_contract)
+        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", whole_contract)
+        self.assertNotIn("初期 decision に紐付いた `plan.required_categories` だけを除外", whole_reviewer)
         self.assertIn("初期 verdict にかかわらず", role_map)
         self.assertIn("agent-contracts.md「決定の台帳」の後段 domain assessment 規則", role_map)
         self.assertIn("domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked", contracts)

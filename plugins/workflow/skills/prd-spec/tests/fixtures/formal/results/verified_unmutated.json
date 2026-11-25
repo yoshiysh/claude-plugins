@@ -1,0 +1,67 @@
+{
+ "properties": [
+  {
+   "id": "P7",
+   "statement": "P7 の性質",
+   "sources": [
+    {
+     "kind": "goal",
+     "id": "@goal:SP-AUTH-010.domain",
+     "source": null
+    }
+   ],
+   "formalizable": true,
+   "nonformal_reason": null,
+   "verdict": [
+    "検証済み"
+   ],
+   "assurance": {
+    "kind": "無界の証明",
+    "proposition": "P7 の命題",
+    "open_obligations": [],
+    "fairness_assumptions": []
+   },
+   "detection": {
+    "status": "検出能力未確認",
+    "mutations": [],
+    "reason": "変異を作らなかった"
+   },
+   "method": null,
+   "check_ids": [
+    "C7"
+   ],
+   "confirmation_ids": [],
+   "evidence_refs": [],
+   "reason": "P7 の判定の理由",
+   "depends_on_questions": []
+  }
+ ],
+ "checks": [
+  {
+   "id": "C7",
+   "kind": "property",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 C7.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "成功",
+   "end": {
+    "started": true,
+    "tool_result": "満たす",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が unsat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  }
+ ]
+}

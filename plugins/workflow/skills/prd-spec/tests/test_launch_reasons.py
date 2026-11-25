@@ -30,16 +30,14 @@ N = r"(?:-\d+)?"
 # LABEL_FAMILIES: label の形（最後の接尾辞で起動の理由が決まる）。reason は起動理由の表の行か、条件付きでない起動（base）。
 # source: prd-spec.js の本文にそのまま在る、その label を組み立てる断片。
 LABEL_FAMILIES = [
-    ("intake", "base", r"intake", ["once('intake'"]),
-    ("flow-framer", "base", r"flow-framer", ["frameFlow('flow-framer'"]),
+    ("planner-intake", "base", r"planner:1", ["'planner:1'"]),
     ("main-resolver", "base", rf"resolver:{S}", ["`resolver:${stage}`"]),
     ("main-verifier", "base", rf"verifier:{S}v", ["`verifier:${stage}v`"]),
     ("writer", "base", r"writer:[^:]+:(?:draft|revise)", ["`writer:${unit.id}:${mode}`"]),
-    ("audit-first", "base", r"(?:implementer|grounding|crossDoc):r1:[^:]+(?::extra)?", ["`${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`"]),
-    ("audit-scoped", "base", r"(?:implementer|grounding):r(?:[2-9]|\d{2,}):[^:]+(?::extra)?", []),
+    ("audit-first", "base", r"(?:writerReviewer|wholeReviewer):r1:(?:all|p\d+)", ["`${p.role}:r${round}:${p.pack}`"]),
+    ("audit-scoped", "base", r"writerReviewer:r(?:[2-9]|\d{2,}):(?:all|p\d+)", []),
     ("flow-check-entry", "base", r"flow-check:.+-entry", ["`flow-check:${from}-entry`", "'flow-check:1-entry'"]),
     ("flow-check-answers", "base", r"flow-check:.+-answers", ["`flow-check:${gate}-answers`"]),
-    ("flow-check-backup", "base", r"flow-check:.+-backup", ["`flow-check:${stage}-backup`"]),
     ("resolver-final", "base", r"resolver:final", ["'resolver:final'"]),
     ("rework-resolver", "差し戻し（v1 の不合格）", rf"resolver:{S}-fix", ["const fixOf = (stage) => `${stage}-fix`", "`resolver:${fix}`"]),
     ("rework-verifier", "差し戻し（v1 の不合格）", rf"verifier:{S}-fixv", ["`verifier:${fix}v`"]),
@@ -50,23 +48,21 @@ LABEL_FAMILIES = [
     ("convert-kind", "変換の種類の直し", r"resolver:.+-convert-kind", ["`resolver:${owner}-convert-kind`"]),
     ("to-question", "聞ける段の指定の外の hold の書き換え直し", r"resolver:.+-toquestion", ["const TO_QUESTION = '-toquestion'"]),
     ("source-verifier", "decidable の出典の聞き直し", rf"verifier:.+-source{N}", ["reworkLabel(`${label}-source`, n)"]),
-    ("settle-framer", "settle", rf"flow-framer:.+-settle{N}", ["`flow-framer:${tag}`", "reworkLabel(`${stage}-settle`, n)"]),
+    ("settle-planner", "settle", rf"planner:.+-settle{N}", ["`planner:${tag}`", "reworkLabel(`${stage}-settle`, n)"]),
     ("settle-verifier", "settle", rf"verifier:.+v-settle{N}", ["`verifier:${reworkLabel(`${stage}v-settle`, n)}`"]),
     ("opens", "未裁定の O- と組（R6b）", r"resolver:.+-opens", ["`resolver:${owner}-${tag}`", "opens.length ? 'opens' : 'pairs'"]),
     ("pairs", "組の再検査", r"resolver:.+-pairs", ["`resolver:${owner}-${tag}`", "opens.length ? 'opens' : 'pairs'"]),
     ("questions", "問いの形の修正", rf"resolver:.+-questions{N}", ["reworkLabel(`resolver:${owner}-questions`, n)"]),
     ("flow-rework", "doc_check の差し戻し", rf"resolver:.+-flow{N}", ["reworkLabel(`resolver:${stage}-flow`, n)"]),
-    ("framer-rework", "doc_check の差し戻し", rf"(?:intake|flow-framer(?::.+)?):rework{N}", ["redo(`${label}:rework`)", "reworkLabel('intake:rework', n)"]),
-    ("framer-lint", "lint の差し戻し（flow-framer の自己点検。1 回きり）", r"flow-framer(?::.+)?:lint", ["redo(`${label}:lint`)"]),
-    ("lint-stash", "lint の差し戻しの前の控えと、閉じなくなったときの戻し", r"flow-check:.+-lint-(?:stash|unstash)", ["`flow-check:${tag}-${suffix}`", "`${label.replace(/:/g, '-')}-lint`"]),
+    ("planner-rework", "doc_check の差し戻し（1 回）", r"planner:.+:rework", ["`${label}:rework`"]),
     ("left-verifier", "検証し残しの拾い直し（settle の前と後・再実行の入口）", rf"verifier:.+v-(?:left{N}|entry)", ["`verifier:${stage}v-${tag}`", "reworkLabel('left', n + 1)", "verifyLeft(from, 'entry'"]),
-    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy|stash|unstash)$).+", ["`flow-check:${tag}`"]),
+    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|recopy|stash|unstash)$).+", ["`flow-check:${tag}`"]),
     ("recopy", "写しの取り直し（doc_check の stdout が checksum に合わない）", r"flow-check:.+-recopy", ["label.startsWith('flow-check:') ? `${label}-recopy` : `flow-check:${label.replace(/:/g, '-')}-recopy`"]),
     ("rehold", "保持規則の書き直し", r"resolver:.+-rehold", ["`resolver:${owner}-rehold`"]),
     ("rehold-verifier", "保持規則の書き直し", r"verifier:.+-reholdv", ["`verifier:${owner}-reholdv`"]),
     ("hold-left", "依頼者に聞かない問いの保持規則への変換（聞ける回数の上限・回答済みの論点の再発）", r"resolver:.+-hold", ["`resolver:${stage}-hold`"]),
-    ("reframe", "段 3b の組み直し", r"flow-framer:3b-reframe", ["'flow-framer:3b-reframe'"]),
-    ("crossdoc-reaudit", "crossDoc の再監査", r"crossDoc:r(?:[2-9]|\d{2,}):all(?::extra)?", []),
+    ("reframe", "段 3b の組み直し", r"planner:3b", ["'planner:3b'"]),
+    ("whole-reaudit", "whole reviewer の再監査", r"wholeReviewer:r(?:[2-9]|\d{2,}):all", []),
 ]
 
 # AMBIGUOUS: label だけでは分かれない組と、分けるプロンプトの行。journal の started は label だけなので、組があると体数を理由ごとに数えられない。
@@ -74,26 +70,30 @@ AMBIGUOUS = {}
 
 # PROMPT_CLUES: 同じ label の形の中で起動の理由を分けるプロンプトの行（family, 理由, 行の断片）。断片は prd-spec.js にそのまま在る。
 PROMPT_CLUES = [
-    ("settle-framer", "settle: 閉じた未決の終端（left）", "要素（閉じた O- ← 閉じた resolution）: "),
-    ("settle-framer", "settle: 閉じた未決の終端（left、constrained_by）", "constrained_by の閉じた O-（要素 の O- ← 閉じた resolution）: "),
-    ("settle-framer", "settle: 裁定した指摘（found）", "指摘（ID ← それを裁定した resolution）: "),
-    ("settle-framer", "settle: 検証の裁定（verification、R2）", "検証の裁定（要素 ← 裁定した resolution）: "),
-    ("settle-framer", "settle: 裁定の無い不合格の要素（redo、R2）", "検証に落ちた要素: "),
-    ("settle-framer", "settle: 続けて出た項目（R6）", "は改稿で直らず再発した項目の指摘である"),
-    ("settle-framer", "settle: 覆された決定を引く要素（stale_refs）", "覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: "),
-    ("settle-framer", "settle: flow の指摘の引き渡し（handoff）", "flow の指摘（要素: 何が無いか か符号。"),
-    ("settle-framer", "直し手の振り分け（R6b）", "縛る不変条件が無い"),
+    ("settle-planner", "settle: 閉じた未決の終端（left）", "要素（閉じた O- ← 閉じた resolution）: "),
+    ("settle-planner", "settle: 閉じた未決の終端（left、constrained_by）", "constrained_by の閉じた O-（要素 の O- ← 閉じた resolution）: "),
+    ("settle-planner", "settle: 裁定した指摘（found）", "指摘（ID ← それを裁定した resolution）: "),
+    ("settle-planner", "settle: 検証の裁定（verification、R2）", "検証の裁定（要素 ← 裁定した resolution）: "),
+    ("settle-planner", "settle: 裁定の無い不合格の要素（redo、R2）", "検証に落ちた要素: "),
+    ("settle-planner", "settle: 続けて出た項目（R6）", "は改稿で直らず再発した項目の指摘である"),
+    ("settle-planner", "settle: 覆された決定を引く要素（stale_refs）", "覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: "),
+    ("settle-planner", "settle: flow の指摘の引き渡し（handoff）", "flow の指摘（要素: 何が無いか か符号。"),
+    ("settle-planner", "直し手の振り分け（R6b）", "縛る不変条件が無い"),
     ("reframe", "3a の裁定の反映の引き受け（組み直しの前の 3a は settle を回さない）", "組み直しと同じ書き込みで、3a の裁定も flow に写す"),
     ("opens", "settle の後の未裁定の O-（R6b）", "- まだ裁定の無い open: "),
     ("opens", "組の再検査（O- とまとめた呼び出し）", "- まだ裁定の無い組（"),
     ("main-resolver", "収束のループの経路の変更（R6、再発した項目）", "再発した項目（項目: 前のパスの指摘 ← その裁定）: "),
-    ("main-resolver", "収束のループの経路の変更（R6、hold の指示）", "再発が続いた項目の指摘（hold にする）: "),
     ("rework-resolver", "差し戻し（v1 の不合格）", "（差し戻し）"),
-    ("crossdoc-reaudit", "crossDoc の再監査（scopedAuditPlan が当てた項目）", "範囲を絞った監査: 対象は項目 "),
+    ("audit-scoped", "段 8 の範囲を絞った監査（writer の申告の項目）", "範囲を絞った監査: writer の申告の項目は次のとおり"),
+    ("audit-scoped", "申告に無い変更を writer reviewer の範囲に足す（diff の by_doc）", "の changed・added の項目も範囲に足す（申告に無い変更"),
+    ("whole-reaudit", "whole reviewer に同じ回の writer reviewer の指摘を渡す", "同じ回の writer reviewer の指摘: "),
 ]
 
 # SKIPPED_CLUES: 事実の条件で外した手順（返り値の skipped）。fact ごとに外した step の label の形。
-SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v", "carried_only": r"resolver:3b"}
+# low_only の step は、飛ばした 2 巡目の監査の最初の writer reviewer の label（段 5 の監査の次の回）。
+# no_formal_target の step は依頼の rid（f<回><a|b>）、formal_unavailable は formal-method を使えない run の全体（workflow-io.md と agent-contracts.md「## 形式検証の事実」）。
+SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v", "low_only": r"writerReviewer:r\d+:(?:all|p\d+)",
+                 "no_formal_target": r"formal-method:f\d+[ab]", "formal_unavailable": "formal-method"}
 
 # COVERING_TESTS: 全形と全行を起動する既存の段のテスト（段のテスト全体の run を捕まえて貪欲に選んだ被覆。全部を走らせ直すと
 # 段のテストの時間が倍になる）。足りない 1 行は recurring_ledger_spec で足す。
@@ -101,29 +101,35 @@ COVERING_TESTS = [
     "RerunFromTheSameStage.test_止まったrunが書いて検証していないものは再実行が検証してから段を出る",
     "ReflectIn3b.test_g1の後の3aはsettleを起動せず反映を3b_reframeに渡し3bvが1回で検証する",
     "FlowFixerRoutes.test_重い段の経路でもlabelは重ならない",
-    "Convergence.test_decisionの後の再発はholdを指示しholdの後は尽きてno_progressで止まる",
+    "Convergence.test_裁定の後の再発は上限で輪を出て残りの裁定に回る",
     "FailedHolds.test_settleのverifierに落ちた保持規則も変換せずに書き直させる",
     "FlowRecheck.test_差し戻しの後も落ちた要素は同じcycleの検証の裁定をsettleで写せば進む",
     "FindingRoutes.test_段6のゲートの後の3aでは段6で写した指摘を写し直さない",
     "FlowDigest.test_3aでflowのstdoutを返さないresolverは差し戻す",
     "FlowFixerRoutes.test_3aの裁定で閉じたOはsettleの次の回でRSに差し替わり段を出る",
-    "FlowFixerRoutes.test_settleが新しい組と新しいOを作ったら1回のresolverにまとめて渡す",
+    "FlowFixerRoutes.test_settleのplannerが裁定し漏らした新しい組と新しいOは1回の保険のresolverにまとめて渡す",
     "Transcription.test_試走で写し損ねたflow_checkのstdoutは取り直して進む",
     "DecidedNotHeld.test_変換は指定した種類で返させる",
     "DecidedNotHeld.test_聞ける段でscriptの指定に無いholdは1回だけ問いに書き換え直させる",
     "DecidedNotHeld.test_揃えても受け取れないdecidableは同じverifierに1回だけ聞き直す",
-    "FramerLint.test_lintが残ったflow_framerは1回だけ差し戻し_それ以外の起動と止まり方は変わらない",
-    "FramerLint.test_lintの差し戻しでflowが閉じなくなれば差し戻しの前の版に戻して進む",
+    "PlannerLint.test_lintが残ったplanner_1は1回だけ差し戻し残ればnoticesに出して進む",
+    "FlowFixerRoutes.test_settleのplannerが組だけを裁定し漏らせば保険のpairsが1回起動する",
+    # 単独の flow-check:<ゲート>-answers（gates_answered の resume）。next_args で 3a・3a' から始める run は入口の flow-check が answers も実行するので、
+    # 上の run には現れない。
+    "SameSessionResume.test_回答のファイルが一部の問いに答えていなければゲートを越えない",
+    # skipped の low_only（監査 r1 の指摘が blocking を含まないときに飛ばした 2 巡目の監査）。
+    "LowOnly.test_blockingでない指摘だけなら改稿と2巡目の監査を飛ばしてdoneにする",
 ]
 
 
 def recurring_ledger_spec():
     """origin が ledger の指摘が同じ項目に 2 パス続く（再発）。ledger 由来の指摘が settle に回るのは再発したときだけで、
-    「続けて出た項目」の行を持つ settle を起動する経路は既存の段のテストに無いので、ここで組む。"""
+    「続けて出た項目」の行を持つ settle を起動する経路は既存の段のテストに無いので、ここで組む。r2 は最後の監査なので、再発した指摘は
+    延長の段 6 が受け取る（RS-011 で裁定する）。"""
     d = test_prd_stages.Convergence.DIRECTIONS
-    findings = {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": d[0], "origin": "ledger"}],
-                "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": d[1], "origin": "ledger"}]}
-    about = {"RS-010": {"finding": "r1-cd-all-001"}, "RS-011": {"finding": "r2-gr-requirements__x-001"}}
+    findings = {"wholeReviewer:r1": [{"id": "r1-wh-all-001", "route": "decision", "direction": d[0], "origin": "ledger"}],
+                "writerReviewer:r2": [{"id": "r2-wr-all-001", "direction": d[1], "origin": "ledger"}]}
+    about = {"RS-010": {"finding": "r1-wh-all-001"}, "RS-011": {"finding": "r2-wr-all-001"}}
     return {"args": test_prd_stages.args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010"], ["RS-011"]]}, "about": about}
 
 
@@ -202,17 +208,28 @@ class Clues(unittest.TestCase):
             "flow-check:3a-recopy": ("recopy",),
             "flow-check:3a-entry-recopy": ("recopy",),
             "flow-check:verifier-3v-recopy": ("recopy",),
-            "flow-check:crossDoc-r1-all-recopy": ("recopy",),
-            "flow-framer:3b-reframe": ("reframe",),
-            "flow-framer:3b-reframe:rework-2": ("framer-rework",),
-            "flow-framer:lint": ("framer-lint",),
-            "flow-framer:3b-reframe:lint": ("framer-lint",),
-            "flow-check:flow-framer-lint-stash": ("lint-stash",),
-            "flow-check:flow-framer-3b-reframe-lint-unstash": ("lint-stash",),
-            "flow-framer:6-hold-settle-2": ("settle-framer",),
-            "crossDoc:r1:all": ("audit-first",),
-            "crossDoc:r2:all": ("crossdoc-reaudit",),
-            "grounding:r3:requirements/x:extra": ("audit-scoped",),
+            "flow-check:wholeReviewer-r1-all-recopy": ("recopy",),
+            "planner:1": ("planner-intake",),
+            "planner:3b": ("reframe",),
+            "planner:1:rework": ("planner-rework",),
+            "planner:3b:rework": ("planner-rework",),
+            "planner:3-settle:rework": ("planner-rework",),
+            "planner:6-hold-settle-2:rework": ("planner-rework",),
+            "planner:3-settle": ("settle-planner",),
+            "planner:3b-settle": ("settle-planner",),
+            "planner:6-hold-settle-2": ("settle-planner",),
+            "resolver:1-toquestion": ("to-question",),
+            "resolver:1-questions": ("questions",),
+            "resolver:3": ("main-resolver",),
+            "resolver:3-settle-opens": ("opens",),
+            "resolver:3-settle-2-pairs": ("pairs",),
+            "flow-check:planner-1-recopy": ("recopy",),
+            "flow-check:planner-3b-rework-recopy": ("recopy",),
+            "wholeReviewer:r1:all": ("audit-first",),
+            "writerReviewer:r1:p2": ("audit-first",),
+            "wholeReviewer:r2:all": ("whole-reaudit",),
+            "writerReviewer:r3:all": ("audit-scoped",),
+            "writerReviewer:r2:p1": ("audit-scoped",),
         }
         for label, want in samples.items():
             with self.subTest(label=label):
@@ -220,7 +237,7 @@ class Clues(unittest.TestCase):
 
     def test_skipped_の_fact_は_script_の_SKIP_と同じ(self):
         self.assertEqual(sorted(SKIPPED_CLUES), sorted(value("SKIP").values()))
-        self.assertIn("step: 'resolver:3b', fact: SKIP.carriedOnly", PRD.read_text(encoding="utf-8"))
+        self.assertNotIn("SKIP.carriedOnly", PRD.read_text(encoding="utf-8"), "持ち越した問いだけの 3b は planner:3b が扱い、外す agent が無い")
         self.assertIn("step: v1Label, fact: SKIP.unchanged", PRD.read_text(encoding="utf-8"))
 
 
@@ -232,15 +249,22 @@ class Launched(unittest.TestCase):
         got = test_prd_stages.run(recurring_ledger_spec())
         cls.recurring = got
         cls.runs.append({"prompts": got["prompts"], "skipped": got["result"].get("skipped") or []})
+        # formal-method を使えない run（args.formal = false）だけが formal_unavailable を残す。
+        off = test_prd_stages.run({"args": test_prd_stages.args(formal=False)})
+        cls.runs.append({"prompts": off["prompts"], "skipped": off["result"].get("skipped") or []})
 
     def test_流用した段のテストが通る(self):
         self.assertTrue(self.outcome.wasSuccessful(), [str(t) for t, _ in self.outcome.failures + self.outcome.errors])
 
     def test_再発したledger由来の指摘だけがsettleに続けて出た項目の行で渡る(self):
-        self.assertEqual(self.recurring["result"]["status"], "done")
-        [first, *_] = [p["prompt"] for p in self.recurring["prompts"] if p["label"] == "flow-framer:6-settle"]
-        self.assertIn("このうち r2-gr-requirements__x-001 は改稿で直らず再発した項目の指摘である", first)
-        self.assertNotIn("r1-cd-all-001", first, "再発していない ledger 由来の指摘は flow に写さない")
+        # 延長の段 6 が再発した指摘を ruled で裁定して settle に写し、問いが無いので 7 へ進まずに finalHold で止まる。
+        res = self.recurring["result"]
+        self.assertEqual((res["status"], res["stop_reason"]), ("blocked", "pass_limit"), res.get("reason"))
+        settles = [p["prompt"] for p in self.recurring["prompts"] if p["label"] == "planner:6-settle"]
+        self.assertTrue(settles, "延長の段 6 の裁定を settle に写す")
+        first = settles[0]
+        self.assertIn("このうち r2-wr-all-001 は改稿で直らず再発した項目の指摘である", first)
+        self.assertNotIn("r1-wh-all-001", first, "再発していない ledger 由来の指摘は flow に写さない")
 
     def test_起動したagentはちょうど1つの形に当たる(self):
         bad = sorted({p["label"] for r in self.runs for p in r["prompts"] if classify(p["label"], p["prompt"]) is None})

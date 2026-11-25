@@ -1,0 +1,309 @@
+{
+ "properties": [
+  {
+   "id": "P8",
+   "statement": "P8 の性質",
+   "sources": [
+    {
+     "kind": "goal",
+     "id": "@goal:SP-AUTH-010.domain",
+     "source": null
+    }
+   ],
+   "formalizable": true,
+   "nonformal_reason": null,
+   "verdict": [
+    "検証済み"
+   ],
+   "assurance": {
+    "kind": "無界の証明",
+    "proposition": "P8 の命題",
+    "open_obligations": [],
+    "fairness_assumptions": []
+   },
+   "detection": {
+    "status": "検出を確認",
+    "mutations": [],
+    "reason": "変異を検出した"
+   },
+   "method": null,
+   "check_ids": [
+    "CC1"
+   ],
+   "confirmation_ids": [],
+   "evidence_refs": [],
+   "reason": "P8 の判定の理由",
+   "depends_on_questions": []
+  }
+ ],
+ "checks": [
+  {
+   "id": "CK1",
+   "kind": "contract",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 CK1.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "成功",
+   "end": {
+    "started": true,
+    "tool_result": "満たす",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が unsat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  },
+  {
+   "id": "CK2",
+   "kind": "contract",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 CK2.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "成功",
+   "end": {
+    "started": true,
+    "tool_result": "満たす",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が unsat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  },
+  {
+   "id": "CC1",
+   "kind": "composition",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 CC1.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "成功",
+   "end": {
+    "started": true,
+    "tool_result": "満たす",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が unsat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  }
+ ],
+ "decomposition": {
+  "graph": {
+   "nodes": [
+    {
+     "id": "prop:M1/mp1",
+     "kind": "property",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/properties/0"
+     }
+    },
+    {
+     "id": "tr:M1/t1",
+     "kind": "transition",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/state_machine/transitions/0"
+     }
+    },
+    {
+     "id": "tr:M1/t2",
+     "kind": "transition",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/state_machine/transitions/1"
+     }
+    },
+    {
+     "id": "var:M1/x",
+     "kind": "variable",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/state_machine/variables/0"
+     }
+    },
+    {
+     "id": "var:M1/y",
+     "kind": "variable",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/state_machine/variables/1"
+     }
+    }
+   ],
+   "edges": [
+    {
+     "id": "write:tr:M1/t1->var:M1/x",
+     "from": "tr:M1/t1",
+     "to": "var:M1/x",
+     "kind": "write",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/state_machine/transitions/0/updates/0/var"
+     }
+    },
+    {
+     "id": "write:tr:M1/t2->var:M1/y",
+     "from": "tr:M1/t2",
+     "to": "var:M1/y",
+     "kind": "write",
+     "location": {
+      "file": "models/M1.json",
+      "pointer": "/state_machine/transitions/1/updates/0/var"
+     }
+    }
+   ],
+   "unconfirmed": []
+  },
+  "criteria": {
+   "algorithm": "writer-merge-scc/1"
+  },
+  "candidates": [
+   {
+    "id": "C1",
+    "nodes": [
+     "tr:M1/t1",
+     "var:M1/x"
+    ],
+    "strength_to": []
+   },
+   {
+    "id": "C2",
+    "nodes": [
+     "tr:M1/t2",
+     "var:M1/y"
+    ],
+    "strength_to": []
+   }
+  ],
+  "decisions": [
+   {
+    "candidate_id": "C1",
+    "adopted": true,
+    "reason": "独立した部分"
+   },
+   {
+    "candidate_id": "C2",
+    "adopted": true,
+    "reason": "独立した部分"
+   }
+  ],
+  "adopted": true,
+  "reason": "候補が 2 つ",
+  "parts": [
+   {
+    "id": "PT1",
+    "model_id": "M1",
+    "owns_variables": [
+     "var:M1/x"
+    ],
+    "transitions": [
+     "tr:M1/t1"
+    ]
+   },
+   {
+    "id": "PT2",
+    "model_id": "M1",
+    "owns_variables": [
+     "var:M1/y"
+    ],
+    "transitions": [
+     "tr:M1/t2"
+    ]
+   }
+  ],
+  "boundaries": [],
+  "contracts": [
+   {
+    "id": "K1",
+    "model_id": "M1",
+    "derived_from": "mp1",
+    "part_id": "PT1",
+    "statement": "部分 PT1 の契約",
+    "verdict": [
+     "検証済み"
+    ],
+    "check_ids": [
+     "CK1"
+    ],
+    "reason": "契約の検査が成功"
+   },
+   {
+    "id": "K2",
+    "model_id": "M1",
+    "derived_from": "mp1",
+    "part_id": "PT2",
+    "statement": "部分 PT2 の契約",
+    "verdict": [
+     "検証済み"
+    ],
+    "check_ids": [
+     "CK2"
+    ],
+    "reason": "契約の検査が成功"
+   }
+  ],
+  "composition_conditions": [
+   {
+    "id": "CC-1",
+    "model_id": "M1",
+    "derived_from": "mp1",
+    "statement": "合成の条件",
+    "check_ids": [
+     "CC1"
+    ],
+    "depends_on": [
+     "K1",
+     "K2"
+    ]
+   }
+  ],
+  "correspondence": {
+   "matched": [
+    {
+     "element": "var:M1/x",
+     "to": [
+      "x"
+     ]
+    },
+    {
+     "element": "var:M1/y",
+     "to": [
+      "y"
+     ]
+    }
+   ],
+   "unmatched": [],
+   "excluded": []
+  }
+ }
+}

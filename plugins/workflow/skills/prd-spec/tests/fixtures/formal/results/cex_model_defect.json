@@ -1,0 +1,120 @@
+{
+ "properties": [
+  {
+   "id": "P6",
+   "statement": "P6 の性質",
+   "sources": [
+    {
+     "kind": "goal",
+     "id": "@goal:SP-AUTH-011.bounds",
+     "source": null
+    }
+   ],
+   "formalizable": true,
+   "nonformal_reason": null,
+   "verdict": [
+    "反例"
+   ],
+   "assurance": null,
+   "detection": {
+    "status": "検出を確認",
+    "mutations": [],
+    "reason": "変異を検出した"
+   },
+   "method": null,
+   "check_ids": [
+    "C6"
+   ],
+   "confirmation_ids": [],
+   "evidence_refs": [],
+   "reason": "P6 の判定の理由",
+   "depends_on_questions": []
+  }
+ ],
+ "checks": [
+  {
+   "id": "C6",
+   "kind": "property",
+   "model_id": "M1",
+   "assumptions": [],
+   "scope": "全域",
+   "unit": "z3 C6.smt2",
+   "tool_time_limit": {
+    "seconds": 60,
+    "source": "計画（内部の上限 TOOL_TIME_LIMIT_MAX_S 以下）"
+   },
+   "state": "実行した",
+   "verdict": "反例",
+   "end": {
+    "started": true,
+    "tool_result": "反する",
+    "abnormal_exit": false,
+    "unreadable_output": false,
+    "stopped_by": null,
+    "time_limit_hit": null
+   },
+   "reason": "否定が sat",
+   "evidence_refs": [],
+   "completed_scope": null,
+   "incomplete_scope": null
+  }
+ ],
+ "counterexamples": [
+  {
+   "id": "X6",
+   "property_id": "P6",
+   "sources": [
+    {
+     "kind": "goal",
+     "id": "@goal:SP-AUTH-011.bounds"
+    }
+   ],
+   "check_id": "C6",
+   "input_and_trace": "入力 6 の値と経路",
+   "violated_condition": "違反した条件 6",
+   "replay": {
+    "confirmation_id": "confirm-replay-6",
+    "steps_ref": "checks/C6/steps.json"
+   }
+  }
+ ],
+ "causes": [
+  {
+   "subject": {
+    "kind": "counterexample",
+    "id": "X6"
+   },
+   "cause": "形式モデルの欠陥",
+   "grounds": "原因の根拠 6",
+   "classified_by": "task-classify-1"
+  }
+ ],
+ "confirmations": {
+  "deterministic": [
+   {
+    "id": "confirm-replay-6",
+    "kind": "replay",
+    "property_ids": [
+     "P6"
+    ],
+    "model_property_id": null,
+    "plan_id": null,
+    "item": "反例 X6 の再生",
+    "result": "成り立つ",
+    "checker": "cli",
+    "materials": [],
+    "end": {
+     "started": true,
+     "tool_result": "反する",
+     "abnormal_exit": false,
+     "unreadable_output": false,
+     "stopped_by": null,
+     "time_limit_hit": null
+    },
+    "reason": "再生で同じ違反"
+   }
+  ],
+  "meaning": [],
+  "judgments": []
+ }
+}
