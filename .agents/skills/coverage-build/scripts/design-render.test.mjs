@@ -220,7 +220,7 @@ test('_architecture.md: 単位の表に続けて、照合の不変条件を 1 �
   const lines = arch.split('\n')
   const at = lines.findIndex((l) => l.includes('方式設計の照合が保証すること'))
   assert.ok(at > lines.findIndex((l) => l.startsWith('| 単位 |')), '単位の表の後')
-  assert.equal(C.ARCH_INVARIANTS.length, 6)
+  assert.equal(C.ARCH_INVARIANTS.length, 7)
   for (const inv of C.ARCH_INVARIANTS) {
     const i = lines.findIndex((l) => l.replace(/^\s*[-*]\s+/, '').trim() === inv)
     assert.ok(i > at, `不変条件が 1 行で無い: ${inv}`)

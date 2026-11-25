@@ -224,13 +224,17 @@ const BREAKERS = [
     '行の handling が使う単位を 1 つ欠く': (a) => { a.contracts[0].rows[0].handling.pop() },
     '行の handling が同じ単位を 2 回持つ': (a) => { a.contracts[1].rows[0].handling.push({ unit: 'U2', does: '重ねた' }) },
   } },
+  { name: 'paths と tests の path は別の path の祖先でない', re: /祖先/, cases: {
+    '別の単位の paths が src/a.mjs の下にある': (a) => { a.units[2].paths = ['src/a.mjs/x.md'] },
+    'tests が paths の祖先': (a) => { a.units[0].tests = ['test/a.test.mjs', 'lib']; a.units[0].paths = ['src/a.mjs', 'lib/x.mjs'] },
+  } },
 ]
 
-test('ARCH_INVARIANTS は C から使える。不変条件の文の配列で、6 つ（kind・paths・code の tests・doc・ファイルの持ち主・境界の行）', () => {
+test('ARCH_INVARIANTS は C から使える。不変条件の文の配列で、7 つ（kind・paths・code の tests・doc・ファイルの持ち主・境界の行・祖先）', () => {
   assert.ok(Array.isArray(C.ARCH_INVARIANTS))
-  assert.equal(C.ARCH_INVARIANTS.length, 6)
+  assert.equal(C.ARCH_INVARIANTS.length, 7)
   assert.ok(C.ARCH_INVARIANTS.every((s) => typeof s === 'string' && s.trim()))
-  assert.equal(new Set(C.ARCH_INVARIANTS).size, 6, '同じ文を重ねない')
+  assert.equal(new Set(C.ARCH_INVARIANTS).size, 7, '同じ文を重ねない')
 })
 
 test('ARCH_INVARIANTS の文は、kind・paths・tests・test_uses という欄の語を使う', () => {
