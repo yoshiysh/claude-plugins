@@ -161,8 +161,10 @@ const restoreTx = (token, label) => {
   persist()
   return drop({ token, restored: Object.keys(pre || {}).length, files: [], pruned_by: [], flow_before: String(before), flow_after: String(flowSha), ...docsFields(disk.docs || {}, present()) })
 }
-// fixedShas: doc_check の固定の文書の sha256。fixed_moved_at: { <監査の段 r<n>>: [文書キー] } の文書だけ、その段から後の値を変える。
-const fixedShas = (keys, stage) => Object.fromEntries(keys.map((k) => [k, H(`fixed-${k}${stage && Object.entries(spec.fixed_moved_at || {}).some(([s, ks]) => Number(stage.slice(1)) >= Number(s.slice(1)) && ks.includes(k)) ? '-moved' : ''}`)]))
+// fixedShas: doc_check の固定の文書の sha256（本物と同じく 64 桁の 16 進。script は先頭の桁だけを持つので、変われば先頭から違う値にする）。
+// fixed_moved_at: { <監査の段 r<n>>: [文書キー] } の文書だけ、その段から後の値を変える。
+const hex64 = (x) => { let out = ''; for (let n = 0; out.length < 64; n++) { let h = 0x811c9dc5 ^ n; for (const c of String(x)) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0; out += h.toString(16).padStart(8, '0') } return out.slice(0, 64) }
+const fixedShas = (keys, stage) => Object.fromEntries(keys.map((k) => [k, hex64(`fixed-${k}${stage && Object.entries(spec.fixed_moved_at || {}).some(([s, ks]) => Number(stage.slice(1)) >= Number(s.slice(1)) && ks.includes(k)) ? '-moved' : ''}`)]))
 // reset: doc_check reset と同じく、S0 が書いたもののほか（台帳・控え）を消す。
 const resetWorld = (keep, fixed) => {
   const removed = ['flow', 'els', 'verdicts', 'rs', 'open_ids', 'tx'].filter((k) => disk[k] !== undefined && disk[k] !== null)
@@ -1669,6 +1671,37 @@ class Stages(unittest.TestCase):
     def _expand(self):
         a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "specifications/x", "fixed": False}])
         return {"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}]}
+
+    def test_next_argsから再開しても変わった固定の文書だけを名指す(self):
+        # 固定の文書が 2 本以上あるとき、state.fixed_sha はキーの辞書順の配列なので、位置がずれると別の文書を名指す。
+        a = args(entry="existing", existing_docs=[{"key": "requirements/z", "fixed": True}, {"key": "requirements/a", "fixed": True}, {"key": "specifications/x", "fixed": False}])
+        base = {"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}], "long_digests": True,
+                "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "doc": "specifications/x", "item_id": "SP-X-001", "route": "decision"}]},
+                "about": {"RS-010": {"finding": "r1-wr-all-001"}}, "questions_at": {"6": ["RS-010"]}}
+        g1 = run(base)["result"]
+        self.assertEqual(g1["status"], "needs_answers", g1.get("reason"))
+        for moved in ("requirements/a", "requirements/z"):
+            with self.subTest(moved):
+                res = run({**base, "args": g1["next_args"], "ruled_at": {"3a'": ["RS-010"]}, "writer_changed": ["SP-X-001"], "diff": {"r2": ["SP-X-001"]},
+                           "fixed_moved_at": {"r2": [moved]}, "questions_at": {}})["result"]
+                self.assertEqual(res["status"], "blocked", res.get("reason"))
+                self.assertIn(f"固定の文書 {moved} が段 1 の入口から変わりました", res["reason"])
+
+    def test_固定の文書のsha256をキーとの組で持つ版のnext_argsは起動の前に止める(self):
+        g1 = run({**self._expand(), "findings": {"writerReviewer:r1": [{"id": "r1-wr-all-001", "doc": "specifications/x", "item_id": "SP-X-001", "route": "decision"}]},
+                  "about": {"RS-010": {"finding": "r1-wr-all-001"}}, "questions_at": {"6": ["RS-010"]}, "spec_layer_ids": ["RS-010"]})["result"]
+        self.assertEqual(g1["status"], "needs_answers", g1.get("reason"))
+        st = g1["next_args"]["state"]
+        for name, value, why in (("キーとの組（旧い版）", {"requirements/x": st["fixed_sha"][0]}, "キーとの組で持つ版"),
+                                 ("長さが違う", st["fixed_sha"] * 2, "返った next_args を変えずに渡す"),
+                                 ("空の文字列", [""], "返った next_args を変えずに渡す")):
+            with self.subTest(name):
+                broken = {k: v for k, v in g1["next_args"].items() if k != "state_hash"}
+                broken["state"] = {**st, "fixed_sha": value}
+                r = run({**self._expand(), "args": args(**broken)})
+                self.assertEqual(r["labels"], [], "agent を起動する前に止まる")
+                self.assertIn("args.state.fixed_sha", r["error"] or "")
+                self.assertIn(why, r["error"] or "")
 
     def test_固定の文書が段1の入口から変わったら監査の段で止め再実行させない(self):
         finding = {"id": "r1-wr-all-001", "doc": "specifications/x", "item_id": "SP-X-001"}
@@ -5942,6 +5975,43 @@ class SpecOnlyQuestions(unittest.TestCase):
         asked = run({**base, "spec_layer_ids": ["RS-020"]})["result"]
         self.assertEqual((asked["status"], asked.get("gate"), asked.get("question_ids")), ("needs_answers", "g1", ["RS-020"]), asked.get("reason"))
         self.assertEqual((asked["next_args"]["from"], asked["next_args"]["state"]["pass"]), ("3a'", MAX_AUDIT_PASSES + 1))
+
+    def test_既存の文書の多いrunでも延長の段6のゲートは字数の上限に収まって開く(self):
+        # 実 run（bp の仕様書 3 本の改訂）の形: 既存の文書 21 本（うち固定 18 本）を元の文書の絶対パス付きで渡し、固定の文書 6 本から
+        # 開いている TBD を 70 件引き継ぎ、r2 に writer reviewer の指摘 4 件（うち decision 1 件）と whole reviewer の指摘 3 件が出る。
+        # existing_docs の source と、固定の文書ごとの sha256 の全桁を next_args に写していたときは、延長のゲートが上限を超えて開かず、
+        # 仕様の論点が依頼者に聞かれずに保持規則になった。
+        src = "/Users/someone/github/someone/claude-plugins-wt/bp-spec/docs"
+        req = ["bp-designed-skill", "bp-operations", "cleanup", "consumer", "develop-address-review", "develop-implement", "develop-plugin", "develop-review", "formal-method", "requester"]
+        spc = ["authoring", "bp-authoring", "bp-conformance", "bp-entry", "bp-findings", "bp-inspection", "bp-run", "elicitation", "flow", "formal-method", "verification"]
+        editable = ["specifications/bp-authoring", "specifications/bp-inspection", "specifications/bp-run"]
+        keys = [f"requirements/{t}" for t in req] + [f"specifications/{t}" for t in spc]
+        docs = [{"key": k, "source": f"{src}/{k}.md", "fixed": k not in editable} for k in keys]
+        counts = {"requirements/consumer": ("RCONSUMER", 8), "requirements/requester": ("RREQUESTER", 8), "specifications/authoring": ("SAUTHORING", 19),
+                  "specifications/elicitation": ("SELICITATION", 13), "specifications/flow": ("SFLOW", 11), "specifications/verification": ("SVERIFICATION", 11)}
+        carried = {k: [f"TBD-{tag}-{n:03d}" for n in range(3, 3 + c)] for k, (tag, c) in counts.items()}
+        self.assertEqual((len(docs), sum(len(v) for v in carried.values())), (21, 70))
+        r2 = [{"id": f"r2-wr-all-00{i}", "doc": editable[0], "item_id": f"SP-BPAUTHORING-0{30 + i}"} for i in range(1, 4)]
+        r2.append({"id": "r2-wr-all-004", "doc": editable[2], "item_id": "SP-BPRUN-041", "route": "decision"})
+        wh = [{"id": f"r2-wh-all-00{i}", "doc": editable[2], "item_id": f"SP-BPRUN-04{i}", "blocking": False} for i in range(1, 4)]
+        findings = {"writerReviewer:r1": [{"id": f"r1-wr-all-00{i}", "doc": editable[0], "item_id": f"SP-BPAUTHORING-0{30 + i}"} for i in range(1, 6)],
+                    "writerReviewer:r2": r2, "wholeReviewer:r2": wh}
+        install = "/Users/someone/.claude/plugins/cache/yoshiysh-claude-plugins/workflow/10.10.10/skills/prd-spec"
+        a = args(entry="existing", existing_docs=docs, skillDir=install, workspace=f"{install}/workspace/bp-spec-consistency-20261125")
+        spec = {"args": a, "units": [{"id": "U-1", "docs": editable, "depends_on": []}], "long_digests": True, "carried_tbd": carried, "findings": findings,
+                "writer_changed": ["SP-BPAUTHORING-031"], "diff": {"r2": ["SP-BPAUTHORING-031"]}, "about": {"RS-020": {"finding": "r2-wr-all-004"}}, "spec_layer_ids": ["RS-020"]}
+        res = run({**spec, "questions_at": {"6": ["RS-020"]}})["result"]
+        self.assertEqual((res["status"], res.get("gate"), res.get("question_ids")), ("needs_answers", "g1", ["RS-020"]), res.get("reason"))
+        written = {d["key"]: d.get("source") for d in res["next_args"]["existing_docs"]}
+        self.assertEqual({k: v for k, v in written.items() if v}, {k: f"{src}/{k}.md" for k in editable}, "保存の段が書き戻す、書き換えてよい文書の source だけを写す")
+        fixed_sha = res["next_args"]["state"]["fixed_sha"]
+        self.assertEqual((len(fixed_sha), {len(v) for v in fixed_sha}), (18, {const("FIXED_SHA_CHARS")}), "固定の文書のキーの辞書順に先頭の桁だけを持つ")
+        self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False, separators=(",", ":"))), NEXT_ARGS_MAX_CHARS)
+        # 変異: existing_docs を source ごと写すと、同じ run で延長が上限を超えると判定され、段 6 に戻らずに輪を出る。
+        whole = ("existing_docs: EXISTING.map((d) => (d.fixed || d.source === undefined ? { key: d.key, fixed: d.fixed } : { key: d.key, source: d.source, fixed: d.fixed })),", "existing_docs: EXISTING,")
+        over = run(spec, patch=[whole])["result"]
+        self.assertEqual((over["status"], over["stop_reason"]), ("blocked", "pass_limit"), over.get("reason"))
+        self.assertIn("延長すると next_args が打ち直しの上限", over["reason"])
 
     def test_延長の段6で字数の上限を超えても要求の論点はupstream_gapにする(self):
         # 要求の論点は字数の上限より先に upstream_gap にする（保持規則にすると、要求文書に無い判断が仕様書の本文にだけ入る）。延長の段 6 の

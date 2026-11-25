@@ -904,6 +904,8 @@ const badDocs = EXISTING.filter((d) => !d || typeof d !== 'object' || typeof d.k
 if (badDocs.length) throw new Error(`args.existing_docs の要素は { key: "<requirements|specifications>/<topic>"（${DOC_KEY.source}）, fixed: true|false } です（合わない要素の key: ${badDocs.map((d) => String(d && d.key)).join(', ')}）`)
 if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" には args.existing_docs（W に置いた既存文書のキーと fixed）が要ります`)
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
+// FIXED_SHA_CHARS: 照合に持つ sha256 の桁数（48 bit）。所有表の外の書き込みを見つけるためのもので、衝突を狙う書き手は想定しない。
+const FIXED_SHA_CHARS = 12
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
 const SCHEMAS = { FLOW_CHECK_SCHEMA, FORMAL_CHECK_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, RECOPY_SCHEMA, PLANNER_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
@@ -933,12 +935,15 @@ const startErrors = stateErrors(FROM, state)
 if (state.gate !== undefined && state.gates === undefined) startErrors.push('state.gate があるのに state.gates がありません（ゲートを開いた数を持たない版の next_args です。S0 から流し直してください）')
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
 // 固定の文書の照合の基準は段 1 の入口の reset だけが作る。基準の無い run を通すと、照合が黙って飛ぶ。
-if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canonicalText(FIXED_KEYS)) {
-  throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256）が existing_docs と合いません。返った next_args を変えずに渡すか、段 1 から始めてください`)
+if (FROM !== '1' && !(Array.isArray(state.fixed_sha) ? state.fixed_sha.length === FIXED_KEYS.length && state.fixed_sha.every((v) => typeof v === 'string' && v) : !FIXED_KEYS.length)) {
+  throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256 の先頭 ${FIXED_SHA_CHARS} 桁を、キーの辞書順に並べた配列）が existing_docs と合いません。${Array.isArray(state.fixed_sha) ? '返った next_args を変えずに渡すか、段 1 から始めてください' : '固定の文書の sha256 をキーとの組で持つ版の next_args です。段 1 から始めてください'}`)
 }
 
 if (input.formal !== undefined && input.formal !== false) throw new Error(`args.formal は false だけを受け付けます（formal-method を使わないとき。使うときは欄を付けない）: ${canonicalText(input.formal)}`)
-const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {}, ...(input.formal === false ? { formal: false } : {}) }
+// existing_docs の source は、書き換えてよい文書の分だけを next_args に写す。script は source を読まないが、司令塔の保存の段（SKILL.md「保存と
+// 事後報告」の 3）は、セッションをまたいで next_args から再開しても、改訂した文書を source に書き戻す。固定の文書は保存しないので写さない。
+// 全部を写すと既存の文書の数だけ絶対パスが字数を使い、文書の多い run で延長のゲートが上限を超えて開けなくなる（実測: 固定の 18 本で約 1,900 字）。
+const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING.map((d) => (d.fixed || d.source === undefined ? { key: d.key, fixed: d.fixed } : { key: d.key, source: d.source, fixed: d.fixed })), role_opts: input.role_opts || {}, ...(input.formal === false ? { formal: false } : {}) }
 const argsFrom = (from, st) => {
   const out = { ...BASE_ARGS, from, state: JSON.parse(JSON.stringify(st)) }
   return { ...out, state_hash: nextArgsHash(out) }
@@ -2474,7 +2479,8 @@ async function resetEntry() {
   const carriedOk = carried && typeof carried === 'object' && !Array.isArray(carried) &&
     Object.entries(carried).every(([key, ids]) => KEEP_KEYS.includes(key) && Array.isArray(ids) && ids.length && ids.every((id) => typeof id === 'string' && id))
   if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk && carriedOk) {
-    if (FIXED_KEYS.length) state.fixed_sha = shas
+    // 固定の文書ごとの sha256 の先頭 FIXED_SHA_CHARS 桁を、FIXED_KEYS の順の配列で持つ。キーと全桁の組で持つと、固定の文書の数だけ next_args の字数を使う。
+    if (FIXED_KEYS.length) state.fixed_sha = FIXED_KEYS.map((k) => String(shas[k]).slice(0, FIXED_SHA_CHARS))
     // entry_digest: 入口（checks/entry.json）の digest。doc_check はこれで既存の指摘を決めるので、監査の doc の値と照らす（entryMoved）。
     if (typeof rc.entry_digest === 'string' && rc.entry_digest) state.entry_digest = rc.entry_digest
     const all = Object.values(carried).flat()
@@ -2501,10 +2507,10 @@ function fixedMoved(audited, label) {
   if (!FIXED_KEYS.length) return null
   const got = audited.fixed_sha256
   if (!got || typeof got !== 'object') return { error: `監査役が ${label} の snapshot の fixed_sha256（固定の文書 ${list(FIXED_KEYS)} の sha256）を返しませんでした`, rerun: true }
-  const moved = FIXED_KEYS.filter((k) => got[k] !== state.fixed_sha[k])
+  const moved = FIXED_KEYS.filter((k, i) => typeof got[k] !== 'string' || got[k].slice(0, FIXED_SHA_CHARS) !== state.fixed_sha[i])
   if (!moved.length) return null
   noteIntegrity(`固定の文書 ${moved.join(', ')} の本文か meta が、段 1 の入口から変わった（${label} の snapshot で照合）`)
-  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
+  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を S0 で置いた元の文書から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
 }
 
 // stage1: planner:1 が 1 体で依頼を仕分け（plan.json・decisions・open）、流れを閉じ（flow.json）、未決と組を裁定する（resolutions）。裁定は段 3 の

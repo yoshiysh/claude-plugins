@@ -13,7 +13,7 @@
 | `workspace` | W の絶対パス（S0 で作ったもの） |
 | `skillDir` | このスキルの絶対パス。agent が Read する役割ファイルと、契約の節を出す doc_check のパスはここでしか決まらない |
 | `entry` | `new` / `existing` / `expand`。既存文書の監査と改訂は `existing`（SKILL.md の S0 の表） |
-| `existing_docs` | `existing`・`expand` のとき必須。`new` でも、保存先にある他の文書を固定の文書として置くときに渡す（SKILL.md の S0 の 4）。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed: true \| false }]`。本文は W に置いてある。`key` が文書のキーの形（`prd-spec.js` の `DOC_KEY`）でないか `fixed` が真偽値でなければ、run は agent を起動する前に止まる（`key` は段 1 の入口の reset のコマンド文に入る） |
+| `existing_docs` | `existing`・`expand` のとき必須。`new` でも、保存先にある他の文書を固定の文書として置くときに渡す（SKILL.md の S0 の 4）。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed: true \| false }]`。本文は W に置いてある。`next_args` には、`source` を書き換えてよい文書の分だけ写す（保存の段が改訂した文書をそこに書き戻す。固定の文書は保存しないので写さず、字数を空ける）。`key` が文書のキーの形（`prd-spec.js` の `DOC_KEY`）でないか `fixed` が真偽値でなければ、run は agent を起動する前に止まる（`key` は段 1 の入口の reset のコマンド文に入る） |
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
 | `state` | `from` が `1` 以外のとき要る。前の run の `next_args` ごと渡す（§3） |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
@@ -122,10 +122,10 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   `integrity` に 1 行足す。needs_answers の `next_args`・次の段の run には `restore` が付かないので restore しない。
 - **段 1 から始める run は、W を S0 の直後に戻してから始める。** 新しい run も、段 1 からの再実行も、入口の flow-check（`1-entry`）に
   `doc_check reset --keep <existing_docs の全部のキー> --fixed <existing_docs の fixed のキー>` を実行させ、その stdout（残した文書と固定の文書の
-  キーが args と一致し、固定の文書ごとの `fixed_sha256` があるもの）を受け取るまで planner を起動しない。`fixed_sha256` は `state.fixed_sha` に入り、
-  段 5・8 の監査の snapshot（`--fixed`）が返す値と照合する。違えば固定の文書を誰かが書き換えたので（固定の文書の書き手はいない）、`integrity` に
-  1 行足して `next_args` を付けずに止まる（どの段からやり直しても W の本文は戻らない。本文を `existing_docs` の `source` から `doc_check place` で置き直して段 1 から）。
-  固定の文書があるのに `state.fixed_sha` が合わない `next_args` は、agent を起動する前に止まる。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
+  キーが args と一致し、固定の文書ごとの `fixed_sha256` があるもの）を受け取るまで planner を起動しない。`fixed_sha256` は先頭 12 桁だけを、固定の文書のキーの辞書順の配列にして
+  `state.fixed_sha` に入り（キーと全桁の組で持つと、固定の文書の数だけ next_args の字数を使う）、段 5・8 の監査の snapshot（`--fixed`）が返す値の先頭 12 桁と照合する。違えば固定の文書を誰かが書き換えたので（固定の文書の書き手はいない）、`integrity` に
+  1 行足して `next_args` を付けずに止まる（どの段からやり直しても W の本文は戻らない。本文を S0 で置いた元の文書から `doc_check place` で置き直して段 1 から）。
+  `state.fixed_sha` の形（配列・長さが固定の文書の数・空でない文字列）が合わない `next_args` は、agent を起動する前に止まる。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
   所有表の外のファイル・`tmp/` を残して段の書き込みと `--keep` に無い文書を消し（消すものの正本は doc_check の `wsReset`）、固定の文書の
   meta を書き直す。S0 が place で置いた `<kind>-<topic>.tbd.json`（保存した文書の開いている TBD）は、その文書の meta の `tbd` に写し、文書のキーごとの ID を stdout の
   `carried_tbd` に出す。prd-spec.js はそれをすべて `open_tbd` に入れ（writer の返り値だけから数えると、writer を起動しない文書の TBD が保存の
