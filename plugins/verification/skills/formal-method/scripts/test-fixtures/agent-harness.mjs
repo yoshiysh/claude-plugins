@@ -586,7 +586,7 @@ function writeReturn(task, scenario, memory, mode, schema = null) {
 
 export function makeHarness(scenario, hooks = {}) {
   // returnSchemas: claim・next で受け取った返り値の形（役 → schema）。テストが形の欄を見る
-  const memory = { byRole: {}, rounds: {}, tasks: [], calls: [], submits: [], violations: [], partition: null, models: [], closes: [], authorReturns: [], held: {}, returnSchemas: {} };
+  const memory = { byRole: {}, rounds: {}, tasks: [], calls: [], submits: [], violations: [], refusals: [], partition: null, models: [], closes: [], authorReturns: [], held: {}, returnSchemas: {} };
   // Workflow の返り値は、run の workspace の保存先の root（<ws>/.formal-method/。runs/<run_id> の 2 つ上）の下に置く。
   // 呼び手は workspace を消すので tmpdir() の直下に残らず、.formal-method/ は対象の集まりから除かれるので、対象の指紋も変えない
   let wfDir = null;
@@ -601,7 +601,19 @@ export function makeHarness(scenario, hooks = {}) {
     const base = { run_dir: args.state, call_id: args.callId, worker: w.id };
     const claimCmd = `printf '%s' '${JSON.stringify(base)}' | '${process.execPath}' '${launcher}' claim`;
     const shell = hooks.via === 'shell';
-    const run = async (command, cmd, input) => (shell ? json1(await runShell(cmd, opts)) : workerCall(command, input));
+    // 担当のコマンドの拒否（ok: false）は、memory.refusals に控え、stderr に 1 行の JSON で出す（Issue #264: 拒否の理由が test の失敗の
+    // 文言に出ず、原因を追えなかった）。契約の違反（memory.violations）には足さない: 意図して claim しない・提出しない test がある
+    const refused = (command, j) => {
+      if (!j || j.ok !== false) return;
+      const entry = { call_id: args.callId, worker: w.id, command, code: j.code ?? null, reason: j.reason ?? null, detail: j.detail ?? null };
+      memory.refusals.push(entry);
+      process.stderr.write(`${JSON.stringify(entry)}\n`);
+    };
+    const run = async (command, cmd, input) => {
+      const j = shell ? json1(await runShell(cmd, opts)) : await workerCall(command, input);
+      refused(command, j);
+      return j;
+    };
     // holdCalls: この呼び出しで束を取ったまま出さないか
     const holdRole = roles.find((r) => (scenario.holdCalls[r] ?? 0) > (memory.held[r] ?? 0));
     if (holdRole) memory.held[holdRole] = (memory.held[holdRole] ?? 0) + 1;

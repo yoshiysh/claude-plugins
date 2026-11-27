@@ -103,7 +103,7 @@ Call = { "call_id": string, "args_path": string, "deadline_wall_ms": integer, "w
 Identity = { "pid": integer, "started_at": string, "nonce": string }
 ```
 
-- `started_at` は OS が報告する process の開始時刻の文字列（`ps -o lstart=` を `LC_ALL=C` で読んだ値の前後の空白を除いたもの）。比べるときも、読んだ値の前後の空白を除いてから比べる。
+- `started_at` は OS が報告する process の開始時刻の文字列で、[生死の判定](#生死の判定)の「開始時刻の読み方」で読む。比べるときも、読んだ値の前後の空白を除いてから比べる。
 - `action: "run_agents"`: 司令塔は `args_path` の JSON をそのまま args にして担当を起動し、Workflow の完了か `deadline_wall_ms` の早い方で `close` を 1 回呼ぶ。起動する script と args の正本は SKILL.md の [担当の起動](../SKILL.md#担当の起動) で、司令塔は起動に `workflow_script` の値を使わない。
 - `action: "working"`: 司令塔は `wait` を呼ぶ。
 - `action: "terminal"`: 司令塔は結果を提示する（[SKILL.md の結果の提示](../SKILL.md#結果の提示)）。保存できたかは結果の `records` が示す。
@@ -185,9 +185,16 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 ある識別（`Identity`）の生死は、次の順で決める。
 
 1. `kill(pid, 0)` が「その process は無い」（ESRCH）を返せば、**死んでいる**（確定）。
-2. `LC_ALL=C ps -o lstart= -p <pid>` の値が読めて、`started_at` と違えば、**死んでいる**（pid の再利用）。
+2. 開始時刻（下の「開始時刻の読み方」）が読めて、`started_at` と違えば、**死んでいる**（pid の再利用）。
 3. 値が読めて `started_at` と一致すれば、**生きている**。
-4. `ps` を実行できないか値を読めなければ、**判定できない**（`liveness: "unknown"`）。生きている側として扱い、何も書かない。
+4. `ps` を実行できないか `ps -o lstart=` の値を読めなければ、**判定できない**（`liveness: "unknown"`）。生きている側として扱い、何も書かない。
+
+開始時刻の読み方（識別を書く側と比べる側で同じ）:
+
+- `LC_ALL=C ps -o lstart= -p <pid>` を実行し、前後の空白を除いた値を読む。読めなければ開始時刻は読めない（上の 4）。
+- 読めたとき、`/proc/<pid>/stat` の 22 番目の欄（starttime。boot からの clock tick）と `/proc/sys/kernel/random/boot_id` を読めれば、`proc:<boot_id>:<starttime>` を開始時刻とする。2 番目の欄（comm）は空白や括弧を含みうるので、最後の `)` の後から欄を数える。
+- `/proc` を読めなければ、`ps -o lstart=` の値を開始時刻とする。
+- 理由: procps の `lstart` は boot の時刻（btime）と starttime から求める。btime が跳ぶ環境（WSL2 で、数秒のうちに数秒跳ぶことを実測した。Issue #264）では、同じ process の `lstart` が変わり、生きている保持者を pid の再利用と誤って `E_STALE` を返す。starttime の tick は btime に依らず、boot_id で再起動の前の記録と区別する。
 
 - pid だけでは判定しない（pid の再利用で、終わった process を生きていると誤るため）。
 - 判定できない状態が続く場合の終わり方は、司令塔の `LIVENESS_UNKNOWN_MAX` による（[SKILL.md の誤りと止まり方](../SKILL.md#誤りと止まり方)）。

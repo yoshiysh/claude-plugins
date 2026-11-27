@@ -2,7 +2,7 @@
 // 道具は解決した絶対 path と空の環境で、新しい process group として起動し、children/<pgid>.json に記録してから待ち、終わったら記録を消す。
 // 常駐メモリと CPU 時間は記録のためだけに標本を取り、標本では止めない。
 import { spawn, execFile, execFileSync } from 'node:child_process';
-import { mkdirSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { MEMORY_SAMPLE_MS } from './schemas.mjs';
 import { findExecutable } from './adapters/z3.mjs';
@@ -11,13 +11,33 @@ import { atomicWrite } from './storage.mjs';
 // 開始時刻を読めなかったときに識別へ記録する値。生死の判定では比べずに「判定できない」とする。
 export const UNKNOWN_START_TIME = 'unknown';
 
-// process の開始時刻（ps -o lstart= を LC_ALL=C で読み、前後の空白を除いた値）。ps を使えないか読めなければ null。
+// process の開始時刻の文字列（cli-contract.md「生死の判定」）。ps を使えないか ps -o lstart= の値を読めなければ null（判定できない）。
+// 読めたとき、Linux で /proc/<pid>/stat と boot_id を読めれば `proc:<boot_id>:<starttime>`（starttime は boot からの clock tick）を返し、
+// 読めなければ ps -o lstart= の値（LC_ALL=C、前後の空白を除く）を返す。理由: procps の lstart は btime + starttime/HZ から求めるので、
+// btime が跳ぶ環境（WSL2 で数秒のうちに数秒跳ぶことを実測）では同じ process の値が変わり、生きている保持者を pid の再利用と誤る。
+// starttime の tick は btime に依らず、boot_id で再起動の前の記録と区別する。
 export function startTimeOf(pid) {
   const ps = findExecutable('ps');
   if (!ps) return null;
+  let lstart;
   try {
-    const out = execFileSync(ps, ['-o', 'lstart=', '-p', String(pid)], { env: { LC_ALL: 'C' }, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    return out.length > 0 ? out : null;
+    lstart = execFileSync(ps, ['-o', 'lstart=', '-p', String(pid)], { env: { LC_ALL: 'C' }, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch { return null; }
+  if (lstart.length === 0) return null;
+  return procStartTime(pid) ?? lstart;
+}
+
+// /proc/<pid>/stat の 22 番目の欄（starttime）と boot_id。comm（2 番目の欄）は空白や括弧を含みうるので、最後の ')' の後から数える。
+function procStartTime(pid) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const rest = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
+    // rest[0] は 3 番目の欄（state）なので、22 番目の欄は rest[19]
+    const ticks = rest[19];
+    if (!/^\d+$/.test(ticks ?? '')) return null;
+    const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+    if (!/^[0-9a-f-]+$/i.test(bootId)) return null;
+    return `proc:${bootId}:${ticks}`;
   } catch { return null; }
 }
 
