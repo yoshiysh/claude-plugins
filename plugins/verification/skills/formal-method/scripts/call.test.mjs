@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { close, workerCall } from './lib/client.mjs';
 import { readStatus } from './lib/store.mjs';
 import { startTimeOf } from './lib/process.mjs';
+import { callCore } from './lib/core.mjs';
 import { ROLES } from './lib/roles.mjs';
 import { REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS } from './lib/schemas.mjs';
 import { sha256Bytes } from './lib/canonical.mjs';
@@ -56,15 +57,16 @@ async function waitOpen(runDir) {
   throw new Error('呼び出しが開かない');
 }
 const rel = (task, name) => `attempts/${task.task_id}/${name}`;
+// 返り値は下書きの形（#264 SP-264-028・029）: task_id・unit_id・perspective は CLI が入れ、確認役は result でなく items を書く
 function writeReview(task) {
   writeFileSync(join(task.attempt_dir, 'worklog.json'), '{}');
   writeFileSync(join(task.attempt_dir, 'review.json'), '{}');
-  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, unit_id: task.context.unit_id, perspective: task.context.perspective, result: '成り立つ', findings: [],
+  writeFileSync(task.result_path, JSON.stringify({ items: [{ ref: task.context.perspective, result: '成り立つ' }], findings: [],
     judgments: [], record_ref: rel(task, 'review.json'), worklog_ref: rel(task, 'worklog.json') }));
 }
 function writeAuthor(task, n) {
   writeFileSync(join(task.attempt_dir, 'worklog.json'), JSON.stringify({ n }));
-  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, status: 'done', outputs: [], questions: [], blocked_by_question: [], reason: null, worklog_ref: rel(task, 'worklog.json') }));
+  writeFileSync(task.result_path, JSON.stringify({ status: 'done', outputs: [], questions: [], blocked_by_question: [], reason: null, worklog_ref: rel(task, 'worklog.json') }));
 }
 const RULES = { ref: `document-rules/${'a'.repeat(64)}.md`, version: `sha256:${'a'.repeat(64)}` };
 const defects = (n) => Array.from({ length: n }, (_, i) => ({ kind: 'other', key: `d${i}`, text: `欠陥 ${i}` }));
@@ -103,7 +105,10 @@ test('cli-contract 依頼と応答 SP-FORMALMETHOD-012 AC-04 query: 担当の外
   const c1 = await workerCall('claim', { ...base, worker: 'w01' });
   const c2 = await workerCall('claim', { ...base, worker: 'w02' });
   assert.equal(c1.ok, true);
-  assert.deepEqual(Object.keys(c1.tasks[0].context).sort(), ['candidates', 'model_id', 'perspective', 'property_ids', 'run_dir', 'stage', 'subject', 'target_id', 'unit_id'], 'claim は資料を渡さない');
+  assert.deepEqual(Object.keys(c1.tasks[0].context).sort(), ['candidates', 'external_references', 'model_id', 'model_property_id_prefix', 'perspective', 'property_ids', 'run_dir', 'stage', 'subject', 'target_id', 'target_ids', 'unit_id'], 'claim は資料を渡さない');
+  // TaskContext の 3 欄（artifact-formats「claim の Task」）: 確認役の task では、model_property_id_prefix は null、target_ids と external_references は空
+  const ctx = c1.tasks[0].context;
+  assert.deepEqual([ctx.model_property_id_prefix, ctx.target_ids, ctx.external_references], [null, [], []], '確認役の task は作成役だけの欄に値を持たない');
   const outside = await workerCall('query', { ...base, worker: 'w01', task_id: c1.tasks[0].task_id, refs: ['ledger.json'] });
   assert.deepEqual([outside.ok, outside.code, outside.detail.reason], [false, 'E_CALL', 'outside_task']);
   const other = await workerCall('query', { ...base, worker: 'w01', task_id: c2.tasks[0].task_id });
@@ -208,7 +213,10 @@ test('cli-contract 受け箱 SP-FORMALMETHOD-013 close: 包んだ返り値（{su
     else close({ run_dir: run.runDir, call_id: call.call_id, workflow_output_path: join(run.root, 'missing.json') });
     const out = await p;
     assert.equal(out[0].ok, true, `${mode}: ${out[0].cause}`);
-    assert.equal(out[0].ret.result, '成り立つ');
+    // 確認役の返り値は担当が書く形で result を持たない。unit_id・perspective は CLI が補い、確認の result は CLI が review-tally で集計する（artifact-formats ReviewReturn、SP-264-028）
+    assert.deepEqual(out[0].ret.items, [{ ref: 'extraction', result: '成り立つ' }], `${mode}: 書いた items が残る`);
+    assert.deepEqual([out[0].ret.unit_id, out[0].ret.perspective], ['extraction-T1', 'extraction'], `${mode}: CLI が文脈の値を補う`);
+    assert.equal(callCore('review-tally', { findings: out[0].ret.findings, items: out[0].ret.items }).result, '成り立つ', mode);
     assert.deepEqual(run.agentFailures, [], mode);
     const rec = run.calls[0];
     if (mode === 'wrapped') assert.deepEqual([rec.closed_by, rec.agents.length, rec.tokens], ['close', 1, 1234]);
@@ -300,7 +308,7 @@ test('architecture 修正の巡: 欠陥が前の提出より減らない 2 回�
 
 test('artifact-formats 担当の返り値 SP-FORMALMETHOD-015 AC-19: 形の違う提出は直して出し直せ、上限まで直らなければ 担当の失敗。cannot_proceed は出し直させずに 担当の失敗', async (t) => {
   for (const [name, write, submits] of [['形の違い', (task) => writeFileSync(task.result_path, '{"task_id": 1}'), SUBMITS_MAX],
-    ['cannot_proceed', (task) => { writeFileSync(join(task.attempt_dir, 'worklog.json'), '{}'); writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: '進めない', worklog_ref: rel(task, 'worklog.json') })); }, 1]]) {
+    ['cannot_proceed', (task) => { writeFileSync(join(task.attempt_dir, 'worklog.json'), '{}'); writeFileSync(task.result_path, JSON.stringify({ status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: '進めない', worklog_ref: rel(task, 'worklog.json') })); }, 1]]) {
     const run = makeRun(t);
     const p = callOf(run, 'モデル化', [{ spec: authorSpec(), check: () => ({ defects: [], value: null }) }]);
     const call = await waitOpen(run.runDir);
@@ -328,7 +336,7 @@ const causeSpecN = (n) => ({ role: 'cause-analyst', stage: '確認', unit_id: `c
 function writeCause(task) {
   writeFileSync(join(task.attempt_dir, 'worklog.json'), '{}');
   writeFileSync(join(task.attempt_dir, 'cause.json'), '{}');
-  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, unit_id: task.context.unit_id, cause: '対象が性質を満たさない', grounds: '根拠', questions: [],
+  writeFileSync(task.result_path, JSON.stringify({ cause: '対象が性質を満たさない', grounds: '根拠', questions: [],
     record_ref: rel(task, 'cause.json'), worklog_ref: rel(task, 'worklog.json') }));
 }
 
@@ -665,9 +673,11 @@ test('SP-FORMALMETHOD-008・015 AC-19 結合: 計画の担当が閉じる時点�
     if (pt) writeFileSync(join(pt.attempt_dir, 'late.txt'), '受理の後に書いた');
     return null;
   };
-  // 計画は 1 回目に欠陥（sanity の時間の上限）を返され、harness は出し直さずに worker を終える（閉じた時点で前の提出を受理する）
-  const editPlan = (plan, { round }) => (round === 1 ? { ...plan, sanity: plan.sanity.map((x) => ({ ...x, tool_time_limit_seconds: 100000 })) } : plan);
-  const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), editPlan, stopAfterSubmits: { 'plan-author': 1 } }, hooks: { close } });
+  // 計画は 1 回目に欠陥を返され、harness は出し直さずに worker を終える（閉じた時点で前の提出を受理する）。
+  // 欠陥は context.target_ids に無い target（reference の欠陥。artifact-formats「計画作成役が書くもの」）にし、性質の検査の target は無傷に保つ
+  // （欠陥が残った要素だけを実行しないので、性質の検査は残る）
+  const editPlanDraft = (pd, { round }) => (round === 1 ? { ...pd, targets: [...pd.targets, { target_id: 'no-such-target', tool_time_limit_seconds: 1, assumptions: [], scope: '無い' }] } : pd);
+  const { result, harness } = await runScenario(t, { scenario: { ...PART_SCENARIO(), editPlanDraft, stopAfterSubmits: { 'plan-author': 1 } }, hooks: { close } });
   assert.deepEqual(resultInvariants(result), []);
   const plans = harness.memory.submits.filter((x) => x.role === 'plan-author');
   assert.deepEqual(plans.map((x) => [x.result.ok, x.result.done]), [[false, false]], '計画は閉じる時点で受理される');
@@ -981,7 +991,7 @@ test('SP-FORMALMETHOD-015 cli-contract 依頼と応答 submit の next: 差し�
   const base2 = { run_dir: run2.runDir, call_id: call2.call_id, worker: 'w01' };
   const task = (await workerCall('claim', base2)).tasks[0];
   writeFileSync(join(task.attempt_dir, 'worklog.json'), '{}');
-  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: '進めない', worklog_ref: rel(task, 'worklog.json') }));
+  writeFileSync(task.result_path, JSON.stringify({ status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: '進めない', worklog_ref: rel(task, 'worklog.json') }));
   const failed = await workerCall('submit', base2);
   assert.deepEqual(failed.results.map((r) => [r.ok, r.done]), [[false, true]]);
   assert.deepEqual(failed.next, { done: true }, '閉じた task の後は次へ進む');
@@ -1093,7 +1103,10 @@ test('SP-FORMALMETHOD-013 cli-contract コマンド claim: 返り値の形は最
   assert.deepEqual(Object.keys(c.return_schemas ?? {}), ['extraction-reviewer'], '役ごとに 1 つ');
   const schema = c.return_schemas['extraction-reviewer'];
   assert.equal(schema.type, 'object');
-  assert.ok(schema.properties && 'perspective' in schema.properties && 'record_ref' in schema.properties, '確認役の返り値（ReviewReturn）の形');
+  // return_schemas は担当が書く形（artifact-formats ReviewReturn、cli-contract コマンド claim）。task_id・unit_id・perspective は CLI が補い、result は CLI が集計する
+  assert.ok(schema.properties, '確認役の返り値（ReviewReturn）の形');
+  for (const k of ['items', 'findings', 'judgments', 'record_ref', 'worklog_ref']) assert.ok(k in schema.properties, `担当が書く欄 ${k} がある`);
+  for (const k of ['perspective', 'task_id', 'unit_id', 'result']) assert.ok(!(k in schema.properties), `CLI が補う欄 ${k} は担当の形に無い`);
   assert.equal(count(JSON.stringify(c), '"$schema"'), 1, '同じ役の task が 4 つでも、返り値の形は応答に 1 度だけ');
   for (const task of c.tasks) writeReview(task);
   await workerCall('submit', base);
@@ -1211,12 +1224,13 @@ test('architecture 修正の巡 結合: モデル作成役が 1 回目に欠陥�
 });
 
 // ---- 役ごとの参照と、CLI が持つ指紋（artifact-formats.md「claim の Task」、cli-contract.md「依頼と応答」、agent-obligations.md「作業記録」） ----
-const worklogDraft = (task, inputs, extra = {}) => ({ schema: 'formal-method.worklog/1', role: task.role, task_id: task.task_id, stage: task.context.stage, target: 'T1', inputs,
+// 作業記録の下書き: schema・role・task_id・stage・target は CLI が complete-return で入れる（#264 SP-264-029）
+const worklogDraft = (task, inputs, extra = {}) => ({ inputs,
   actions: '読んだ。', results: '書いた。', grounds: 'テスト。', failures: [], unconfirmed: [], unreadable_inputs: [], ...extra });
 function writeReviewWith(task, worklog) {
   writeFileSync(join(task.attempt_dir, 'worklog.json'), JSON.stringify(worklog));
   writeFileSync(join(task.attempt_dir, 'review.json'), '{}');
-  writeFileSync(task.result_path, JSON.stringify({ task_id: task.task_id, unit_id: task.context.unit_id, perspective: task.context.perspective, result: '成り立つ', findings: [],
+  writeFileSync(task.result_path, JSON.stringify({ items: [{ ref: task.context.perspective, result: '成り立つ' }], findings: [],
     judgments: [], record_ref: rel(task, 'review.json'), worklog_ref: rel(task, 'worklog.json') }));
 }
 
@@ -1440,4 +1454,41 @@ test('SP-FORMALMETHOD-001 inventory の補い: quote_hash の無い要素は出�
   assert.deepEqual(out.inventory.elements.map((e) => e.source.quote_hash), [sha256Bytes(Buffer.from('b\nc', 'utf8')), 'sha256:keep']);
   const none = completeQuoteHashes({ elements: [{ id: 'E3', source: { target_id: 'T1', file: 'y.md', span: 'L1-L1' } }] }, () => null);
   assert.deepEqual([none.changed, none.inventory.elements[0].source.quote_hash], [false, undefined], '読めない出所は補わない（coverage の照合が欠陥にする）');
+});
+
+// ---- #264 SP-264-029: 作業記録と返り値の文脈の値は CLI が complete-return で入れる（U5） ----
+test('SP-264-029: task_id・unit_id・perspective を書かない返り値と、schema・role・task_id・stage・target を書かない作業記録を受理し、attempt の領域の返り値と作業記録を補った形に書き直す', async (t) => {
+  const { result, harness } = await runScenario(t, {});
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+  for (const task of harness.memory.tasks) {
+    const subs = harness.memory.submits.filter((x) => x.task_id === task.task_id);
+    assert.ok(subs.length >= 1 && subs[0].result.ok, `${task.task_id}: 1 回目の提出で受理`);
+    const ret = JSON.parse(readFileSync(task.result_path, 'utf8'));
+    assert.equal(ret.task_id, task.task_id, `${task.task_id}: 返り値に task_id を補う`);
+    if (task.context.perspective) assert.deepEqual([ret.unit_id, ret.perspective], [task.context.unit_id, task.context.perspective]);
+    else if (task.role === 'cause-analyst') { assert.equal(ret.unit_id, task.context.unit_id); assert.ok(!('perspective' in ret), 'CauseReturn は perspective を持たない'); }
+    const wl = JSON.parse(readFileSync(join(task.attempt_dir, 'worklog.json'), 'utf8'));
+    assert.deepEqual([wl.schema, wl.role, wl.task_id, wl.stage], ['formal-method.worklog/1', task.role, task.task_id, task.context.stage], `${task.task_id}: 作業記録の文脈の欄`);
+    assert.equal(typeof wl.target, 'string');
+    assert.ok(wl.document_rules, 'completeWorklog は complete-return の後にも当たる');
+  }
+});
+
+test('SP-264-029: 下書きの返り値が task と違う task_id を持てば、今の「返り値の task_id が task と違う」と同じく同じ担当に直させる', async (t) => {
+  const wrong = new Set();
+  const beforeSubmit = (_status, { tasks: [task] }) => {
+    if (task.role !== 'extractor' || wrong.has(task.task_id)) return;
+    wrong.add(task.task_id);
+    const ret = JSON.parse(readFileSync(task.result_path, 'utf8'));
+    writeFileSync(task.result_path, JSON.stringify({ ...ret, task_id: 't999-other' }));
+  };
+  const { result, harness } = await runScenario(t, { hooks: { beforeSubmit } });
+  assert.deepEqual(resultInvariants(result), []);
+  const subs = harness.memory.submits.filter((x) => x.role === 'extractor');
+  assert.ok(subs.length >= 2, '出し直しがある');
+  assert.equal(subs[0].result.ok, false);
+  assert.ok(subs[0].result.problems.some((p) => p.includes('task_id')), JSON.stringify(subs[0].result.problems));
+  assert.ok(subs.at(-1).result.done);
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
 });

@@ -102,7 +102,7 @@ const ID_SRC = '[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+';
 const DEFINITION_RES = [`^#{1,6}\\s+(${ID_SRC})(?![A-Za-z0-9_-])`, `^\\|\\s*(${ID_SRC})\\s*\\|`,
   `^\\s*(?:[-*+]|\\d+[.)])\\s+(?:\\*\\*)?(${ID_SRC})(?![A-Za-z0-9_-])`, `\\*\\*(${ID_SRC})\\*\\*`].map((x) => new RegExp(x, 'g'));
 const shapeOf = (id) => id.split('-').map((x) => (/^[A-Z]+$/.test(x) ? 'L' : /^\d+$/.test(x) ? 'D' : 'M')).join('-');
-const mentions = (text, id) => idsIn(text).includes(id) || text.split(/[^A-Za-z0-9_-]+/).includes(id);
+export const mentions = (text, id) => idsIn(text).includes(id) || text.split(/[^A-Za-z0-9_-]+/).includes(id);
 
 // 対象のテキストのファイルの全ての行で、定義の位置（見出しの先頭・表の最初の列・箇条書きの先頭・太字）にある ID
 export function definedIdsOf(target) {
@@ -122,7 +122,7 @@ const excludedLine = (excluded, file, n) => {
   return spans === null || spans.some((sp) => { const s = parseSpan(sp); return Boolean(s && s.from <= n && n <= s.to); });
 };
 
-function externalReferences(target, text, scope, excluded, exclude) {
+export function externalReferences(target, text, scope, excluded, exclude) {
   const defined = definedIdsOf(target);
   const shapes = new Set([...defined].map((d) => `${shapeOf(d)} ${d.split('-')[0]}`));
   if (!shapes.size) return [];

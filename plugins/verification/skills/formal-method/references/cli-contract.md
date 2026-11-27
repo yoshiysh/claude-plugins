@@ -18,6 +18,7 @@
 - [結果と台帳の保存の失敗](#結果と台帳の保存の失敗)
 - [run の領域の配置](#run-の領域の配置)
 - [構造の契約](#構造の契約)
+- [実行体](#実行体)
 - [Z3 の adapter](#z3-の-adapter)
 - [定数](#定数)
 
@@ -115,7 +116,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
 `start` は依頼を検査しない。依頼の検査・対象の取得・版の照合と一覧（manifest）の保存は、全て `run-daemon` が同じバイト列で行う。対象の写しは作らない（対象は run の間固定している前提。集約の段で 1 度だけ、元のファイルを読み直した指紋と、担当の最初の `query` の時点の指紋を受付の指紋と照らし、違えば停止の理由 `対象の変化` を足す。[architecture.md「対象の固定」](architecture.md#対象の固定)）。理由: 照合したバイト列と一覧の指紋を同じ process が同じ読み込みで扱えば、受付の中で内容が変わる余地が無い。また、受付で止めた run の記録も、`run-daemon` が lock の下で保存できる。
 
 1. **入力の形**: 標準入力が `{"request": <JSON の値>}` の形か（`request` があるか）だけを見る。無ければ `E_INPUT`。`request` の中身は見ない。
-2. **保存先の能力の確認**: 保存先の root（`<workspace>/.formal-method/runs/`）に一時のディレクトリ（名前は `.probe-<nonce>/`。`.tmp-*` とは別の形）を作り、ファイルの書込み・fsync・ディレクトリの fsync を試し、作ったものを消す。
+2. **保存先の能力の確認**: その前に、実行体を `--version` で起動して版を確かめる。合わなければ（見つからない・版が違う・時間切れ・異常終了）、保存先に触れず、run の領域を作らず `run-daemon` を起動せずに、受付の段の `停止` の結果（停止の理由 `起動の失敗`、`detail` に理由と install のコマンド）を `action: "terminal"` で返す（[実行体](#実行体)）。版が合えば、 保存先の root（`<workspace>/.formal-method/runs/`）に一時のディレクトリ（名前は `.probe-<nonce>/`。`.tmp-*` とは別の形）を作り、ファイルの書込み・fsync・ディレクトリの fsync を試し、作ったものを消す。
    - できなければ、`run-daemon` を起動せずに、受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、`daemon: null`）。停止の理由は `保存の失敗`。`records.saved` は空、`records.unsaved` に結果のファイル自身を含む全ての記録と理由を載せる（AC-13）。
 3. **起動**: `run_id`（UTC の時刻と乱数）と nonce を作る。`.tmp-<run_id>-<nonce>/` を作り、`request` を `request.input.json` に書いて fsync する。書く直前に[秘密値の走査](#run-の領域の配置)の型で走査し、見つかれば書かずに一時の領域を消し、`run-daemon` を起動せずに受付の段の `停止` の結果を返す（`run_dir: null`、`seq: 0`、停止の理由は `保存の失敗`、`records.unsaved` に依頼と全ての記録）。`request.input.json` の書込みか fsync が I/O の誤りで失敗したときも同じく、一時の領域を消し、`run-daemon` を起動せずに同じ形の受付の段の `停止` の結果を返す（停止の理由は `保存の失敗`）。`run-daemon` を detach（新しい session と process group）で、標準入出力を繋がずに起動し、引数に `run_id`・nonce・一時の領域の path を渡す（[呼び方と入力の口](#呼び方と入力の口)）。起動した process の pid と開始時刻を控え、その終了を親として観測する。
 4. **`run-daemon` の作成**: `run-daemon` は一時の領域に `run.lock` を排他作成し、`<run_id>/` へ rename する。その後に最初の `status.json`（`seq: 1`）を書く。依頼の検査（[依頼](artifact-formats.md#依頼request)）はその後に行い、受け付けない依頼なら受付の段の `停止` の結果を、通常の保存（[結果と台帳の保存の失敗](#結果と台帳の保存の失敗)）で保存して返す。
@@ -129,7 +130,7 @@ Identity = { "pid": integer, "started_at": string, "nonce": string }
       - 無ければ、控えた識別と一致する process の group を止め（SIGKILL）、終了を `START_STOP_WAIT_MS` まで待ってから 1 を評価し直す。その間に終了を観測できなければ、終わったものとして 1 を評価し直す。ただし一時の領域は消さず（終了を観測していないので、6 の規則による）、返す結果の `unverified[]` に一時の領域の path と理由「run-daemon を止めたが終了を観測できなかった」を載せる。理由: SIGKILL は拒めないので process は終わるが、終了の観測を待ち続けると、前景の呼出しが `CALL_MAX_MS` を越える。
 6. **残った一時の領域**: `start` は、自分が起動して終了を観測した process と、起動そのもの（spawn）に失敗した process の `.tmp-<run_id>-<nonce>/` だけを消す。他の `.tmp-*` は消さない。消せなければ、返す結果の `unverified[]` に path と理由を載せる。
 
-`run-daemon` を起動しないで `start` が返す結果（2 と 5-1 の後半）は、保存しない。理由: 保存先に書けないか、run の領域（lock を持つ者の領域）が無いので、書く者がいない。構造の契約「`result.json` を書くのは `run-daemon` だけ」はそのまま成り立つ。
+`run-daemon` を起動しないで `start` が返す結果（2 の版の検査と保存先の確認、5-1 の後半）は、保存しない。理由: 保存先に書けないか、run の領域（lock を持つ者の領域）が無いので、書く者がいない。構造の契約「`result.json` を書くのは `run-daemon` だけ」はそのまま成り立つ。
 
 不変: `start` が `seq: 0` の `working` を返すとき、`<run_id>/run.lock` は必ずある。`start` が返す `Status` は 1 つで、`terminal` を返した run について、別の結果が後から公開されることはない。
 
@@ -396,6 +397,21 @@ PublishOutcome = {
 - **一時ファイルの名前**: `<finalPath>.tmp-<nonce>`。nonce は小文字の 16 進 24 桁の乱数。一時ファイルは `finalPath` と同じディレクトリに置く（link と rename が同じファイルシステムの中で行われるため）。成功でも失敗でも、`publishResult` は戻る前に自分の一時ファイルを `unlink` する（`unlink` の失敗は `outcome` を変えない）。
 - **`lost_unreadable`**: 次のどれかで、既にある `result.json` を読めないか、[結果](artifact-formats.md#結果result)の形に合わないとき。(1) 結果の `link` が `EEXIST` で負けた。(2) 追補台帳の公開が「既にあって指紋が違う」で失敗し、その後に `result.json` を確かめた。(3) 自分の結果の `link` の後の再読込で、中身が R と違い形にも合わない（`fault: "reread_mismatch"`。[link の後の失敗](#結果と台帳の保存の失敗)）。`result` は `null` で、呼び手は新しい結果を作らずに誤り `E_RESULT_UNREADABLE` を返す（[誤りと終了コード](#誤りと終了コード)）。
   - 理由: そのファイルは、run の結果の名前に既にあるもので、取り消せない（(1)(2) は link の排他を勝った者が公開したもの、(3) は自分が link した後に中身が違っていたもの）。別の結果（R' など）を返すと、そのファイルと合わせて結果が 2 つになる。読めないことを誤りとして伝え、run の結果はそのファイルだけとする。
+
+## 実行体
+
+CLI は、入力から決定的に決まる骨組み（モデルの分け方、対応表・計画・分割・inventory の決まった欄、漏れの候補、確認の結果の集計、返り値と作業記録の文脈の値）を、Rust の実行体 `formal-method-core`（crate は `plugins/verification/crates/formal-method-core/`）に求める。入出力の型・列挙・上限・固定の文の正本は [core.schema.json](core.schema.json)（JSON Schema 2020-12。`$defs` に型、`x-core` に列挙の役・上限・文）で、この文書は型を写さない。
+
+- **install**: `cargo install --locked --git https://github.com/yoshiysh/claude-plugins.git --tag formal-method-core-v0.1.0 formal-method-core`。tag の版は `x-core.version` である（tag の形は `x-core.tag_prefix` と版）。
+- **探し方**: 環境変数 `FORMAL_METHOD_CORE_BIN` があればその path、無ければ `PATH` の `formal-method-core`（`x-core.binary`）を使う。
+- **版の検査**: `start` は、保存先の能力の確認（[起動の手順](#起動の手順)の 2）より前に、実行体を `--version` で起動する（待つ上限は `x-core.version_timeout_ms`）。標準出力の 1 行が `formal-method-core <x-core.version>` でなければ（見つからない、版が違う、上限までに終わらない、0 でない終了コードか signal で終わった）、run の領域を作らず `run-daemon` を起動せず、受付の段の `停止` の結果を `action: "terminal"` で返す。停止の理由は `起動の失敗` で、`detail` は理由と上の install のコマンドを含む。
+- **呼び方**: `formal-method-core <subcommand>` は標準入力の JSON（`$defs/<Subcommand>Input`）を読み、標準出力に 1 行の JSON（`$defs/<Subcommand>Output`）を出して exit 0 で終わる。入力が JSON でない・型に合わない・サブコマンドが定める誤りなら、理由を標準エラーに 1 行出し、標準出力に何も出さず exit 2 で終わる。同じ入力からはバイト列として同じ出力が出る。CLI は呼び出しを `scripts/lib/core.mjs` の `callCore` だけで行い、`x-core.call_timeout_ms` を超える・0 でない終了コード・出力が JSON でないときは `CoreError` を投げる。`run-daemon` はそれを中断の理由 `内部の誤り` で扱い、担当の修正の巡に回さない（exit 2 は CLI が渡した入力の不備なので）。
+- **サブコマンド**: `partition-models`（性質を `source_ids` の連結成分でモデルに分け、`model_id` を決める）、`mapping-rows`（対応表の `location` の行の骨組み）、`plan-skeleton`（検査と sanity の骨組み）、`partition-assemble`（分割の採否・部分・境界）、`extract-skeleton`（inventory の `scanned` と ID の形の外部の参照の下書き）、`omission-candidates`（忠実さの確認の漏れの候補）、`review-tally`（確認の結果）、`complete-return`（返り値と作業記録の文脈の値）の 8 つ。未知のサブコマンドは exit 2。規則は [成果物の形式の担当の成果物](artifact-formats.md#担当の成果物)・[担当の返り値](artifact-formats.md#担当の返り値)・[作業記録](artifact-formats.md#作業記録)。
+  - `extract-skeleton` の入力の `files[].text` は真偽値（テキストのファイルか）で、`lines` はテキストなら受付で固定した行数、他は null である。
+  - `complete-return` は、入力の `task` の値（`unit_id`・`perspective` が非 null か）で役の種類を見分ける。`unit_id` が非 null なら返り値に `unit_id` を、`perspective` が非 null なら `perspective` を入れ、作成役（どちらも null）には `task_id` だけを入れる。
+- **列挙の値**: 実行体は特定の列挙の値を `x-core.roles` の名前で引き、列挙の中の位置で引かない。起動の時に、各 role の値がその列挙に無ければ exit 2 で終わる。Node の `scripts/lib/schemas.mjs` も段・確認の結果・境界の前提の種類・対応表の `relation` を、実行時に [core.schema.json](core.schema.json) から読む。
+- **テストの差し替え**: `make` の Node のテストは、前提のターゲット `core-bin` で実行体を build し、`FORMAL_METHOD_CORE_BIN` に置いて流す。環境変数 `FORMAL_METHOD_CORE_SCHEMA_OVERRIDE`（schema の path を差し替える）は debug の build だけで効き、Rust のテストが壊れた role の schema で exit 2 を確かめるために使う。release の build では効かない。
+- この版の CLI は、`partition-models` に前回の割り当てとして空の `[]` を渡す（前回の run の再利用は範囲の外）。
 
 ## Z3 の adapter
 

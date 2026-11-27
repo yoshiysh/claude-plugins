@@ -2,7 +2,7 @@
 
 # 型の抜粋（partition-author）
 
-この役が書く型（`Worklog`・`AuthorReturn`・`PartitionsFile`・`Decomposition`）の節と、読む型（`Task`・`Request`・`fixed`・`ModelFile`・`MappingFile`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
+この役が書く型（`Worklog`・`AuthorReturn`・`PartitionsDraft`・`Decomposition`）の節と、読む型（`Task`・`Request`・`fixed`・`ModelFile`・`MappingFile`）と、それらの定義が参照する全ての型の定義を [成果物の形式](../artifact-formats.md) から抜き出したもの。形と値の正本は成果物の形式で、CLI はそれで照合する。
 
 ## 共通の型
 
@@ -16,7 +16,6 @@ RefHash     = { ref: Ref, hash: Sha256 | "unreadable", spans?: [{ span: Span, ha
 Span        = string                       // "L<開始>-L<終了>"。1 始まり、両端を含む、開始 ≤ 終了
 FilePath    = string                       // 対象の根からの相対 path。"/" 区切り、"." と ".." を含まない。単一のファイルの対象では、そのファイル名。除いたディレクトリを指すときだけ末尾に "/" を付ける
 SourceRef   = { target_id: Id, file: FilePath, span: Span }
-Stage       = "受付" | "洗い出し" | "モデル化" | "計画" | "実行" | "確認" | "集約"
 ```
 
 ## 依頼（Request）
@@ -107,7 +106,7 @@ Decomposition = {
   parts: [{ id: Id, model_id: Id, owns_variables: [string], transitions: [string] }],   // 名前は graph の要素の id（var:<model_id>/<id>・tr:<model_id>/<id>）。1 つの部分の要素は全て model_id のモデルのもの
   boundaries: [Boundary],
   contracts: [Contract],
-  composition_conditions: [{ id: Id, model_id: Id, derived_from: Id, statement: string, check_ids: [Id], depends_on: [Id] }],   // model_id は親の性質のモデル、derived_from は親の性質（モデルの性質の id）。check_ids が空になりうる場合は plan と mutations の「検査の欠け」
+  composition_conditions: [{ id: Id, model_id: Id, derived_from: Id, statement: string, check_ids: [Id], depends_on: [Id] }],   // model_id は親の性質のモデル、derived_from は親の性質（モデルの性質の id）。check_ids が空になりうる場合は計画と変異の組み立ての「検査の欠け」
   correspondence: { matched: [{ element: string, to: [string]+ }], unmatched: [string], excluded: [{ element: string, reason: string }] }
 }
 Location = { file: Ref, pointer: string }  // file は、状態遷移と性質の要素なら models[].ref と同じ path（モデルのファイル）、SMT の要素なら query の Ref。pointer は JSON Pointer（モデルのファイル）か "form:<番号>:<開始>-<終了>"（.smt2）
@@ -196,7 +195,11 @@ Subject = { kind: "counterexample", id: Id } | { kind: "combination", model_id: 
 
 ## 担当の成果物
 
-担当は自分の `attempts/<task_id>/` に書き、返り値の `outputs` で参照する。担当が書く全ての `Ref`（`outputs[].ref`・`query_ref`・`input_refs`・`mutation_ref`・`record_ref`・`worklog_ref` など）は、run の領域からの相対 path で、`attempts/<task_id>/` で始まるか、task が渡した資料を指す。理由: 起点を 1 つにすると、CLI も外の検査も参照を同じ規則で解ける。
+担当は自分の `attempts/<task_id>/` に書き、返り値の `outputs` で参照する。担当が書く全ての `Ref`（`outputs[].ref`・`query_ref`・`mutation_ref`・`record_ref`・`worklog_ref` など）は、run の領域からの相対 path で、`attempts/<task_id>/` で始まるか、task が渡した資料を指す。理由: 起点を 1 つにすると、CLI も外の検査も参照を同じ規則で解ける。
+
+- **下書きと組み立て**（#264）: 抽出役・モデル作成役の対応表・分割作成役・計画作成役が書くのは下書き（`InventoryDraft`・`MappingDraft`・`PartitionsDraft`・`PlanDraft`・`MutationsDraft`）である。inventory・対応表・分割・計画のうち入力から決定的に決まる欄（走査の範囲、対応表の `location` の行、分割の採否・部分・境界の向き、検査と sanity の列挙・依存・入力）は、実行体 `formal-method-core`（[CLI 契約「実行体」](../cli-contract.md#実行体)）が骨組みとして決める。CLI は骨組みと下書きから下の今の型（`Inventory`・`MappingFile`・`PartitionsFile`・`PlanFile`・`MutationsFile`）を組み立て、今の照合を当てる。理由: 決まった値を担当に書かせると、書くたびに揺れて照合の欠陥と修正の巡が増える。
+  - 組み立てた後のファイルは、run の領域の `assembled/<task_id>/<kind>.json` に 1 つだけ書き（`kind` は `inventory`・`mapping`・`partitions`・`plan`・`mutations`）、台帳に `producer` をその task の `task_id` として載せる。担当の attempt の領域の下書きは置き換えない。後の段と後の担当が読むのは組み立てた後のファイルである（計画と変異は、モデルごとのファイルをモデルの順につないだ値を CLI がメモリに持つ）。
+  - 下書きが骨組みと合わない（骨組みの行への書き込みの欠け・余り、task の文脈に無い id）ときは、担当の欠陥として今の修正の巡に回す。
 
 - **担当が書く全ての `.smt2`**（モデル作成役の性質と sanity の query、分割作成役の契約と合成の条件の query、計画作成役の変異）は、`(check-sat)` をちょうど 1 つ、ファイルの最後の form として持ち、`get-model`・`set-option`・`push`・`pop`・`reset`・`exit`・並列の設定を書かない。
 - **節の名前（`:named`）**: モデル作成役の性質の query と、計画作成役の変異は、トップレベルの assert を全て `(assert (! <項> :named <name>))` の形で書く。`<name>` は `Id` の文字で、その性質の `clauses[].name` のどれかと一致し、query の中で重ならない。性質の query の名前の集合は `clauses` の名前の集合と一致し、変異の名前の集合は検出役の性質の `clauses` の名前の集合と一致する。違反はモデル化の照合（性質の query）と計画の照合（変異）の欠陥で、形の違い・名前の無い assert・名前の重なりは `syntax`、`clauses` に無い名前・assert の無い節は `reference` である。sanity・契約・合成の条件の query には当てない。理由: 静的な確認は名前で節を切り取る（[architecture.md「静的な確認」](../architecture.md#静的な確認)）。
@@ -259,15 +262,26 @@ PartitionsFile = { schema: "formal-method.partitions/1",
   parts: [<Decomposition.parts の要素>], boundaries: [<Boundary から responsible を除いたもの + responsible>],
   contracts: [{ id: Id, model_id: Id, derived_from: Id, part_id: Id, statement: string, query_ref: Ref }],
   composition_conditions: [{ id: Id, model_id: Id, derived_from: Id, statement: string, query_ref: Ref, depends_on: [Id] }] }
+PartitionsDraft = { schema: "formal-method.partitions-draft/1",   // 分割作成役が書く形
+  decisions: [<PartitionsFile.decisions の要素と同じ形>]+, reason: string,
+  boundaries: [{ edge_id: string, assumption: string, guarantee: string,
+                 assumption_basis: <Boundary.assumption_basis と同じ形>, responsible: [Id]+ }],
+  contracts: [<PartitionsFile.contracts の要素と同じ形>],
+  composition_conditions: [<PartitionsFile.composition_conditions の要素と同じ形>] }
 ```
+
+- **分割作成役が書くのは `PartitionsDraft`** である。採否・部分・境界の向きは書かない。CLI は実行体 `partition-assemble` で、候補・依存グラフの辺・下書きから `PartitionsFile` の決まった欄を決めて組み立て、分割の照合を当てる。
+  - `adopted` は `decisions` の `adopted` の論理和。`adopted` が false なら `parts`・`boundaries` は `[]`。
+  - `parts` は採った候補ごとに 1 つ（`id` は候補の id、`model_id` は節点の id の `<model_id>`、`owns_variables` は `var:` の節点、`transitions` は `tr:` の節点）。採らなかった候補の節点はどの部分にも入れない（分割前後の照合で対応の無い要素になる）。
+  - 境界は、両端の節点が違う部分に属する辺ごとに 1 つ（`producer` は `to` の節点の部分、`consumer` は `from` の節点の部分、`shared_symbols` は `to` の節点の `/` の後の名前）。`assumption`・`guarantee`・`assumption_basis`・`responsible` は下書きの同じ `edge_id` の要素から写す。下書きに要素の無い跨ぐ辺は `other` の欠陥（`boundary-missing`）、跨がない辺を指す下書きの要素は `reference` の欠陥（`boundary-edge`）で、どちらも修正の巡の対象。
+- 分割作成役の task の `context.candidates[]` は、候補の `id`・`nodes` に、他の候補への辺 `edges: [{ edge_id, to_candidate, producer_candidate, consumer_candidate, shared_symbols }]` を持つ。採った 2 つの候補の間の辺だけが境界になる。理由: 境界の欄を書く前に、どの辺が境界になりうるかを担当に見せる。
 
 ## 担当の返り値
 
 `attempts/<task_id>/return.json`（claim の Task の `result_path`）。担当はここに書いてから `submit` を流す。Workflow の返り値に内容を書かない（`run-daemon` は返り値を読まない）。
 
 ```text
-AuthorReturn = {
-  task_id: Id,
+AuthorReturn = {                          // 担当が書く形。task_id は CLI が補う（下の「文脈の値」）
   status: "done" | "needs_answer" | "cannot_proceed",
   outputs: [{ kind: "inventory" | "model" | "mapping" | "partitions" | "plan" | "mutations", ref: Ref }],
   questions: [Question],                  // needs_answer のとき 1 つ以上
@@ -277,7 +291,9 @@ AuthorReturn = {
 }
 ```
 
-- 返り値が無い、形が違う、`outputs`・`record_ref`・`worklog_ref` が attempt の領域の外か存在しない、`task_id`・`unit_id` が task と違う、忠実さの `judgments` がそのモデルの判断を要する項目にちょうど 1 つずつ答えていない場合は、成功に数えない（作業記録の失敗の欄に理由が残る）。
+- **文脈の値**（#264）: 返り値の `task_id`（全ての役）・`unit_id`（確認役と原因の分類役）・`perspective`（確認役だけ）と、作業記録の `schema`・`role`・`task_id`・`stage`・`target` は、担当が書かない。CLI は `submit` の照合の初めに、実行体 `complete-return` で task の値を入れて返り値と作業記録を書き直し、補った後の返り値に今の型（`claim` の `return_schemas` の形に、これらの欄を足したもの）を当てる。担当がそれらの欄を書き、値が task と違えば、その欄の名前を `problems` で返す（同じ担当が直して出し直す）。
+- **確認の結果の集計**: 確認役は `result` を書かない。CLI は実行体 `review-tally` で、`findings` が 1 つ以上なら `成り立たない`、`items` が 1 つ以上で全てが `成り立つ` なら `成り立つ`、それ以外（`items` が空を含む）は `確認できず` を確認の `result` とする。理由: 何も見た記録の無い確認を成り立つとしない。観点ごとに `items` を書く義務があるので、見終えた確認役の結果は変わらない。`judgments` は今のとおり確認役が書く。
+- 返り値が無い、形が違う、`outputs`・`record_ref`・`worklog_ref` が attempt の領域の外か存在しない、補った `task_id`・`unit_id` が task と違う、忠実さの `judgments` がそのモデルの判断を要する項目にちょうど 1 つずつ答えていない場合は、成功に数えない（作業記録の失敗の欄に理由が残る）。
 - `submit` はこれらの場合に `ok: false` と原因を返し、担当は直して出し直せる（`cannot_proceed` は出し直させない。上限は [CLI 契約の依頼と応答](../cli-contract.md#依頼と応答)）。呼び出しを閉じるまでに受理されなかった task（これらの場合のまま閉じた、`cannot_proceed`、取らなかった、取ったまま出さなかった。[CLI 契約](../cli-contract.md#受け箱)）は、停止の理由 `担当の失敗` を、その task の `context.stage` を段として記録する。`担当の失敗` は中断の理由ではない。run は止めずに次の段へ進み、その担当が作るはずの成果物は未作成になる。`context.perspective` が非 null の task なら、その unit の確認は `result: "確認できず"` の `Confirmation` になる（[確認](../artifact-formats.md#確認sp-004005012)）。原因の分類役の task なら、CLI がその `subject` の `Cause` を `cause: "原因未確認"`・`grounds` = `担当の失敗` の `detail` と同じ文・`classified_by` = その `task_id` で作る。原因の分類役を出さなかったとき（時間の上限か保存の失敗）は、同じ形で `grounds` = 出さなかった理由の文・`classified_by: "cli"` とする（全ての反例と組合せが `causes` に 1 つずつある規則を保つ。問いの `subject` なら、分類が `要求の不足` でないので問いとして返さない）。理由: 他の性質の検証を続ける（依頼者の決定）。そのうえで、`stop_report.stage` が失敗した処理の段になる（中断の理由が無いとき、段の並びで最も上流の段を取る規則による。AC-19）。
 - **`AuthorReturn.blocked_by_question`**（担当の指示と `agent-obligations.md` のとおり、性質の id）:
   - 各 id は、モデル作成役・計画作成役では `context.property_ids` に、抽出役では返した inventory の `properties[].id` にある。無ければ返り値の形の違い（成功に数えない）。
@@ -307,13 +323,18 @@ Task = {
 TaskContext = {
   run_dir: string,                        // 絶対 path。Ref の起点
   stage: Stage,                           // task を出した段。担当の作業記録の stage はこの値
-  unit_id: Id | null,                     // 独立検証者と原因の分類役だけ非 null。返り値の unit_id はこの値
+  unit_id: Id | null,                     // 独立検証者と原因の分類役だけ非 null。CLI が返り値の unit_id にこの値を入れる
   perspective: "extraction" | "nonformal" | "fidelity" | "composition" | null,   // 独立検証者だけ非 null
   target_id: Id | null,                   // extractor と perspective が extraction のとき非 null
   model_id: Id | null,
   property_ids: [Id],
-  candidates: [{ id: Id, nodes: [string]+ }],   // partition-author だけ空でない（Decomposition.candidates と同じ id）
-  subject: Subject | null                 // cause-analyst だけ非 null
+  candidates: [{ id: Id, nodes: [string]+,      // partition-author だけ空でない（Decomposition.candidates と同じ id）
+                  edges: [{ edge_id: string, to_candidate: Id, producer_candidate: Id, consumer_candidate: Id, shared_symbols: [string]+ }] }],
+                                          // edges はその候補と他の候補を結ぶ依存グラフの辺（上の partitions の節）
+  subject: Subject | null,                // cause-analyst だけ非 null
+  model_property_id_prefix: string | null,   // モデル化の段の model-author だけ非 null（"<model_id>."。モデルの性質の id の接頭辞）
+  target_ids: [Id],                       // 計画の段の plan-author だけ空でない（そのモデルで検査を出しうる target_id の一覧）
+  external_references: [{ id: Id, file: FilePath, line: int≥1 }]   // extractor だけ空でない（依頼の範囲の本文の、ID の形の外部の参照。上の inventory の節）
 }
 ```
 
@@ -337,6 +358,7 @@ Worklog = {
 ```
 
 - 文の欄（`actions` など）は、文書の一般規約（`document_rules` が指す写し）に従って書く。
+- 担当の作業記録の `schema`・`role`・`task_id`・`stage`・`target` は、担当が書かない。CLI が `submit` の照合で、実行体 `complete-return` により task の値を入れる（`target` は、作成役は `context.target_id`、無ければ `model_id`、無ければ対象の id の並び、確認役と原因の分類役は `context.unit_id`）。担当が書いた値が task と違えば、その欄の名前を `problems` で返す。
 - 担当の作業記録の `inputs[].hash`・`inputs[].spans[].hash`・`document_rules` は、担当が省いてよい。`submit` の照合で、CLI が省いた値を補い（指紋はその担当の `materials`（最初の `query` の時点の指紋）の値。`document_rules` は `claim` の値）、`worklog.json` を書き直してから照合する。担当が書いた値が CLI の値と違えば、作業記録の欠陥として `problems` で差し戻す。登録する作業記録は補った後の、この形のファイルである。理由: 指紋を CLI だけが持てば、担当が手で求めた値との食い違いが起きない。
 - 補うのは `materials` にある ref と範囲だけである。`materials` に無い ref（渡していない資料。`query` を流す前の提出では全ての ref）と、その ref の `materials` の `spans` に無い範囲は、今のファイルで求めずに作業記録の欠陥として差し戻す（担当が指紋を書いていても同じ）。理由: `inputs` は渡した資料のうち読んだものの欄で（SP-012 の「渡した資料」）、渡していない資料の指紋を補うと、資料の外を読んだ記録が登録される。
 - salvage の作業記録は時刻を含まない。

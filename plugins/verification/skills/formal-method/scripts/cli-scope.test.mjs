@@ -13,6 +13,7 @@ import { drive, cliEnv, removeTree, skipIfRoot } from './test-fixtures/cli-runne
 import { makeHarness, defaultScenario } from './test-fixtures/agent-harness.mjs';
 import { SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { SM, PART_SCENARIO } from './test-fixtures/pipeline-cases.mjs';
+import { M1 } from './test-fixtures/core-ids.mjs';
 
 const stop = { returns: { extractor: 'cannot_proceed' } };
 const sha = (b) => `sha256:${createHash('sha256').update(b).digest('hex')}`;
@@ -355,7 +356,7 @@ test('SP-FORMALMETHOD-005・012 担当に渡す資料: 忠実さの確認役の�
   const spans = [...new Set(mapping.rows.filter((r) => r.source.kind === 'location').map((r) => r.source.span))].sort();
   assert.deepEqual(tr[0].spans, spans, '対応表の行の範囲（節の出所の要素は同じ行）');
   assert.ok(!refs.some((x) => x.ref.endsWith('inventory.json') || x.ref.endsWith('manifest.json')), JSON.stringify(refs.map((x) => x.ref)));
-  const view = JSON.parse(readFileSync(join(status.run_dir, 'views', 'fidelity-M1.json'), 'utf8'));
+  const view = JSON.parse(readFileSync(join(status.run_dir, 'views', `fidelity-${M1}.json`), 'utf8'));
   assert.deepEqual(view.properties.map((p) => p.id), ['P1']);
   assert.ok([...view.bound_elements, ...view.unbound_elements].every((e) => !('text' in e) && e.source.span), '要素の一覧は id と範囲だけ');
   assert.deepEqual(view.bound_elements.map((e) => e.id), ['E-P1']);
@@ -373,8 +374,10 @@ test('SP-FORMALMETHOD-005・012 担当に渡す資料: 忠実さの確認役の�
   assert.deepEqual(m.spans, spans.map((span) => ({ span, hash: lineHash(text, span) })));
 });
 
-test('SP-FORMALMETHOD-005・012 担当に渡す資料: 性質の出所が節にも対応表にも無くても、忠実さの確認役にはその性質の出所の範囲を渡し、要素の一覧はそのモデルの inventory の要素だけ', async (t) => {
-  const p2 = { id: 'P2', file: 'spec.md', line: 3, statement: 'y は x より大きい', query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, clauseSources: ['E-P1'], mappingLocation: false };
+// P2 は P1 の要素も出所に引くので、partition-models で P1 と同じモデルになる（#264 SP-264-010）。対応表の location の行は骨組みが決めるので、
+// 出所の行が対応表に無い場面は起きない（SP-264-025）。節の出所に無い場面を残す
+test('SP-FORMALMETHOD-005・012 担当に渡す資料: 性質の出所が節に無くても、忠実さの確認役にはその性質の出所の範囲を渡し、要素の一覧はそのモデルの inventory の要素だけ', async (t) => {
+  const p2 = { id: 'P2', file: 'spec.md', line: 3, statement: 'y は x より大きい', query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, sources: ['P2', 'P1'], clauseSources: ['E-P1'] };
   const { harness, status } = await runScenario(t, { scenario: { properties: [...defaultScenario().properties, p2] } });
   const task = harness.memory.tasks.find((x) => x.context.perspective === 'fidelity');
   assert.ok(task, 'fidelity の担当が出る');
@@ -438,13 +441,53 @@ test('SP-FORMALMETHOD-001・004 担当に渡す資料: 依頼の範囲が locati
   assert.ok(!result.unverified.some((u) => u.item.startsWith('読めない箇所')), JSON.stringify(result.unverified));
 });
 
-test('SP-FORMALMETHOD-004 網羅の照合: 依頼の範囲の行を scanned で覆わない inventory は、範囲の行を覆わない欠陥で落ちる', async (t) => {
+// ======== #264 SP-264-026: 走査の範囲と外部の ID の下書き（U5）。抽出役は scanned を書かず、CLI が extract-skeleton で埋める ========
+const extractorTask = (harness) => harness.memory.tasks.find((x) => x.role === 'extractor');
+const assembledInventory = (status, task) => JSON.parse(readFileSync(join(status.run_dir, 'assembled', task.task_id, 'inventory.json'), 'utf8'));
+
+test('SP-264-026: scanned を書かない抽出役の inventory は、CLI が依頼の範囲の span で scanned を埋め、今の網羅の照合を 1 回目で通る', async (t) => {
   const request = { ...req('target'), scope: { include: [{ kind: 'location', target_id: 'T1', file: 'spec.md', span: 'L1-L2' }], exclude: [] } };
-  const { harness } = await runScenario(t, { request, scenario: { scanDropLast: true } });
+  const { harness, result, status } = await runScenario(t, { request });
+  assert.deepEqual(resultInvariants(result), []);
+  const task = extractorTask(harness);
+  assert.ok(!('scanned' in JSON.parse(readFileSync(join(task.attempt_dir, 'inventory.json'), 'utf8'))), '担当は scanned を書かない');
   const subs = harness.memory.submits.filter((x) => x.role === 'extractor');
-  assert.ok(subs.length >= 1);
-  assert.equal(subs[0].result.ok, false);
-  assert.ok(subs[0].result.problems.some((x) => /spec\.md の依頼の範囲（L1-L2）の全ての行を覆わない/.test(x)), JSON.stringify(subs[0].result));
+  assert.deepEqual(subs.map((x) => [x.result.ok, x.result.problems]), [[true, []]]);
+  assert.deepEqual(assembledInventory(status, task).scanned, [{ file: 'spec.md', span: 'L1-L2', status: 'read', reason: null }]);
+  const ledger = JSON.parse(readFileSync(join(status.run_dir, 'ledger.json'), 'utf8'));
+  assert.ok(ledger.entries.some((e) => e.kind === 'inventory' && e.ref === `assembled/${task.task_id}/inventory.json` && e.producer === task.task_id), '台帳に組み立てた inventory');
+});
+
+test('SP-264-026: 範囲の指定が無ければファイルの全体、テキストでないファイルは unread と固定の文で scanned を埋める', async (t) => {
+  const files = { 'target/spec.md': SPEC_TEXT, 'target/blob.bin': Buffer.from([0x00, 0x01, 0x02, 0x0a]) };
+  const { harness, result, status } = await runScenario(t, { files });
+  assert.deepEqual(resultInvariants(result), []);
+  const scanned = assembledInventory(status, extractorTask(harness)).scanned;
+  assert.deepEqual(scanned, [
+    { file: 'blob.bin', span: null, status: 'unread', reason: 'テキストでないファイル' },
+    { file: 'spec.md', span: null, status: 'read', reason: null },
+  ], 'path の順。範囲の指定が無いテキストのファイルは span: null');
+});
+
+test('SP-264-026: 抽出役の task は本文の外部の ID の参照（external_references）を持ち、抽出役が書かなくても CLI が external_dependencies に下書きを足して網羅の照合を通る', async (t) => {
+  const ID_SPEC = '#### SP-DEMO-001 受付\nR1: x の 2 乗は常に 0 以上である（SP-BASE-002）。\nR2: y は x より大きい。\n';
+  const { harness, status } = await runScenario(t, { files: { 'target/spec.md': ID_SPEC } });
+  const task = extractorTask(harness);
+  assert.deepEqual(task.context.external_references, [{ id: 'SP-BASE-002', file: 'spec.md', line: 2 }]);
+  for (const x of harness.memory.tasks.filter((y) => y.role !== 'extractor')) assert.ok(!(x.context.external_references?.length), `${x.task_id} は外部の参照を持たない`);
+  const subs = harness.memory.submits.filter((x) => x.role === 'extractor');
+  assert.deepEqual(subs.map((x) => x.result.ok), [true], '担当が書かない参照で差し戻さない');
+  const deps = assembledInventory(status, task).external_dependencies;
+  assert.deepEqual(deps, [{ id: 'SP-BASE-002', text: '本文が参照する外部の ID SP-BASE-002（spec.md:L2）', source: { target_id: 'T1', file: 'spec.md', span: 'L2-L2' } }]);
+});
+
+// ======== #264 SP-264-027: 漏れの候補（U5） ========
+test('SP-264-027: 忠実さの確認の view は omission_candidates に、どの節にも引かれず対応表のどの行にも触れない要素だけを id の順に持つ', async (t) => {
+  const { harness, status } = await runScenario(t, { scenario: { extraElements: [{ file: 'spec.md', line: 4 }] } });
+  const task = harness.memory.tasks.find((x) => x.context.perspective === 'fidelity');
+  const view = JSON.parse(readFileSync(join(status.run_dir, 'views', `${task.context.unit_id}.json`), 'utf8'));
+  assert.ok(Array.isArray(view.omission_candidates), JSON.stringify(Object.keys(view)));
+  assert.deepEqual(view.omission_candidates.map((e) => (typeof e === 'string' ? e : e.id)), ['E-X4'], 'E-P1 は節に引かれ対応表の行に触れるので候補に無い');
 });
 });
 

@@ -1,0 +1,25 @@
+[package]
+name = "formal-method-core"
+version = "0.1.0"
+edition = "2024"
+description = "formal-method の決定的な処理: 担当の下書きから骨組みを作り、CLI の照合へ渡す"
+publish = false
+
+[lib]
+name = "formal_method_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "formal-method-core"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

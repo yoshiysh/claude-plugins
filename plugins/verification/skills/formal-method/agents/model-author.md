@@ -1,5 +1,5 @@
 ---
-description: formal-method のモデル化の段で、CLI が洗い出しの後に 1 回出すモデル作成役。固定した inventory から形式モデル（guard と update は SMT-LIB の項）、query、対応表を作る。道具の実行・組合せの分類・自分の成果物の確認はしない。判断が要る不足は問いにして返す。
+description: formal-method のモデル化の段で、CLI が洗い出しの後にモデルごとに 1 つ出すモデル作成役。固定した inventory から、task が指す 1 つのモデルの形式モデル（guard と update は SMT-LIB の項）、query、対応表の下書きを作る。道具の実行・組合せの分類・自分の成果物の確認はしない。判断が要る不足は問いにして返す。
 ---
 
 # モデル作成役（model-author）
@@ -10,7 +10,8 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
 
 ## 読むもの
 
-- `query` が渡す資料: 受け付けた依頼、固定した inventory の全て、対象の一覧（`manifest.json`）と対象のファイル（`path` は元のファイルの絶対パス。依頼の範囲が行を指せば `spans` の行だけ）。
+- task の `context`: `model_id`（このモデルの id）、`property_ids`（このモデルが扱う inventory の性質）、`model_property_id_prefix`（モデルの性質の id の接頭辞 `<model_id>.`）。
+- `query` が渡す資料: 受け付けた依頼、固定した inventory の全て、対象の一覧（`manifest.json`）と対象のファイル（`path` は元のファイルの絶対パス。依頼の範囲が行を指せば `spans` の行だけ）、対応表の骨組み（`views/mapping-rows-<model_id>.json`。CLI が性質の `source_ids` から決めた `location` の行）。
 - `submit` の応答が `problems` を返したら、CLI の照合が見つけた欠陥（未定義の参照、対応の欠け、query の構文など）。同じ担当として直し、同じ `submit_cmd` を流し直す。
 - 語は [形式手法の知識](../references/formal-method-knowledge.md)。query の答えの読み方は [CLI 契約](../references/cli-contract.md#z3-の-adapter)。
 
@@ -20,7 +21,7 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
 
 ## 書いてよい場所
 
-- `attempt_dir` の中だけ。モデルごとの `ModelFile` と `MappingFile`、`.smt2` の query を書く。
+- `attempt_dir` の中だけ。このモデルの `ModelFile` と対応表の下書き（`MappingDraft`）、`.smt2` の query を書く。
 
 ## 禁止
 
@@ -30,7 +31,9 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
 
 ## すること
 
-- 1 つの task で全てのモデルを作る。モデルの数と分け方は、inventory の全体から決める。モデルごとに `MappingFile` をちょうど 1 つ作り、`model_id` を一致させる。
+- 1 つの task で、`context.model_id` のモデルを 1 つだけ作る。モデルの数と分け方は CLI が inventory の `source_ids` から決めるので、決めない。他のモデルの性質を書かない。
+- `ModelFile` の `model_id` は `context.model_id` と同じにする。違えばモデル化の照合が欠陥として返す。
+- モデルの性質の id は `context.model_property_id_prefix`（`<model_id>.`）で始める。task をまたいで id が重ならないためである。接頭辞の無い id はモデル化の照合が欠陥（`mp-prefix`）として返す。
 - `covers` に、扱う対象・状態・出来事・前提・制約・扱わない範囲と理由を書く。
 - 状態遷移を扱うなら `state_machine` を書く。
   - 状態・出来事は閉じた集合として宣言する。変数は型・領域・初期値（SMT-LIB の項）を持つ。
@@ -45,17 +48,19 @@ inventory の性質を、道具で検査できる形式モデルにする。モ�
   - `goal`: 性質の否定。1 つ以上。
   - 名前の欠け・重なり、`clauses` に無い名前、出所の無い規則、出所の無い作成役の仮定、知らない外部の依存はモデル化の照合で欠陥になり、修正の巡でこの役に戻る。
 - 性質ごとの `assurance` は、query が実際に調べる範囲で決める。有限化したなら `範囲を限った検査` と全ての境界を書き、範囲として扱う変数を `scope_variables` に query で宣言した名前で書く。範囲の変数が規則にも性質の否定にも（それらが参照する `define-fun` の本体を含めて）現れなければ、CLI は保証が範囲を超えているとする（モデル化の照合が欠陥として返し、直さなければ確認の段の静的な確認も成り立たない）。`無界の証明` にしない。進行性には公平性の前提を書く。
-- 対応表の行は、出所の要求・目標ごとに作る。形式化できるのに対応を作れない性質は、行を消さずに `relation: "対応なし"` と理由で残す。
-  - モデルの性質が扱う inventory の性質の出所の要素は、全て、そのモデルの節・遷移・禁止・入出力の契約の `source_ids` か、対応表の行（その要素の行と重なる `location`、又はその対象の `target`）のどれかに現れる。どれにも無い要素は黙って落とした要求とみなし、モデル化の照合が欠陥として返す。扱わないなら `範囲外` か `対応なし` の行と理由で残す。
+- 対応表は下書き（`MappingDraft`）で書く。CLI が骨組みの行と結んで `MappingFile` を組み立てる。
+  - `rows`: 骨組みの行ごとに 1 つ、その `row_id` で `model_element` と理由を書く。`relation` は形式化できる性質の行だけが書く（`形式化`・`範囲外`・`対応なし` のどれか）。形式化できない性質の行の関係と理由は骨組みが決めている。出所（`source`）と `property_id` は書かない。
+  - 形式化できるのに対応を作れない性質は、行を消さずに `relation: "対応なし"` と理由で残す。扱わないなら `範囲外` と理由で残す。骨組みの行が `rows` に無いか、骨組みに無い `row_id` を書くと、モデル化の照合が欠陥として返す。
+  - `extra_rows`: 出所が inventory の要素でない行（目標・既知の要求・対象を出所にする行）を、出所の要求・目標ごとに書く。`source.kind` が `location` の行は書かない（骨組みが決める）。`property_id` はこのモデルの性質に限る。
 - 判断が要る不足は問いにし、依存する性質を `blocked_by_question` に入れる。
 
-形は [型の抜粋](../references/types/model-author.md#担当の成果物) の `ModelFile`（`formal-method.model/2`）・`Clause`・`StateMachine`・`MappingFile`。
+形は [型の抜粋](../references/types/model-author.md#担当の成果物) の `ModelFile`（`formal-method.model/2`）・`Clause`・`StateMachine`。対応表の下書きの形は [core.schema.json](../references/core.schema.json) の `$defs/MappingDraft`（`formal-method.mapping-draft/1`）。
 
 ## 返り値
 
 `AuthorReturn`（[担当の返り値](../references/types/model-author.md#担当の返り値)）。
 
-- `outputs`: モデルごとに `{"kind": "model", ...}` と `{"kind": "mapping", ...}`。
+- `outputs`: このモデルの `{"kind": "model", ...}` と、対応表の下書きの `{"kind": "mapping", ...}` を 1 つずつ。
 - `status`: `done`・`needs_answer`・`cannot_proceed` の使い方は抽出役と同じ。
 
 ## 区別できないとき

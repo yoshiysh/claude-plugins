@@ -5,13 +5,16 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { runScenario, canonicalRequest, SPEC_TEXT } from './test-fixtures/pipeline.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
+import { modelIdOf } from './test-fixtures/core-ids.mjs';
 import { P, prop, SM_A, SMT_A } from './test-fixtures/pipeline-cases.mjs';
 import { UNIT_MAX_BYTES } from './lib/schemas.mjs';
 
 const SPEC6 = `# 対象\n${[1, 2, 3, 4, 5, 6].map((i) => `R${i}: 性質 ${i} が成り立つ。`).join('\n')}\n`;
 const FILES = { 'target/spec.md': SPEC6 };
 const sorted = (xs) => [...xs].sort();
-// 性質 n 件を、1 つずつ別のモデル（M1, M2, …）に置く
+const idOf = (pid) => modelIdOf([pid]);
+// 性質 n 件を、1 つずつ別のモデルに置く（出所を共有しないので partition-models が性質ごとにモデルを作る。#264 SP-264-010。
+// model_id は modelIdOf で求め、モデルの並びは model_id の順）
 const perModel = (props) => ({ properties: props, models: props.map((p, i) => ({ id: `M${i + 1}`, propertyIds: [p.id] })) });
 const tasksOf = (harness, pred) => harness.memory.tasks.filter(pred);
 // task を最初に返した claim（又は submit の next）の worker と、それが返した task の id。via は 'claim' か 'next'
@@ -32,7 +35,7 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 忠実さの単位 5 件（モ�
   const { result, harness } = await runScenario(t, { files: FILES, scenario: perModel(props) });
   assert.deepEqual(resultInvariants(result), []);
   const fid = tasksOf(harness, (x) => x.context.perspective === 'fidelity');
-  assert.deepEqual(sorted(fid.map((x) => x.context.model_id)), ['M1', 'M2', 'M3', 'M4', 'M5']);
+  assert.deepEqual(sorted(fid.map((x) => x.context.model_id)), sorted(props.map((p) => idOf(p.id))));
   const c = claimOf(harness, fid[0].task_id);
   assert.deepEqual(sorted(c.task_ids), sorted(fid.map((x) => x.task_id)), '1 回の claim が 5 つの担当を返す');
   assert.equal(c.call.workers.filter((w) => w.role === 'fidelity-reviewer').length, 1, '忠実さの確認役は 1 体');
@@ -73,7 +76,11 @@ test('SP-FORMALMETHOD-013 AC-12 詰め合わせ: 資料が UNIT_MAX_BYTES を超
   const fid = tasksOf(harness, (x) => x.context.perspective === 'fidelity');
   const byWorker = new Map();
   for (const f of fid) { const c = claimOf(harness, f.task_id); const k = `${c.call.callId}/${c.worker}`; byWorker.set(k, [...(byWorker.get(k) ?? []), f.context.model_id]); }
-  assert.deepEqual([...byWorker].sort(([a], [b]) => a.localeCompare(b)).map(([, ms]) => sorted(ms)), [['M1', 'M2', 'M3', 'M4'], ['M5']], JSON.stringify([...byWorker]));
+  // 単位の並びは model_id の順。P5 のモデルは 1 体に分かれ、その前後の単位はそれぞれ並びの順に詰める（next-fit）
+  const order = sorted(props.map((p) => idOf(p.id)));
+  const k = order.indexOf(idOf('P5'));
+  const expected = [order.slice(0, k), [order[k]], order.slice(k + 1)].filter((g) => g.length).map(sorted).sort((a, b) => a[0].localeCompare(b[0]));
+  assert.deepEqual([...byWorker.values()].map(sorted).sort((a, b) => a[0].localeCompare(b[0])), expected, JSON.stringify([...byWorker]));
 });
 
 test('SP-FORMALMETHOD-013 architecture 担当の起動: 確認の段の担当が 6 体（抽出の確認役 1 体と、資料が UNIT_MAX_BYTES を超える忠実さの単位 5 件）でも、確認の段の呼び出しは 1 回で、args の workers は 6 件', async (t) => {

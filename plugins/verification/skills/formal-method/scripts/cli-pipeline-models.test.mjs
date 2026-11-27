@@ -6,12 +6,14 @@ import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { runScenario, canonicalRequest } from './test-fixtures/pipeline.mjs';
+import { runScenario, canonicalRequest, wrapCore } from './test-fixtures/pipeline.mjs';
+import { makeWorkspace, removeTree } from './test-fixtures/cli-runner.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { writerMergeScc, stopStageViolations, crossingEdges } from './test-fixtures/decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './test-fixtures/constants.mjs';
-import { P, prop, checksOf, planOf, queryOf, evidence, inputOf, callsFor, tOf, tasksOf, assertRevised, assertRecordsConsistent, canonicalRun, firstCallWith, assertAcceptedKept, assertConfirmationCommon, assertReviewFailed, assertCauseFailed, reviewTasks, REVIEW_FAIL_CASES, CAUSE_FAIL_CASES, STAGE_CASES, SM, topLevelForms, resolvePointer, CLAIM_CASES, assertGraphMatches, partitionWithUnconfirmedAssumption, SM_A, SMT_A, counterexampleQueries, assertNamedInOrder, WITNESS_SMT, WITNESS_MODEL, SECRET, assertSecretNowhere, NOT_STARTED_END, WITNESS_CASES, PART_SCENARIO, dropChecks, PART_CASES, assertNoChecksRow, NO_PLAN_CASES, z3Candidate, PLAN_DEFECTS, onlyRound1 } from './test-fixtures/pipeline-cases.mjs';
+import { M1, M2, MP1, C_P1, C_P2, C_K_A, C_CC1, C_CC2 } from './test-fixtures/core-ids.mjs';
+import { P, prop, checksOf, planOf, queryOf, evidence, inputOf, callsFor, tOf, tasksOf, assertRevised, assertRecordsConsistent, canonicalRun, firstCallWith, assertAcceptedKept, assertConfirmationCommon, assertReviewFailed, assertCauseFailed, reviewTasks, REVIEW_FAIL_CASES, CAUSE_FAIL_CASES, STAGE_CASES, SM, topLevelForms, resolvePointer, CLAIM_CASES, assertGraphMatches, partitionWithUnconfirmedAssumption, SM_A, SMT_A, counterexampleQueries, assertNamedInOrder, WITNESS_SMT, WITNESS_MODEL, SECRET, assertSecretNowhere, NOT_STARTED_END, WITNESS_CASES, PART_SCENARIO, dropChecks, assertNoChecksRow, NO_PLAN_CASES, assertExcluded, appendAfterCheckSat } from './test-fixtures/pipeline-cases.mjs';
 
 describe('cli-pipeline', { concurrency: 4 }, () => {
 test('cli-contract 受け箱 SP-FORMALMETHOD-012・015: 確認の段の呼び出しを timed_out で閉じても、submit で受理した確認は残り、性質は 検証済み で完了する（前の稿の batch ごとの拒否の回帰）', async (t) => {
@@ -188,7 +190,7 @@ test('SP-FORMALMETHOD-005・012 AC-04: 前提が互いに矛盾する（sanity �
   const { result } = await runScenario(t, { scenario: { properties: [P('P1', 2, { sanity: { result: 'unsat' } })] } });
   const p = prop(result, 'P1');
   assert.ok(!p.verdict.includes('検証済み'), JSON.stringify(p.verdict));
-  assert.ok(result.confirmations.deterministic.some((c) => c.kind === 'sanity' && c.property_ids.includes('P1') && c.model_property_id === 'P1' && c.result === '成り立たない'));
+  assert.ok(result.confirmations.deterministic.some((c) => c.kind === 'sanity' && c.property_ids.includes('P1') && c.model_property_id === MP1 && c.result === '成り立たない'));
   assert.equal(result.status, '停止');
   // deterministic の 成り立たない も未解決に数える（artifact-formats「decideStatus」の confirmations_unresolved）
   assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'), JSON.stringify(result.stop_report.reasons));
@@ -245,6 +247,20 @@ test('SP-FORMALMETHOD-008 AC-06 analysis: 返されたモデルから依存グ�
   assert.deepEqual(d.candidates, writerMergeScc(d.graph));
 });
 
+// 候補 id の他の候補への辺（artifact-formats の境界の定め）: 両端の節点が違う候補に属する graph.edges の辺ごとに 1 つ。辺は from が to に依る向きで、
+// producer は to の節点の候補、consumer は from の節点の候補、shared_symbols は to の節点の / の後の名前、to_candidate は id から見た他方の候補
+function candidateEdges(graph, candidates, id) {
+  const ownerOf = (n) => candidates.find((c) => c.nodes.includes(n))?.id;
+  const out = [];
+  for (const e of graph.edges) {
+    const consumer = ownerOf(e.from);
+    const producer = ownerOf(e.to);
+    if (!consumer || !producer || consumer === producer || (id !== consumer && id !== producer)) continue;
+    out.push({ edge_id: e.id, to_candidate: id === consumer ? producer : consumer, producer_candidate: producer, consumer_candidate: consumer, shared_symbols: [e.to.slice(e.to.indexOf('/') + 1)] });
+  }
+  return out;
+}
+
 test('SP-FORMALMETHOD-008・009 AC-06・AC-07: 書き手の違う 2 つの組を持つモデルで、候補を導き直すと一致し、分割作成役は同じ候補を受け取る', async (t) => {
   const { result, harness, status } = await runScenario(t, { scenario: { stateMachine: SM2, properties: SM2_PROPS } });
   assertGraphMatches(status, result);
@@ -254,7 +270,8 @@ test('SP-FORMALMETHOD-008・009 AC-06・AC-07: 書き手の違う 2 つの組を
   assert.ok(mine.length >= 2, `候補が 2 つ以上: ${JSON.stringify(mine)}`);
   const pt = harness.memory.tasks.find((x) => x.role === 'partition-author');
   assert.ok(pt, '候補が 2 つ以上なら分割作成役が出る');
-  assert.deepEqual(pt.context.candidates, mine.map(({ id, nodes }) => ({ id, nodes })));
+  // 候補は他の候補への辺を持つ（artifact-formats「分割作成役の task の context.candidates[]」）。期待は依存グラフから独立に導く
+  assert.deepEqual(pt.context.candidates, mine.map(({ id, nodes }) => ({ id, nodes, edges: candidateEdges(d.graph, mine, id) })));
   assert.deepEqual(d.decisions.map((x) => x.candidate_id).sort(), mine.map((c) => c.id).sort());
   if (!d.adopted) for (const p of result.properties) assert.ok(!p.verdict.includes('検証済み') || d.parts.length === 0, '候補だけで独立に検証できると示さない');
 });
@@ -266,10 +283,10 @@ test('SP-FORMALMETHOD-009 AC-07 analysis: 部分の前提を確認できない�
   assert.equal(d.adopted, true, d.reason);
   // 跨ぐ辺: T が導いたグラフで、部分の持つ変数・遷移（var:・tr:）の間を跨ぐ辺。境界は跨ぐ辺ごとに 1 つ
   const cross = crossingEdges(mine, d.parts).map((e) => e.id).sort();
-  for (const p of d.parts) assert.equal(p.model_id, 'M1');
-  for (const k of d.contracts) assert.equal(k.model_id, 'M1');
-  for (const c of result.checks.filter((x) => x.kind === 'composition')) assert.equal(c.model_id, 'M1', '合成の条件の検査の model_id は合成の条件の model_id');
-  assert.ok(cross.includes('read:tr:M1/tb->var:M1/a'), cross.join());
+  for (const p of d.parts) assert.equal(p.model_id, M1);
+  for (const k of d.contracts) assert.equal(k.model_id, M1);
+  for (const c of result.checks.filter((x) => x.kind === 'composition')) assert.equal(c.model_id, M1, '合成の条件の検査の model_id は合成の条件の model_id');
+  assert.ok(cross.includes(`read:tr:${M1}/tb->var:${M1}/a`), cross.join());
   assert.deepEqual(d.boundaries.map((b) => b.edge_id).sort(), cross);
   for (const b of d.boundaries) assert.ok(b.responsible.length >= 1, '境界ごとに責任を負う契約か検査');
   assert.ok(d.boundaries.some((b) => b.assumption_basis.kind === '確認できない前提'));
@@ -278,11 +295,13 @@ test('SP-FORMALMETHOD-009 AC-07 analysis: 部分の前提を確認できない�
   assert.equal(result.status, '停止');
   // T の独立の照合: 変数・遷移の要素（規則の id）は、対応・対応なし・除外のちょうど 1 つに入る
   const elems = mine.nodes.filter((n) => n.kind === 'variable' || n.kind === 'transition').map((n) => n.id);
-  assert.deepEqual(elems, ['tr:M1/ta', 'tr:M1/tb', 'var:M1/a', 'var:M1/b']);
+  assert.deepEqual(elems, [`tr:${M1}/ta`, `tr:${M1}/tb`, `var:${M1}/a`, `var:${M1}/b`]);
   const buckets = [d.correspondence.matched.map((m) => m.element), d.correspondence.unmatched, d.correspondence.excluded.map((e) => e.element)];
   for (const e of elems) assert.equal(buckets.filter((b) => b.includes(e)).length, 1, `${e} の対応`);
   // 部分が持つ要素は 対応なし にならず、対応の先に自分の部分を持つ
-  const ownerOf = { 'var:M1/a': 'part-a', 'tr:M1/ta': 'part-a', 'var:M1/b': 'part-b', 'tr:M1/tb': 'part-b' };
+  // 部分の id は候補の id（partition-assemble。SP-264-023）。a の組と b の組の候補を引く
+  const candOf = (el) => d.candidates.find((c) => c.nodes.includes(el)).id;
+  const ownerOf = Object.fromEntries([`var:${M1}/a`, `tr:${M1}/ta`, `var:${M1}/b`, `tr:${M1}/tb`].map((el) => [el, candOf(el)]));
   for (const [el, part] of Object.entries(ownerOf)) {
     assert.equal(d.correspondence.unmatched.includes(el), false, `${el} は 対応なし でない`);
     const m = d.correspondence.matched.find((x) => x.element === el);
@@ -325,12 +344,14 @@ test('artifact-formats 性質の id の名前空間 AC-04・AC-09: モデルの�
   assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
   const sanity = result.confirmations.deterministic.filter((c) => c.kind === 'sanity');
   assert.ok(sanity.length >= 1);
-  for (const c of sanity) { assert.deepEqual(c.property_ids, ['P1']); assert.equal(c.model_property_id, 'MP-P1'); assert.equal(c.plan_id, 'S-MP-P1', '計画の sanity の id は plan_id に残る'); assert.match(c.id, /^confirm-sanity-\d+$/); }
-  for (const c of result.confirmations.deterministic.filter((x) => x.kind === 'mutation')) { assert.equal(c.model_property_id, 'MP-P1'); assert.equal(c.plan_id, 'MU-MP-P1'); }
-  for (const m of prop(result, 'P1').detection.mutations) { assert.equal(m.id, 'MU-MP-P1'); assert.match(m.confirmation_id, /^confirm-mutation-\d+$/); }
-  for (const c of result.confirmations.deterministic.filter((x) => ['goal_trivial', 'plan_coverage'].includes(x.kind))) assert.equal(c.model_property_id, 'MP-P1');
-  assert.ok(result.decomposition.graph.nodes.some((n) => n.id === 'prop:M1/MP-P1'), 'graph の性質はモデルの性質の id');
-  assert.ok(!result.decomposition.graph.nodes.some((n) => n.id === 'prop:M1/P1'));
+  // モデルの性質の id は <model_id>. で始まる（SP-264-012）。harness はその後ろに接頭辞 MP- と inventory の id を置く
+  const mp = `${M1}.MP-P1`;
+  for (const c of sanity) { assert.deepEqual(c.property_ids, ['P1']); assert.equal(c.model_property_id, mp); assert.equal(c.plan_id, `sanity-${mp}-1`, '計画の sanity の id は plan_id に残る'); assert.match(c.id, /^confirm-sanity-\d+$/); }
+  for (const c of result.confirmations.deterministic.filter((x) => x.kind === 'mutation')) { assert.equal(c.model_property_id, mp); assert.equal(c.plan_id, `MU-${mp}`); }
+  for (const m of prop(result, 'P1').detection.mutations) { assert.equal(m.id, `MU-${mp}`); assert.match(m.confirmation_id, /^confirm-mutation-\d+$/); }
+  for (const c of result.confirmations.deterministic.filter((x) => ['goal_trivial', 'plan_coverage'].includes(x.kind))) assert.equal(c.model_property_id, mp);
+  assert.ok(result.decomposition.graph.nodes.some((n) => n.id === `prop:${M1}/${mp}`), 'graph の性質はモデルの性質の id');
+  assert.ok(!result.decomposition.graph.nodes.some((n) => n.id === `prop:${M1}/P1`));
   assert.equal(prop(result, 'P1').detection.status, '検出を確認');
   assertGraphMatches(status, result);
 });
@@ -349,10 +370,10 @@ test('SP-FORMALMETHOD-005・008 AC-06: モデルが 2 つのとき、graph は�
   };
   const { result, status } = await runScenario(t, { scenario });
   assert.deepEqual(resultInvariants(result), []);
-  assert.deepEqual(result.models.map((m) => m.id).sort(), ['M1', 'M2']);
+  assert.deepEqual(result.models.map((m) => m.id).sort(), [M1, M2].sort(), 'model_id は partition-models が出所の成分から決める');
   const mine = assertGraphMatches(status, result);
   const ids = mine.nodes.map((n) => n.id);
-  for (const id of ['var:M1/a', 'var:M2/a', 'tr:M1/t', 'tr:M2/t', 'prop:M1/MP-P1', 'prop:M2/MP-P2']) assert.ok(ids.includes(id), id);
+  for (const id of [`var:${M1}/a`, `var:${M2}/a`, `tr:${M1}/t`, `tr:${M2}/t`, `prop:${M1}/${M1}.MP-P1`, `prop:${M2}/${M2}.MP-P2`]) assert.ok(ids.includes(id), id);
   for (const e of result.decomposition.graph.edges.filter((x) => x.kind === 'property')) {
     assert.equal(e.from.split('/')[0].replace(/^prop:/, ''), e.to.split('/')[0].replace(/^var:/, ''), `${e.id} は同じモデルの変数への辺`);
   }
@@ -362,7 +383,7 @@ test('SP-FORMALMETHOD-005・008 AC-06: モデルが 2 つのとき、graph は�
   }
   assert.deepEqual(result.decomposition.candidates, writerMergeScc(result.decomposition.graph));
   for (const p of ['P1', 'P2']) assert.deepEqual(prop(result, p).verdict, ['検証済み'], p);
-  for (const c of result.checks) assert.ok(['M1', 'M2'].includes(c.model_id));
+  for (const c of result.checks) assert.ok([M1, M2].includes(c.model_id));
 });
 
 test('cli-contract 証人 AC-09: replay の input.smt2 は反例の検査の query の (check-sat) の直前に、固定する記号ごとの literal の assert をモデルの要素の順に 1 行ずつ持ち、他のバイト列は変えない', async (t) => {
@@ -458,7 +479,7 @@ test('cli-contract Z3 の adapter: -model は property・composition の実行�
     stateMachine: SM2, toolTimeLimit: 30,
     properties: [{ ...SM2_PROPS[0], query: { result: 'sat' }, toolTimeLimit: 17 }],
     partition: partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'] }),
-    editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => ({ ...c, tool_time_limit_seconds: { 'C-K-a': 11, 'C-CC1': 13, 'C-CC2': 14 }[c.id] ?? c.tool_time_limit_seconds })) }),
+    editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => ({ ...c, tool_time_limit_seconds: { [C_K_A]: 11, [C_CC1]: 13, [C_CC2]: 14 }[c.id] ?? c.tool_time_limit_seconds })) }),
   };
   const { result, status, harness, log } = await runScenario(t, { scenario });
   assert.deepEqual(resultInvariants(result), []);
@@ -507,52 +528,34 @@ test('artifact-formats 検査・分割と合成 AC-07・AC-09: 契約の検査�
   assertRecordsConsistent(status, result, harness);
   const d = result.decomposition;
   assert.equal(d.adopted, true, d.reason);
-  const kc = result.checks.find((c) => c.id === 'C-K-a');
+  const kc = result.checks.find((c) => c.id === C_K_A);
   assert.equal(kc?.kind, 'contract', '契約の検査は checks[] に kind contract');
-  assert.deepEqual(d.contracts.find((k) => k.id === 'K-a').check_ids, ['C-K-a']);
+  assert.deepEqual(d.contracts.find((k) => k.id === 'K-a').check_ids, [C_K_A]);
   assert.deepEqual(d.contracts.find((k) => k.id === 'K-a').verdict, ['検証済み']);
-  for (const p of result.properties) assert.ok(!p.check_ids.includes('C-K-a'), `${p.id}.check_ids に契約の検査が入らない`);
-  for (const m of result.models) for (const row of m.mapping) assert.ok(!row.check_ids.includes('C-K-a'), 'mapping の check_ids に契約の検査が入らない');
-  assert.deepEqual([...prop(result, 'P1').check_ids].sort(), ['C-CC1', 'C-CC2', 'C-P1'], '性質の検査と、derived_from が P1 の合成の条件の検査（契約に依らない CC2 を含む）');
-  for (const cc of d.composition_conditions) assert.equal(cc.derived_from, 'P1');
-  assert.ok(result.performance.executions.some((e) => e.id === 'C-K-a' && e.kind === 'contract'), 'performance.executions に kind contract');
+  for (const p of result.properties) assert.ok(!p.check_ids.includes(C_K_A), `${p.id}.check_ids に契約の検査が入らない`);
+  for (const m of result.models) for (const row of m.mapping) assert.ok(!row.check_ids.includes(C_K_A), 'mapping の check_ids に契約の検査が入らない');
+  assert.deepEqual([...prop(result, 'P1').check_ids].sort(), [C_CC1, C_CC2, C_P1].sort(), '性質の検査と、derived_from が P1 の合成の条件の検査（契約に依らない CC2 を含む）');
+  for (const cc of d.composition_conditions) assert.equal(cc.derived_from, MP1);
+  assert.ok(result.performance.executions.some((e) => e.id === C_K_A && e.kind === 'contract'), 'performance.executions に kind contract');
   assert.deepEqual(prop(result, 'P1').verdict, ['検証済み'], '全ての契約が 検証済み で、derived_from の合成の条件が全て成功');
 });
-for (const [name, over, part, contractVerdict, parentVerdict, extra] of PART_CASES) {
-  test(`artifact-formats 分割と合成 SP-FORMALMETHOD-009 AC-07: ${name}なら、契約は ${contractVerdict.join()}、親の性質は ${parentVerdict.join()}`, async (t) => {
-    const { result, harness } = await runScenario(t, { scenario: PART_SCENARIO(over, part) });
-    assert.deepEqual(resultInvariants(result), []);
-    const k = result.decomposition.contracts.find((x) => x.id === 'K-a');
-    assert.deepEqual(k.verdict, contractVerdict);
-    assert.deepEqual(prop(result, 'P1').verdict, parentVerdict);
-    if (extra) extra(result, harness);
-    if (contractVerdict[0] === '反例') {
-      // 契約の反例は Counterexample を作らず、has_counterexample にも数えない
-      assert.ok(!result.counterexamples.some((x) => x.check_id === 'C-K-a'), '契約の検査から反例を作らない');
-      assert.deepEqual(result.counterexamples, []);
-      assert.ok(!result.stop_report.reasons.some((r) => r.code === '反例'), '契約の反例は停止の理由 反例 に数えない');
-      assert.ok(k.reason.length > 0);
-    }
-    if (parentVerdict[0] === '反例') assert.ok(result.counterexamples.some((x) => x.check_id === 'C-CC2' && x.property_id === 'P1'), '合成の条件の反例は親の性質の反例');
-    assert.equal(result.status, '停止');
-  });
-}
+// 分割と合成の PART_CASES と、計画の照合の PLAN_DEFECTS は、計画の段の下書きの形（#264 U4）に依るので cli-pipeline-plan-defects.test.mjs で流す
 
 test('artifact-formats 分割と合成: 合成の条件の derived_from が別のモデルの性質を指す分割は分割の欠陥で、分割作成役に修正の巡が出て、直した分割が結果に入る', async (t) => {
   const scenario = {
     modelPropPrefix: 'MP-',
     properties: [{ ...SM2_PROPS[0] }, P('P2', 3, { smt: SMT_A })],
     models: [{ id: 'M1', propertyIds: ['P1'], stateMachine: SM2 }, { id: 'M2', propertyIds: ['P2'], stateMachine: { ...SM_A, transitions: SM_A.transitions.map((x) => ({ ...x, source_ids: ['E-P2'] })) } }],
-    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1'], derivedFrom: (round) => (round === 1 ? 'MP-P2' : 'MP-P1') }),
+    partition: partitionFixture({ basis: 'guarantee', conds: ['CC1'], derivedFrom: (round) => (round === 1 ? `${M2}.MP-P2` : 'MP-P1') }),
   };
   const { result, harness } = await runScenario(t, { scenario });
   assert.deepEqual(resultInvariants(result), []);
   assertRevised(harness, 'partition-author', '計画');
-  for (const x of [...result.decomposition.contracts, ...result.decomposition.composition_conditions]) assert.equal(x.derived_from, 'MP-P1', `${x.id} は同じモデル M1 の性質を指す`);
+  for (const x of [...result.decomposition.contracts, ...result.decomposition.composition_conditions]) assert.equal(x.derived_from, `${M1}.MP-P1`, `${x.id} は同じモデル（P1 の成分）の性質を指す`);
 });
 
 test('artifact-formats plan と mutations 検査の欠け: モデルの性質の検査が無い計画は計画の欠陥で修正の巡が出て、直れば通常の結果になる', async (t) => {
-  const { result, harness } = await runScenario(t, { scenario: { editPlan: (plan, { round }) => (round === 1 ? dropChecks('C-P1')(plan) : plan) } });
+  const { result, harness } = await runScenario(t, { scenario: { editPlan: (plan, { round }) => (round === 1 ? dropChecks(C_P1)(plan) : plan) } });
   assert.deepEqual(resultInvariants(result), []);
   assertRevised(harness, 'plan-author', '計画');
   assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
@@ -560,7 +563,7 @@ test('artifact-formats plan と mutations 検査の欠け: モデルの性質の
 });
 
 test('artifact-formats 形式モデルと対応 検査の欠け: 修正の巡の後も検査が欠ければ止めずに進み、形式化 の行は check_ids が空で reason を持ち、性質は 未確認', async (t) => {
-  const { result, harness } = await runScenario(t, { scenario: { editPlan: dropChecks('C-P1') } });
+  const { result, harness } = await runScenario(t, { scenario: { editPlan: dropChecks(C_P1) } });
   assert.deepEqual(resultInvariants(result), []);
   assertRevised(harness, 'plan-author', '計画');
   assertNoChecksRow(result, 'P1');
@@ -579,27 +582,137 @@ for (const [name, tool, mode, verdict] of NO_PLAN_CASES) {
     assert.equal(result.status, '停止');
   });
 }
-for (const [name, edits, persisted] of PLAN_DEFECTS) {
-  test(`artifact-formats plan と mutations 計画の照合: ${name}計画は計画の欠陥で、修正の巡が出て、直れば通常の結果になる`, async (t) => {
-    const scenario = Object.fromEntries(Object.entries(edits).map(([k, fn]) => [k, onlyRound1(fn)]));
-    const { result, harness, status } = await runScenario(t, { scenario });
+
+// ======== #264 SP-264-012: モデルの決定的な分割と、モデルごとの task（U3） ========
+const ledgerOf = (status) => JSON.parse(readFileSync(join(status.run_dir, 'ledger.json'), 'utf8'));
+const revisionKeys = (status) => ledgerOf(status).revisions.flatMap((r) => r.defects.map((d) => d.key));
+const TWO = { properties: [P('P1', 2), P('P2', 3)] };
+
+test('SP-264-012: 出所を共有しない 2 組の性質では、モデル化の段は partition-models の id ごとに model-author の task を 1 つずつ出し、1 体の worker に順に claim させる', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: TWO });
+  assert.deepEqual(resultInvariants(result), []);
+  const ts = tasksOf(harness, 'model-author');
+  assert.deepEqual(ts.map((x) => x.context.model_id).sort(), [M1, M2].sort(), 'context.model_id は partition-models の id');
+  for (const x of ts) {
+    assert.deepEqual(x.context.property_ids, [x.context.model_id === M1 ? 'P1' : 'P2'], 'context.property_ids はそのモデルの性質');
+    assert.equal(x.context.model_property_id_prefix, `${x.context.model_id}.`);
+  }
+  const calls = result.performance.agent_calls.calls.filter((c) => c.stage === 'モデル化');
+  assert.equal(calls.length, 1, 'モデル化の段の呼び出しは 1 つ');
+  assert.equal(calls[0].workers, 1, '起動は 1 体（task はモデルの数）');
+  assert.equal(calls[0].tasks, 2);
+  const hc = harness.memory.calls.filter((c) => c.stage === 'モデル化');
+  assert.deepEqual(hc.map((c) => c.workers.length), [1]);
+  // 1 体が前の task を閉じてから次の task を受け取る（after の鎖。最初の claim は 1 つ、次は submit の next）
+  assert.deepEqual(hc[0].claims.filter((c) => c.task_ids).map((c) => c.task_ids.length), [1, 1]);
+  for (const p of ['P1', 'P2']) assert.deepEqual(prop(result, p).verdict, ['検証済み'], p);
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+});
+
+test('SP-264-012: モデルの性質の id は <model_id>. で始まるので、2 つのモデルで prop- の検査の id が重ならない', async (t) => {
+  const { result } = await runScenario(t, { scenario: TWO });
+  const ids = result.checks.map((c) => c.id);
+  assert.ok(ids.includes(C_P1) && ids.includes(C_P2), ids.join());
+  assert.equal(new Set(ids).size, ids.length, '検査の id は run で一意');
+  for (const m of result.models) for (const p of m.properties ?? []) assert.ok(p.id.startsWith(`${m.id}.`), p.id);
+});
+
+test('SP-264-012: 接頭辞 <model_id>. の無いモデルの性質の id を返したモデル作成役は mp-prefix の欠陥で修正の巡に戻り、直せば通常の結果になる', async (t) => {
+  const editModel = (m, { round }) => (round === 1 ? { ...m, properties: m.properties.map((p) => ({ ...p, id: p.id.slice(p.id.indexOf('.') + 1) })) } : m);
+  const { result, harness, status } = await runScenario(t, { scenario: { editModel } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'model-author', 'モデル化');
+  assert.ok(revisionKeys(status).some((k) => k === 'mp-prefix:P1' || k.startsWith('mp-prefix:')), revisionKeys(status).join());
+  assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+});
+
+test('SP-264-012: context.model_id と違う model_id のモデルは reference の欠陥で修正の巡に戻る', async (t) => {
+  const editModel = (m, { round }) => (round === 1 ? { ...m, model_id: 'm-other' } : m);
+  const { result, harness } = await runScenario(t, { scenario: { editModel } });
+  assert.deepEqual(resultInvariants(result), []);
+  assertRevised(harness, 'model-author', 'モデル化');
+  assert.deepEqual(result.models.map((m) => m.id), [M1]);
+  assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
+});
+
+test('DD-14: 2 つのモデルの query がどちらも .smt2 の規則に反したまま受理されると、両方の違反が計画の欠陥の要素に届く（先のモデルの違反が消えない）', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { ...TWO, editModelQuery: appendAfterCheckSat(() => true) } });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(tasksOf(harness, 'model-author').length, 2);
+  assertExcluded(result, [C_P1, C_P2]);
+  for (const p of ['P1', 'P2']) assert.deepEqual(prop(result, p).verdict, ['未確認'], p);
+});
+
+test('SP-264-004・012: モデル化の段で実行体が誤りで終わると（CoreError）、担当の修正の巡に回さず 内部の誤り で中断する', async (t) => {
+  const dir = makeWorkspace('fm-core-wrap-');
+  t.after(() => removeTree(dir));
+  const bin = wrapCore(dir, { fail: 'partition-models' });
+  const { result, harness } = await runScenario(t, { env: { FORMAL_METHOD_CORE_BIN: bin } });
+  assert.deepEqual(resultInvariants(result), []);
+  assert.equal(result.status, '停止');
+  assert.ok(result.stop_report.reasons.some((r) => r.code === '内部の誤り'), JSON.stringify(result.stop_report.reasons));
+  assert.equal(tasksOf(harness, 'model-author').length, 0, 'モデル作成役を出さない');
+});
+
+// ======== #264 SP-264-025: 対応表の行の骨組み（U3） ========
+test('SP-264-025・DD-16: 対応表の骨組みは views/mapping-rows-<model_id>.json で model-author の資料に入り、組み立てた対応表は assembled/<task_id>/mapping.json に 1 つだけ書かれて台帳に載る', async () => {
+  const { result, harness, status } = await canonicalRun();
+  const [task] = tasksOf(harness, 'model-author');
+  const ref = `views/mapping-rows-${M1}.json`;
+  assert.ok(task.context.input_refs.some((x) => x.ref === ref), `${ref} が資料に無い`);
+  const view = JSON.parse(readFileSync(join(status.run_dir, ref), 'utf8'));
+  assert.deepEqual(view.rows.map((r) => [r.row_id, r.property_id, r.source]), [['P1/E-P1', 'P1', { kind: 'location', target_id: 'T1', file: 'spec.md', span: 'L2-L2' }]], '性質ごと・source_ids の要素ごとの location の行');
+  const asm = `assembled/${task.task_id}/mapping.json`;
+  assert.ok(existsSync(join(status.run_dir, asm)), `${asm} が無い`);
+  const m = JSON.parse(readFileSync(join(status.run_dir, asm), 'utf8'));
+  assert.equal(m.schema, 'formal-method.mapping/1');
+  assert.equal(m.model_id, M1, 'model_id は context.model_id から埋める');
+  const loc = m.rows.filter((r) => r.source.kind === 'location');
+  assert.deepEqual(loc.map((r) => [r.property_id, r.model_element, r.relation]), [['P1', MP1, '形式化']]);
+  assert.ok(m.rows.some((r) => r.source.kind === 'goal' && r.source.id === 'G1'), 'extra_rows の目標の行を後ろにつなぐ');
+  assert.ok(ledgerOf(status).entries.some((e) => e.kind === 'mapping' && e.ref === asm && e.producer === task.task_id), '台帳に組み立てた対応表を、その task を producer として載せる');
+  assert.equal(result.models[0].mapping.length, m.rows.length);
+});
+
+test('SP-264-025: 形式化できない性質の location の行の relation と reason は骨組みが決める（形式検証でない確認・nonformal_reason）', async (t) => {
+  const { result, status, harness } = await runScenario(t, { scenario: { properties: [P('P1', 2), P('P2', 3, { formalizable: false })] } });
+  assert.deepEqual(resultInvariants(result), []);
+  // 形式化できない性質だけの成分は、model_id が最も小さい形式のモデルに入る（SP-264-010 の規則 4）
+  const ts = tasksOf(harness, 'model-author');
+  assert.equal(ts.length, 1);
+  assert.deepEqual(ts[0].context.property_ids, ['P1', 'P2']);
+  const view = JSON.parse(readFileSync(join(status.run_dir, `views/mapping-rows-${M1}.json`), 'utf8'));
+  const row = view.rows.find((r) => r.property_id === 'P2');
+  assert.equal(row.relation, '形式検証でない確認');
+  assert.equal(row.reason, '数で表せない', 'reason は inventory の nonformal_reason');
+  const mapped = result.models[0].mapping.filter((r) => r.property_id === 'P2' && r.source.kind === 'location');
+  assert.deepEqual(mapped.map((r) => r.relation), ['形式検証でない確認']);
+});
+
+const MAPPING_DEFECTS = [
+  ['骨組みの行に rows の要素が無い', (d) => ({ ...d, rows: [] })],
+  ['骨組みに無い row_id が rows にある', (d) => ({ ...d, rows: [...d.rows, { ...d.rows[0], row_id: 'P1/E-none' }] })],
+  ['extra_rows に source.kind が location の行がある', (d) => ({ ...d, extra_rows: [...d.extra_rows, { source: { kind: 'location', target_id: 'T1', file: 'spec.md', span: 'L2-L2' }, property_id: 'P1', model_element: MP1, relation: '形式化', reason: null }] })],
+  ['extra_rows の property_id がそのモデルの性質に無い', (d) => ({ ...d, extra_rows: [...d.extra_rows, { source: { kind: 'goal', id: 'G1' }, property_id: 'P9', model_element: MP1, relation: '形式化', reason: null }] })],
+];
+for (const [name, edit] of MAPPING_DEFECTS) {
+  test(`SP-264-025: 対応表の下書きで${name}と、モデル化の欠陥で修正の巡に戻り、直せば通常の結果になる`, async (t) => {
+    const { result, harness } = await runScenario(t, { scenario: { editMappingDraft: (d, { round }) => (round === 1 ? edit(d) : d) } });
     assert.deepEqual(resultInvariants(result), []);
-    assertRevised(harness, 'plan-author', '計画');
-    assertRecordsConsistent(status, result, harness);
+    assertRevised(harness, 'model-author', 'モデル化');
     assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
-    assert.equal(z3Candidate(prop(result, 'P1').method)?.role, '検証器');
-    assert.equal(prop(result, 'P1').method.chosen.tool, 'z3', 'method は selection を写す');
     assert.equal(result.status, '完了', JSON.stringify(result.stop_report));
   });
-  if (persisted) {
-    test(`artifact-formats plan と mutations 計画の照合: ${name}欠陥が修正の巡の後も残れば、止めずに進み、性質の判定が規則どおり`, async (t) => {
-      const { result, harness, status } = await runScenario(t, { scenario: edits });
-      assert.deepEqual(resultInvariants(result), []);
-      assertRevised(harness, 'plan-author', '計画');
-      assertRecordsConsistent(status, result, harness);
-      persisted(result);
-      assert.equal(result.status, '停止');
-    });
-  }
 }
+
+test('SP-264-025: extra_rows に目標・既知の要求の行を書くと、結果の性質の sources にそれが載り、unmapped.requirements にその目標が載らない（今の挙動と同じ）', async (t) => {
+  const request = canonicalRequest({ known_requirements: [{ id: 'K1', text: 'x は 0 以上である' }] });
+  const editMappingDraft = (d) => ({ ...d, extra_rows: [...d.extra_rows, { source: { kind: 'known_requirement', id: 'K1' }, property_id: 'P1', model_element: MP1, relation: '形式化', reason: null }] });
+  const { result } = await runScenario(t, { request, scenario: { editMappingDraft } });
+  assert.deepEqual(resultInvariants(result), []);
+  const src = prop(result, 'P1').sources.map((x) => `${x.kind}:${x.id}`);
+  assert.ok(src.includes('goal:G1') && src.includes('known_requirement:K1'), src.join());
+  assert.ok(!result.models[0].unmapped.requirements.some((x) => x.id === 'G1'), JSON.stringify(result.models[0].unmapped));
+});
 });

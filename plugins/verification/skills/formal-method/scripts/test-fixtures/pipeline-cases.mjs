@@ -12,6 +12,7 @@ import { SM2, SM2_PROPS, partitionFixture } from './partition.mjs';
 import { stopStageViolations, deriveGraph, INTERRUPTS } from './decomposition-check.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './constants.mjs';
 import { expandRefs, runPath } from './ledger-check.mjs';
+import { C_P1, C_K_A, C_CC1, C_CC2, MU_P1, S_P1, MP1 } from './core-ids.mjs';
 
 export const P = (id, line, over = {}) => ({ id, file: 'spec.md', line, statement: `性質 ${id}`, query: { result: 'unsat' }, sanity: { result: 'sat' }, mutation: { result: 'sat' }, ...over });
 export const prop = (result, id) => result.properties.find((p) => p.id === id);
@@ -19,11 +20,29 @@ export const checksOf = (result, p) => p.check_ids.map((id) => result.checks.fin
 export const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
 export const runRefOf = (runDir, dir, name) => relative(runDir, join(dir, name));
 export const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
-// 最後の plan-author の task の計画（harness が書いたもの）
-export function planOf(harness) {
-  const t = harness.memory.byRole['plan-author'];
-  return { plan: readJson(join(t.attempt_dir, 'plan.json')), mutations: readJson(join(t.attempt_dir, 'mutations.json')) };
+// 採った計画のファイル: モデルごと（plan-author の task の context.model_id ごと。今の形では 1 つ）の最後の task の計画。
+// 担当が下書き（#264 SP-264-021）を書いたなら、CLI が組み立てた assembled/<task_id>/plan.json・mutations.json（spec §2.4、DD-15）
+export function planFilesOf(harness) {
+  const ts = harness.memory.tasks.filter((x) => x.role === 'plan-author');
+  const last = [...new Map(ts.map((x) => [x.context.model_id ?? null, x])).values()];
+  return last.map((t) => {
+    const draft = existsSync(join(t.attempt_dir, 'plan.json')) && /-draft\//.test(readJson(join(t.attempt_dir, 'plan.json')).schema ?? '');
+    const dir = draft ? join(t.context.run_dir, 'assembled', t.task_id) : t.attempt_dir;
+    return { task: t, draft, plan: join(dir, 'plan.json'), mutations: join(dir, 'mutations.json') };
+  });
 }
+// 採った計画（モデルごとの計画をモデルの順につないだもの。SP-264-012）
+export function planOf(harness) {
+  const fs = planFilesOf(harness);
+  const ps = fs.map((f) => readJson(f.plan));
+  const ms = fs.map((f) => readJson(f.mutations));
+  return {
+    plan: { ...ps[0], selection: ps.flatMap((x) => x.selection), checks: ps.flatMap((x) => x.checks), sanity: ps.flatMap((x) => x.sanity) },
+    mutations: { ...ms[0], mutations: ms.flatMap((x) => x.mutations), unavailable: ms.flatMap((x) => x.unavailable) },
+  };
+}
+// 計画の段が下書きの形（plan-author の task が target_ids を持つ）か
+export const planDraftMode = (harness) => harness.memory.tasks.some((x) => x.role === 'plan-author' && Array.isArray(x.context.target_ids) && x.context.target_ids.length > 0);
 // 道具に渡す query: input_refs のファイルのバイト列を順に、各ファイルの後に \n を 1 つ置いてつないだもの（cli-contract「Z3 の adapter」）
 export const queryOf = (runDir, refs) => refs.map((r) => `${readFileSync(join(runDir, r), 'utf8')}\n`).join('');
 // 実行の証拠は checks/<execution_id>/ にあり、execution_id は検査なら Check.id、確認なら Confirmation.id（cli-contract「run の領域の配置」）
@@ -64,8 +83,10 @@ export function assertRecordsConsistent(status, result, harness = null) {
   const dir = status.run_dir;
   const read = (ref) => { const p = runPath(dir, ref); return p && existsSync(p) ? readFileSync(p, 'utf8') : null; };
   const t = harness?.memory.byRole['plan-author'];
-  const adopted = t && existsSync(join(t.attempt_dir, 'plan.json')) ? { plan: runRefOf(dir, t.attempt_dir, 'plan.json'), mutations: runRefOf(dir, t.attempt_dir, 'mutations.json') } : null;
-  if (harness) assert.ok(adopted || !t, '採った計画がある');
+  // 計画のファイルが 1 つ（モデルが 1 つ）のときだけ、採った計画と照らす。モデルごとの計画はファイルに書かず、つないだ計画はメモリだけ（DD-15）
+  const files = harness ? planFilesOf(harness).filter((f) => existsSync(f.plan)) : [];
+  const adopted = files.length === 1 ? { plan: relative(dir, files[0].plan), mutations: relative(dir, files[0].mutations) } : null;
+  if (harness) assert.ok(files.length >= 1 || !t, '採った計画がある');
   assert.deepEqual(refInvariants(result, read, adopted), [], '起点が run の領域の Ref が実在し、結果が採った計画と合う');
   const savedRefs = new Set(result.records.saved.map((s) => s.ref));
   for (const s of result.records.saved) {
@@ -151,7 +172,7 @@ export function assertAcceptedKept({ result, status, harness }, mode) {
   assert.ok(call.tasks.length >= 1, 'その呼び出しの担当が取られた');
   for (const task of call.tasks) {
     assert.ok(!reasons.some((x) => x.code === '担当の失敗' && hasId(x.detail, task.task_id)), `受理した ${task.task_id} は 担当の失敗 にならない: ${JSON.stringify(reasons)}`);
-    if (ROLE_KINDS[task.role]) assert.ok(created.some((r) => r.startsWith(`attempts/${task.task_id}/`) && !r.endsWith('worklog.json')), `${task.task_id} の成果物は保存された`);
+    if (ROLE_KINDS[task.role]) assert.ok(created.some((r) => (r.startsWith(`attempts/${task.task_id}/`) || r.startsWith(`assembled/${task.task_id}/`)) && !r.endsWith('worklog.json')), `${task.task_id} の成果物は保存された`);
     if (task.context.perspective) assert.ok(result.confirmations.meaning.some((c) => c.checker === task.task_id && c.result !== '確認できず'), `${task.task_id} の意味の確認は残る`);
     if (task.role === 'cause-analyst') assert.ok(result.causes.some((c) => c.classified_by === task.task_id && c.cause !== '原因未確認'), `${task.task_id} の原因は残る`);
   }
@@ -284,7 +305,7 @@ export const SM = {
   ],
   forbidden: [{ from: '完了', event: '開始', source_ids: ['E-P1'] }],
   uncovered: [{ from: '待ち', event: '終了', missing_info: '待ちで終了が来たときの定めが無い' }],
-  goals: [{ state: '完了', kind: '完了', property_id: 'P1' }],
+  goals: [{ state: '完了', kind: '完了', property_id: MP1 }],
 };
 
 
@@ -442,17 +463,19 @@ export const PART_CASES = [
   // [名前, scenario の上書き, 分割の上書き, 契約 K-a の期待の判定, 親 P1 の期待の判定, 追加の検査]
   // harness は合成の条件の検査の depends_on に契約の検査を置くので、契約の検査が成功でなければ C-CC1 は始めず 未実行（D1、architecture「互いに独立な検査」）。
   // 親の性質は aggregateProperty の段 1 で 未実行
-  ['契約の検査が 反例', {}, { contract: { result: 'sat' } }, ['反例'], ['未実行'], (r) => ccNotRun(r, 'C-CC1')],
-  ['契約の検査が 時間切れ（道具自身の時間の上限）', {}, { contract: { result: 'timeout' } }, ['時間切れ'], ['未実行'], (r) => ccNotRun(r, 'C-CC1')],
-  ['契約の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks('C-K-a') }, {}, ['未確認'], ['未確認'], missingCheck('C-K-a', 'contract')],
-  ['契約に依る合成の条件の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks('C-CC1') }, {}, ['検証済み'], ['未確認'], missingCheck('C-CC1', 'condition')],
+  ['契約の検査が 反例', {}, { contract: { result: 'sat' } }, ['反例'], ['未実行'], (r) => ccNotRun(r, C_CC1)],
+  ['契約の検査が 時間切れ（道具自身の時間の上限）', {}, { contract: { result: 'timeout' } }, ['時間切れ'], ['未実行'], (r) => ccNotRun(r, C_CC1)],
+  ['契約の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks(C_K_A) }, {}, ['未確認'], ['未確認'], missingCheck(C_K_A, 'contract')],
+  ['契約に依る合成の条件の検査が欠けた（修正の巡の後も残る）', { editPlan: dropChecks(C_CC1) }, {}, ['検証済み'], ['未確認'], missingCheck(C_CC1, 'condition')],
   ['契約に依らない合成の条件の検査が 反例', {}, { cond: { CC2: { result: 'sat' } } }, ['検証済み'], ['反例'], null],
   // 契約の判定の facts は親の性質から取る（artifact-formats「分割と合成」の契約の判定）
   ['親の性質の前提の整合（sanity）が成り立たない（deterministic_confirmed が false）', { properties: [{ ...SM2_PROPS[0], sanity: { result: 'unsat' } }] }, {}, ['未確認'], ['未確認'], null],
   ['合成の意味の確認が成り立たない（meaning_confirmed が false）', { reviews: { composition: '成り立たない' } }, {}, ['未確認'], ['未確認'], null],
   ['合成の意味の確認が 確認できず（合成の検証者が返らない）', { returns: { 'composition-reviewer': 'missing' } }, {}, ['未確認'], ['未確認'], null],
-  ['親の性質の chosen.tool が z3 でないのに契約・合成の条件の検査がある（欠陥として除く）', { editPlan: (plan) => ({ ...plan, selection: plan.selection.map((x) => ({ ...x, chosen: { ...x.chosen, tool: 'Rust' } })) }) }, {}, ['未実行'], ['未実行'],
-    (r, harness) => { assertRevised(harness, 'plan-author', '計画'); assertExcluded(r, ['C-P1', 'C-K-a', 'C-CC1', 'C-CC2']); }],
+  // 計画の段が下書きの形（#264 SP-264-020・021）では、道具の無い性質（no_suitable_tool）は excluded_property_ids に入り、その性質と、
+  // それに由来する契約・合成の条件の検査を骨組みが出さない（今の形の「検査がある」欠陥は起きえない）
+  ['親の性質の chosen.tool が z3 でない（骨組みが性質・契約・合成の条件の検査を出さない）', { editPlan: (plan) => ({ ...plan, selection: plan.selection.map((x) => ({ ...x, chosen: { ...x.chosen, tool: 'Rust' } })) }) }, {}, ['未実行'], ['未実行'],
+    (r, harness) => { assert.equal(tasksOf(harness, 'plan-author').length, 1, '欠陥でないので修正の巡は出ない'); assert.deepEqual(r.checks, []); }],
   ['親の性質の全てで no_suitable_tool で、検査が無い（検査の欠けから除く）', notZ3NoChecks, {}, ['未実行'], ['未実行'],
     (r, harness) => { assert.equal(tasksOf(harness, 'plan-author').length, 1, '修正の巡は出ない'); assert.deepEqual(r.checks, []); }],
 ];
@@ -479,9 +502,10 @@ export const z3Candidate = (sel) => sel.candidates.find((c) => c.name === 'z3');
 export const withChosen = (tool) => setSelection((sel) => sel.map((x) => ({ ...x, chosen: { ...x.chosen, tool } })));
 // 欠陥が残ったときの期待: 欠陥の残った計画の要素（検査・sanity・変異）は除き（assertExcluded）、性質は道具があれば 未確認、SP-007 なら 未実行
 // （artifact-formats「検査」）。selection の欠け・重なりが残った性質も、その検査を欠陥の残った要素として除き、method は null（artifact-formats.md:733）。
-export const sp007 = (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未実行']); };
+// 道具の無い性質（SP-007）: 計画の段が下書きの形では excluded_property_ids に入り、骨組みが検査を出さない（#264 SP-264-021）
+export const sp007 = (r) => { assert.ok(!r.checks.some((c) => c.id === C_P1), '道具の無い性質の検査は骨組みに出ない'); assert.deepEqual(prop(r, 'P1').verdict, ['未実行']); };
 export const selectionLeft = (r) => {
-  assertExcluded(r, ['C-P1']);
+  assertExcluded(r, [C_P1]);
   assert.equal(prop(r, 'P1').method, null, 'method は null');
   assert.deepEqual(prop(r, 'P1').verdict, ['未確認'], 'no_suitable_tool は準備の結果だけ（z3 はある）');
   assert.ok(r.stop_report.reasons.some((x) => x.code === '必要な性質が検証の成功でない'), JSON.stringify(r.stop_report.reasons));
@@ -490,60 +514,43 @@ export const PLAN_DEFECTS = [
   // [名前, scenario の上書き（巡ごと）, 欠陥が残ったときの期待]
   ['selection の要素が欠ける', { editPlan: setSelection(() => []) }, selectionLeft],
   ['selection の要素が重なる', { editPlan: setSelection((sel) => [...sel, structuredClone(sel[0])]) }, selectionLeft],
-  // モデルの性質ごとに PlanFile.sanity が 1 つ以上ある（artifact-formats.md:743 の検査の欠け）
-  ['sanity の無い計画', { editPlan: (plan) => ({ ...plan, sanity: [] }) },
-    (r) => {
-      assert.ok(!r.confirmations.deterministic.some((c) => c.kind === 'sanity'), 'sanity の確認は無い');
-      // 静的な確認の plan_coverage が 成り立たない ので、述語 1 に加えて述語 2（確認が終わっていない）でも止まる（SP-FORMALMETHOD-012）
-      const cov = r.confirmations.deterministic.find((c) => c.kind === 'plan_coverage' && c.model_property_id === 'P1');
-      assert.equal(cov?.result, '成り立たない', JSON.stringify(cov));
-      assert.match(cov.reason, /前提の整合の確認/);
-      assert.deepEqual(prop(r, 'P1').verdict, ['未確認']);
-      const codes = r.stop_report.reasons.map((x) => x.code);
-      assert.ok(codes.includes('必要な性質が検証の成功でない') && codes.includes('確認が終わっていない'), codes.join());
-    }],
-  // property・contract・composition の検査の expected は unsat（artifact-formats.md:731）
-  ['kind property の検査の expected が unsat でない', { editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => (c.id === 'C-P1' ? { ...c, expected: 'sat' } : c)) }) },
-    (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
+  // 計画の段が下書きの形（#264 SP-264-020・021）では、検査と sanity の列挙・expected・input_refs・target_id は plan-skeleton が決めるので、
+  // それらを違える計画（sanity の無い計画、expected が unsat でない検査、target_id の違う検査、input_refs の違う検査）は担当が書けない。
+  // 担当が書く targets の欠けと余りが、その代わりの計画の欠陥になる
+  ['targets の要素が欠ける', { editPlanDraft: (d) => ({ ...d, targets: d.targets.filter((x) => x.target_id !== MP1) }) },
+    (r) => { assert.ok(!r.checks.some((c) => c.id === C_P1), '時間の上限の無い検査は骨組みに出ない'); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
+  ['targets に context.target_ids に無い target_id の要素がある', { editPlanDraft: (d) => ({ ...d, targets: [...d.targets, { ...d.targets[0], target_id: 'no-such-target' }] }) },
+    (r) => { assert.ok(r.checks.some((c) => c.id === C_P1), '骨組みの検査は残る'); assert.equal(detConf(r, 'reference')?.result, '成り立たない', '余りの target は reference の欠陥（target-unknown）として残る'); }],
   ['chosen.tool が表記の揺れ（Z3）で候補の名前に無い', { editPlan: withChosen('Z3') }, sp007],
   ['chosen.tool が候補に無い名前', { editPlan: withChosen('cvc5') }, sp007],
   ['z3 の検証器の候補が無い', { editPlan: setSelection((sel) => sel.map((x) => ({ ...x, candidates: x.candidates.map((c) => (c.name === 'z3' ? { ...c, name: 'cvc5' } : c)), chosen: { ...x.chosen, tool: 'cvc5' } }))) }, sp007],
-  ['chosen.tool が z3 でない性質に kind property の検査がある', { editPlan: withChosen('Rust') }, sp007],
-  ['kind contract の検査の target_id がモデルの性質の id', { editPlan: (plan) => ({ ...plan, checks: [...plan.checks, { ...plan.checks[0], id: 'C-bad', kind: 'contract', target_id: 'P1' }] }) },
-    (r) => { assertExcluded(r, ['C-bad']); assert.ok(r.checks.some((c) => c.id === 'C-P1'), '欠陥の無い検査は実行する'); }],
-  // input_refs が指せるのは担当の query だけ（cli-contract.md:337）。担当の query 2 つを並べると、(check-sat) を持つ input が最後でない
-  ['担当の query 2 つを並べた検査（(check-sat) を持つ input が最後でない）', { editPlan: (plan, { mref }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [mref(`${c.target_id}-sanity.smt2`), ...c.input_refs] } : c)) }) },
-    // 検出役の検査の input_refs を使う変異 MU-P1 も、最後の input を置き換えた後も (check-sat) を持つ input が最後でないので除く
-    (r) => { assertExcluded(r, ['C-P1', 'MU-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認'], '検査の欠けと同じ'); }],
-  ['input_refs が担当の query でないファイル（対象のファイル）を指す検査', { editPlan: (plan, { targetRef }) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: [targetRef('spec.md'), ...c.input_refs] } : c)) }) },
-    (r) => { assertExcluded(r, ['C-P1']); assert.deepEqual(prop(r, 'P1').verdict, ['未確認']); }],
   ['(check-sat) が最後の form でない変異（計画作成役の .smt2）', { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('mut-bad.smt2', '; mutation bad\n(declare-const x Int)\n(check-sat)\n(assert (> x 0))\n') })) }) },
     (r) => {
       // 変異を全て除かれた性質: detection は 検出能力未確認・mutations []・reason に除いた変異の計画の id。run は 停止 で理由に 検出能力未確認（artifact-formats.md:731）
-      assertExcluded(r, ['MU-P1']);
+      assertExcluded(r, [MU_P1]);
       const det = prop(r, 'P1').detection;
       assert.equal(det.status, '検出能力未確認');
       assert.deepEqual(det.mutations, []);
-      assert.ok(det.reason.includes('MU-P1'), `reason に除いた変異の id: ${det.reason}`);
+      assert.ok(det.reason.includes(MU_P1), `reason に除いた変異の id: ${det.reason}`);
       assert.ok(det.reason.includes('別の方法の確認の結果が無い'), `reason に「別の方法の確認の結果が無い」: ${det.reason}`);
       assert.ok(r.stop_report.reasons.some((x) => x.code === '検出能力未確認'), JSON.stringify(r.stop_report.reasons));
     }],
   // 変異は検出役の性質の query と同じ節の名前の集合を持つ（artifact-formats「担当の成果物」の節の名前、SP-FORMALMETHOD-012）
   ['節の名前（:named）を保たない変異', { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('mut-unnamed.smt2', '; mutation unnamed\n(declare-const x Int)\n(assert (> x 0))\n(check-sat)\n') })) }) },
     (r) => {
-      assertExcluded(r, ['MU-P1']);
+      assertExcluded(r, [MU_P1]);
       assert.equal(prop(r, 'P1').detection.status, '検出能力未確認');
       const ref = r.confirmations.deterministic.find((c) => c.kind === 'reference');
       assert.equal(ref?.result, '成り立たない', '名前の食い違いは reference の区分の欠陥');
-      assert.match(ref.reason, /MU-P1 の assert の名前/);
+      assert.ok(ref.reason.includes(`${MU_P1} の assert の名前`), ref.reason);
     }],
   // mutation_ref は計画作成役自身の attempts/<task_id>/ で始まる（artifact-formats「変異のファイル」）。モデル作成役の query を指すと計画の欠陥
   ['mutation_ref が他の役の attempt（モデル作成役の query）を指す変異', { editMutations: (m, { mref }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: mref(`${x.property_id}.smt2`) })) }) },
     (r) => {
-      assertExcluded(r, ['MU-P1']);
+      assertExcluded(r, [MU_P1]);
       const det = prop(r, 'P1').detection;
       assert.equal(det.status, '検出能力未確認');
-      assert.ok(det.reason.includes('MU-P1'), `reason に除いた変異の id: ${det.reason}`);
+      assert.ok(det.reason.includes(MU_P1), `reason に除いた変異の id: ${det.reason}`);
       assert.ok(det.reason.includes('別の方法の確認の結果が無い'), `reason に「別の方法の確認の結果が無い」: ${det.reason}`);
     }],
 ];
@@ -571,7 +578,7 @@ export function assertNoSanityConfirmed(r) {
 }
 
 // 分割作成役の契約・合成の条件の query は、計画の段の分割の照合で照らし、修正の巡は分割作成役に出る
-export const PARTITION_QUERY_VIOLATIONS = [['契約', 'contract', 'C-K-a'], ['合成の条件', 'composition', 'C-CC1']];
+export const PARTITION_QUERY_VIOLATIONS = [['契約', 'contract', C_K_A], ['合成の条件', 'composition', C_CC1]];
 // persist が false なら 1 巡目だけ違反し、修正の巡で直す
 export const partitionViolating = (which, persist) => (cands, put, ctx) => {
   const base = partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'] })(cands, put, ctx);
@@ -626,7 +633,7 @@ export const partitionDefect = (kind, persist = false) => (cands, put, ctx) => {
   const base = partitionFixture({ basis: 'guarantee', conds: ['CC1', 'CC2'] })(cands, put, ctx);
   if (!persist && ctx.round > 1) return base;
   if (kind === 'responsible') return { ...base, boundaries: base.boundaries.map((b) => ({ ...b, responsible: ['K-missing'] })) };
-  if (kind === 'part_id') return { ...base, contracts: base.contracts.map((k) => ({ ...k, part_id: 'part-b' })) };
+  if (kind === 'part_id') return { ...base, contracts: base.contracts.map((k) => ({ ...k, part_id: base.parts[1].id })) };
   return { ...base, boundaries: base.boundaries.map((b) => ({ ...b, assumption_basis: { kind: '共同不変条件', check_ids: ['C-JI1'] } })) };
 };
 export const PARTITION_DEFECTS = [
@@ -640,16 +647,20 @@ export function assertAuthorPropertyIds(harness) {
   const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').flatMap((x) => readJson(join(x.attempt_dir, 'inventory.json')).properties);
   const extractorBlocked = new Set(inv.filter((p) => p.blocked_by_question.length > 0).map((p) => p.id));
   const sorted = (xs) => [...xs].sort();
-  for (const ma of harness.memory.tasks.filter((x) => x.role === 'model-author')) {
-    assert.deepEqual(sorted(ma.context.property_ids), sorted(inv.map((p) => p.id).filter((id) => !extractorBlocked.has(id))), 'model-author の property_ids');
-  }
-  const maTask = harness.memory.tasks.filter((x) => x.role === 'model-author').at(-1);
-  const maRet = harness.memory.authorReturns.filter((x) => x.task.role === 'model-author').at(-1);
+  // model-author の task はモデルごと（#264 SP-264-012）。task の property_ids の和が対象の性質で、どの性質もちょうど 1 つの task に入る
+  const mas = harness.memory.tasks.filter((x) => x.role === 'model-author');
+  const union = sorted(mas.flatMap((x) => x.context.property_ids));
+  assert.deepEqual(union, sorted(inv.map((p) => p.id).filter((id) => !extractorBlocked.has(id))), 'model-author の property_ids');
+  assert.equal(new Set(union).size, union.length, 'どの性質もちょうど 1 つの model-author の task に入る');
+  // 各 task の最後の返り値の blocked_by_question
+  const lastRet = (task) => harness.memory.authorReturns.filter((x) => x.task.task_id === task.task_id).at(-1);
+  const blockedByMa = new Set(mas.flatMap((x) => lastRet(x)?.ret.blocked_by_question ?? []));
   const inModels = new Set(harness.memory.models.flatMap((m) => readJson(join(m.task.attempt_dir, m.file)).properties.flatMap((p) => p.inventory_property_ids)));
   const formal = new Set(inv.filter((p) => p.formalizable).map((p) => p.id));
-  for (const pa of harness.memory.tasks.filter((x) => x.role === 'plan-author')) {
-    const expected = maTask.context.property_ids.filter((id) => formal.has(id) && !maRet.ret.blocked_by_question.includes(id) && inModels.has(id));
-    assert.deepEqual(sorted(pa.context.property_ids), sorted(expected), 'plan-author の property_ids');
+  const pas = harness.memory.tasks.filter((x) => x.role === 'plan-author');
+  if (pas.length) {
+    const expected = union.filter((id) => formal.has(id) && !blockedByMa.has(id) && inModels.has(id));
+    assert.deepEqual(sorted(pas.flatMap((x) => x.context.property_ids)), sorted(expected), 'plan-author の property_ids（モデルごとの task の和）');
   }
 }
 export const PROPERTY_IDS_CASES = [
@@ -661,18 +672,19 @@ export const PROPERTY_IDS_CASES = [
 
 // ---- n=33: 独立検証者と原因の分類役の input_refs（artifact-formats「独立検証者と原因の分類役の input_refs」） ----
 export const norm = (r) => r.replace(/\/+$/, '');
+const asmRef = (task, kind) => `assembled/${task.task_id}/${kind}.json`;
 export function lastTask(harness, role, pred = () => true) { return harness.memory.tasks.filter((x) => x.role === role && pred(x)).at(-1); }
 export function expectedInputRefs(task, { result, harness, runDir }) {
   const c = task.context;
   const rel = (abs) => relative(runDir, abs);
   const req = readJson(join(runDir, 'request.json'));
   const copiesOf = (id) => req.targets.find((x) => x.id === id).fixed.files.filter((f) => f.text).map((f) => `target:${id}/${f.path}`);
-  const invOf = (targetId) => rel(join(lastTask(harness, 'extractor', (x) => x.context.target_id === targetId).attempt_dir, 'inventory.json'));
+  const invOf = (targetId) => asmRef(lastTask(harness, 'extractor', (x) => x.context.target_id === targetId), 'inventory');
   // 対象のファイルの ref（写しを作らないので target:<id>/<file>）。範囲で渡す役は、出所のあるファイルだけ
   const fileRefs = (pairs) => [...new Set(pairs.map(([tid, f]) => `target:${tid}/${f}`))];
   const elementsAll = req.targets.flatMap((x) => readJson(join(runDir, invOf(x.id))).elements);
   const filesOfElements = (ids) => fileRefs(elementsAll.filter((e) => ids.includes(e.id)).map((e) => [e.source.target_id, e.source.file]));
-  const modelOf = (id) => { const m = harness.memory.models.filter((x) => x.id === id).at(-1); return { model: rel(join(m.task.attempt_dir, m.file)), mapping: rel(join(m.task.attempt_dir, `mapping-${id}.json`)), json: readJson(join(m.task.attempt_dir, m.file)) }; };
+  const modelOf = (id) => { const m = harness.memory.models.filter((x) => x.id === id).at(-1); return { model: rel(join(m.task.attempt_dir, m.file)), mapping: asmRef(m.task, 'mapping'), json: readJson(join(m.task.attempt_dir, m.file)) }; };
   const ran = (id) => existsSync(join(runDir, 'checks', id));
   const rec = (id) => `checks/${id}`;
   const plan = lastTask(harness, 'plan-author');
@@ -691,16 +703,16 @@ export function expectedInputRefs(task, { result, harness, runDir }) {
     }
     case 'nonformal': {
       const pid = c.property_ids[0];
-      const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => ({ x, j: readJson(join(x.attempt_dir, 'inventory.json')) })).filter(({ j }) => j.properties.some((p) => p.id === pid)).at(-1);
+      const inv = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => ({ x, j: readJson(join(runDir, asmRef(x, 'inventory'))) })).filter(({ j }) => j.properties.some((p) => p.id === pid)).at(-1);
       const p = inv.j.properties.find((y) => y.id === pid);
       return [`views/nonformal-${pid}.json`, ...filesOfElements(p.source_ids)];
     }
     case 'composition': {
       const pt = lastTask(harness, 'partition-author');
-      const pj = readJson(join(pt.attempt_dir, 'partitions.json'));
+      const pj = readJson(join(runDir, asmRef(pt, 'partitions')));
       const models = [...new Set(harness.memory.models.map((m) => m.id))].map((id) => modelOf(id).model);
       const execs = result.checks.filter((x) => ['contract', 'composition'].includes(x.kind)).map((x) => x.id).filter(ran).map(rec);
-      return [rel(join(pt.attempt_dir, 'partitions.json')), ...models, ...pj.contracts.map((k) => k.query_ref), ...pj.composition_conditions.map((k) => k.query_ref), ...execs, 'worklogs/cli-計画.json'];
+      return [asmRef(pt, 'partitions'), ...models, ...pj.contracts.map((k) => k.query_ref), ...pj.composition_conditions.map((k) => k.query_ref), ...execs, 'worklogs/cli-計画.json'];
     }
     default: {
       assert.equal(task.role, 'cause-analyst');
@@ -744,19 +756,19 @@ export function assertInputRefs(out, tasks) {
 // 作成役の作業記録・返り値は入れない。query の応答の attempts/ の下の資料は全て hash を持つファイルの資料（読んでよい資料）
 export function expectedAuthorInputRefs(task, { harness, runDir }) {
   const rel = (abs) => relative(runDir, abs);
-  const models = [...new Set(harness.memory.models.map((m) => m.id))].map((id) => harness.memory.models.filter((x) => x.id === id).at(-1));
+  const models = [...new Set(harness.memory.models.map((m) => m.id))].filter((id) => task.role !== 'plan-author' || id === task.context.model_id).map((id) => harness.memory.models.filter((x) => x.id === id).at(-1));
   const modelRefs = models.flatMap((m) => {
     const json = readJson(join(m.task.attempt_dir, m.file));
-    return [rel(join(m.task.attempt_dir, m.file)), rel(join(m.task.attempt_dir, `mapping-${m.id}.json`)),
+    return [rel(join(m.task.attempt_dir, m.file)), asmRef(m.task, 'mapping'),
       ...json.properties.flatMap((p) => [p.query_ref, ...p.sanity.map((x) => x.query_ref)])];
   });
   if (task.role === 'partition-author') return [...new Set(modelRefs)];
   assert.equal(task.role, 'plan-author');
   const pt = lastTask(harness, 'partition-author');
-  const partRef = pt ? rel(join(pt.attempt_dir, 'partitions.json')) : null;
+  const partRef = pt ? asmRef(pt, 'partitions') : null;
   const pj = partRef && task.context.input_refs.some((r) => r.ref === partRef) ? readJson(join(runDir, partRef)) : null;
   const parts = pj ? [partRef, ...pj.contracts.map((k) => k.query_ref), ...pj.composition_conditions.map((k) => k.query_ref)] : [];
-  const invs = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => rel(join(x.attempt_dir, 'inventory.json')));
+  const invs = harness.memory.tasks.filter((x) => x.role === 'extractor').map((x) => asmRef(x, 'inventory'));
   return [...new Set([...modelRefs, ...parts, ...invs])];
 }
 export function assertAuthorInputRefs(out, tasks) {

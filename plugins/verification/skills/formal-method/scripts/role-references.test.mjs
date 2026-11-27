@@ -53,9 +53,49 @@ test('SP-FORMALMETHOD-013 役ごとの参照: task の instructions は役の指
   assert.equal(AUTHOR_ROLES.length + CONFIRMER_ROLES.length, Object.keys(ROLES).length);
 });
 
+// #264（SP-264-090、design §4.7）: 作成役は下書きの型を書き、CLI が実行体の骨組みと下書きから今の型を組み立てる。
+// 文書の単位（U6）が artifact-formats.md に下書きの型を定義し、ROLE_ENTRY_TYPES の writes を下書きの型に変えて生成し直す。
+// それまで（plugin の版が 0.1.1 の間）は今の型を期待する。版の上げ忘れは core-wiring.test.mjs の「U6 の印は揃って現れる」が捉える
+const U6_READY = JSON.parse(readFileSync(join(SKILL, '..', '..', '.claude-plugin', 'plugin.json'), 'utf8')).version !== '0.1.1';
+// 役 → [書く型に入れる下書きの型, 書く型から外す今の型]（組み立てた後の今の型は CLI が書く）
+const DRAFT_WRITES = {
+  extractor: [['InventoryDraft'], ['Inventory']],
+  'model-author': [['MappingDraft'], ['MappingFile']],
+  'partition-author': [['PartitionsDraft'], ['PartitionsFile']],
+  'plan-author': [['PlanDraft', 'MutationsDraft'], ['PlanFile', 'MutationsFile']],
+  'extraction-reviewer': [['ReviewItem'], []],
+  'fidelity-reviewer': [['ReviewItem'], []],
+  'assurance-reviewer': [['ReviewItem'], []],
+  'composition-reviewer': [['ReviewItem'], []],
+};
+
+test('SP-264-090 型の抜粋: U6 の後、作成役と確認役の書く型（ROLE_ENTRY_TYPES の writes）は下書きの型で、組み立てた後の今の型を書く型に持たない', { skip: !U6_READY && 'artifact-formats.md に下書きの型を書く U6 の前' }, () => {
+  for (const [role, [drafts, assembled]] of Object.entries(DRAFT_WRITES)) {
+    const { writes } = entryTypesOf(role);
+    for (const n of drafts) assert.ok(writes.includes(n), `${role} の書く型に ${n} が無い: ${writes.join()}`);
+    for (const n of assembled) assert.ok(!writes.includes(n), `${role} の書く型に組み立てた後の ${n} が残る: ${writes.join()}`);
+    const defs = excerptDefs(read(`${TYPES_DIR}/${role}.md`));
+    for (const n of drafts) assert.ok(defs.has(n), `${role} の抜粋に下書きの型 ${n} の定義が無い`);
+  }
+  // 原因の分類役は、問いを返した作成役の outputs として、CLI が組み立てた後の今の型を読む（下書きは読まない）
+  const { reads } = entryTypesOf('cause-analyst');
+  for (const n of ['Inventory', 'PartitionsFile', 'PlanFile', 'MutationsFile']) assert.ok(reads.includes(n), `cause-analyst の読む型に ${n}`);
+});
+
 test('SP-FORMALMETHOD-013 型の抜粋: 抜粋の型の定義は artifact-formats.md の同じ行の写しで、役の指示が挙げる型を含む', () => {
   const source = read('references/artifact-formats.md');
-  const want = {
+  const want = U6_READY ? {
+    // U6 の後: 作成役は下書きの型を書く（SP-264-090）。読む型は CLI が組み立てた後の今の型
+    extractor: ['InventoryDraft', 'Question', 'Worklog', 'RefHash'],
+    'model-author': ['ModelFile', 'Clause', 'StateMachine', 'MappingDraft', 'Worklog'],
+    'partition-author': ['PartitionsDraft', 'ModelFile', 'Worklog'],
+    'plan-author': ['PlanDraft', 'MutationsDraft', 'ModelFile', 'PartitionsFile', 'Worklog'],
+    'extraction-reviewer': ['ReviewItem', 'Inventory', 'Worklog'],
+    'fidelity-reviewer': ['ReviewItem', 'ModelFile', 'Clause', 'MappingFile', 'Judgment', 'Worklog', 'Inventory'],
+    'assurance-reviewer': ['ReviewItem', 'Inventory', 'Worklog'],
+    'composition-reviewer': ['ReviewItem', 'PartitionsFile', 'ModelFile', 'Worklog'],
+    'cause-analyst': ['ModelFile', 'Cause', 'Subject', 'Question', 'Worklog', 'Inventory', 'PartitionsFile', 'PlanFile', 'MutationsFile'],
+  } : {
     extractor: ['Inventory', 'Question', 'Worklog', 'RefHash'],
     'model-author': ['ModelFile', 'Clause', 'StateMachine', 'MappingFile', 'Worklog'],
     'partition-author': ['PartitionsFile', 'ModelFile', 'Worklog'],

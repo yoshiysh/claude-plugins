@@ -13,9 +13,9 @@ CLI の静的な確認は、性質の query の節を役ごとに切り取って
 ## 読むもの
 
 - `query` が渡す資料だけ: 対象のファイル（`spans` の行だけ）、`views/<unit_id>.json`、`context.model_id` のモデル、対応表、そのモデルの性質の query（`.smt2`）、CLI のモデル化の段の作業記録。対象のファイルの範囲は、対応表の行、そのモデルの性質が扱う inventory の性質・節・遷移・禁止・入出力の契約の出所、そのモデルの inventory の外部の依存の出所、view の `bound_elements`・`unbound_elements` の出所である。
-  - view は、そのモデルの性質の inventory の記述（`properties`）、このモデルの性質に結ばれた要素（`bound_elements`）、どの性質にも結ばれない要素（`unbound_elements`）、そのモデルの inventory の外部の依存（`external_dependencies`。文と出所）、モデルの性質ごとの節・保証の抜粋とその性質の query のファイルの絶対パス（`model_properties`: `{id, inventory_property_ids, expected, assurance, clauses, query_path}`）を持つ。他のモデルの性質にだけ結ばれた要素は入らない。
+  - view は、そのモデルの性質の inventory の記述（`properties`）、このモデルの性質に結ばれた要素（`bound_elements`）、どの性質にも結ばれない要素（`unbound_elements`）、そのモデルの inventory の外部の依存（`external_dependencies`。文と出所）、モデルの性質ごとの節・保証の抜粋とその性質の query のファイルの絶対パス（`model_properties`: `{id, inventory_property_ids, expected, assurance, clauses, query_path}`）を持つ。漏れの候補（`omission_candidates`: `bound_elements`・`unbound_elements` のうち、そのモデルのどの節・遷移・禁止・入出力の契約の `source_ids` にも無く、対応表のどの行も触れない要素の `{id, source}`。id の順）も持つ。他のモデルの性質にだけ結ばれた要素は入らない。
   - 性質ごとの節の役（`clauses` の `name`・`role`・`source_ids`・`basis`・`external_dependency_id`）と保証は `model_properties` で読み、その性質の query は `query_path` のファイルを読む。モデルのファイルから性質を切り出さない（`model_properties` はモデルの `properties[]` の値のままで、同じ値を 2 度読むことになる）。モデルのファイルは、状態遷移（`state_machine`）・入出力の契約など、`model_properties` に無い欄を読むときに開く。
-  - モデルに無い出所の要求（`omission`）は、`bound_elements` と `unbound_elements` のうち、対応表の行にも節の出所にも無いものを、渡された範囲の本文を読んで漏れかを判断する。どれも本文が範囲にあるので、本文を読まずに `成り立つ` にも `確認できず` にもしない。判断に範囲の外の文脈が要るときだけ、共通の義務の範囲の外の規則どおり `確認できず` にする。
+  - モデルに無い出所の要求（`omission`）は、view の `omission_candidates` の要素についてだけ、渡された範囲の本文を読んで漏れかを判断する。候補は CLI が要素の集合の差で決めるので、自分で差を取り直さない。どれも本文が範囲にあるので、本文を読まずに `成り立つ` にも `確認できず` にもしない。判断に範囲の外の文脈が要るときだけ、共通の義務の範囲の外の規則どおり `確認できず` にする。
   - そのモデルに判断を要する項目があれば、その記録（`judgments/<model_id>.json`）と、項目の道具の実行の記録（`checks/<id>/`）。図・組合せ・経路はファイルとして渡されないので、モデルから読む。
 
 ## 読まないもの
@@ -68,12 +68,13 @@ CLI の静的な確認は、性質の query の節を役ごとに切り取って
 
 `ReviewReturn`（[担当の返り値](../references/types/fidelity-reviewer.md#担当の返り値)）。同じ claim で受け取った unit ごとに、別の返り値を書いて出す。
 
-- `perspective`: `fidelity`。`unit_id` は `context.unit_id`。
-- `result`: 次の順に、最初に当たる値にする。`findings` に載せる確定した問題が 1 つでもあれば `成り立たない`。無く、全ての行と節を見て、[区別できないとき](#区別できないとき) に当たる行も無ければ `成り立つ`。それ以外（区別できない行がある、又は見終えられなかった行がある）は `確認できず`。
+- `task_id`・`unit_id`・`perspective` は書かない（CLI が task の値を入れる）。
+- `items`: 見た行と節ごとに 1 つ、`{ref, result}` を書く。`ref` は対応表の行かモデルの節の名前、`result` は `成り立つ`・`成り立たない`・`確認できず` のどれか。確定した問題を見つけた行と節は `成り立たない`、[区別できないとき](#区別できないとき) に当たる行と節と見終えられなかった行と節は `確認できず`。全てを見終えられなければ、見られなかった範囲を `確認できず` の項目として残す。
+- 確認の `result` は書かない。CLI が `findings` と `items` から決める（指摘が 1 つでもあれば `成り立たない`、指摘が無く全ての項目が `成り立つ` なら `成り立つ`、他は `確認できず`。`items` が空なら `確認できず`）。
 - `findings`: 確定した問題ごとに、確かめた箇所（`ref`。対応表の行・節の名前とモデル・出所の箇所）・`kind`（観点に挙げた値。当たらなければ `other`）・説明（`note`）。無ければ空の配列。
 - `judgments`: [判断を要する項目の答え方](#判断を要する項目の答え方)。
 - `record_ref`: 行と節ごとに、見た量化・否定・条件・順序・単位・例外・節の役の項目、結果、根拠を書いた確認の記録（SP-FORMALMETHOD-012 の項目ごとの記録になる）。
 
 ## 区別できないとき
 
-- 出所が 2 通りに読め、モデルがどちらを表すか決められない行は、その行を `確認できず` として `record_ref` に記録する（`result` の値は [返り値](#返り値) の順で決まる）。一方の読みを選んで `成り立つ` にすると、選んだ読みが検証済みとして残る。
+- 出所が 2 通りに読め、モデルがどちらを表すか決められない行は、その行を `確認できず` として `record_ref` に記録する（その項目の `items` の `result` も `確認できず` にする）。一方の読みを選んで `成り立つ` にすると、選んだ読みが検証済みとして残る。

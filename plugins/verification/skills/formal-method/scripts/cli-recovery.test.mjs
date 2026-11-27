@@ -14,6 +14,7 @@ import { fileHash, snapshotTree, liveIdentity, makeRunDir, writeLock, writeStatu
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { ledgerEntryViolations, tasksById } from './test-fixtures/ledger-check.mjs';
+import { C_P1, C_K_A } from './test-fixtures/core-ids.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; } };
@@ -263,23 +264,23 @@ test('cli-contract 答えの後の停止 AC-10: -model の実行で答えの行�
   assert.deepEqual(resultInvariants(r), []);
   assert.equal(r.status, '停止');
   assert.ok(r.stop_report.reasons.some((x) => x.code === '時間の上限'));
-  const c = r.checks.find((x) => x.id === 'C-P1');
+  const c = r.checks.find((x) => x.id === C_P1);
   assert.equal(c.state, '実行した');
   assert.equal(c.verdict, '反例', '答えの行（sat）で判定する');
   assert.deepEqual(c.end, { started: true, tool_result: '反する', abnormal_exit: false, unreadable_output: false, stopped_by: null, time_limit_hit: null });
   // 証人は読めないので、反例の replay は始めず 確認できず
-  const x = r.counterexamples.find((y) => y.check_id === 'C-P1');
+  const x = r.counterexamples.find((y) => y.check_id === C_P1);
   assert.ok(x, '反例 の検査から反例を作る');
   const replay = r.confirmations.deterministic.find((y) => y.id === x.replay.confirmation_id);
   assert.equal(replay.result, '確認できず');
   assert.equal(replay.end.started, false);
-  const k = r.checks.find((y) => y.id === 'C-K-a');
+  const k = r.checks.find((y) => y.id === C_K_A);
   assert.equal(k?.kind, 'contract');
   assert.equal(k.verdict, '時間切れ');
   assert.equal(k.end.stopped_by, '時間');
   const stopped = [...r.stop_report.checks_aborted, ...r.stop_report.checks_running];
-  assert.ok(stopped.some((y) => y.id === 'C-K-a' && y.kind === 'contract'), `止めた契約の検査が kind contract で出る: ${JSON.stringify(stopped)}`);
-  assert.ok(!stopped.some((y) => y.id === 'C-P1'), '答えを得た検査は止めた検査に入らない');
+  assert.ok(stopped.some((y) => y.id === C_K_A && y.kind === 'contract'), `止めた契約の検査が kind contract で出る: ${JSON.stringify(stopped)}`);
+  assert.ok(!stopped.some((y) => y.id === C_P1), '答えを得た検査は止めた検査に入らない');
   await sleep(500);
   for (const pid of [...new Set(out.log().map((e) => e.pid))]) assert.equal(alive(pid), false, `道具の process ${pid} が残らない`);
 });

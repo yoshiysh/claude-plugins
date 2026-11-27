@@ -11,6 +11,7 @@ import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { removeTree, skipIfRoot } from './test-fixtures/cli-runner.mjs';
 import { expandRefs } from './test-fixtures/ledger-check.mjs';
 import { UNIT_MAX_BYTES } from './lib/schemas.mjs';
+import { M1, C_P1, MP1 } from './test-fixtures/core-ids.mjs';
 import { P, prop, assertExcluded, tasksOf, assertRevised, canonicalRun, hasId, SM, PART_SCENARIO, assertNoChecksRow, QUESTION, QUESTION_CASES, detConf, assertDetCommon, partitionDefect, PARTITION_DEFECTS, assertAuthorPropertyIds, PROPERTY_IDS_CASES, assertInputRefs, assertAuthorInputRefs, timeLimitDiag, NO_MUTATION_CASES, COMBINATION_CASES, HALFWIDTH, EMOJI, wrongGoal } from './test-fixtures/pipeline-cases.mjs';
 
 describe('cli-pipeline', { concurrency: 4 }, () => {
@@ -23,7 +24,12 @@ for (const [role, row] of QUESTION_CASES) {
     };
     const { result, harness } = await runScenario(t, { scenario });
     assert.deepEqual(resultInvariants(result), []);
-    assert.equal(tasksOf(harness, 'plan-author').length, 1, '問いに依存する性質の検査の欠けは計画の欠陥でない');
+    // plan-author の task はモデルごとに 1 つ（artifact-formats「役と context」の後の項）。どの task も 1 回の提出で受理され、修正の巡が出ない
+    const pas = tasksOf(harness, 'plan-author');
+    assert.ok(pas.length >= 1);
+    assert.equal(new Set(pas.map((x) => x.context.model_id)).size, pas.length, 'plan-author の task はモデルごとに 1 つ');
+    for (const x of pas) assert.ok(harness.memory.models.some((m) => m.id === x.context.model_id), `${x.task_id}: 実在するモデル`);
+    for (const x of pas) assert.deepEqual(harness.memory.submits.filter((y) => y.task_id === x.task_id).map((y) => [y.result.ok, y.result.done]), [[true, true]], `${x.task_id}: 問いに依存する性質の検査の欠けは計画の欠陥でない`);
     const rows = result.models.flatMap((m) => m.mapping).filter((x) => x.property_id === 'P2');
     if (row === 'none') {
       assert.deepEqual(rows, [], '抽出役が挙げた性質はモデル化から外れ、mapping の行を持たない');
@@ -117,13 +123,14 @@ test('artifact-formats result_presence SP-FORMALMETHOD-012: 欠陥が無い計�
   assertDetCommon(c);
 });
 test('artifact-formats result_presence SP-FORMALMETHOD-012: 欠陥で除いた検査がある計画では 成り立たない で、reason にその id があり、確認が終わっていない で停止', async (t) => {
-  const { result } = await runScenario(t, { scenario: { editPlan: (plan) => ({ ...plan, checks: plan.checks.map((c) => (c.id === 'C-P1' ? { ...c, expected: 'sat' } : c)) }) } });
+  // 検査の expected は plan-skeleton が決める（#264 SP-264-020）ので、担当が書く selection の欠けで検査を除かせる
+  const { result } = await runScenario(t, { scenario: { editPlan: (plan) => ({ ...plan, selection: [] }) } });
   assert.deepEqual(resultInvariants(result), []);
-  assertExcluded(result, ['C-P1']);
+  assertExcluded(result, [C_P1]);
   const c = detConf(result, 'result_presence');
   assert.equal(c?.result, '成り立たない', String(JSON.stringify(c)));
   assertDetCommon(c);
-  assert.ok(hasId(c.reason, 'C-P1'), `reason に C-P1: ${c.reason}`);
+  assert.ok(hasId(c.reason, C_P1), `reason に ${C_P1}: ${c.reason}`);
   assert.ok(result.stop_report.reasons.some((x) => x.code === '確認が終わっていない'));
 });
 test('artifact-formats result_presence SP-FORMALMETHOD-012: 計画が無い（計画作成役が返らない）run では result_presence を作らない', async (t) => {
@@ -225,7 +232,8 @@ test('artifact-formats 確認 SP-FORMALMETHOD-012: 全てが成り立つ run で
   assert.equal(result.status, '完了');
 });
 test('artifact-formats 確認 SP-FORMALMETHOD-012: id の重複（一意の違反）だけが欠陥として残る run では、reference は 成り立つ のまま', async (t) => {
-  const { result, harness } = await runScenario(t, { scenario: { allowDuplicatePlanIds: true, editPlan: (plan) => ({ ...plan, sanity: [...plan.sanity, structuredClone(plan.sanity[0])] }) } });
+  // 検査と sanity の id は plan-skeleton が決める（#264 SP-264-020）ので、担当が書く変異の id を重ねる
+  const { result, harness } = await runScenario(t, { scenario: { editMutationsDraft: (d) => ({ ...d, mutations: [...d.mutations, structuredClone(d.mutations[0])] }) } });
   assert.deepEqual(resultInvariants(result), []);
   // 重複を計画の欠陥として扱った（修正の巡が出て、残った欠陥は unverified[] に 計画の欠陥: で載る）
   assertRevised(harness, 'plan-author', '計画');
@@ -249,13 +257,13 @@ test('artifact-formats 確認 SP-FORMALMETHOD-012: 偽の z3 が読めない出�
   const c = detConf(result, 'output_format');
   assert.equal(c?.result, '成り立たない', String(JSON.stringify(c)));
   assertDetCommon(c);
-  assert.ok(hasId(c.reason, 'C-P1'), `reason に C-P1: ${c.reason}`);
+  assert.ok(hasId(c.reason, C_P1), `reason に ${C_P1}: ${c.reason}`);
   assert.ok(result.stop_report.unconfirmed_scope.includes(c.item));
 });
 test('artifact-formats 確認 SP-FORMALMETHOD-012: z3 が (error …) を返す run では、検査は 実行失敗 で、output_format は 成り立つ', async (t) => {
   const { result } = await runScenario(t, { scenario: { toolTimeLimit: 2, properties: [P('P1', 2, { query: { mode: 'syntax-error' } })] } });
   assert.deepEqual(resultInvariants(result), []);
-  assert.equal(result.checks.find((x) => x.id === 'C-P1').verdict, '実行失敗');
+  assert.equal(result.checks.find((x) => x.id === C_P1).verdict, '実行失敗');
   assert.equal(detConf(result, 'output_format')?.result, '成り立つ');
 });
 test('artifact-formats 確認 SP-FORMALMETHOD-012: 時間の上限で止めた実行だけの run では、output_format は 成り立つ', async (t) => {
@@ -293,12 +301,12 @@ for (const [name, alternative] of NO_MUTATION_CASES) {
   });
 }
 for (const [name, sm, n] of COMBINATION_CASES) {
-  test(`artifact-formats 役と context: ${name}の 対応できていない 組合せの原因の分類役は unit_id が cause-combination-M1-${n} で、返り値が受け入れられる`, async (t) => {
+  test(`artifact-formats 役と context: ${name}の 対応できていない 組合せの原因の分類役は unit_id が cause-combination-<model_id>-${n} で、返り値が受け入れられる`, async (t) => {
     const { result, harness } = await runScenario(t, { scenario: { stateMachine: sm } });
     assert.deepEqual(resultInvariants(result), []);
     const task = harness.memory.tasks.find((x) => x.role === 'cause-analyst' && x.context.subject?.kind === 'combination');
     assert.ok(task, '組合せの原因の分類役が出る');
-    assert.equal(task.context.unit_id, `cause-combination-M1-${n}`);
+    assert.equal(task.context.unit_id, `cause-combination-${M1}-${n}`);
     const cell = result.models[0].combinations.cells[n];
     assert.deepEqual([task.context.subject.state, task.context.subject.event], [cell.state, cell.event], '組合せの名前は subject が持つ');
     assert.equal(cell.class, '対応できていない');
@@ -319,7 +327,7 @@ test('artifact-formats 欠陥の残った分割 SP-FORMALMETHOD-009・012: other
   assert.equal(d.adopted, false);
   assert.equal(d.reason, '分割の欠陥が残った');
   assert.deepEqual([d.parts, d.boundaries, d.contracts, d.composition_conditions], [[], [], [], []]);
-  assert.equal(result.checks.find((c) => c.id === 'C-P1')?.verdict, '成功', '全体のモデルの検査');
+  assert.equal(result.checks.find((c) => c.id === C_P1)?.verdict, '成功', '全体のモデルの検査');
   assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
   for (const k of ['syntax', 'reference']) assert.equal(detConf(result, k)?.result, '成り立つ', `${k}: other の区分は写さない`);
 });
@@ -357,7 +365,7 @@ test('artifact-formats goals の property_id: モデル作成役が 1 巡目だ�
   assertRevised(harness, 'model-author', 'モデル化');
   const paths = result.models[0].paths;
   assert.equal(paths.applicable, true);
-  assert.ok(paths.targets.some((x) => x.state === '完了' && x.property_id === 'P1'), JSON.stringify(paths.targets));
+  assert.ok(paths.targets.some((x) => x.state === '完了' && x.property_id === MP1), JSON.stringify(paths.targets));
   assert.ok(!paths.unverified.some((u) => u.reason === '目標の性質が無い'), JSON.stringify(paths.unverified));
   assert.equal(detConf(result, 'reference')?.result, '成り立つ', '修正の巡で直った欠陥は数えない');
 });
@@ -526,5 +534,36 @@ test('architecture 洗い出し 担当の起動: 1 体に詰めた worker で T1
   const t2 = extractorSubmits(harness, 'T2');
   assert.ok(t2.at(-1).result.ok && t2.at(-1).result.done, JSON.stringify(t2));
   assert.deepEqual(inventoryProducers(out), [k2.task_id]);
+});
+
+// ======== #264 SP-264-028: 確認役の結果の集計（U5）。確認役は result を書かず items を書き、CLI が review-tally の値を result にする ========
+test('SP-264-028: 確認役の返り値の形は result を持たず items を持ち、items と findings から集計した値が確認の result になる', async (t) => {
+  const { result, harness } = await runScenario(t, { scenario: { reviews: { extraction: '成り立たない', fidelity: '確認できず' } } });
+  assert.deepEqual(resultInvariants(result), []);
+  const tasks = harness.memory.tasks.filter((x) => x.context.perspective);
+  // 対象 1 つ・形式化できる性質 1 つ・分割なしの run の確認の unit は extraction と fidelity の 2 つ（artifact-formats「役と context」）
+  assert.deepEqual(tasks.map((x) => x.context.perspective).sort(), ['extraction', 'fidelity']);
+  for (const task of tasks) {
+    const ret = JSON.parse(readFileSync(task.result_path, 'utf8'));
+    assert.ok(Array.isArray(ret.items) && ret.items.length >= 1, `${task.task_id} は items を書く`);
+    const conf = result.confirmations.meaning.find((c) => c.checker === task.task_id);
+    const want = ret.findings.length ? '成り立たない' : ret.items.every((i) => i.result === '成り立つ') ? '成り立つ' : '確認できず';
+    assert.equal(conf.result, want, `${task.context.unit_id}: review-tally の値`);
+  }
+  assert.equal(result.confirmations.meaning.find((c) => c.kind === 'extraction').result, '成り立たない', 'findings があれば 成り立たない');
+  assert.equal(result.confirmations.meaning.find((c) => c.kind === 'fidelity').result, '確認できず', '確認できず の項目があれば 確認できず');
+  // 返り値の形（claim の return_schemas）から result と、CLI が補う task_id・unit_id・perspective を除く（SP-264-028・029）
+  for (const role of ['extraction-reviewer', 'fidelity-reviewer']) {
+    const props = Object.keys(harness.memory.returnSchemas[role]?.properties ?? {});
+    assert.ok(props.includes('items') && !props.includes('result'), `${role}: ${props.join()}`);
+    for (const k of ['task_id', 'unit_id', 'perspective']) assert.ok(!props.includes(k), `${role} の形に ${k} が無い`);
+  }
+});
+test('SP-264-028: items が空の確認役の返り値は、指摘が無くても 確認できず に集計する（何も見た記録の無い確認を成り立つとしない）', async (t) => {
+  const { result } = await runScenario(t, { scenario: { reviewItems: { extraction: [] } } });
+  assert.deepEqual(resultInvariants(result), []);
+  const c = result.confirmations.meaning.find((x) => x.kind === 'extraction');
+  assert.equal(c.result, '確認できず', c.reason);
+  assert.equal(result.status, '停止');
 });
 });

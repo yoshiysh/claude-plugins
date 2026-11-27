@@ -1,0 +1,786 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yoshiysh/claude-plugins/blob/main/plugins/verification/skills/formal-method/references/core.schema.json",
+  "title": "formal-method-core の入出力の型と列挙",
+  "description": "実行体 formal-method-core のサブコマンドの入出力（<Subcommand>Input・<Subcommand>Output）、担当の下書きの型、実行体と CLI が共に読む列挙の正本。x-core は実行体の名前・版・上限・名前付きの値・固定の文を持つ。",
+  "$defs": {
+    "Id": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "RowId": {
+      "description": "対応表の骨組みの行の id。<性質の id>/<要素の id>（/ を含むので Id に合わない）",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+    },
+    "Span": { "type": "string", "pattern": "^L(\\d+)-L(\\d+)$" },
+    "FilePath": { "type": "string", "minLength": 1 },
+    "Ref": { "type": "string", "minLength": 1 },
+    "Stage": {
+      "description": "段",
+      "type": "string",
+      "enum": ["受付", "洗い出し", "モデル化", "計画", "実行", "確認", "集約"]
+    },
+    "ConfirmationResult": {
+      "description": "確認の結果",
+      "type": "string",
+      "enum": ["成り立つ", "成り立たない", "確認できず"]
+    },
+    "AssumptionBasisKind": {
+      "description": "境界の前提の出どころの種類",
+      "type": "string",
+      "enum": ["他の部分の保証", "依頼の要求・制約", "共同不変条件", "確認できない前提"]
+    },
+    "MappingRelation": {
+      "description": "対応表の行の relation",
+      "type": "string",
+      "enum": ["形式化", "形式検証でない確認", "範囲外", "対応なし"]
+    },
+    "SourceRef": {
+      "type": "object",
+      "required": ["target_id", "file", "span"],
+      "properties": {
+        "target_id": { "$ref": "#/$defs/Id" },
+        "file": { "$ref": "#/$defs/FilePath" },
+        "span": { "$ref": "#/$defs/Span" }
+      },
+      "additionalProperties": false
+    },
+    "LocationSource": {
+      "type": "object",
+      "required": ["kind", "target_id", "file", "span"],
+      "properties": {
+        "kind": { "const": "location" },
+        "target_id": { "$ref": "#/$defs/Id" },
+        "file": { "$ref": "#/$defs/FilePath" },
+        "span": { "$ref": "#/$defs/Span" }
+      },
+      "additionalProperties": false
+    },
+    "Pointer": {
+      "description": "対応表の行の出所（今の MappingFile の rows[].source と同じ形）",
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "enum": ["target", "goal", "known_requirement"] },
+            "id": { "$ref": "#/$defs/Id" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "target_id", "file"],
+          "properties": {
+            "kind": { "const": "location" },
+            "target_id": { "$ref": "#/$defs/Id" },
+            "file": { "$ref": "#/$defs/FilePath" },
+            "span": { "$ref": "#/$defs/Span" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AssumptionBasis": {
+      "description": "境界の前提の出どころ。kind は AssumptionBasisKind の値で、kind ごとに 1 つの欄を持つ（今の PartitionsFile と同じ形）",
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/AssumptionBasisKind" },
+        "contract_id": { "$ref": "#/$defs/Id" },
+        "known_requirement_id": { "$ref": "#/$defs/Id" },
+        "check_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "minProperties": 2,
+      "maxProperties": 2
+    },
+    "Part": {
+      "type": "object",
+      "required": ["id", "model_id", "owns_variables", "transitions"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "model_id": { "$ref": "#/$defs/Id" },
+        "owns_variables": { "type": "array", "items": { "type": "string" } },
+        "transitions": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "Boundary": {
+      "type": "object",
+      "required": ["edge_id", "producer", "consumer", "shared_symbols", "assumption", "guarantee", "assumption_basis", "responsible"],
+      "properties": {
+        "edge_id": { "type": "string" },
+        "producer": { "$ref": "#/$defs/Id" },
+        "consumer": { "$ref": "#/$defs/Id" },
+        "shared_symbols": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "assumption": { "type": "string" },
+        "guarantee": { "type": "string" },
+        "assumption_basis": { "$ref": "#/$defs/AssumptionBasis" },
+        "responsible": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      },
+      "additionalProperties": false
+    },
+    "DraftBoundary": {
+      "description": "分割作成役が書く境界（producer・consumer・shared_symbols は partition-assemble が決める）",
+      "type": "object",
+      "required": ["edge_id", "assumption", "guarantee", "assumption_basis", "responsible"],
+      "properties": {
+        "edge_id": { "type": "string" },
+        "assumption": { "type": "string" },
+        "guarantee": { "type": "string" },
+        "assumption_basis": { "$ref": "#/$defs/AssumptionBasis" },
+        "responsible": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } }
+      },
+      "additionalProperties": false
+    },
+    "PartitionContract": {
+      "type": "object",
+      "required": ["id", "model_id", "derived_from", "part_id", "statement", "query_ref"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "model_id": { "$ref": "#/$defs/Id" },
+        "derived_from": { "$ref": "#/$defs/Id" },
+        "part_id": { "$ref": "#/$defs/Id" },
+        "statement": { "type": "string" },
+        "query_ref": { "$ref": "#/$defs/Ref" }
+      },
+      "additionalProperties": false
+    },
+    "CompositionCondition": {
+      "type": "object",
+      "required": ["id", "model_id", "derived_from", "statement", "query_ref", "depends_on"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "model_id": { "$ref": "#/$defs/Id" },
+        "derived_from": { "$ref": "#/$defs/Id" },
+        "statement": { "type": "string" },
+        "query_ref": { "$ref": "#/$defs/Ref" },
+        "depends_on": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+      },
+      "additionalProperties": false
+    },
+    "Decision": {
+      "description": "分割の候補ごとの採否と理由（分割作成役が書く）",
+      "type": "object",
+      "required": ["candidate_id", "adopted", "reason"],
+      "properties": {
+        "candidate_id": { "$ref": "#/$defs/Id" },
+        "adopted": { "type": "boolean" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "PlanTarget": {
+      "description": "plan-author が target_id ごとに書く検査の時間の上限・前提・範囲",
+      "type": "object",
+      "required": ["target_id", "tool_time_limit_seconds", "assumptions", "scope"],
+      "properties": {
+        "target_id": { "$ref": "#/$defs/Id" },
+        "tool_time_limit_seconds": { "type": "integer", "minimum": 1 },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "scope": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ReviewItem": {
+      "description": "確認役が見た観点か項目ごとの記録（SP-264-028）",
+      "type": "object",
+      "required": ["ref", "result"],
+      "properties": {
+        "ref": { "type": "string" },
+        "result": { "$ref": "#/$defs/ConfirmationResult" }
+      },
+      "additionalProperties": false
+    },
+
+    "PartitionModelsInput": {
+      "description": "SP-264-010・011",
+      "type": "object",
+      "required": ["properties", "previous"],
+      "properties": {
+        "properties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source_ids", "formalizable"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "source_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } },
+              "formalizable": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "previous": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["model_id", "property_ids"],
+            "properties": {
+              "model_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+              "property_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PartitionModelsOutput": {
+      "type": "object",
+      "required": ["models"],
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["model_id", "property_ids"],
+            "properties": {
+              "model_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+              "property_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "PlanSkeletonInput": {
+      "description": "SP-264-020",
+      "type": "object",
+      "required": ["models", "partitions", "excluded_property_ids", "targets"],
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["model_id", "properties"],
+            "properties": {
+              "model_id": { "$ref": "#/$defs/Id" },
+              "properties": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "inventory_property_ids", "query_ref", "sanity"],
+                  "properties": {
+                    "id": { "$ref": "#/$defs/Id" },
+                    "inventory_property_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } },
+                    "query_ref": { "$ref": "#/$defs/Ref" },
+                    "sanity": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["query_ref"],
+                        "properties": { "query_ref": { "$ref": "#/$defs/Ref" } },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "partitions": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["parts", "boundaries", "contracts", "composition_conditions"],
+              "properties": {
+                "parts": { "type": "array", "items": { "$ref": "#/$defs/Part" } },
+                "boundaries": { "type": "array", "items": { "$ref": "#/$defs/Boundary" } },
+                "contracts": { "type": "array", "items": { "$ref": "#/$defs/PartitionContract" } },
+                "composition_conditions": { "type": "array", "items": { "$ref": "#/$defs/CompositionCondition" } }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "excluded_property_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/PlanTarget" } }
+      },
+      "additionalProperties": false
+    },
+    "PlanSkeletonOutput": {
+      "type": "object",
+      "required": ["checks", "sanity", "missing_targets"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "target_id", "model_id", "input_refs", "expected", "assumptions", "scope", "tool_time_limit_seconds", "depends_on"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "kind": { "enum": ["property", "contract", "composition"] },
+              "target_id": { "$ref": "#/$defs/Id" },
+              "model_id": { "$ref": "#/$defs/Id" },
+              "input_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Ref" } },
+              "expected": { "const": "unsat" },
+              "assumptions": { "type": "array", "items": { "type": "string" } },
+              "scope": { "type": "string" },
+              "tool_time_limit_seconds": { "type": "integer", "minimum": 1 },
+              "depends_on": { "type": "array", "items": { "$ref": "#/$defs/Id" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "sanity": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "model_property_id", "input_refs", "tool_time_limit_seconds"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "model_property_id": { "$ref": "#/$defs/Id" },
+              "input_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Ref" } },
+              "tool_time_limit_seconds": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "missing_targets": {
+          "description": "targets に要素が無いため出さなかった検査の target_id（id の順）",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "PartitionAssembleInput": {
+      "description": "SP-264-023",
+      "type": "object",
+      "required": ["candidates", "graph_edges", "decisions", "boundaries"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "nodes"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "nodes": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "graph_edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "from", "to", "kind"],
+            "properties": {
+              "id": { "type": "string" },
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "kind": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/Decision" } },
+        "boundaries": { "type": "array", "items": { "$ref": "#/$defs/DraftBoundary" } }
+      },
+      "additionalProperties": false
+    },
+    "PartitionAssembleOutput": {
+      "type": "object",
+      "required": ["adopted", "parts", "boundaries", "missing_boundaries", "extra_boundaries"],
+      "properties": {
+        "adopted": { "type": "boolean" },
+        "parts": { "type": "array", "items": { "$ref": "#/$defs/Part" } },
+        "boundaries": { "type": "array", "items": { "$ref": "#/$defs/Boundary" } },
+        "missing_boundaries": {
+          "description": "跨ぐ辺のうち下書きに要素の無いものの edge_id（辺の宣言の順）",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "extra_boundaries": {
+          "description": "跨がない辺を指す下書きの要素の edge_id（下書きの順）",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "MappingRowsInput": {
+      "description": "SP-264-025",
+      "type": "object",
+      "required": ["model_id", "properties", "elements"],
+      "properties": {
+        "model_id": { "$ref": "#/$defs/Id" },
+        "properties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source_ids", "formalizable", "nonformal_reason"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "source_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Id" } },
+              "formalizable": { "type": "boolean" },
+              "nonformal_reason": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "elements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "source": { "$ref": "#/$defs/SourceRef" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "MappingRowsOutput": {
+      "type": "object",
+      "required": ["rows"],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["row_id", "source", "property_id", "relation", "reason"],
+            "properties": {
+              "row_id": { "$ref": "#/$defs/RowId" },
+              "source": { "$ref": "#/$defs/LocationSource" },
+              "property_id": { "$ref": "#/$defs/Id" },
+              "relation": {
+                "description": "形式化できない性質の行は x-core.roles.relation_nonformal の値、形式化できる性質の行は null（作成役が書く）",
+                "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/MappingRelation" }]
+              },
+              "reason": {
+                "description": "形式化できない性質の行は nonformal_reason、形式化できる性質の行は null",
+                "type": ["string", "null"]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "ExtractSkeletonInput": {
+      "description": "SP-264-026",
+      "type": "object",
+      "required": ["target_id", "files", "scope", "references"],
+      "properties": {
+        "target_id": { "$ref": "#/$defs/Id" },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "text", "lines"],
+            "properties": {
+              "path": { "$ref": "#/$defs/FilePath" },
+              "text": { "description": "テキストのファイルなら true", "type": "boolean" },
+              "lines": { "description": "テキストなら受付で固定した行数、他は null", "type": ["integer", "null"], "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "spans"],
+            "properties": {
+              "file": { "$ref": "#/$defs/FilePath" },
+              "spans": { "anyOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/Span" } }] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "file", "line"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "file": { "$ref": "#/$defs/FilePath" },
+              "line": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExtractSkeletonOutput": {
+      "type": "object",
+      "required": ["scanned", "external_dependencies"],
+      "properties": {
+        "scanned": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "span", "status", "reason"],
+            "properties": {
+              "file": { "$ref": "#/$defs/FilePath" },
+              "span": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/Span" }] },
+              "status": { "enum": ["read", "unread"] },
+              "reason": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "external_dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text", "source"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "text": { "type": "string" },
+              "source": { "$ref": "#/$defs/SourceRef" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "OmissionCandidatesInput": {
+      "description": "SP-264-027",
+      "type": "object",
+      "required": ["elements", "cited_ids", "rows"],
+      "properties": {
+        "elements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "source": { "$ref": "#/$defs/SourceRef" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "cited_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source"],
+            "properties": { "source": { "$ref": "#/$defs/Pointer" } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OmissionCandidatesOutput": {
+      "type": "object",
+      "required": ["candidates"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "source": { "$ref": "#/$defs/SourceRef" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "ReviewTallyInput": {
+      "description": "SP-264-028。findings は件数だけを使う",
+      "type": "object",
+      "required": ["findings", "items"],
+      "properties": {
+        "findings": { "type": "array", "items": { "type": "object" } },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/ReviewItem" } }
+      },
+      "additionalProperties": false
+    },
+    "ReviewTallyOutput": {
+      "type": "object",
+      "required": ["result"],
+      "properties": { "result": { "$ref": "#/$defs/ConfirmationResult" } },
+      "additionalProperties": false
+    },
+
+    "CompleteReturnInput": {
+      "description": "SP-264-029",
+      "type": "object",
+      "required": ["task", "worklog", "ret"],
+      "properties": {
+        "task": {
+          "type": "object",
+          "required": ["task_id", "role", "stage", "target", "unit_id", "perspective"],
+          "properties": {
+            "task_id": { "$ref": "#/$defs/Id" },
+            "role": { "type": "string" },
+            "stage": { "$ref": "#/$defs/Stage" },
+            "target": { "type": "string" },
+            "unit_id": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/Id" }] },
+            "perspective": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "worklog": { "description": "担当の作業記録の下書き", "type": "object" },
+        "ret": { "description": "担当の返り値の下書き", "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "CompleteReturnOutput": {
+      "type": "object",
+      "required": ["worklog", "ret", "problems"],
+      "properties": {
+        "worklog": { "description": "文脈の欄を task の値で補った作業記録", "type": "object" },
+        "ret": { "description": "文脈の欄を task の値で補った返り値", "type": "object" },
+        "problems": {
+          "description": "下書きにあって task の値と違った欄の名前",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "PlanDraft": {
+      "description": "plan-author の計画の下書き（SP-264-021）。selection の要素の照合は今の planCheck に任せる",
+      "type": "object",
+      "required": ["schema", "selection", "targets"],
+      "properties": {
+        "schema": { "const": "formal-method.plan-draft/1" },
+        "selection": { "type": "array", "items": {} },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/PlanTarget" } }
+      },
+      "additionalProperties": false
+    },
+    "MutationsDraft": {
+      "description": "plan-author の変異の下書き（SP-264-021）。detector_check_id は CLI が prop-<property_id> で埋める",
+      "type": "object",
+      "required": ["schema", "mutations", "unavailable"],
+      "properties": {
+        "schema": { "const": "formal-method.mutations-draft/1" },
+        "mutations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "property_id", "mutation_ref", "expected_violation"],
+            "properties": {
+              "id": { "$ref": "#/$defs/Id" },
+              "property_id": { "$ref": "#/$defs/Id" },
+              "mutation_ref": { "$ref": "#/$defs/Ref" },
+              "expected_violation": { "enum": ["sat", "unsat"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unavailable": { "type": "array", "items": {} }
+      },
+      "additionalProperties": false
+    },
+    "PartitionsDraft": {
+      "description": "partition-author の分割の下書き（SP-264-023）。adopted・parts と境界の producer・consumer・shared_symbols は partition-assemble が決める",
+      "type": "object",
+      "required": ["schema", "decisions", "reason", "boundaries", "contracts", "composition_conditions"],
+      "properties": {
+        "schema": { "const": "formal-method.partitions-draft/1" },
+        "decisions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Decision" } },
+        "reason": { "type": "string" },
+        "boundaries": { "type": "array", "items": { "$ref": "#/$defs/DraftBoundary" } },
+        "contracts": { "type": "array", "items": {} },
+        "composition_conditions": { "type": "array", "items": {} }
+      },
+      "additionalProperties": false
+    },
+    "MappingDraft": {
+      "description": "model-author の対応表の下書き（SP-264-025）",
+      "type": "object",
+      "required": ["schema", "rows", "extra_rows"],
+      "properties": {
+        "schema": { "const": "formal-method.mapping-draft/1" },
+        "rows": {
+          "description": "骨組みの行（mapping-rows の出力）ごとに 1 つ。relation は形式化できる性質の行だけが書く",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["row_id", "model_element", "reason"],
+            "properties": {
+              "row_id": { "$ref": "#/$defs/RowId" },
+              "model_element": { "type": "string" },
+              "relation": { "$ref": "#/$defs/MappingRelation" },
+              "reason": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "extra_rows": {
+          "description": "出所が inventory の要素でない行（source.kind が goal・known_requirement・target）",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "property_id", "model_element", "relation", "reason"],
+            "properties": {
+              "source": { "$ref": "#/$defs/Pointer" },
+              "property_id": { "$ref": "#/$defs/Id" },
+              "model_element": { "type": "string" },
+              "relation": { "$ref": "#/$defs/MappingRelation" },
+              "reason": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "InventoryDraft": {
+      "description": "extractor の inventory の下書き（SP-264-026）。scanned は extract-skeleton が決めるので持たない。要素・性質・外部の依存の照合は今の coverageCheck に任せる",
+      "type": "object",
+      "required": ["schema", "target_id", "content_hash", "elements", "properties", "external_dependencies"],
+      "properties": {
+        "schema": { "const": "formal-method.inventory/1" },
+        "target_id": { "$ref": "#/$defs/Id" },
+        "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "elements": { "type": "array", "items": {} },
+        "properties": { "type": "array", "items": {} },
+        "external_dependencies": { "type": "array", "items": {} }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-core": {
+    "binary": "formal-method-core",
+    "version": "0.1.0",
+    "repository": "https://github.com/yoshiysh/claude-plugins.git",
+    "tag_prefix": "formal-method-core-v",
+    "version_timeout_ms": 5000,
+    "call_timeout_ms": 60000,
+    "roles": {
+      "relation_nonformal": { "enum": "MappingRelation", "value": "形式検証でない確認" },
+      "basis_other_part": { "enum": "AssumptionBasisKind", "value": "他の部分の保証" },
+      "result_holds": { "enum": "ConfirmationResult", "value": "成り立つ" },
+      "result_fails": { "enum": "ConfirmationResult", "value": "成り立たない" },
+      "result_unknown": { "enum": "ConfirmationResult", "value": "確認できず" }
+    },
+    "texts": {
+      "unread_non_text": "テキストでないファイル",
+      "external_reference_template": "本文が参照する外部の ID {id}（{file}:L{line}）"
+    }
+  }
+}

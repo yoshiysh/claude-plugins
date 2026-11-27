@@ -520,9 +520,11 @@ export function refInvariants(r, readRun, adopted = null) {
   // plan_id は計画の中に実在する（保存された plan・mutations の記録で照らす）
   const confs = [...r.confirmations.deterministic, ...r.confirmations.meaning];
   const planIds = { sanity: null, mutation: null };
+  // 担当の下書き（#264。schema が formal-method.<kind>-draft/1）は計画でないので数えない。計画は CLI が組み立てた assembled/ のファイル
+  const isDraft = (text) => { try { return /-draft\/\d+$/.test(JSON.parse(text).schema ?? ''); } catch { return false; } };
   for (const s of r.records.saved) {
     const text = readRun(s.ref);
-    if (text === null) continue;
+    if (text === null || isDraft(text)) continue;
     if (s.kind === 'plan') planIds.sanity = new Set([...(planIds.sanity ?? []), ...JSON.parse(text).sanity.map((x) => x.id)]);
     if (s.kind === 'mutations') planIds.mutation = new Set([...(planIds.mutation ?? []), ...JSON.parse(text).mutations.map((x) => x.id)]);
   }
@@ -533,7 +535,7 @@ export function refInvariants(r, readRun, adopted = null) {
   // 計画との照合（artifact-formats「検査」「plan と mutations」）。保存された plan・mutations の記録が 1 つずつのときだけ当てる
   // （修正の巡で複数の計画が保存されると、どれを採ったかは結果から決まらない）。
   const onlyRecord = (kind) => {
-    const texts = r.records.saved.filter((s) => s.kind === kind).map((s) => readRun(s.ref)).filter((t) => t !== null);
+    const texts = r.records.saved.filter((s) => s.kind === kind).map((s) => readRun(s.ref)).filter((t) => t !== null && !isDraft(t));
     return texts.length === 1 ? JSON.parse(texts[0]) : null;
   };
   const fromRef = (ref) => { const t = ref ? readRun(ref) : null; return t === null ? null : JSON.parse(t); };

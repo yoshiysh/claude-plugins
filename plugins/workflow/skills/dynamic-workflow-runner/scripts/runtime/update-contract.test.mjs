@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { finalizeUpdateContract, prepareUpdateContract, MAX_UPDATE_TREE_BYTES } from './update-contract.mjs';
@@ -19,6 +19,9 @@ async function fixture(t) {
   await mkdir(join(target, 'nested'), { recursive: true });
   await writeFile(join(target, 'SKILL.md'), 'before\n');
   await writeFile(join(target, 'nested', 'reference.md'), 'unchanged\n');
+  // writeFile の mode は umask で削られるので、mode を umask に依らない値に揃える（manifest は実ファイルの mode を記録する）
+  await chmod(join(target, 'SKILL.md'), 0o644);
+  await chmod(join(target, 'nested', 'reference.md'), 0o644);
   const contract = await prepareUpdateContract({ targetRoot, stagingRoot, targetDir: target, stagingDir: staging });
   return { targetRoot, stagingRoot, target, staging, contract };
 }

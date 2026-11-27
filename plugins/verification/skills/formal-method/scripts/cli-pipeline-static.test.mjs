@@ -3,17 +3,23 @@
 // このファイルは節の印と静的な確認の場面。共有の道具は test-fixtures/pipeline-cases.mjs に置く。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runScenario } from './test-fixtures/pipeline.mjs';
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { namedClauses, smtQuery } from './test-fixtures/agent-harness.mjs';
 import { ABLATION_PER_PROPERTY_MAX } from './lib/schemas.mjs';
-import { P, prop, inputOf, assertRecordsConsistent, canonicalRun } from './test-fixtures/pipeline-cases.mjs';
+import { P, prop, inputOf, assertRecordsConsistent, canonicalRun, planOf, planDraftMode } from './test-fixtures/pipeline-cases.mjs';
+import { M1, MP1, C_P1 } from './test-fixtures/core-ids.mjs';
 
 const det = (result, kind) => result.confirmations.deterministic.filter((c) => c.kind === kind);
 const judgments = (result, kind) => result.confirmations.judgments.filter((j) => j.kind === kind);
-// 前提 1 つ・規則 1 つ・否定 1 つの性質（名前は P1-p1・P1-r2・P1-g3）
+// 節の名前は <モデルの性質の id>-<役の頭文字><番号>（harness の namedClauses）。モデルの性質の id は実行体が決める <model_id>.P1（MP1。SP-264-012）、
+// 判断の記録は judgments/<model_id>.json、性質の検査の id は prop-<モデルの性質>（C_P1。SP-264-020）。
+const N = (suffix) => `${MP1}-${suffix}`;
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const named = (suffix, tail = '') => new RegExp(`:named ${esc(N(suffix))}${tail}`);
+// 前提 1 つ・規則 1 つ・否定 1 つの性質（名前は N('p1')・N('r2')・N('g3')）
 const PREMISE_SMT = '(declare-const x Int)\n(assert (>= x 0))\n(assert (<= x 8))\n(assert (not (>= (* x x) 0)))';
 const withPremise = (over = {}) => P('P1', 2, { smt: PREMISE_SMT, roles: ['premise', 'rule', 'goal'], scopeVariables: ['x'], ...over });
 const names = (clauses, ...roles) => clauses.filter((c) => roles.includes(c.role)).map((c) => c.name);
@@ -23,7 +29,7 @@ function assertNotSuccess(result, kind, pattern) {
   assert.deepEqual(p.verdict, ['未確認'], `${kind} が成り立たない性質は検証の成功にならない: ${p.reason}`);
   assert.match(p.reason, /決定的な検査の静的な確認が成り立たない/);
   assert.doesNotMatch(p.reason, /意味の確認（[^）]*静的な確認/, '静的な確認の失敗を意味の確認の名前で書かない');
-  const c = det(result, kind).find((x) => x.model_property_id === 'P1');
+  const c = det(result, kind).find((x) => x.model_property_id === MP1);
   assert.equal(c?.result, '成り立たない', JSON.stringify(c));
   assert.match(c.reason, pattern);
   assert.equal(result.status, '停止');
@@ -38,7 +44,7 @@ test('SP-FORMALMETHOD-012 AC-22: 正準のシナリオでは、否定だけの�
     const cs = det(result, kind);
     assert.equal(cs.length, 1, `${kind} の確認が 1 つ`);
     assert.equal(cs[0].result, '成り立つ', `${kind}: ${cs[0].reason}`);
-    assert.equal(cs[0].model_property_id, 'P1');
+    assert.equal(cs[0].model_property_id, MP1);
     assert.deepEqual(cs[0].property_ids, ['P1']);
   }
   assert.deepEqual(result.confirmations.judgments, []);
@@ -46,8 +52,8 @@ test('SP-FORMALMETHOD-012 AC-22: 正準のシナリオでは、否定だけの�
   const goal = det(result, 'goal_trivial')[0];
   assert.ok(goal.end.started);
   const text = inputOf(status.run_dir, goal.id);
-  assert.match(text, /:named P1-g2\)\)/);
-  assert.doesNotMatch(text, /:named P1-r1/);
+  assert.match(text, named('g2', '\\)\\)'));
+  assert.doesNotMatch(text, named('r1'));
   assert.match(text, /\(declare-const x Int\)/);
   assert.match(text, /\(check-sat\)\n/);
   assert.ok(result.performance.executions.some((x) => x.id === goal.id && x.kind === 'ablation'), '静的な確認の実行は kind ablation');
@@ -65,8 +71,8 @@ test('SP-FORMALMETHOD-012 AC-22: 前提だけで性質が導けるモデル（�
   assertNotSuccess(result, 'premise_only', /前提だけで結論が出ている/);
   assert.equal(det(result, 'goal_trivial')[0].result, '成り立つ');
   const text = inputOf(status.run_dir, det(result, 'premise_only')[0].id);
-  assert.match(text, /:named P1-p1/);
-  assert.doesNotMatch(text, /:named P1-r2/);
+  assert.match(text, named('p1'));
+  assert.doesNotMatch(text, named('r2'));
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 性質の否定が自明なモデル（否定だけで unsat）は goal_trivial が成り立たず、性質は検証の成功にならない', async (t) => {
@@ -92,11 +98,11 @@ test('SP-FORMALMETHOD-012 AC-22: 計画した検査の欠けたモデル（変�
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 出所の規則を変えない変異（名前を保ち規則の節の項が同じ）は mutation_scope が成り立たず、性質は検証の成功にならない', async (t) => {
-  const same = namedClauses(smtQuery('mutation P1', { result: 'sat' }), 'P1', { id: 'P1' }).text;
+  const same = namedClauses(smtQuery(`mutation ${MP1}`, { result: 'sat' }), MP1, { id: 'P1' }).text;
   const scenario = { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('same.smt2', same) })) }) };
   const { result } = await runScenario(t, { scenario });
   assert.deepEqual(resultInvariants(result), []);
-  assertNotSuccess(result, 'mutation_scope', /規則の節（P1-r1）を変えない/);
+  assertNotSuccess(result, 'mutation_scope', new RegExp(`規則の節（${esc(N('r1'))}）を変えない`));
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 結論を支える前提を持つモデルでは、前提を 1 つずつ外した実行で効いている前提を判断を要する項目に置き、その性質の意味の確認の記録がある', async (t) => {
@@ -106,33 +112,33 @@ test('SP-FORMALMETHOD-012 AC-22: 結論を支える前提を持つモデルで�
   assertRecordsConsistent(status, result, harness);
   const [j] = judgments(result, 'premise_load');
   assert.equal(j?.cause, '効いている前提', JSON.stringify(result.confirmations.judgments));
-  assert.deepEqual(j.clause_names, ['P1-p1']);
-  assert.equal(j.model_property_id, 'P1');
+  assert.deepEqual(j.clause_names, [N('p1')]);
+  assert.equal(j.model_property_id, MP1);
   assert.ok(j.end.started, '前提を外した実行の終わり方を持つ');
   const text = inputOf(status.run_dir, j.id);
-  assert.doesNotMatch(text, /:named P1-p1/);
-  assert.match(text, /:named P1-r2/);
+  assert.doesNotMatch(text, named('p1'));
+  assert.match(text, named('r2'));
   // 規則と否定だけの実行は sat で、その確認は成り立つ（判断を要する項目は検証の失敗ではない）
   assert.ok(det(result, 'premise_load').some((c) => c.result === '成り立つ' && /結論は前提に支えられる/.test(c.reason)));
   // 判断を要する項目ごとの意味の確認の記録（答えた者は忠実さの確認役の task、渡した資料は判断を要する項目の記録を含む）
   const jc = result.confirmations.meaning.find((c) => c.kind === 'judgment' && c.item === j.id);
   assert.ok(jc, 'その項目の意味の確認の記録がある');
-  assert.deepEqual([jc.result, jc.model_property_id, jc.plan_id, jc.property_ids], ['成り立つ', 'P1', j.plan_id, ['P1']]);
+  assert.deepEqual([jc.result, jc.model_property_id, jc.plan_id, jc.property_ids], ['成り立つ', MP1, j.plan_id, ['P1']]);
   const fid = result.confirmations.meaning.find((c) => c.kind === 'fidelity');
   assert.equal(jc.checker, fid.checker, '忠実さの確認役が答える');
-  assert.ok(jc.materials.some((m) => m.ref === 'judgments/M1.json'), JSON.stringify(jc.materials));
+  assert.ok(jc.materials.some((m) => m.ref === `judgments/${M1}.json`), JSON.stringify(jc.materials));
   assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 前提と否定だけで unsat でも、前提が外部の依存に支えられるなら成り立たないと断定せず、判断を要する項目にする', async (t) => {
-  const p = withPremise({ fakeCore: (cs) => names(cs, 'premise', 'goal'), premiseBasis: { 'P1-p1': '外部の依存' } });
+  const p = withPremise({ fakeCore: (cs) => names(cs, 'premise', 'goal'), premiseBasis: { [N('p1')]: '外部の依存' } });
   const scenario = { properties: [p], externalDependencies: [{ id: 'X1', text: 'x は外部の API が 0 以上に保つ', source: null }] };
   const { result } = await runScenario(t, { scenario });
   assert.deepEqual(resultInvariants(result), []);
   assert.deepEqual(det(result, 'premise_only'), [], 'premise_only の決定的な確認は作らない');
   const [j] = judgments(result, 'premise_only');
   assert.equal(j?.cause, '外部の依存', JSON.stringify(result.confirmations.judgments));
-  assert.deepEqual(j.clause_names, ['P1-p1']);
+  assert.deepEqual(j.clause_names, [N('p1')]);
   assert.ok(!/静的な確認が成り立たない/.test(prop(result, 'P1').reason), prop(result, 'P1').reason);
 });
 
@@ -164,19 +170,19 @@ test(`SP-FORMALMETHOD-012 AC-22: 前提を 1 つずつ外す再検査が ABLATIO
 });
 
 // ---- 検証役の指摘への回帰（切り取った実行ごとの答えは偽の z3 の fake-answers で決める） ----
-// 前提 2 つ・規則 1 つ・否定 1 つ（名前は P1-p1・P1-p2・P1-r3・P1-g4）
+// 前提 2 つ・規則 1 つ・否定 1 つ（名前は N('p1')・N('p2')・N('r3')・N('g4')）
 const TWO_PREMISE_SMT = '(declare-const x Int)\n(assert (>= x 0))\n(assert (>= x 1))\n(assert (<= x 8))\n(assert (not (>= (* x x) 0)))';
 const twoPremises = (answers, over = {}) => P('P1', 2, { smt: TWO_PREMISE_SMT, roles: ['premise', 'premise', 'rule', 'goal'], scopeVariables: ['x'], fakeCore: () => null, fakeAnswers: () => answers, ...over });
 const ablationsOf = (result) => result.performance.executions.filter((x) => x.kind === 'ablation');
 
 test('SP-FORMALMETHOD-012 AC-22: 規則と否定だけが sat で、前提を 1 つずつ外した実行が全て unsat（前提が重なって効いている）なら、前提の組を判断を要する項目にし、前提ごとに「結論を支えていない」と書かない', async (t) => {
-  const p = twoPremises([[['P1-g4'], 'sat'], [['P1-p1', 'P1-p2', 'P1-g4'], 'sat'], [['P1-r3', 'P1-g4'], 'sat'], [['P1-p2', 'P1-r3', 'P1-g4'], 'unsat'], [['P1-p1', 'P1-r3', 'P1-g4'], 'unsat']]);
+  const p = twoPremises([[[N('g4')], 'sat'], [[N('p1'), N('p2'), N('g4')], 'sat'], [[N('r3'), N('g4')], 'sat'], [[N('p2'), N('r3'), N('g4')], 'unsat'], [[N('p1'), N('r3'), N('g4')], 'unsat']]);
   const { result, status, harness } = await runScenario(t, { scenario: { properties: [p] } });
   assert.deepEqual(resultInvariants(result), []);
   assertRecordsConsistent(status, result, harness);
   const js = judgments(result, 'premise_load');
   assert.equal(js.length, 1, JSON.stringify(js));
-  assert.deepEqual([js[0].cause, js[0].clause_names], ['効いている前提の組', ['P1-p1', 'P1-p2']]);
+  assert.deepEqual([js[0].cause, js[0].clause_names], ['効いている前提の組', [N('p1'), N('p2')]]);
   assert.ok(result.confirmations.meaning.some((c) => c.kind === 'judgment' && c.item === js[0].id), 'その項目の意味の確認の記録がある');
   const per = det(result, 'premise_load').filter((c) => /だけを外しても/.test(c.reason));
   assert.equal(per.length, 2);
@@ -188,7 +194,7 @@ test('SP-FORMALMETHOD-012 AC-22: 性質の否定の節が無いモデルは、�
   assert.deepEqual(resultInvariants(result), []);
   assert.deepEqual(ablationsOf(result), [], '否定だけの実行を組み立てない');
   for (const kind of ['goal_trivial', 'premise_only', 'premise_load']) {
-    const c = det(result, kind).find((x) => x.model_property_id === 'P1');
+    const c = det(result, kind).find((x) => x.model_property_id === MP1);
     assert.equal(c?.result, '確認できず', `${kind}: ${JSON.stringify(c)}`);
     assert.match(c.reason, /性質の否定（role goal）が無い.*未実行/);
   }
@@ -202,7 +208,7 @@ test('SP-FORMALMETHOD-012 AC-22: 節を役ごとに切り取れない検査の�
   const edits = {
     unnamed: (text, { kind }) => (kind === 'property' ? text.replace('(check-sat)', '(assert (<= x 9))\n(check-sat)') : text),
     shared: (text, { kind }) => (kind === 'property' ? text.replace('(declare-const x Int)', '(declare-const x Int)\n(define-fun inr () Bool (and (>= x (- 8)) (<= x 8)))')
-      .replace('(and (>= x (- 8)) (<= x 8)) :named P1-r1', 'inr :named P1-r1').replace('(not (>= (* x x) 0)) :named P1-g2', '(not (=> inr (>= (* x x) 0))) :named P1-g2') : text),
+      .replace(`(and (>= x (- 8)) (<= x 8)) :named ${N('r1')}`, `inr :named ${N('r1')}`).replace(`(not (>= (* x x) 0)) :named ${N('g2')}`, `(not (=> inr (>= (* x x) 0))) :named ${N('g2')}`) : text),
   };
   for (const [name, editModelQuery, pattern] of [['unnamed', edits.unnamed, /:named の無い/], ['shared', edits.shared, /define-fun（inr: goal・rule）/]]) {
     const { result } = await runScenario(t, { scenario: { editModelQuery } });
@@ -214,34 +220,49 @@ test('SP-FORMALMETHOD-012 AC-22: 節を役ごとに切り取れない検査の�
       assert.equal(c?.result, '確認できず', `${name} ${kind}`);
       assert.match(c.reason, pattern, `${name} ${kind}: ${c.reason}`);
     }
-    assert.ok(result.checks.some((c) => c.id === 'C-P1' && c.verdict === '成功'), `${name}: 性質の検査そのものは成功する`);
+    assert.ok(result.checks.some((c) => c.id === C_P1 && c.verdict === '成功'), `${name}: 性質の検査そのものは成功する`);
     assert.deepEqual(prop(result, 'P1').verdict, ['未確認'], name);
   }
 });
 
-test('SP-FORMALMETHOD-012 AC-22: 計画の性質の検査の input_refs が性質の query を含まなければ、計画の照合の欠陥で、その検査は実行しない', async (t) => {
+test('SP-FORMALMETHOD-012 AC-22・SP-264-020: 性質の query を input_refs に含まない性質の検査は実行しない（担当が計画を書く形では計画の照合の欠陥、下書きの形では plan-skeleton が性質の query を必ず含める）', async (t) => {
+  // 担当が性質の検査の input_refs を sanity の query に差し替える。下書きの形（U4 の後）では担当は input_refs を書かないので、この編集は届かない
   const editPlan = (plan) => ({ ...plan, checks: plan.checks.map((c) => (c.kind === 'property' ? { ...c, input_refs: plan.sanity.find((x) => x.model_property_id === c.target_id).input_refs } : c)) });
   const { result, harness } = await runScenario(t, { scenario: { editPlan } });
   assert.deepEqual(resultInvariants(result), []);
   const subs = harness.memory.submits.filter((x) => x.role === 'plan-author');
-  assert.ok(subs[0].result.problems.some((x) => /input_refs に性質 P1 の query .* が無い/.test(x)), JSON.stringify(subs[0].result));
-  assert.ok(!result.checks.some((c) => c.id === 'C-P1' && c.verdict === '成功'), '欠陥の残った検査は実行しない');
-  assert.deepEqual(ablationsOf(result), []);
-  assert.notDeepEqual(prop(result, 'P1').verdict, ['検証済み']);
+  if (!planDraftMode(harness)) {
+    assert.ok(subs[0].result.problems.some((x) => new RegExp(`input_refs に性質 ${esc(MP1)} の query .* が無い`).test(x)), JSON.stringify(subs[0].result));
+    assert.ok(!result.checks.some((c) => c.id === C_P1 && c.verdict === '成功'), '欠陥の残った検査は実行しない');
+    assert.deepEqual(ablationsOf(result), []);
+    assert.notDeepEqual(prop(result, 'P1').verdict, ['検証済み']);
+    return;
+  }
+  // 下書きの形: CLI が組み立てた計画の性質の検査の input_refs は、モデルの性質の query_ref を含む（意図: 性質の query を含まない検査を作らない）
+  const m = harness.memory.models.findLast((x) => x.id === M1);
+  assert.ok(m, 'model-author が書いたモデル');
+  const queryRef = JSON.parse(readFileSync(join(m.task.attempt_dir, m.file), 'utf8')).properties.find((x) => x.id === MP1).query_ref;
+  const { plan } = planOf(harness);
+  const check = plan.checks.find((c) => c.id === C_P1);
+  assert.ok(check, JSON.stringify(plan.checks.map((c) => c.id)));
+  assert.ok(check.input_refs.includes(queryRef), `性質の検査の input_refs に性質の query ${queryRef}: ${JSON.stringify(check.input_refs)}`);
+  assert.ok(!subs.some((x) => (x.result?.problems ?? []).some((pr) => /input_refs/.test(pr))), '担当の下書きに input_refs の欠陥を出さない');
+  assert.ok(result.checks.some((c) => c.id === C_P1 && c.verdict === '成功'), '骨組みの性質の検査は実行される');
+  assert.deepEqual(prop(result, 'P1').verdict, ['検証済み']);
 });
 
 test('SP-FORMALMETHOD-001・012 AC-22: 前提に外部の依存があっても、外部の依存でない前提と否定だけで unsat なら premise_only は成り立たないと断定し、sat のときだけ判断を要する項目にする', async (t) => {
   const deps = [{ id: 'X1', text: 'x は外部の API が 0 以上に保つ', source: null }];
   for (const [inner, expectJudgment] of [['unsat', false], ['sat', true]]) {
-    const p = twoPremises([[['P1-g4'], 'sat'], [['P1-p1', 'P1-p2', 'P1-g4'], 'unsat'], [['P1-p2', 'P1-g4'], inner], [['P1-r3', 'P1-g4'], 'unsat']], { premiseBasis: { 'P1-p1': '外部の依存' } });
+    const p = twoPremises([[[N('g4')], 'sat'], [[N('p1'), N('p2'), N('g4')], 'unsat'], [[N('p2'), N('g4')], inner], [[N('r3'), N('g4')], 'unsat']], { premiseBasis: { [N('p1')]: '外部の依存' } });
     const { result, status } = await runScenario(t, { scenario: { properties: [p], externalDependencies: deps } });
     assert.deepEqual(resultInvariants(result), [], inner);
     const ab = ablationsOf(result);
-    const recheck = ab.find((x) => { const text = inputOf(status.run_dir, x.id); return /:named P1-p2/.test(text) && !/:named P1-p1/.test(text) && !/:named P1-r3/.test(text); });
+    const recheck = ab.find((x) => { const text = inputOf(status.run_dir, x.id); return named('p2').test(text) && !named('p1').test(text) && !named('r3').test(text); });
     assert.ok(recheck, `${inner}: 外部の依存の前提を外した再検査を流す`);
     if (expectJudgment) {
       const [j] = judgments(result, 'premise_only');
-      assert.deepEqual([j?.cause, j?.clause_names], ['外部の依存', ['P1-p1']], JSON.stringify(result.confirmations.judgments));
+      assert.deepEqual([j?.cause, j?.clause_names], ['外部の依存', [N('p1')]], JSON.stringify(result.confirmations.judgments));
       assert.deepEqual(det(result, 'premise_only').map((c) => [c.id, c.result]), [[recheck.id, '成り立つ']], '再検査の答えは決定的な確認に残す');
     } else {
       const c = det(result, 'premise_only')[0];
@@ -255,9 +276,9 @@ test('SP-FORMALMETHOD-001・012 AC-22: 前提に外部の依存があっても�
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 変異が規則の節と一緒に性質の否定の節や宣言を変えたら、自明な変異として mutation_scope が成り立たない', async (t) => {
-  const mut = namedClauses(smtQuery('mutation P1', { result: 'sat' }), 'P1', { id: 'P1' }, { mutate: true }).text;
+  const mut = namedClauses(smtQuery(`mutation ${MP1}`, { result: 'sat' }), MP1, { id: 'P1' }, { mutate: true }).text;
   for (const [name, text, pattern] of [
-    ['否定も変える', mut.replace('(not (>= (* x x) 0)) :named P1-g2', '(not (>= (* x x) 1)) :named P1-g2'), /規則でない節 P1-g2（goal）を変える/],
+    ['否定も変える', mut.replace(`(not (>= (* x x) 0)) :named ${N('g2')}`, `(not (>= (* x x) 1)) :named ${N('g2')}`), new RegExp(`規則でない節 ${esc(N('g2'))}（goal）を変える`)],
     ['宣言を足す', mut.replace('(declare-const x Int)', '(declare-const x Int)\n(declare-const z Int)'), /assert でない form/],
   ]) {
     const scenario = { editMutations: (m, { put }) => ({ ...m, mutations: m.mutations.map((x) => ({ ...x, mutation_ref: put('both.smt2', text) })) }) };
@@ -268,7 +289,7 @@ test('SP-FORMALMETHOD-012 AC-22: 変異が規則の節と一緒に性質の否�
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 答えが混ざる（否定だけが sat、規則と否定だけが unknown）なら、断定できたものは決定的な確認にし、答えの無い実行だけを判断を要する項目にする', async (t) => {
-  const p = withPremise({ fakeCore: () => null, fakeAnswers: () => [[['P1-g3'], 'sat'], [['P1-p1', 'P1-g3'], 'sat'], [['P1-r2', 'P1-g3'], 'unknown']] });
+  const p = withPremise({ fakeCore: () => null, fakeAnswers: () => [[[N('g3')], 'sat'], [[N('p1'), N('g3')], 'sat'], [[N('r2'), N('g3')], 'unknown']] });
   const { result } = await runScenario(t, { scenario: { properties: [p] } });
   assert.deepEqual(resultInvariants(result), []);
   assert.equal(det(result, 'goal_trivial')[0]?.result, '成り立つ');
@@ -281,7 +302,7 @@ test('SP-FORMALMETHOD-012 AC-22: 答えが混ざる（否定だけが sat、規�
 
 test('SP-FORMALMETHOD-010・012 AC-22: 切り取った実行が時間切れか実行失敗なら、その確認を断定せず、判断を要する項目（道具が判定できない）にする', async (t) => {
   for (const [answer, endOk] of [['timeout', (e) => e.time_limit_hit !== null || e.tool_result === '時間切れ'], ['crash', (e) => e.abnormal_exit === true]]) {
-    const p = withPremise({ fakeCore: () => null, fakeAnswers: () => [[['P1-g3'], answer], [['P1-p1', 'P1-g3'], 'sat'], [['P1-r2', 'P1-g3'], 'unsat']] });
+    const p = withPremise({ fakeCore: () => null, fakeAnswers: () => [[[N('g3')], answer], [[N('p1'), N('g3')], 'sat'], [[N('r2'), N('g3')], 'unsat']] });
     const { result } = await runScenario(t, { scenario: { properties: [p] } });
     assert.deepEqual(resultInvariants(result), [], answer);
     assert.deepEqual(det(result, 'goal_trivial'), [], answer);
@@ -306,26 +327,26 @@ test(`SP-FORMALMETHOD-012 AC-22: 前提がちょうど ABLATION_PER_PROPERTY_MAX
 
 test('SP-FORMALMETHOD-012 AC-22: 前提が一部だけ重なって効く（A は外すと sat、B と C はそれぞれ外しても unsat で、両方外すと sat）なら、A と、B・C の組を判断を要する項目にする', async (t) => {
   const smt = '(declare-const x Int)\n(assert (>= x 0))\n(assert (>= x 1))\n(assert (>= x 2))\n(assert (<= x 8))\n(assert (not (>= (* x x) 0)))';
-  const answers = [[['P1-g5'], 'sat'], [['P1-p1', 'P1-p2', 'P1-p3', 'P1-g5'], 'sat'], [['P1-r4', 'P1-g5'], 'sat'],
-    [['P1-p2', 'P1-p3', 'P1-r4', 'P1-g5'], 'sat'], [['P1-p1', 'P1-p3', 'P1-r4', 'P1-g5'], 'unsat'], [['P1-p1', 'P1-p2', 'P1-r4', 'P1-g5'], 'unsat'], [['P1-p1', 'P1-r4', 'P1-g5'], 'sat']];
+  const answers = [[[N('g5')], 'sat'], [[N('p1'), N('p2'), N('p3'), N('g5')], 'sat'], [[N('r4'), N('g5')], 'sat'],
+    [[N('p2'), N('p3'), N('r4'), N('g5')], 'sat'], [[N('p1'), N('p3'), N('r4'), N('g5')], 'unsat'], [[N('p1'), N('p2'), N('r4'), N('g5')], 'unsat'], [[N('p1'), N('r4'), N('g5')], 'sat']];
   const p = P('P1', 2, { smt, roles: ['premise', 'premise', 'premise', 'rule', 'goal'], scopeVariables: ['x'], fakeCore: () => null, fakeAnswers: () => answers });
   const { result, status, harness } = await runScenario(t, { scenario: { properties: [p] } });
   assert.deepEqual(resultInvariants(result), []);
   assertRecordsConsistent(status, result, harness);
   const js = judgments(result, 'premise_load').map((j) => [j.cause, j.clause_names]);
-  assert.deepEqual(js, [['効いている前提', ['P1-p1']], ['効いている前提の組', ['P1-p2', 'P1-p3']]], JSON.stringify(js));
+  assert.deepEqual(js, [['効いている前提', [N('p1')]], ['効いている前提の組', [N('p2'), N('p3')]]], JSON.stringify(js));
   const grp = judgments(result, 'premise_load')[1];
   assert.ok(grp.end?.started, '組をまとめて外した実行の終わり方を持つ');
   const text = inputOf(status.run_dir, grp.id);
-  assert.match(text, /:named P1-p1/);
-  assert.doesNotMatch(text, /:named P1-p2|:named P1-p3/);
+  assert.match(text, named('p1'));
+  assert.doesNotMatch(text, new RegExp(`${named('p2').source}|${named('p3').source}`));
   assert.equal(ablationsOf(result).length, 3 + 3 + 1, '3 つ・前提ごとの 3 つ・組の 1 つ');
 });
 
 test('SP-FORMALMETHOD-012 AC-22: 1 つずつ外して unsat だった前提の組をまとめて外しても unsat なら、組は結論を支えていないとして決定的な確認にする', async (t) => {
   const smt = '(declare-const x Int)\n(assert (>= x 0))\n(assert (>= x 1))\n(assert (>= x 2))\n(assert (<= x 8))\n(assert (not (>= (* x x) 0)))';
-  const answers = [[['P1-g5'], 'sat'], [['P1-p1', 'P1-p2', 'P1-p3', 'P1-g5'], 'sat'], [['P1-r4', 'P1-g5'], 'sat'],
-    [['P1-p2', 'P1-p3', 'P1-r4', 'P1-g5'], 'sat'], [['P1-p1', 'P1-p3', 'P1-r4', 'P1-g5'], 'unsat'], [['P1-p1', 'P1-p2', 'P1-r4', 'P1-g5'], 'unsat'], [['P1-p1', 'P1-r4', 'P1-g5'], 'unsat']];
+  const answers = [[[N('g5')], 'sat'], [[N('p1'), N('p2'), N('p3'), N('g5')], 'sat'], [[N('r4'), N('g5')], 'sat'],
+    [[N('p2'), N('p3'), N('r4'), N('g5')], 'sat'], [[N('p1'), N('p3'), N('r4'), N('g5')], 'unsat'], [[N('p1'), N('p2'), N('r4'), N('g5')], 'unsat'], [[N('p1'), N('r4'), N('g5')], 'unsat']];
   const p = P('P1', 2, { smt, roles: ['premise', 'premise', 'premise', 'rule', 'goal'], scopeVariables: ['x'], fakeCore: () => null, fakeAnswers: () => answers });
   const { result } = await runScenario(t, { scenario: { properties: [p] } });
   assert.deepEqual(resultInvariants(result), []);

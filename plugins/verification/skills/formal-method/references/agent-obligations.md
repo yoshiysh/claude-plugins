@@ -45,8 +45,8 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 ## 書く場所と返し方
 
 - 書くのは `attempt_dir` と `scratch_dir` の中だけである。`scratch_dir` は worker ごとの作業用の領域で、成果物でない生成物（途中の抜き出しなど）を置く。成果物・作業記録・返り値は `attempt_dir` に書く（`scratch_dir` を指す `Ref` は成功に数えられない）。run の状態（`status.json`）・台帳（`ledger.json`）・他の担当の `attempts/`・対象には書かない。台帳は CLI だけが書く（PR-BPDESIGNEDSKILL-029）。`attempt_dir` の外に書いたものは成果物として登録されない。
-- 自分が書く全ての `Ref`（`outputs[].ref`・`record_ref`・`worklog_ref`・`query_ref`・`input_refs` など）は、`context.run_dir` からの相対 path で、`attempts/<task_id>/` で始まるか、`query` が渡した資料を指す。
-- 返り値は `return_schemas[<task の role>]` の形の JSON を `result_path` に書き、`submit_cmd` を流して出す。返り値の `task_id` は task の値、`unit_id` は `context.unit_id`、`perspective` は `context.perspective` をそのまま使う。値が違う返り値は成功に数えられない。
+- 自分が書く全ての `Ref`（`outputs[].ref`・`record_ref`・`worklog_ref`・`query_ref`・`mutation_ref` など）は、`context.run_dir` からの相対 path で、`attempts/<task_id>/` で始まるか、`query` が渡した資料を指す。
+- 返り値は `return_schemas[<task の role>]` の形の JSON を `result_path` に書き、`submit_cmd` を流して出す。task から決まる値（返り値の `task_id`・`unit_id`・`perspective`）は書かない。CLI が `submit` の照合で task の値を入れる。
 - Workflow の返り値（担当の最後の応答）で内容を返さない。CLI は応答を読まず、`submit` で受理した `result_path` の返り値だけを使う。
 - 書くファイルは、既にあれば上書きしてよい書き方で書く（Write の tool か、shell なら `>|`）。理由: shell の `noclobber` が効いていると `>` は既にあるファイルで失敗し、その回復に往復を使う。
 - `submit` が `done: true` を返した担当は閉じている。受理された担当の成果物と返り値を書き換えない（受理の後に attempt の領域が書き換わると、CLI は受理を取り消す）。
@@ -58,9 +58,7 @@ formal-method の CLI（`run-daemon`）が開いた呼び出しで起動され�
 
 | 欄 | 書くもの |
 |---|---|
-| `role`・`task_id` | task の `role` と `task_id` |
-| `stage` | `context.stage` |
-| `target` | 対象（`context.target_id`、`model_id`、`unit_id` など、この task が扱うもの） |
+| `schema`・`role`・`task_id`・`stage`・`target` | 書かない（CLI が `submit` の照合で task の値を入れる） |
 | `inputs` | `query` の資料のうち、読んだファイルごとの `{ref}`。`instructions` のファイルは書かない。`ref` は、ファイルの資料ならその `ref`、ディレクトリの資料の下のファイルなら `<ディレクトリの ref>/<ディレクトリからの相対 path>`、畳んだ資料なら `<ref><entry>`（`entry` がディレクトリなら `<ref><entry><ディレクトリからの相対 path>`）。範囲（`spans`）で渡された対象のファイルは `{ref, spans: [{span}]}` で、渡された範囲のうち読んだものだけを書く。`span` は渡された `spans` の値のまま書く（範囲の一部だけを読んでも、行を切り詰めた範囲にしない。指紋は渡した範囲ごとにしか固定していないので、一部の範囲は渡していない範囲として差し戻される）。指紋（`hash`、範囲ごとの `hash`）は書かなくてよい |
 | `actions`・`results`・`grounds` | したこと、得たこと、その根拠 |
 | `failures`・`unconfirmed` | できなかったこととその理由、確かめられなかったこと |

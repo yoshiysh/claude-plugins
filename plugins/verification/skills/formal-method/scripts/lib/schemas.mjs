@@ -2,6 +2,7 @@
 import {
   str, str0, bool, num, int, intGe, lit, nullable, re, arr, arr1, tuple, obj, oneOf, any, validate, conforms,
 } from './check-shape.mjs';
+import { coreEnum } from './core-schema.mjs';
 
 // ---- 定数 ----
 export const CALL_MAX_MS = 240000;
@@ -26,7 +27,11 @@ export const WORKER_CALL_MAX_MS = 60000;
 // 1 体に詰める資料の和集合のバイト数の上限。値と根拠の正本は cli-contract.md「定数」の「UNIT_MAX_BYTES の根拠」
 export const UNIT_MAX_BYTES = 120000;
 
-export const STAGES = Object.freeze(['受付', '洗い出し', 'モデル化', '計画', '実行', '確認', '集約']);
+// 段・確認の結果・境界の前提の出どころの種類・対応表の relation の正本は core.schema.json の $defs（#264 SP-264-003）
+export const STAGES = coreEnum('Stage');
+export const CONFIRMATION_RESULTS = coreEnum('ConfirmationResult');
+export const ASSUMPTION_BASIS_KINDS = coreEnum('AssumptionBasisKind');
+export const RELATIONS = coreEnum('MappingRelation');
 
 // ---- 値の集合 ----
 export const VERDICTS = Object.freeze(['検証済み', '別手段で確認済み', '反例', '未実行', 'unknown', '時間切れ', '実行失敗', '未確認']);
@@ -57,9 +62,7 @@ export const RESULT_SCHEMA = 'formal-method.result/2';
 export const LEDGER_SCHEMA = 'formal-method.ledger/2';
 export const WORKLOG_SCHEMA = 'formal-method.worklog/1';
 export const STATUS_ACTIONS = Object.freeze(['run_agents', 'working', 'terminal']);
-const RELATIONS = ['形式化', '形式検証でない確認', '範囲外', '対応なし'];
 const GOAL_KINDS = ['目標', '完了', '停止', '再開先'];
-const CONFIRMATION_RESULTS = ['成り立つ', '成り立たない', '確認できず'];
 const CHECK_KINDS = ['property', 'composition', 'contract'];
 // 静的な確認（SP-FORMALMETHOD-012 の表。architecture.md「静的な確認」）の kind と、そのうち判断を要する項目になりうるもの
 export const STATIC_KINDS = Object.freeze(['goal_trivial', 'premise_only', 'premise_load', 'plan_coverage', 'scope_variables', 'mutation_scope']);
@@ -193,12 +196,10 @@ const Model = obj({
   combinations: Combinations, paths: Paths, behavior: Behavior, diagram: Diagram,
 });
 const Location = obj({ file: Ref, pointer: str });
-const AssumptionBasis = oneOf(
-  obj({ kind: lit('他の部分の保証'), contract_id: Id }),
-  obj({ kind: lit('依頼の要求・制約'), known_requirement_id: Id }),
-  obj({ kind: lit('共同不変条件'), check_ids: arr1(Id) }),
-  obj({ kind: lit('確認できない前提'), reason: str }),
-);
+// kind ごとの欄。並びは $defs/AssumptionBasisKind の列挙の並び（他の部分の保証・依頼の要求・制約・共同不変条件・確認できない前提）
+const ASSUMPTION_BASIS_FIELDS = [{ contract_id: Id }, { known_requirement_id: Id }, { check_ids: arr1(Id) }, { reason: str }];
+if (ASSUMPTION_BASIS_KINDS.length !== ASSUMPTION_BASIS_FIELDS.length) throw new Error('core.schema.json の $defs/AssumptionBasisKind の数が AssumptionBasis の欄の数と合わない');
+const AssumptionBasis = oneOf(...ASSUMPTION_BASIS_KINDS.map((kind, i) => obj({ kind: lit(kind), ...ASSUMPTION_BASIS_FIELDS[i] })));
 export const Boundary = obj({
   edge_id: str, producer: Id, consumer: Id, shared_symbols: arr1(str), assumption: str, guarantee: str,
   assumption_basis: AssumptionBasis, responsible: arr1(Id),
@@ -285,15 +286,21 @@ export const Status = obj({
 });
 
 // ---- 担当の成果物 ----
-export const Inventory = obj({
+const INVENTORY_FIELDS = {
   schema: lit('formal-method.inventory/1'), target_id: Id, content_hash: Sha256,
-  scanned: arr1(obj({ file: FilePath, span: nullable(Span), status: lit('read', 'unread'), reason: nullable(str) })),
   elements: arr(obj({ id: Id, kind: lit('requirement', 'goal', 'state', 'input', 'output', 'constraint', 'event', 'result'),
     source: obj({ target_id: Id, file: FilePath, span: Span, quote_hash: Sha256 }), text: str })),
   properties: arr(obj({ id: Id, source_ids: arr1(Id), statement: str, formalizable: bool, nonformal_reason: nullable(str), nonformal_method: nullable(str),
     assumptions: arr(str), scope: str, blocked_by_question: arr(Id) })),
   external_dependencies: arr(obj({ id: Id, text: str, source: nullable(SourceRef) })),
+};
+export const Inventory = obj({
+  ...INVENTORY_FIELDS,
+  scanned: arr1(obj({ file: FilePath, span: nullable(Span), status: lit('read', 'unread'), reason: nullable(str) })),
 });
+// extractor の inventory の下書き（#264 SP-264-026。型の正本は core.schema.json の $defs/InventoryDraft）。scanned は持たず、CLI が実行体
+// extract-skeleton の走査の範囲で埋め、本文の ID の形の参照の下書きを external_dependencies に足して Inventory を組み立てる（assemble.mjs の assembleInventory）
+export const InventoryDraft = obj(INVENTORY_FIELDS);
 const StateMachine = obj({
   states: arr1(str), events: arr1(str), initial: str,
   variables: arr(obj({ id: str, sort: str, domain: str, init: str })),
@@ -319,16 +326,39 @@ export const MappingFile = obj({
   schema: lit('formal-method.mapping/1'), model_id: Id,
   rows: arr(obj({ source: Pointer, property_id: Id, model_element: str, relation: lit(...RELATIONS), reason: nullable(str) })),
 });
+// model-author の対応表の下書き（#264 SP-264-025。型の正本は core.schema.json の $defs/MappingDraft）。CLI が実行体 mapping-rows の
+// 骨組みの行と rows を row_id で結び、extra_rows を後ろにつないで MappingFile を組み立てる（assemble.mjs の assembleMapping）
+export const MAPPING_DRAFT_SCHEMA = 'formal-method.mapping-draft/1';
+export const MappingDraft = obj({
+  schema: lit(MAPPING_DRAFT_SCHEMA),
+  rows: arr(obj({ row_id: str, model_element: str, 'relation?': lit(...RELATIONS), reason: nullable(str) })),
+  extra_rows: arr(obj({ source: Pointer, property_id: Id, model_element: str, relation: lit(...RELATIONS), reason: nullable(str) })),
+});
+const Decision = obj({ candidate_id: Id, adopted: bool, reason: str });
+const PartitionContract = obj({ id: Id, model_id: Id, derived_from: Id, part_id: Id, statement: str, query_ref: Ref });
+const CompositionCondition = obj({ id: Id, model_id: Id, derived_from: Id, statement: str, query_ref: Ref, depends_on: arr(Id) });
 export const PartitionsFile = obj({
   schema: lit('formal-method.partitions/1'),
-  decisions: arr1(obj({ candidate_id: Id, adopted: bool, reason: str })), adopted: bool, reason: str,
+  decisions: arr1(Decision), adopted: bool, reason: str,
   parts: arr(Part), boundaries: arr(Boundary),
-  contracts: arr(obj({ id: Id, model_id: Id, derived_from: Id, part_id: Id, statement: str, query_ref: Ref })),
-  composition_conditions: arr(obj({ id: Id, model_id: Id, derived_from: Id, statement: str, query_ref: Ref, depends_on: arr(Id) })),
+  contracts: arr(PartitionContract),
+  composition_conditions: arr(CompositionCondition),
 });
+// partition-author の分割の下書き（#264 SP-264-023。型の正本は core.schema.json の $defs/PartitionsDraft）。adopted・parts と境界の
+// producer・consumer・shared_symbols は実行体 partition-assemble が候補と辺から決め、CLI が PartitionsFile を組み立てる（assemble.mjs の assemblePartitions）
+export const PARTITIONS_DRAFT_SCHEMA = 'formal-method.partitions-draft/1';
+export const PartitionsDraft = obj({
+  schema: lit(PARTITIONS_DRAFT_SCHEMA),
+  decisions: arr1(Decision), reason: str,
+  boundaries: arr(obj({ edge_id: str, assumption: str, guarantee: str, assumption_basis: AssumptionBasis, responsible: arr1(Id) })),
+  contracts: arr(PartitionContract),
+  composition_conditions: arr(CompositionCondition),
+});
+const Selection = obj({ property_id: Id, candidates: arr1(Candidate), chosen: obj({ technique: str, tool: str }), reason: str });
+const Unavailable = obj({ property_id: Id, reason: str, alternative: nullable(str) });
 export const PlanFile = obj({
   schema: lit('formal-method.plan/1'),
-  selection: arr(obj({ property_id: Id, candidates: arr1(Candidate), chosen: obj({ technique: str, tool: str }), reason: str })),
+  selection: arr(Selection),
   checks: arr(obj({ id: Id, kind: lit(...CHECK_KINDS), target_id: Id, model_id: Id, input_refs: arr1(Ref), expected: lit('unsat', 'sat'),
     assumptions: arr(str), scope: str, tool_time_limit_seconds: intGe(1), depends_on: arr(Id) })),
   sanity: arr(obj({ id: Id, model_property_id: Id, input_refs: arr1(Ref), tool_time_limit_seconds: intGe(1) })),
@@ -336,25 +366,49 @@ export const PlanFile = obj({
 export const MutationsFile = obj({
   schema: lit('formal-method.mutations/1'),
   mutations: arr(obj({ id: Id, property_id: Id, mutation_ref: Ref, expected_violation: lit('sat', 'unsat'), detector_check_id: Id })),
-  unavailable: arr(obj({ property_id: Id, reason: str, alternative: nullable(str) })),
+  unavailable: arr(Unavailable),
+});
+// plan-author の計画と変異の下書き（#264 SP-264-021。型の正本は core.schema.json の $defs/PlanDraft・MutationsDraft）。検査と sanity の列挙・
+// id・target_id・model_id・expected・input_refs・depends_on は実行体 plan-skeleton が決め、変異の detector_check_id は CLI が prop-<property_id> で埋める
+// （assemble.mjs の assemblePlan）。担当は手法の選択、target_id ごとの時間の上限・前提・範囲、変異だけを書く
+export const PLAN_DRAFT_SCHEMA = 'formal-method.plan-draft/1';
+export const MUTATIONS_DRAFT_SCHEMA = 'formal-method.mutations-draft/1';
+export const PlanDraft = obj({
+  schema: lit(PLAN_DRAFT_SCHEMA),
+  selection: arr(Selection),
+  targets: arr(obj({ target_id: Id, tool_time_limit_seconds: intGe(1), assumptions: arr(str), scope: str })),
+});
+export const MutationsDraft = obj({
+  schema: lit(MUTATIONS_DRAFT_SCHEMA),
+  mutations: arr(obj({ id: Id, property_id: Id, mutation_ref: Ref, expected_violation: lit('sat', 'unsat') })),
+  unavailable: arr(Unavailable),
 });
 
 // ---- 担当の返り値・task・Workflow ----
-export const AuthorReturn = obj({
-  task_id: Id, status: lit('done', 'needs_answer', 'cannot_proceed'),
+// 担当が書くのは下書き（*Draft）。task_id・unit_id・perspective は CLI が実行体 complete-return で task の値を入れ（#264 SP-264-029）、
+// 照合（collectReturn）は補った後の返り値に AuthorReturn・ReviewReturn・CauseReturn を当てる。claim の return_schemas は下書きの形
+const AUTHOR_FIELDS = {
+  status: lit('done', 'needs_answer', 'cannot_proceed'),
   outputs: arr(obj({ kind: lit('inventory', 'model', 'mapping', 'partitions', 'plan', 'mutations'), ref: Ref })),
   questions: arr(Question), blocked_by_question: arr(Id), reason: nullable(str), worklog_ref: Ref,
-});
-export const ReviewReturn = obj({
-  task_id: Id, unit_id: Id, perspective: lit(...PERSPECTIVES), result: lit(...CONFIRMATION_RESULTS),
+};
+export const AuthorReturnDraft = obj(AUTHOR_FIELDS);
+export const AuthorReturn = obj({ task_id: Id, ...AUTHOR_FIELDS });
+// 確認役が見た観点か項目ごとの記録（SP-264-028。型の正本は core.schema.json の $defs/ReviewItem）。確認の result は CLI が実行体 review-tally で
+// findings と items から決める（担当は result を書かない）
+export const ReviewItem = obj({ ref: str, result: lit(...CONFIRMATION_RESULTS) });
+const REVIEW_FIELDS = {
+  items: arr(ReviewItem),
   findings: arr(obj({ ref: str, kind: lit('omission', 'addition', 'meaning_change', 'clause_role', 'assurance_overclaim', 'vacuity', 'mutation_invalid', 'boundary_gap', 'circular_assumption', 'other'), note: str })),
   // 判断を要する項目ごとの答え（忠実さの確認役だけが持つ。他の観点は []）。id は Judgment.id
   judgments: arr(obj({ id: Id, result: lit(...CONFIRMATION_RESULTS), note: str })),
   record_ref: Ref, worklog_ref: Ref,
-});
-export const CauseReturn = obj({
-  task_id: Id, unit_id: Id, cause: lit(...CAUSES), grounds: str, questions: arr(Question), record_ref: Ref, worklog_ref: Ref,
-});
+};
+export const ReviewReturnDraft = obj(REVIEW_FIELDS);
+export const ReviewReturn = obj({ task_id: Id, unit_id: Id, perspective: lit(...PERSPECTIVES), ...REVIEW_FIELDS });
+const CAUSE_FIELDS = { cause: lit(...CAUSES), grounds: str, questions: arr(Question), record_ref: Ref, worklog_ref: Ref };
+export const CauseReturnDraft = obj(CAUSE_FIELDS);
+export const CauseReturn = obj({ task_id: Id, unit_id: Id, ...CAUSE_FIELDS });
 // Workflow の返り値（artifact-formats.md「Workflow の返り値」）。close が記録するだけで、受理には使わない
 export const WorkflowReturn = obj({
   agents: arr(obj({ role: str, label: str, model: str, effort: str, ok: bool })),
