@@ -2,6 +2,7 @@
 // 期待値は契約の表の値で、関係は表の「関係・理由」の列の式。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 const loadSchemas = () => import('./schemas.mjs');
 
@@ -69,3 +70,45 @@ for (const [name, rel] of RELATIONS) {
     assert.ok(rel(s), name);
   });
 }
+
+// ---- 列挙の正本は core.schema.json（#264 SP-264-003）。schemas.mjs は実行時に schema を読んで作り、値を書き写さない ----
+const SKILL_DIR = new URL('../../', import.meta.url);
+const coreSchema = () => JSON.parse(readFileSync(new URL('references/core.schema.json', SKILL_DIR), 'utf8'));
+// schemas.mjs の export の名前 → core.schema.json の $defs の列挙の名前
+const ENUMS = { STAGES: 'Stage', CONFIRMATION_RESULTS: 'ConfirmationResult', ASSUMPTION_BASIS_KINDS: 'AssumptionBasisKind', RELATIONS: 'MappingRelation' };
+
+for (const [name, def] of Object.entries(ENUMS)) {
+  test(`SP-264-003: schemas.mjs の ${name} は core.schema.json の $defs/${def} の値と同じ`, async () => {
+    const s = await loadSchemas();
+    const e = coreSchema().$defs[def]?.enum;
+    assert.ok(Array.isArray(e) && e.length > 0, `$defs/${def}.enum が無い`);
+    assert.deepEqual([...s[name]], e);
+  });
+}
+
+test('SP-264-003: schemas.mjs の本文に 4 つの列挙の値の文字列が無い（schema から読む）', () => {
+  const src = readFileSync(new URL('./schemas.mjs', import.meta.url), 'utf8');
+  const defs = coreSchema().$defs;
+  const hits = [];
+  for (const def of Object.values(ENUMS)) {
+    for (const v of defs[def].enum) {
+      const n = [...src.matchAll(/(['"`])([^'"`\n]*?)\1/g)].filter((x) => x[2] === v).length;
+      // 形式検証でない確認 は対応表の relation の値であると同時に、別の列挙（性質の判定の kind。Verdict）の値でもある。後者は 1 つまで許す
+      const allowed = v === '形式検証でない確認' ? 1 : 0;
+      if (n > allowed) hits.push(`${def}: '${v}' が ${n} 個`);
+    }
+  }
+  assert.deepEqual(hits, []);
+});
+
+test('SP-264-003: cli-contract.md の「実行体」の節は core.schema.json へのリンクを持ち、```text の型の塊を持たない', (t) => {
+  const doc = readFileSync(new URL('references/cli-contract.md', SKILL_DIR), 'utf8');
+  const m = doc.match(/^## 実行体\s*$([\s\S]*?)(?=^## )/m) ?? doc.match(/^## 実行体\s*$([\s\S]*)$/m);
+  // 節は文書を合わせる単位（U6）で置く。U6 の前（plugin の版が 0.1.1 のまま）だけ節の無いことを許す。
+  // U6 の後は節を要る。版を上げ忘れたまま節も無いことは core-wiring.test.mjs の「U6 の印は揃って現れる」が他の印（SKILL.md の install の行）で捉える
+  const version = JSON.parse(readFileSync(new URL('../../.claude-plugin/plugin.json', SKILL_DIR), 'utf8')).version;
+  if (!m && version === '0.1.1') { t.skip('cli-contract.md に「実行体」の節がまだ無い（U6 の前）'); return; }
+  assert.ok(m, `plugin の版が ${version} なのに cli-contract.md に「## 実行体」の節が無い`);
+  assert.match(m[1], /\]\(\.?\/?core\.schema\.json(#[^)]*)?\)/, '節に core.schema.json へのリンクが無い');
+  assert.ok(!/```text/.test(m[1]), '節に ```text の型の塊がある（型は core.schema.json にだけ書く）');
+});

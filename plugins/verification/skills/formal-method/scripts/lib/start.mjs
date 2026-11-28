@@ -12,6 +12,7 @@ import { killGroup } from './process.mjs';
 import { busy, lockHolder, observeRun, readStatus as readStatusOf, salvage, salvageDecision, unreadable } from './store.mjs';
 import { acceptanceStopResult } from './result.mjs';
 import { locationFromEnv } from './performance.mjs';
+import { checkCoreVersion, installCommand } from './core.mjs';
 
 const CLI_PATH = fileURLToPath(new URL('../formal-method-cli.mjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
@@ -70,6 +71,12 @@ function observe(runDir, child) {
 // start の作用。戻り値: { ok: true, status } | { ok: false, code, reason, detail }
 export async function start(input, { cwd = process.cwd() } = {}) {
   const location = locationFromEnv();
+  // 実行体の版の検査（SP-264-002）。保存先の確認と run の領域を作るより前に行い、合わなければ run を始めない
+  const core = checkCoreVersion();
+  if (!core.ok) {
+    const detail = `${core.why}。次のコマンドで実行体を入れる: ${installCommand()}`;
+    return { ok: true, status: stopStatus(acceptanceStopResult({ code: '起動の失敗', detail, location })) };
+  }
   const root = join(cwd, '.formal-method', 'runs');
   const fail = probe(root);
   if (fail) return { ok: true, status: stopStatus(acceptanceStopResult({ code: '保存の失敗', detail: fail, location })) };

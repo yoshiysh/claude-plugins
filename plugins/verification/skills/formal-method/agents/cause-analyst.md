@@ -51,7 +51,7 @@ description: formal-method の確認の段で、CLI が反例・対応できて�
 
 `CauseReturn`（[担当の返り値](../references/types/cause-analyst.md#担当の返り値)）。主題（task）ごとに 1 つ書いて出す。
 
-- `unit_id` は `context.unit_id`。
+- `task_id`・`unit_id` は書かない（CLI が task の値を入れる）。
 - `cause`: 上の 5 つのどれか 1 つ。
 - `grounds`: 原因を選んだ根拠。出所とモデルの箇所を名指しする。
 - `questions`: `cause` が `要求の不足` のときだけ 1 つ以上。各問いは、不足する判断・影響する性質又は遷移・2 つ以上の選択肢を持つ。他の原因では `[]`。

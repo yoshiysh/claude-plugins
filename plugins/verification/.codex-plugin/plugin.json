@@ -1,6 +1,6 @@
 {
     "name": "verification",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "description": "要求・仕様・コードを形式手法などで機械的に検証するスキル群",
     "author": {
         "name": "yoshiysh"

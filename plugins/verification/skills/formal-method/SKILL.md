@@ -69,6 +69,8 @@ description: >
 
 全てのコマンドを、標準入力の 1 つの JSON で呼ぶ。出力は標準出力の 1 行の JSON である。
 
+**実行環境**: node と z3 に加えて、CLI が決定的な処理を任せる実行体 `formal-method-core` が要る。無ければ `cargo install --locked --git https://github.com/yoshiysh/claude-plugins.git --tag formal-method-core-v0.1.0 formal-method-core` で入れる（`PATH` に置くか、環境変数 `FORMAL_METHOD_CORE_BIN` で path を示す）。見つからないか版が違えば、`start` は run を始めず `起動の失敗` の `停止` を返し、`detail` に同じコマンドを載せる（[CLI 契約「実行体」](references/cli-contract.md#実行体)）。
+
 ```bash
 node [SKILL_DIR]/scripts/formal-method-cli.mjs <command> <<'JSON'
 <入力の JSON>

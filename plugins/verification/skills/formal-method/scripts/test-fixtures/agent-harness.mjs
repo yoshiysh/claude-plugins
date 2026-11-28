@@ -4,6 +4,13 @@
 // 書く形は artifact-formats.md の「担当の成果物」「担当の返り値」「claim の Task」「作業記録」だけ。task から読むのは Task と TaskContext の欄と、
 // query が返した資料（input_refs）だけ。最後に司令塔の代わりに close を呼ぶ（Workflow の返り値は {agents, tokens}）。
 // 受け取った task が契約の形（claim の Task の欄、役ごとの context）に合わなければ、その違反で失敗する。
+// #264 の下書きの形: CLI が契約で渡す印を見て、役ごとに下書きの形か今の形かを選ぶ（単位を 1 つずつ入れる間、両方の CLI で同じテストを流すため）。
+//   model-author: context.model_property_id_prefix（モデルごとの task。対応表は骨組みの view への書き込みと extra_rows）
+//   partition-author: context.candidates[].edges（PartitionsDraft）
+//   plan-author: context.target_ids が空でない（PlanDraft・MutationsDraft）
+//   extractor: context.external_references（inventory に scanned を書かない）
+//   返り値と作業記録: return_schemas のその役の形が task_id を持たない（task_id・unit_id・perspective と作業記録の文脈の欄を書かない）。
+//     確認役は、形が result を持たなければ items を書く
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, mkdtempSync, chmodSync, linkSync, unlinkSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -64,7 +71,16 @@ export function taskViolations(task, runDir, memory = null, worker = null) {
   const keys = Object.keys(task).sort();
   if (keys.join() !== TASK_KEYS.join()) v.push(`${task.task_id}: claim の Task の欄 ${keys.join()}`);
   const CONTEXT_KEYS = ['candidates', 'model_id', 'perspective', 'property_ids', 'run_dir', 'stage', 'subject', 'target_id', 'unit_id'];
-  if (Object.keys(c).sort().join() !== CONTEXT_KEYS.join()) v.push(`${task.task_id}: context の欄 ${Object.keys(c).sort().join()}（資料は query で引く）`);
+  // #264 で足す欄（SP-264-012・021・026、DD-18）。単位ごとに 1 つずつ増えるので、今の欄 ⊆ 欄 ⊆ 今の欄 ∪ 足す欄 で照らす
+  const ADDED_CONTEXT_KEYS = ['external_references', 'model_property_id_prefix', 'target_ids'];
+  const ck = Object.keys(c);
+  if (!CONTEXT_KEYS.every((k) => ck.includes(k)) || !ck.every((k) => CONTEXT_KEYS.includes(k) || ADDED_CONTEXT_KEYS.includes(k))) v.push(`${task.task_id}: context の欄 ${ck.sort().join()}（資料は query で引く）`);
+  if ('model_property_id_prefix' in c) {
+    const want = task.role === 'model-author' ? `${c.model_id}.` : null;
+    if (c.model_property_id_prefix !== want || (task.role === 'model-author' && !c.model_id)) v.push(`${task.task_id}: model_property_id_prefix ${c.model_property_id_prefix}（model-author は <model_id>.、他は null）`);
+  }
+  if ('target_ids' in c && (!Array.isArray(c.target_ids) || (task.role === 'plan-author') !== (c.target_ids.length > 0))) v.push(`${task.task_id}: target_ids は plan-author だけ空でない`);
+  if ('external_references' in c && (!Array.isArray(c.external_references) || (task.role !== 'extractor' && c.external_references.length > 0))) v.push(`${task.task_id}: external_references は extractor の task だけが持つ`);
   const ins = task.instructions ?? [];
   // 役の指示・役の分の義務（作成役か確認役）・役の型の抜粋・run の領域の文書の一般規約の写しの 4 つ（artifact-formats.md「claim の Task」）
   const cls = ['extractor', 'model-author', 'partition-author', 'plan-author'].includes(task.role) ? 'author' : 'confirmer';
@@ -131,6 +147,12 @@ export function defaultScenario(over = {}) {
     stopAfterSubmits: {},   // 役 → n: その役の提出が n 回になったら、done でなくても流し直さずに worker を終える（閉じた時点の受理の経路）
     scanDropLast: false,    // true なら抽出役は依頼の範囲の最後の行を scanned で覆わない（網羅の照合が落ちるケース）
     extraElements: [],      // [{ file, line }]: どの性質にも結ばれない要素（id は E-X<line>）を inventory に足す
+    // #264 の下書きの形の口（CLI が下書きの形を求めたときだけ使う）
+    editModel: null,        // (ModelFile, { round, model_id }) → ModelFile（モデル作成役の巡ごと）
+    editMappingDraft: null, // (MappingDraft, { round, model_id, skeleton }) → MappingDraft
+    editPlanDraft: null,    // (PlanDraft, ctx) → PlanDraft（ctx は editPlan と同じ。model_id を持つ）
+    editMutationsDraft: null, // (MutationsDraft, ctx) → MutationsDraft
+    reviewItems: {},        // perspective → ReviewReturn.items（既定は観点を 1 つの項目にした記録）
     ...over,
   };
 }
@@ -206,11 +228,12 @@ export function worklogInputs(queryInputs) {
     return one(x.ref, x.path);
   });
 }
-function worklog(task) {
+// draft: 下書きの形（SP-264-029）。schema・role・task_id・stage・target は CLI が complete-return で入れるので書かない
+function worklog(task, draft = false) {
   const inputs = worklogInputs(task.query_inputs);
   return {
-    schema: 'formal-method.worklog/1', role: task.role, task_id: task.task_id, stage: task.context.stage,
-    target: task.context.target_id ?? 'T1', inputs, actions: `${task.role} として与えられた資料を読んだ。`, results: '返り値を書いた。',
+    ...(draft ? {} : { schema: 'formal-method.worklog/1', role: task.role, task_id: task.task_id, stage: task.context.stage, target: task.context.target_id ?? 'T1' }),
+    inputs, actions: `${task.role} として与えられた資料を読んだ。`, results: '返り値を書いた。',
     grounds: 'テストの harness が決めた値である。', failures: [], unconfirmed: [], unreadable_inputs: [],
   };
 }
@@ -243,6 +266,36 @@ function modelsOf(s) {
   if (!s.models) return [{ id: 'M1', props: formal, stateMachine: s.stateMachine, behavior: s.behavior, omittedEdges: s.omittedEdges, mappingProps: inModel }];
   return s.models.map((m, i) => ({ ...m, props: formal.filter((p) => m.propertyIds.includes(p.id)), mappingProps: i === 0 ? inModel.filter((p) => p.formalizable === false || m.propertyIds.includes(p.id)) : formal.filter((p) => m.propertyIds.includes(p.id)) }));
 }
+
+// 下書きの形のモデル作成役の 1 つのモデル（SP-264-012）。性質の組は CLI の partition-models が決め、context.property_ids で渡る。
+// scenario.models の要素は、性質の組が重なるものを状態遷移などの中身の出所に使う（id は CLI が決めるので使わない）。
+// scenario.models が無ければ、scenario の最初の形式化できる性質を持つモデルに scenario.stateMachine などを置く（今の形の 1 つのモデルと同じ中身）
+function modelForTask(s, c) {
+  const ids = new Set(c.property_ids);
+  const inModel = s.properties.filter((p) => ids.has(p.id));
+  const formal = inModel.filter((p) => p.formalizable !== false);
+  const spec = (s.models ?? []).find((m) => m.propertyIds.some((id) => ids.has(id)));
+  const first = !s.models && formal.some((p) => p.id === s.properties.find((x) => x.formalizable !== false)?.id);
+  const pick = (k) => (spec ? spec[k] : first ? s[k] : undefined);
+  return { id: c.model_id, props: formal, mappingProps: inModel, stateMachine: pick('stateMachine'), behavior: pick('behavior'), omittedEdges: pick('omittedEdges') };
+}
+// 下書きの対応表（MappingDraft。SP-264-025）: 骨組み（views/mapping-rows-<model_id>.json。DD-16）の行ごとに model_element と理由を書き、
+// 形式化できる性質の行だけ relation を書く。目標を出所にする行は extra_rows。骨組みは query の資料から読む（渡されなければ違反に挙げる）
+function mappingDraft(task, s, memory, m, { el, relOf, reasonOf, goalRows, round }) {
+  const ref = `views/mapping-rows-${m.id}.json`;
+  if (!(task.context.input_refs ?? []).some((x) => x.ref === ref)) memory.violations.push(`${task.task_id}（model-author）: 対応表の骨組み ${ref} が task の資料に無い`);
+  const skeleton = JSON.parse(materialReader(task, memory)(ref) ?? '{"rows":[]}');
+  const byId = new Map(s.properties.map((p) => [p.id, p]));
+  const rows = skeleton.rows.filter((r) => byId.get(r.property_id)?.mappingLocation !== false).map((r) => {
+    const p = byId.get(r.property_id);
+    if (p.formalizable === false) return { row_id: r.row_id, model_element: el(p), reason: r.reason ?? null };
+    return { row_id: r.row_id, model_element: el(p), relation: relOf(p), reason: reasonOf(relOf(p)) };
+  });
+  const d = { schema: 'formal-method.mapping-draft/1', rows, extra_rows: m.mappingProps.flatMap((p) => goalRows(p)) };
+  return s.editMappingDraft ? s.editMappingDraft(d, { round, model_id: m.id, skeleton }) : d;
+}
+// 各モデルの最後の書き込み（モデル作成役の修正の巡で同じモデルを書き直すと後ろに足す）
+const latestModels = (memory) => [...new Set(memory.models.map((m) => m.id))].map((id) => memory.models.filter((x) => x.id === id).at(-1));
 
 const ROLE = {
   extractor(task, s) {
@@ -278,7 +331,8 @@ const ROLE = {
     for (const p of s.properties) {
       const line = linesOf(readFileSync(snap(p.file), 'utf8'))[p.line - 1];
       elements.push({ id: `E-${p.id}`, kind: 'requirement', source: { target_id: target.id, file: p.file, span: `L${p.line}-L${p.line}`, ...(s.omitQuoteHash ? {} : { quote_hash: sha(line) }) }, text: line });
-      properties.push({ id: p.id, source_ids: [`E-${p.id}`], statement: p.statement, formalizable: p.formalizable !== false,
+      // p.sources: 出所に引く性質の要素（既定は自分の行の要素だけ）。出所を共有する性質は partition-models で同じモデルになる（SP-264-010）
+      properties.push({ id: p.id, source_ids: (p.sources ?? [p.id]).map((id) => `E-${id}`), statement: p.statement, formalizable: p.formalizable !== false,
         nonformal_reason: p.formalizable === false ? '数で表せない' : null, nonformal_method: p.formalizable === false ? '文書の読み合わせ' : null,
         assumptions: [], scope: '対象の全体', blocked_by_question: [...(p.blocked_by_question ?? []), ...questionsOf(s, ['extractor'], p.id)] });
     }
@@ -286,58 +340,90 @@ const ROLE = {
       const line = linesOf(readFileSync(snap(x.file), 'utf8'))[x.line - 1];
       elements.push({ id: `E-X${x.line}`, kind: 'requirement', source: { target_id: target.id, file: x.file, span: `L${x.line}-L${x.line}`, quote_hash: sha(line) }, text: line });
     }
-    write(task, 'inventory.json', { schema: 'formal-method.inventory/1', target_id: target.id, content_hash: target.fixed.content_hash, scanned, elements, properties, external_dependencies: s.externalDependencies ?? [] });
+    // 下書きの形（SP-264-026）: scanned は CLI が extract-skeleton で埋めるので書かない
+    const draft = Array.isArray(task.context.external_references);
+    write(task, 'inventory.json', { schema: 'formal-method.inventory/1', target_id: target.id, content_hash: target.fixed.content_hash, ...(draft ? {} : { scanned }), elements, properties, external_dependencies: s.externalDependencies ?? [] });
     return [{ kind: 'inventory', ref: runRef(task, 'inventory.json') }];
   },
   'model-author'(task, s, memory) {
     const outputs = [];
-    memory.models = [];
     const round = memory.rounds[task.role];
-    const q = (text, mp, kind) => (s.editModelQuery ? s.editModelQuery(text, { round, mp, kind }) : text);
-    for (const m of modelsOf(s)) {
+    const c = task.context;
+    // 下書きの形（SP-264-012・025）: task はモデルごとに 1 つ。model_id と性質は context から、対応表の location の行は骨組みの view から
+    const draft = typeof c.model_property_id_prefix === 'string';
+    if (!draft) memory.models = [];
+    const ms = draft ? [modelForTask(s, c)] : modelsOf(s);
+    for (const m of ms) {
+      const mp = (p) => (draft ? `${c.model_property_id_prefix}${s.modelPropPrefix}${p.id}` : mpid(s, p));
+      const q = (text, id, kind) => (s.editModelQuery ? s.editModelQuery(text, { round, mp: id, kind, model_id: m.id }) : text);
       for (const p of m.props) {
-        const mp = mpid(s, p);
-        write(task, `${mp}.smt2`, q(namedClauses(smtQuery(`property ${mp}`, p.query, p.smt), mp, p).text, mp, 'property'));
-        write(task, `${mp}-sanity.smt2`, q(smtQuery(`sanity ${mp}`, p.sanity ?? { result: 'sat' }, p.smt), mp, 'sanity'));
+        write(task, `${mp(p)}.smt2`, q(namedClauses(smtQuery(`property ${mp(p)}`, p.query, p.smt), mp(p), p).text, mp(p), 'property'));
+        write(task, `${mp(p)}-sanity.smt2`, q(smtQuery(`sanity ${mp(p)}`, p.sanity ?? { result: 'sat' }, p.smt), mp(p), 'sanity'));
       }
       const file = `model-${m.id}.json`;
-      write(task, file, {
+      const modelData = {
         schema: 'formal-method.model/2', model_id: m.id, adapter_id: 'z3',
         covers: { targets: ['T1'], states: m.stateMachine?.states ?? [], events: m.stateMachine?.events ?? [], assumptions: [{ id: 'A1', text: 'x は -8 以上 8 以下の整数' }], constraints: [], excluded: [] },
         state_machine: m.stateMachine ? (s.editStateMachine ? s.editStateMachine(structuredClone(m.stateMachine), { round, model_id: m.id }) : m.stateMachine) : null, no_state_machine_reason: m.stateMachine ? null : '対象は状態遷移を持たない', io_contracts: [],
-        properties: m.props.map((p) => ({ id: mpid(s, p), inventory_property_ids: [p.id], query_ref: runRef(task, `${mpid(s, p)}.smt2`), expected: 'unsat',
+        properties: m.props.map((p) => ({ id: mp(p), inventory_property_ids: [p.id], query_ref: runRef(task, `${mp(p)}.smt2`), expected: 'unsat',
           assurance: { kind: '範囲を限った検査', scope: 'x は -8 以上 8 以下の整数', bounds: [{ item: 'x', bound: '-8..8' }], scope_variables: p.scopeVariables ?? (p.smt ? [] : ['x']), fairness_assumptions: [] },
-          clauses: p.clauses ?? namedClauses(smtQuery('', p.query, p.smt), mpid(s, p), p).clauses,
-          sanity: [{ kind: 'assumptions_consistent', query_ref: runRef(task, `${mpid(s, p)}-sanity.smt2`) }] })),
+          clauses: p.clauses ?? namedClauses(smtQuery('', p.query, p.smt), mp(p), p).clauses,
+          sanity: [{ kind: 'assumptions_consistent', query_ref: runRef(task, `${mp(p)}-sanity.smt2`) }] })),
         behavior: m.behavior ?? { applicable: false, reason: '状態遷移を持たない' }, source_diagrams: [], omitted_edges: m.omittedEdges ?? [],
-      });
+      };
+      write(task, file, s.editModel ? s.editModel(modelData, { round, model_id: m.id }) : modelData);
       const mapFile = `mapping-${m.id}.json`;
-      write(task, mapFile, { schema: 'formal-method.mapping/1', model_id: m.id, rows: (m.mappingProps ?? m.props).flatMap((p) => {
-        const relation = s.mapping[p.id] ?? (p.formalizable === false ? '形式検証でない確認' : '形式化');
-        const reason = relation === '対応なし' || relation === '範囲外' ? 'harness が対応を付けなかった' : null;
-        const el = p.formalizable === false ? p.id : mpid(s, p);
+      const relOf = (p) => s.mapping[p.id] ?? (p.formalizable === false ? '形式検証でない確認' : '形式化');
+      const reasonOf = (relation) => (relation === '対応なし' || relation === '範囲外' ? 'harness が対応を付けなかった' : null);
+      const el = (p) => (p.formalizable === false ? p.id : mp(p));
+      // 目標を出所にする行（今の形では行に含め、下書きの形では extra_rows。SP-264-025）
+      const goalRows = (p) => s.goalIds.map((g) => ({ source: { kind: 'goal', id: g }, property_id: p.id, model_element: el(p), relation: relOf(p), reason: reasonOf(relOf(p)) }));
+      if (draft) write(task, mapFile, mappingDraft(task, s, memory, m, { el, relOf, reasonOf, goalRows, round }));
+      else write(task, mapFile, { schema: 'formal-method.mapping/1', model_id: m.id, rows: (m.mappingProps ?? m.props).flatMap((p) => {
+        const relation = relOf(p);
+        const reason = reasonOf(relation);
         return [
-          ...s.goalIds.map((g) => ({ source: { kind: 'goal', id: g }, property_id: p.id, model_element: el, relation, reason })),
+          ...goalRows(p),
           // p.mappingLocation === false なら、出所の行の対応を書かない（性質の出所が対応表にも節にも無い場面）
-          ...(p.mappingLocation === false ? [] : [{ source: { kind: 'location', target_id: 'T1', file: p.file, span: `L${p.line}-L${p.line}` }, property_id: p.id, model_element: el, relation, reason }]),
+          ...(p.mappingLocation === false ? [] : [{ source: { kind: 'location', target_id: 'T1', file: p.file, span: `L${p.line}-L${p.line}` }, property_id: p.id, model_element: el(p), relation, reason }]),
         ];
       }) });
-      memory.models.push({ id: m.id, file, task });
+      memory.models.push({ id: m.id, file, task, props: m.props, mp: Object.fromEntries(m.props.map((p) => [p.id, mp(p)])) });
       outputs.push({ kind: 'model', ref: runRef(task, file) }, { kind: 'mapping', ref: runRef(task, mapFile) });
     }
     return outputs;
   },
   'partition-author'(task, s, memory) {
     const cands = task.context.candidates;
+    // 下書きの形（SP-264-023）: 候補が他の候補への辺（edges）を持つ。adopted・parts・境界の producer・consumer・shared_symbols は CLI が決める
+    const draft = cands.length > 0 && cands.every((x) => Array.isArray(x.edges));
     // 部分を跨ぐ辺は、自分の書いたモデルから依存グラフの導出の規則で求める（Boundary.edge_id はその辺の id）
     // 担当と同じく、query が渡した資料だけを読む（モデルも性質の query も。渡されなければ違反に挙げ、読まない）
     const run = task.context.run_dir;
     const read = materialReader(task, memory);
-    const models = memory.models.map((m) => { const ref = relative(run, join(m.task.attempt_dir, m.file)); return { model: JSON.parse(read(ref) ?? 'null'), ref }; }).filter((x) => x.model);
+    const latest = latestModels(memory);
+    const models = latest.map((m) => { const ref = relative(run, join(m.task.attempt_dir, m.file)); return { model: JSON.parse(read(ref) ?? 'null'), ref }; }).filter((x) => x.model);
     const graph = deriveGraph(models, read);
     const put = (name, body) => { write(task, name, body); return runRef(task, name); };
-    const extra = s.partition ? s.partition(cands, put, { graph, crossing: (parts, modelId) => crossingEdges(graph, parts, modelId), round: memory.rounds[task.role] }) : null;
+    // 候補の節点の id（var:<model_id>/… と tr:<model_id>/…）から、分割するモデルの id を引く。候補は全てのモデルの依存グラフから出るので、
+    // 分けられる（候補を 2 つ以上持つ）モデルを選ぶ。無ければ最初の候補のモデルにする（モデルの順に依存しない）
+    const modelOfNode = (n) => n.match(/^(?:var|tr):([^/]+)\//)?.[1];
+    const candModels = cands.map((x) => x.nodes.map(modelOfNode).find(Boolean)).filter(Boolean);
+    const modelId = candModels.find((id) => candModels.filter((y) => y === id).length >= 2) ?? candModels[0] ?? null;
+    const mpIn = (pid) => latest.find((m) => m.id === modelId)?.mp[pid] ?? pid;
+    const extra = s.partition ? s.partition(cands, put, { graph, crossing: (parts, mid) => crossingEdges(graph, parts, mid), round: memory.rounds[task.role], modelId, mp: mpIn, draft }) : null;
     memory.partition = extra;
+    if (draft) {
+      const adopted = new Set((extra?.parts ?? []).map((x) => x.id));
+      write(task, 'partitions.json', {
+        schema: 'formal-method.partitions-draft/1',
+        decisions: cands.map((x) => ({ candidate_id: x.id, adopted: adopted.has(x.id), reason: adopted.has(x.id) ? '依存の弱い境界で分ける' : '分けない' })),
+        reason: extra ? '部分ごとに検証する' : '分けずに検証する',
+        boundaries: (extra?.boundaries ?? []).map(({ edge_id, assumption, guarantee, assumption_basis, responsible }) => ({ edge_id, assumption, guarantee, assumption_basis, responsible })),
+        contracts: extra?.contracts ?? [], composition_conditions: extra?.composition_conditions ?? [],
+      });
+      return [{ kind: 'partitions', ref: runRef(task, 'partitions.json') }];
+    }
     write(task, 'partitions.json', {
       schema: 'formal-method.partitions/1',
       decisions: cands.map((c) => ({ candidate_id: c.id, adopted: Boolean(extra), reason: extra ? '依存の弱い境界で分ける' : '分けない' })),
@@ -347,50 +433,72 @@ const ROLE = {
     return [{ kind: 'partitions', ref: runRef(task, 'partitions.json') }];
   },
   'plan-author'(task, s, memory) {
-    const modelTask = memory.byRole['model-author'];
-    assert.ok(modelTask, 'plan-author の前に model-author の task がある');
-    const mref = (name) => relative(task.context.run_dir, join(modelTask.attempt_dir, name));
-    // 分割から契約・合成の条件の検査を作るのは、CLI が分割を採って計画作成役の入力に PartitionsFile を渡したときだけ
-    // （欠陥の残った分割は採らず、計画作成役には分割の無いモデルだけを渡す。artifact-formats「欠陥の残った分割」）
-    const pt = memory.byRole['partition-author'];
-    const partRef = pt ? relative(task.context.run_dir, join(pt.attempt_dir, 'partitions.json')) : null;
-    const part = partRef && task.context.input_refs.some((r) => r.ref === partRef) ? memory.partition : null;
+    const c = task.context;
+    // 下書きの形（SP-264-021）: task はモデルごとに 1 つで、context.target_ids がそのモデルで出しうる target_id の一覧
+    const draft = Array.isArray(c.target_ids) && c.target_ids.length > 0;
+    const latest = latestModels(memory).filter((m) => !draft || m.id === c.model_id);
+    assert.ok(latest.length, 'plan-author の前に model-author の task がある');
+    const run = task.context.run_dir;
+    // mref(name): モデル作成役の attempt のファイルの ref（モデルが複数の task に分かれるので、そのファイルを書いた task を引く）
+    const mref = (name) => { const m = latest.find((x) => existsSync(join(x.task.attempt_dir, name))) ?? latest[0]; return relative(run, join(m.task.attempt_dir, name)); };
+    // 分割から契約・合成の条件の検査を作るのは、CLI が分割を採って計画作成役の入力に分割を渡したときだけ
+    // （欠陥の残った分割は採らず、計画作成役には分割の無いモデルだけを渡す。artifact-formats「欠陥の残った分割」）。
+    // 採った分割の ref は、今の形では分割作成役の attempt、組み立てる形では assembled/ なので、資料の名前 partitions で見る
+    const adopted = (task.context.input_refs ?? []).some((r) => r.name === 'partitions') ? memory.partition : null;
+    const part = adopted && draft ? { ...adopted, contracts: (adopted.contracts ?? []).filter((k) => k.model_id === c.model_id), composition_conditions: (adopted.composition_conditions ?? []).filter((k) => k.model_id === c.model_id) } : adopted;
     // モデル作成役・計画作成役が問いに依存すると挙げた性質は、計画に入れない（変異は unavailable に理由を書く）
-    const all = modelsOf(s).flatMap((m) => m.props.map((p) => ({ m, p, mp: mpid(s, p) })));
+    const all = latest.flatMap((m) => m.props.map((p) => ({ m, p, mp: m.mp[p.id] })));
     const blocked = all.filter(({ p }) => questionsOf(s, ['model-author', 'plan-author'], p.id).length > 0);
     const pairs = all.filter((x) => !blocked.includes(x));
     // targetRef: 対象のファイルの ref（target:<target_id>/<FilePath>。担当が書いたものでない資料）
     const targetRef = (file) => { const req = readJson(join(task.context.run_dir, 'request.json')); return `target:${req.targets[0].id}/${file}`; };
-    const ctx = { round: memory.rounds[task.role], pairs, mref, targetRef, put: (name, body) => { write(task, name, body); return runRef(task, name); } };
+    const ctx = { round: memory.rounds[task.role], pairs, mref, targetRef, draft, model_id: c.model_id, put: (name, body) => { write(task, name, body); return runRef(task, name); } };
     // 変異は、置き換える性質の query の節を読んで書く（agents/plan-author.md）。担当と同じく、query が渡した資料からだけ読む
     // （渡されなければ違反に挙げる。run 766370 では性質の query が資料に無く、全ての性質の変異を書けなかった）
     const read = materialReader(task, memory);
     for (const { p, mp } of pairs.filter(({ p }) => p.mutation)) read(mref(`${mp}.smt2`));
     // 変異の .smt2 は計画作成役自身の attempt に書き、mutation_ref はそこを指す（artifact-formats「変異のファイル」、agents/plan-author.md）
     for (const { p, mp } of pairs.filter(({ p }) => p.mutation)) write(task, `${mp}-mut.smt2`, namedClauses(smtQuery(`mutation ${mp}`, p.mutation, p.smt), mp, p, { mutate: true }).text);
+    // 計画の id は plan-skeleton と同じ形で書く（今の形でも、id の期待値を単位で変えないため。test-fixtures/core-ids.mjs）
     const plan = {
       schema: 'formal-method.plan/1',
       // selection は inventory の性質の id。CLI が実行できる道具の名前は adapter の id（z3）で書く（artifact-formats「plan と mutations」の道具の名前）
       selection: pairs.map(({ p }) => ({ property_id: p.id, candidates: [candidate('実行基盤', 'Rust', p, s), candidate('検証器', 'z3', p, s)], chosen: { technique: 'SMT', tool: 'z3' }, reason: '整数の制約を直接書ける' })),
       checks: [
         // kind: property の target_id はモデルの性質の id
-        ...pairs.map(({ m, p, mp }) => ({ id: `C-${mp}`, kind: 'property', target_id: mp, model_id: m.id, input_refs: [mref(`${mp}.smt2`)], expected: 'unsat', assumptions: ['x は -8 以上 8 以下'], scope: 'x ∈ [-8, 8]', tool_time_limit_seconds: p.toolTimeLimit ?? s.toolTimeLimit, depends_on: [] })),
-        ...(part?.contracts ?? []).map((k) => ({ id: `C-${k.id}`, kind: 'contract', target_id: k.id, model_id: k.model_id, input_refs: [k.query_ref], expected: 'unsat', assumptions: [], scope: '部分', tool_time_limit_seconds: s.toolTimeLimit, depends_on: [] })),
-        ...(part?.composition_conditions ?? []).map((k) => ({ id: `C-${k.id}`, kind: 'composition', target_id: k.id, model_id: k.model_id, input_refs: [k.query_ref], expected: 'unsat', assumptions: [], scope: '全体', tool_time_limit_seconds: s.toolTimeLimit, depends_on: (part.contracts ?? []).map((x) => `C-${x.id}`) })),
+        ...pairs.map(({ m, p, mp }) => ({ id: `prop-${mp}`, kind: 'property', target_id: mp, model_id: m.id, input_refs: [mref(`${mp}.smt2`)], expected: 'unsat', assumptions: ['x は -8 以上 8 以下'], scope: 'x ∈ [-8, 8]', tool_time_limit_seconds: p.toolTimeLimit ?? s.toolTimeLimit, depends_on: [] })),
+        ...(part?.contracts ?? []).map((k) => ({ id: `contract-${k.id}`, kind: 'contract', target_id: k.id, model_id: k.model_id, input_refs: [k.query_ref], expected: 'unsat', assumptions: [], scope: '部分', tool_time_limit_seconds: s.toolTimeLimit, depends_on: [] })),
+        ...(part?.composition_conditions ?? []).map((k) => ({ id: `comp-${k.id}`, kind: 'composition', target_id: k.id, model_id: k.model_id, input_refs: [k.query_ref], expected: 'unsat', assumptions: [], scope: '全体', tool_time_limit_seconds: s.toolTimeLimit, depends_on: (k.depends_on ?? []).map((x) => `contract-${x}`) })),
       ],
-      sanity: pairs.map(({ mp }) => ({ id: `S-${mp}`, model_property_id: mp, input_refs: [mref(`${mp}-sanity.smt2`)], tool_time_limit_seconds: s.toolTimeLimit })),
+      sanity: pairs.map(({ mp }) => ({ id: `sanity-${mp}-1`, model_property_id: mp, input_refs: [mref(`${mp}-sanity.smt2`)], tool_time_limit_seconds: s.toolTimeLimit })),
     };
-    write(task, 'plan.json', s.editPlan ? s.editPlan(plan, ctx) : plan);
+    const planOut = s.editPlan ? s.editPlan(plan, ctx) : plan;
     const mutations = {
       schema: 'formal-method.mutations/1',
       // mutations の property_id はモデルの性質の id、unavailable は inventory の性質の id
-      mutations: pairs.filter(({ p }) => p.mutation).map(({ p, mp }) => ({ id: `MU-${mp}`, property_id: mp, mutation_ref: runRef(task, `${mp}-mut.smt2`), expected_violation: 'sat', detector_check_id: `C-${mp}` })),
+      mutations: pairs.filter(({ p }) => p.mutation).map(({ p, mp }) => ({ id: `MU-${mp}`, property_id: mp, mutation_ref: runRef(task, `${mp}-mut.smt2`), expected_violation: 'sat', detector_check_id: `prop-${mp}` })),
       unavailable: [...pairs.filter(({ p }) => !p.mutation).map(({ p }) => ({ property_id: p.id, reason: '変異を作れない', alternative: null })),
         ...blocked.map(({ p }) => ({ property_id: p.id, reason: '問いに依存する', alternative: null }))],
     };
-    write(task, 'mutations.json', s.editMutations ? s.editMutations(mutations, ctx) : mutations);
+    const mutOut = s.editMutations ? s.editMutations(mutations, ctx) : mutations;
+    if (draft) {
+      // 今の形の計画から下書きを作る: selection はそのまま、targets は検査の target_id ごとの時間の上限・前提・範囲（検査を除いた target は欠ける）。
+      // sanity の時間の上限は、その性質の target の値（plan-skeleton が写す）なので、sanity の上限を変えた編集はその性質の target に移す
+      const targets = new Map();
+      for (const x of planOut.checks ?? []) if (!targets.has(x.target_id)) targets.set(x.target_id, { target_id: x.target_id, tool_time_limit_seconds: x.tool_time_limit_seconds, assumptions: x.assumptions, scope: x.scope });
+      for (const x of planOut.sanity ?? []) { const tg = targets.get(x.model_property_id); if (tg && x.tool_time_limit_seconds !== s.toolTimeLimit) tg.tool_time_limit_seconds = x.tool_time_limit_seconds; }
+      let pd = { schema: 'formal-method.plan-draft/1', selection: planOut.selection, targets: [...targets.values()] };
+      let md = { schema: 'formal-method.mutations-draft/1', mutations: (mutOut.mutations ?? []).map(({ detector_check_id: _d, ...rest }) => rest), unavailable: mutOut.unavailable ?? [] };
+      if (s.editPlanDraft) pd = s.editPlanDraft(pd, ctx);
+      if (s.editMutationsDraft) md = s.editMutationsDraft(md, ctx);
+      write(task, 'plan.json', pd);
+      write(task, 'mutations.json', md);
+      return [{ kind: 'plan', ref: runRef(task, 'plan.json') }, { kind: 'mutations', ref: runRef(task, 'mutations.json') }];
+    }
+    write(task, 'plan.json', planOut);
+    write(task, 'mutations.json', mutOut);
     // 計画の 3 つの id（検査・sanity・変異）は、確認の id（confirm-<kind>-<n>）と重ならないよう confirm- で始めない
-    const planIds = [...readJson(join(task.attempt_dir, 'plan.json')).checks.map((x) => x.id), ...readJson(join(task.attempt_dir, 'plan.json')).sanity.map((x) => x.id), ...readJson(join(task.attempt_dir, 'mutations.json')).mutations.map((x) => x.id)];
+    const planIds = [...planOut.checks.map((x) => x.id), ...planOut.sanity.map((x) => x.id), ...mutOut.mutations.map((x) => x.id)];
     assert.ok(planIds.every((id) => !id.startsWith('confirm-')), 'harness の計画の id は confirm- で始まらない');
     if (!s.allowDuplicatePlanIds) assert.ok(new Set(planIds).size === planIds.length, 'harness の計画の id は一意');
     return [{ kind: 'plan', ref: runRef(task, 'plan.json') }, { kind: 'mutations', ref: runRef(task, 'mutations.json') }];
@@ -402,23 +510,26 @@ function judgmentsOf(task) {
   const r = (task.context.input_refs ?? []).find((x) => x.name === `judgments-${task.context.model_id}`);
   return r ? readJson(join(task.context.run_dir, r.ref)).judgments : [];
 }
-function reviewReturn(task, s) {
+// shape: { ctx: 返り値に task_id・unit_id・perspective を書くか, result: result を書くか（書かなければ items。SP-264-028） }
+function reviewReturn(task, s, shape) {
   const perspective = task.context.perspective;
   const result = s.reviews[perspective] ?? '成り立つ';
   write(task, 'review.json', { perspective, note: 'harness の確認の記録' });
   // 答えが null の項目は答えない（返り値の形の違いのケース）
   const answer = (j) => (j.id in s.judgmentAnswers ? s.judgmentAnswers[j.id] : j.kind in s.judgmentAnswers ? s.judgmentAnswers[j.kind] : '成り立つ');
   const judgments = perspective === 'fidelity' ? judgmentsOf(task).filter((j) => answer(j) !== null).map((j) => ({ id: j.id, result: answer(j), note: `harness の答え（${j.cause}）` })) : [];
+  // items: 見た観点ごとの記録。harness は観点を 1 つの項目として、決めた結果を書く（成り立たないは指摘で表すので、項目は 確認できず にしない）
+  const items = s.reviewItems?.[perspective] ?? [{ ref: perspective, result: result === '成り立たない' ? '成り立つ' : result }];
   return {
-    task_id: task.task_id, unit_id: task.context.unit_id, perspective, result,
+    ...(shape.ctx ? { task_id: task.task_id, unit_id: task.context.unit_id, perspective } : {}), ...(shape.result ? { result } : { items }),
     findings: result === '成り立たない' ? [{ ref: task.context.property_ids[0] ?? 'P1', kind: 'meaning_change', note: '否定が逆になっている' }] : [],
     judgments, record_ref: runRef(task, 'review.json'), worklog_ref: runRef(task, 'worklog.json'),
   };
 }
 
-function causeReturn(task, s) {
+function causeReturn(task, s, shape) {
   write(task, 'cause.json', { note: 'harness の分類の記録' });
-  return { task_id: task.task_id, unit_id: task.context.unit_id, cause: s.cause.cause, grounds: s.cause.grounds, questions: s.cause.questions,
+  return { ...(shape.ctx ? { task_id: task.task_id, unit_id: task.context.unit_id } : {}), cause: s.cause.cause, grounds: s.cause.grounds, questions: s.cause.questions,
     record_ref: runRef(task, 'cause.json'), worklog_ref: runRef(task, 'worklog.json') };
 }
 
@@ -449,12 +560,16 @@ const sq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
 const json1 = (r) => r.json ?? { ok: false, code: 'E_HARNESS', reason: `出力が 1 行の JSON でない: ${r.stdout.slice(0, 300)} ${r.stderr.slice(0, 300)}` };
 
 // 返り値（artifact-formats「担当の返り値」）を役ごとに書く。round はその役の提出の何回目か（1 から）。
-function writeReturn(task, scenario, memory, mode) {
-  write(task, 'worklog.json', worklog(task));
+// schema: その役の返り値の形（claim・next の return_schemas）。下書きの形かどうかを、形が task_id・result を持つかで見る
+function writeReturn(task, scenario, memory, mode, schema = null) {
+  const props = schema?.properties ?? null;
+  const shape = { ctx: !props || 'task_id' in props, result: !props || 'result' in props };
+  write(task, 'worklog.json', worklog(task, !shape.ctx));
+  const tid = shape.ctx ? { task_id: task.task_id } : {};
   let ret;
-  if (task.context.perspective) ret = reviewReturn(task, scenario);
-  else if (task.role === 'cause-analyst') ret = causeReturn(task, scenario);
-  else if (mode === 'cannot_proceed') ret = { task_id: task.task_id, status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: 'harness が進めない', worklog_ref: runRef(task, 'worklog.json') };
+  if (task.context.perspective) ret = reviewReturn(task, scenario, shape);
+  else if (task.role === 'cause-analyst') ret = causeReturn(task, scenario, shape);
+  else if (mode === 'cannot_proceed') ret = { ...tid, status: 'cannot_proceed', outputs: [], questions: [], blocked_by_question: [], reason: 'harness が進めない', worklog_ref: runRef(task, 'worklog.json') };
   else {
     const qs = scenario.questionsBy[task.role] ?? [];
     const outputs = ROLE[task.role](task, scenario, memory);
@@ -462,7 +577,7 @@ function writeReturn(task, scenario, memory, mode) {
     if (scenario.blockedAs[task.role] === 'question_ids') blocked = qs.map((q) => q.id);
     else if (task.role === 'extractor') blocked = readJson(join(task.attempt_dir, 'inventory.json')).properties.filter((p) => p.blocked_by_question.length > 0).map((p) => p.id);
     else blocked = [...new Set(qs.flatMap((q) => q.affected))].filter((id) => task.context.property_ids.includes(id));
-    ret = { task_id: task.task_id, status: qs.length ? 'needs_answer' : 'done', outputs, questions: qs, blocked_by_question: blocked, reason: null, worklog_ref: runRef(task, 'worklog.json') };
+    ret = { ...tid, status: qs.length ? 'needs_answer' : 'done', outputs, questions: qs, blocked_by_question: blocked, reason: null, worklog_ref: runRef(task, 'worklog.json') };
     memory.authorReturns.push({ task, ret });
   }
   if (mode === 'bad_shape') ret = { ...ret, unexpected: true };
@@ -470,7 +585,8 @@ function writeReturn(task, scenario, memory, mode) {
 }
 
 export function makeHarness(scenario, hooks = {}) {
-  const memory = { byRole: {}, rounds: {}, tasks: [], calls: [], submits: [], violations: [], partition: null, models: [], closes: [], authorReturns: [], held: {} };
+  // returnSchemas: claim・next で受け取った返り値の形（役 → schema）。テストが形の欄を見る
+  const memory = { byRole: {}, rounds: {}, tasks: [], calls: [], submits: [], violations: [], refusals: [], partition: null, models: [], closes: [], authorReturns: [], held: {}, returnSchemas: {} };
   // Workflow の返り値は、run の workspace の保存先の root（<ws>/.formal-method/。runs/<run_id> の 2 つ上）の下に置く。
   // 呼び手は workspace を消すので tmpdir() の直下に残らず、.formal-method/ は対象の集まりから除かれるので、対象の指紋も変えない
   let wfDir = null;
@@ -485,7 +601,19 @@ export function makeHarness(scenario, hooks = {}) {
     const base = { run_dir: args.state, call_id: args.callId, worker: w.id };
     const claimCmd = `printf '%s' '${JSON.stringify(base)}' | '${process.execPath}' '${launcher}' claim`;
     const shell = hooks.via === 'shell';
-    const run = async (command, cmd, input) => (shell ? json1(await runShell(cmd, opts)) : workerCall(command, input));
+    // 担当のコマンドの拒否（ok: false）は、memory.refusals に控え、stderr に 1 行の JSON で出す（Issue #264: 拒否の理由が test の失敗の
+    // 文言に出ず、原因を追えなかった）。契約の違反（memory.violations）には足さない: 意図して claim しない・提出しない test がある
+    const refused = (command, j) => {
+      if (!j || j.ok !== false) return;
+      const entry = { call_id: args.callId, worker: w.id, command, code: j.code ?? null, reason: j.reason ?? null, detail: j.detail ?? null };
+      memory.refusals.push(entry);
+      process.stderr.write(`${JSON.stringify(entry)}\n`);
+    };
+    const run = async (command, cmd, input) => {
+      const j = shell ? json1(await runShell(cmd, opts)) : await workerCall(command, input);
+      refused(command, j);
+      return j;
+    };
     // holdCalls: この呼び出しで束を取ったまま出さないか
     const holdRole = roles.find((r) => (scenario.holdCalls[r] ?? 0) > (memory.held[r] ?? 0));
     if (holdRole) memory.held[holdRole] = (memory.held[holdRole] ?? 0) + 1;
@@ -495,6 +623,7 @@ export function makeHarness(scenario, hooks = {}) {
     // この worker が受け取った返り値の形（役 → schema）。claim と next の return_schemas で受け取る
     const schemas = {};
     memory.violations.push(...claimViolations(c, { ...ctx, kind: 'claim', schemas }));
+    Object.assign(memory.returnSchemas, schemas);
     const cmds = { query: c.query_cmd, submit: c.submit_cmd };
     const closed = new Set();
     let batch = c;
@@ -534,7 +663,7 @@ export function makeHarness(scenario, hooks = {}) {
         for (let n = 0; n < 10 && !done; n += 1) {
           memory.rounds[task.role] = (memory.rounds[task.role] ?? 0) + 1;
           const round = memory.rounds[task.role];
-          writeReturn(task, scenario, memory, mode);
+          writeReturn(task, scenario, memory, mode, schemas[task.role]);
           if (hooks.beforeSubmit) await hooks.beforeSubmit(status, { tasks: [task] });
           const r = await run('submit', cmds.submit, base);
           if (!r.ok) { memory.submits.push({ task_id: task.task_id, role: task.role, round, refused: r }); return rec; }
@@ -557,6 +686,7 @@ export function makeHarness(scenario, hooks = {}) {
         return rec;
       }
       memory.violations.push(...claimViolations(next, { ...ctx, kind: 'next', schemas }));
+      Object.assign(memory.returnSchemas, schemas);
       batch = next;
       via = 'next';
     }

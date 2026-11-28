@@ -28,7 +28,11 @@ REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 
 NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
-.PHONY: test test-static-and-python test-node-traceability test-node-other portability references check runtime-deps traceability traceability-complete
+.PHONY: test test-static-and-python test-node-traceability test-node-other test-rust portability references check runtime-deps core-bin traceability traceability-complete
+
+# plugin が同梱する Rust の crate（plugins/<plugin>/crates/<name>）。一覧は毎回導出する。
+PLUGIN_CRATES := $(patsubst %/Cargo.toml,%,$(wildcard $(PLUGINS_DIR)/*/crates/*/Cargo.toml))
+CARGO ?= cargo
 
 # Pinned runtime dependencies are installed before discovery executes Node tests.
 $(RUNTIME_STAMP): $(RUNTIME_DIR)/package-lock.json
@@ -37,7 +41,19 @@ $(RUNTIME_STAMP): $(RUNTIME_DIR)/package-lock.json
 
 runtime-deps: $(RUNTIME_STAMP)
 
-test-static-and-python: runtime-deps references
+# formal-method の CLI が呼ぶ実行体 formal-method-core（#264）。start が版を検査するので、CLI を起動しうるターゲットは前提に持つ。
+# stamp は crate の src・Cargo.toml・Cargo.lock と、実行体が include_str! で読む core.schema.json に依る。
+CORE_CRATE := plugins/verification/crates/formal-method-core
+CORE_SCHEMA_JSON := plugins/verification/skills/formal-method/references/core.schema.json
+CORE_STAMP := $(CORE_CRATE)/target/release/.core-bin.stamp
+CORE_ENV := FORMAL_METHOD_CORE_BIN=$(abspath plugins/verification/crates/formal-method-core/target/release/formal-method-core)
+$(CORE_STAMP): $(CORE_CRATE)/Cargo.toml $(CORE_CRATE)/Cargo.lock $(CORE_CRATE)/src/ $(wildcard $(CORE_CRATE)/src/*.rs) $(CORE_SCHEMA_JSON)
+	@$(CARGO) build --release --locked --manifest-path $(CORE_CRATE)/Cargo.toml --target-dir $(CORE_CRATE)/target
+	@mkdir -p $(dir $@) && touch $@
+
+core-bin: $(CORE_STAMP)
+
+test-static-and-python: runtime-deps references core-bin
 	@set -e; for s in $(SKILLS); do \
 		echo "── $$s"; \
 		$(PYTHON) $(VALIDATOR) $(SKILLS_DIR)/$$s --verbose; \
@@ -56,31 +72,39 @@ test-static-and-python: runtime-deps references
 # CLAUDE_PLUGINS_SKIP_FSYNC=1 は、テストの段の中だけ本番コードの fsync を省く（既定は fsync する。macOS の fsync は
 # F_FULLFSYNC でマシン全体で 1 本ずつ進み、並列のテストの待ちの大半を占める。スイッチ自体は tests/fsync-switch.test.mjs で確かめる）。
 NODE_COMPILE_CACHE_DIR ?= $(or $(TMPDIR),/tmp)/claude-plugins-node-compile-cache
-TEST_ENV := CLAUDE_PLUGINS_SKIP_FSYNC=1
+TEST_ENV := CLAUDE_PLUGINS_SKIP_FSYNC=1 $(CORE_ENV)
 NODE_FOR_TESTS := $(TEST_ENV) NODE_COMPILE_CACHE='$(NODE_COMPILE_CACHE_DIR)' $(NODE)
 
-test-node-traceability: runtime-deps
+test-node-traceability: runtime-deps core-bin
 	@echo "── Node tests (traceability)"
 	@$(NODE_FOR_TESTS) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
 
-test-node-other: runtime-deps
+test-rust:
+	@set -e; for c in $(PLUGIN_CRATES); do \
+		echo "── Rust $$c"; \
+		$(CARGO) fmt --manifest-path $$c/Cargo.toml --check; \
+		$(CARGO) clippy --manifest-path $$c/Cargo.toml --all-targets --locked -q -- -D warnings; \
+		$(CARGO) test --manifest-path $$c/Cargo.toml --locked -q; \
+	done
+
+test-node-other: runtime-deps core-bin
 	@if [ -n "$(NODE_TEST_FILES)" ]; then \
 		echo "── Node tests (other)"; \
 		$(NODE_FOR_TESTS) scripts/run_node_tests.mjs --config $(TRACEABILITY_CONFIG) -- $(NODE_TEST_FILES); \
 	fi
 
 # 合否ゲート。3 つを同時に走らせて全ての終了を待ち、1 つでも失敗したら失敗する。
-# runtime-deps を先に満たすのは、3 つのサブ make が同じ node_modules へ npm ci を並列に流さないため。
+# runtime-deps と core-bin を先に満たすのは、サブ make が同じ node_modules へ npm ci を、同じ target/ へ cargo build を並列に流さないため。
 # レシピに $(MAKE) を字句どおり書くのは、make -n test でもこの行を実行してサブ make に -n を渡すため。
-TEST_TARGETS := test-static-and-python test-node-traceability test-node-other
-test: runtime-deps
+TEST_TARGETS := test-static-and-python test-node-traceability test-node-other test-rust
+test: runtime-deps core-bin
 	@$(SHELL) scripts/run_make_targets.sh '$(MAKE)' $(TEST_TARGETS)
 
-traceability: runtime-deps
-	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
+traceability: runtime-deps core-bin
+	@$(CORE_ENV) $(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
 
-traceability-complete: runtime-deps
-	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT) --complete
+traceability-complete: runtime-deps core-bin
+	@$(CORE_ENV) $(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT) --complete
 
 # 参照先の実在チェック。こちらは portability と違い合否ゲートにする。
 # 「install 先で壊れる書き方か」を分類する check_portability.py と違い、

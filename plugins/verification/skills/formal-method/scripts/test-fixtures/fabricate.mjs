@@ -1,15 +1,18 @@
 // client（wait・salvage・submit）の規則を確かめるために、run の領域を cli-contract.md「run の領域の配置」の形で作る。
 // 作るのはテストの準備で、run-daemon の代わりではない。生死は実際の process（生きている・終わった・pid の再利用）で作る。
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, lstatSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { startTimeOf } from '../lib/process.mjs';
 
 export const sha256 = (buf) => `sha256:${createHash('sha256').update(buf).digest('hex')}`;
 export const fileHash = (p) => sha256(readFileSync(p));
 
+// 開始時刻は lib/process.mjs の startTimeOf と同じ読み方で読む（識別を書く側・比べる側と揃える。cli-contract.md「生死の判定」）。
+// 別の読み方をすると、作った生きている識別を run-daemon・client が死んだと判定しうる。
 export function lstartOf(pid) {
-  return execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { env: { ...process.env, LC_ALL: 'C' }, encoding: 'utf8' }).trim();
+  return startTimeOf(pid);
 }
 
 // 生きている process の識別。stop() で終わらせる。

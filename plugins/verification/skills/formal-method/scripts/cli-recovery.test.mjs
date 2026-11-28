@@ -2,7 +2,8 @@
 // 正本: cli-contract.md「salvage の手順」「結果と台帳の保存の失敗」「Z3 の adapter」、SP-FORMALMETHOD-010・014・015。
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -14,6 +15,7 @@ import { fileHash, snapshotTree, liveIdentity, makeRunDir, writeLock, writeStatu
 import { resultInvariants } from './test-fixtures/result-schema.mjs';
 import { SM2, SM2_PROPS, partitionFixture } from './test-fixtures/partition.mjs';
 import { ledgerEntryViolations, tasksById } from './test-fixtures/ledger-check.mjs';
+import { C_P1, C_K_A } from './test-fixtures/core-ids.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; } };
@@ -263,23 +265,23 @@ test('cli-contract 答えの後の停止 AC-10: -model の実行で答えの行�
   assert.deepEqual(resultInvariants(r), []);
   assert.equal(r.status, '停止');
   assert.ok(r.stop_report.reasons.some((x) => x.code === '時間の上限'));
-  const c = r.checks.find((x) => x.id === 'C-P1');
+  const c = r.checks.find((x) => x.id === C_P1);
   assert.equal(c.state, '実行した');
   assert.equal(c.verdict, '反例', '答えの行（sat）で判定する');
   assert.deepEqual(c.end, { started: true, tool_result: '反する', abnormal_exit: false, unreadable_output: false, stopped_by: null, time_limit_hit: null });
   // 証人は読めないので、反例の replay は始めず 確認できず
-  const x = r.counterexamples.find((y) => y.check_id === 'C-P1');
+  const x = r.counterexamples.find((y) => y.check_id === C_P1);
   assert.ok(x, '反例 の検査から反例を作る');
   const replay = r.confirmations.deterministic.find((y) => y.id === x.replay.confirmation_id);
   assert.equal(replay.result, '確認できず');
   assert.equal(replay.end.started, false);
-  const k = r.checks.find((y) => y.id === 'C-K-a');
+  const k = r.checks.find((y) => y.id === C_K_A);
   assert.equal(k?.kind, 'contract');
   assert.equal(k.verdict, '時間切れ');
   assert.equal(k.end.stopped_by, '時間');
   const stopped = [...r.stop_report.checks_aborted, ...r.stop_report.checks_running];
-  assert.ok(stopped.some((y) => y.id === 'C-K-a' && y.kind === 'contract'), `止めた契約の検査が kind contract で出る: ${JSON.stringify(stopped)}`);
-  assert.ok(!stopped.some((y) => y.id === 'C-P1'), '答えを得た検査は止めた検査に入らない');
+  assert.ok(stopped.some((y) => y.id === C_K_A && y.kind === 'contract'), `止めた契約の検査が kind contract で出る: ${JSON.stringify(stopped)}`);
+  assert.ok(!stopped.some((y) => y.id === C_P1), '答えを得た検査は止めた検査に入らない');
   await sleep(500);
   for (const pid of [...new Set(out.log().map((e) => e.pid))]) assert.equal(alive(pid), false, `道具の process ${pid} が残らない`);
 });
@@ -300,11 +302,10 @@ test('cli-contract 結果と台帳の保存の失敗: salvage の追補台帳の
   assert.equal(r.provisional, true, '公開されずに返った R\' は仮の結果');
 });
 
-test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon は status.json・result.json・ledger.json を書かずに終わる（生死の判定を誤らせる偽の ps）', async (t) => {
+test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon は status.json・result.json・ledger.json を書かずに終わる（run.lock の開始時刻を違えて生死の判定を誤らせる）', async (t) => {
   const ws = setupWorkspace();
   const bin = `${ws}-bin`;
-  const fakePs = `${ws}-ps`;
-  t.after(() => { removeTree(ws); removeTree(bin); removeTree(fakePs); });
+  t.after(() => { removeTree(ws); removeTree(bin); });
   const path = pathWithFake(makeFakeBin(bin));
   const env = cliEnv({ path });
   const s0 = expectOk(await cli('start', { request: canonicalRequest() }, { cwd: ws, env }), 'start').status;
@@ -314,11 +315,12 @@ test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon 
   }
   assert.equal(status.action, 'run_agents');
   const dir = status.run_dir;
-  // salvage にだけ、開始時刻を違えて返す ps を見せる（保持者が終わったと誤らせる）
-  mkdirSync(fakePs, { recursive: true });
-  writeFileSync(join(fakePs, 'ps'), '#!/bin/sh\necho "Mon Jan  1 00:00:00 2001"\n');
-  chmodSync(join(fakePs, 'ps'), 0o755);
-  const salvaged = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env: cliEnv({ path: `${fakePs}:${path}` }) }), 'salvage').status;
+  // /proc を読める Linux では開始時刻を ps から読まないので、salvage にだけ run.lock の開始時刻を違えて見せ、保持者が終わったと誤らせる（cli-contract.md「生死の判定」）
+  const restoreLock = forgeLockStartTime(dir);
+  let salvaged;
+  try {
+    salvaged = expectOk(await cli('salvage', { run_dir: dir }, { cwd: ws, env }), 'salvage').status;
+  } finally { restoreLock(); }
   assert.equal(salvaged.action, 'terminal');
   assert.ok(existsSync(join(dir, 'salvage.mark')));
   const watched = ['status.json', 'result.json', 'ledger.json'];
@@ -332,6 +334,26 @@ test('cli-contract salvage の手順: salvage.mark を置いた後、run-daemon 
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')), resultOfStatus(salvaged), 'run の結果は result.json の 1 つ');
   assert.deepEqual(readdirSync(dir).filter((n) => /result\.json$/.test(n)), ['result.json']);
 });
+
+// run.lock を一時ファイル＋rename で置き換える（run-daemon と client が並行に読むので、途中の内容を見せない）。
+function replaceFile(path, buf) {
+  const tmp = `${path}.tmp-${randomBytes(4).toString('hex')}`;
+  writeFileSync(tmp, buf);
+  renameSync(tmp, path);
+}
+
+// run.lock の started_at だけを違えて置き、元に戻す関数を返す。戻すのは今も置いた内容のときだけ（releaseOwnLock が消した lock を復活させない）。
+function forgeLockStartTime(dir) {
+  const path = join(dir, 'run.lock');
+  const original = readFileSync(path);
+  const forged = Buffer.from(JSON.stringify({ ...JSON.parse(original.toString('utf8')), started_at: 'fabricated-dead-start-time' }));
+  replaceFile(path, forged);
+  return () => {
+    let now;
+    try { now = readFileSync(path); } catch { return; }
+    if (now.equals(forged)) replaceFile(path, original);
+  };
+}
 
 async function harnessSubmit(status, ws, env) {
   const h = makeHarness(defaultScenario());

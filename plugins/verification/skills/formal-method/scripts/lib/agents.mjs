@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AuthorReturn, CauseReturn, ReviewReturn, conforms, parseSpan } from './schemas.mjs';
+import { AuthorReturn, AuthorReturnDraft, CauseReturn, CauseReturnDraft, ReviewReturn, ReviewReturnDraft, conforms, parseSpan } from './schemas.mjs';
 import { jsonSchemaOf } from './check-shape.mjs';
 import { fileLines, parseTargetRef, spanText } from './target-refs.mjs';
 import { ROLES, instructionsOf } from './roles.mjs';
@@ -16,11 +16,13 @@ const SKILL_DIR = fileURLToPath(new URL('../../', import.meta.url));
 // Workflow script の置き場は plugin の workflows/（skill-creator-best-practices の best-practices.md §13「script の置き場」）。
 export const WORKFLOW_SCRIPT = join(SKILL_DIR, '..', '..', 'workflows', 'formal-method-agents.js');
 
-// 返り値の JSON Schema は schemas.mjs の型から導く（値・列挙の正本は schemas.mjs）。
+// 返り値の JSON Schema は schemas.mjs の型から導く（値・列挙の正本は schemas.mjs）。照合は CLI が文脈の欄を補った後の型（RETURN_TYPES）、
+// 担当に渡す形は文脈の欄（task_id・unit_id・perspective）を持たない下書きの型（DRAFT_TYPES。#264 SP-264-029）
 const RETURN_TYPES = { author: AuthorReturn, review: ReviewReturn, cause: CauseReturn };
-const returnKindOf = (task) => (task.context.perspective ? 'review' : task.role === 'cause-analyst' ? 'cause' : 'author');
+const DRAFT_TYPES = { author: AuthorReturnDraft, review: ReviewReturnDraft, cause: CauseReturnDraft };
+export const returnKindOf = (task) => (task.context.perspective ? 'review' : task.role === 'cause-analyst' ? 'cause' : 'author');
 // task の返り値の形。claim と submit の next は、これを役ごとに 1 度だけ応答の最上位に置く（return_schemas）
-export const returnSchemaOf = (task) => jsonSchemaOf(RETURN_TYPES[returnKindOf(task)]);
+export const returnSchemaOf = (task) => jsonSchemaOf(DRAFT_TYPES[returnKindOf(task)]);
 
 // input_refs の指紋（artifact-formats.md「ディレクトリの ref の指紋」）: ファイルはそのまま 1 つ、ディレクトリはその下の全てのファイルに
 // 展開する。並びは input_refs の要素の順で、1 つのディレクトリの中だけを ref の UTF-8 のバイト列の辞書順に並べる。読めないファイルと、
@@ -180,6 +182,12 @@ export function makeTask(run, spec) {
       run_dir: run.runDir, stage: spec.stage, unit_id: spec.unit_id ?? null, perspective: spec.perspective ?? null,
       target_id: spec.target_id ?? null, model_id: spec.model_id ?? null, property_ids: spec.property_ids ?? [],
       candidates: spec.candidates ?? [], subject: spec.subject ?? null,
+      // モデル化の段の model-author の task だけ <model_id>.（モデルの性質の id の接頭辞。#264 SP-264-012）、他は null
+      model_property_id_prefix: spec.model_property_id_prefix ?? null,
+      // 計画の段の plan-author の task だけ、そのモデルで出しうる target_id の一覧（#264 SP-264-021）、他は []
+      target_ids: spec.target_ids ?? [],
+      // 洗い出しの段の extractor の task だけ、本文の ID の形の外部の参照 [{ id, file, line }]（#264 SP-264-026）、他は []
+      external_references: spec.external_references ?? [],
     },
   };
   return { task, inputRefs: inputRefs.map((x) => ({ name: x.name, ref: x.ref, ...(x.spans ? { spans: [...x.spans] } : {}) })) };

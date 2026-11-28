@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { canonicalRequest, runScenario } from './test-fixtures/pipeline.mjs';
 import { P, prop } from './test-fixtures/pipeline-cases.mjs';
 import { SM2, SM2_PROPS } from './test-fixtures/partition.mjs';
+import { MP1 } from './test-fixtures/core-ids.mjs';
 
 const PREMISE_SMT = '(declare-const x Int)\n(assert (>= x 0))\n(assert (<= x 8))\n(assert (not (>= (* x x) 0)))';
 const withPremise = (over = {}) => P('P1', 2, { smt: PREMISE_SMT, roles: ['premise', 'rule', 'goal'], scopeVariables: ['x'], ...over });
@@ -34,13 +35,16 @@ test('SP-FORMALMETHOD-005・012 AC-22: 範囲として扱う変数が出所の�
 
 test('SP-FORMALMETHOD-012: 作成役の仮定の前提に source_ids が無ければ、モデル作成役の照合が差し戻す', async (t) => {
   const { harness } = await runScenario(t, { scenario: { properties: [withPremise({ premiseSources: [] })] } });
-  assertSentBack(harness, 'model-author', /前提の節 P1-p1 は basis が 作成役の仮定 なのに source_ids が無い/);
+  // 前提の節の id はモデルの性質の id（<model_id>. の接頭辞。artifact-formats「モデルの性質の id」）から作る
+  assertSentBack(harness, 'model-author', new RegExp(`前提の節 ${MP1.replace(/[.]/g, '\\.')}-p1 は basis が 作成役の仮定 なのに source_ids が無い`));
 });
 
-test('SP-FORMALMETHOD-004・005: 性質の出所の要素が、どの節の source_ids にも対応表の行にも無ければ、モデル作成役の照合が差し戻す', async (t) => {
+// 対応表の location の行は骨組み（#264 SP-264-025）が性質の出所の要素ごとに決めるので、出所の要素が対応表に無い場面は、
+// 担当が骨組みの行を書かない（rows の欠け）場面になる。欠けた行の row_id で差し戻す
+test('SP-FORMALMETHOD-004・005 SP-264-025: 性質の出所の要素の行を対応表の下書きに書かなければ、モデル作成役の照合が差し戻す', async (t) => {
   const p2 = P('P2', 3, { clauseSources: ['E-P1'], mappingLocation: false });
   const { harness } = await runScenario(t, { scenario: { properties: [P('P1', 2), p2] } });
-  assertSentBack(harness, 'model-author', /inventory の性質 P2 の出所 E-P2 が/);
+  assertSentBack(harness, 'model-author', /P2\/E-P2/);
 });
 
 test('SP-FORMALMETHOD-004: どの性質の source_ids にも出てこない要素は、抽出役の照合が差し戻す', async (t) => {
@@ -48,9 +52,11 @@ test('SP-FORMALMETHOD-004: どの性質の source_ids にも出てこない要�
   assertSentBack(harness, 'extractor', /要素 E-X4 がどの性質の source_ids にも無い/);
 });
 
-test('SP-FORMALMETHOD-004: 本文の別の ID の参照が external_dependencies に無ければ、抽出役の照合が差し戻す', async (t) => {
+test('SP-FORMALMETHOD-004: 本文の別の ID の参照が external_dependencies に無ければ、抽出役の照合が差し戻す（#264 U5 からは CLI が参照の下書きを足すので差し戻さない）', async (t) => {
   const { harness } = await runScenario(t, { files: { 'target/spec.md': ID_SPEC } });
-  assertSentBack(harness, 'extractor', /spec\.md:L2 の ID の参照 SP-BASE-002 が/);
+  // 抽出役の task が external_references を持てば、CLI が extract-skeleton の下書きを external_dependencies に足す（SP-264-026）
+  if (Array.isArray(harness.memory.tasks.find((x) => x.role === 'extractor').context.external_references)) assert.deepEqual(firstProblems(harness, 'extractor'), []);
+  else assertSentBack(harness, 'extractor', /spec\.md:L2 の ID の参照 SP-BASE-002 が/);
 });
 
 // 偽の陽性: 既存の正しい場面（test-fixtures の場面）で、抽出役とモデル作成役の最初の提出に欠陥を返さない

@@ -4,7 +4,7 @@
 // 検査（現状の検査・設計レビュー・実装レビュー・review）は、同じ plugin の coverage-audit の CLI（ledger-cli.mjs）の関数を同じ process で流す。
 // 検査の役の claim・query・submit の口もこの CLI で、この CLI が coverage-audit の台帳（stateDir/audit/state）に渡す。
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -476,9 +476,23 @@ const watched = (L) => [...new Set([...ownedPaths(L).map((p) => abs(L, p)), ...L
 const hashesNow = (L) => Object.fromEntries(watched(L).map((f) => [f, fileHash(f)]))
 // 波を起動した（呼び出しを開いたか、記録した次の波の最初の claim が来た）ものとして今の波にする。行の数を呼び出しの和に足す。
 // 波は、起動の時点の単位のファイル・入力・対象の hash（before）と時刻（started。本物の時刻）を持つ（受け持ちの外の変更は波ごとに照らす。検査の波も同じ）。
+// started はファイルの mtime と同じ時計で取る（Date.now() は mtime の粗い時計より数 ms 先に進み、直後に書かれたファイルを起動の前と誤る）。
+// 状態ディレクトリの印 wave-clock を書いて mtime m0 を読み、mtime が m0 より進むまで書き直した値を返す。こうすると、呼ぶ前に書かれたファイルは
+// started 未満、返った後に書かれたファイルは started 以上になる。待つのは時計の刻み 1 つ分で、上限（50ms）に達したか書けなければ Date.now() に戻る。
+const FS_CLOCK_WAIT_MS = 50
+function fsNow(dir) {
+  const mark = path.join(dir, 'wave-clock')
+  const touch = () => { writeFileSync(mark, String(Date.now())); return statSync(mark).mtimeMs }
+  try {
+    const m0 = touch()
+    const until = Date.now() + FS_CLOCK_WAIT_MS
+    while (Date.now() < until) { const m1 = touch(); if (m1 > m0) return m1 }
+  } catch { /* 書けない状態ディレクトリでは本物の時刻に戻る */ }
+  return Date.now()
+}
 function launchWave(L, P, W) {
   for (const k of WAVE_KEYS) delete P[k]
-  Object.assign(P, W, { before: hashesNow(L), started: Date.now() })
+  Object.assign(P, W, { before: hashesNow(L), started: fsNow(path.dirname(P.args_path)) })
   P.rows_total += W.workers.length
   P.launched.push({ id: W.wave_id, step: W.step, workers: W.workers, claimed: [], ...(W.audit ? { audit: { call: W.audit.call, wave: W.audit.wave, ids: W.audit.ids } } : {}) })
 }

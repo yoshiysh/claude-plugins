@@ -182,6 +182,13 @@ jobs:
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
+      # plugin が同梱する Rust の crate（plugins/*/crates/*。formal-method-core など）を make test-rust で検査する。
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: '1.99.0'
+          components: rustfmt, clippy
+      - name: Verify plugin Rust crates
+        run: make test-rust
       - name: Verify static checks, Python unittests, eval preflight, and portability
         run: make test-static-and-python portability
 
@@ -199,6 +206,10 @@ jobs:
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
+      # formal-method の CLI のテストは実行体 formal-method-core を要る（make の core-bin が build する。#264 SP-264-004）。
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: '1.99.0'
       - name: Verify traceability Node tests
         run: make test-node-traceability
       - name: Preserve verification reports
@@ -231,6 +242,10 @@ jobs:
         with:
           path: plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules
           key: runtime-deps-${{ runner.os }}-${{ hashFiles('plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json') }}
+      # formal-method の CLI のテストは実行体 formal-method-core を要る（make の core-bin が build する。#264 SP-264-004）。
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: '1.99.0'
       - name: Verify other Node tests (shard ${{ matrix.shard }}/5)
         run: make test-node-other
 

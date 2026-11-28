@@ -7,7 +7,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, posix, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { collectReturn, completeQuoteHashes, completeWorklog, expandRefHashes, makeTask, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
+import { collectReturn, completeQuoteHashes, completeWorklog, expandRefHashes, makeTask, returnKindOf, returnSchemaOf, WORKFLOW_SCRIPT } from './agents.mjs';
+import { callCore } from './core.mjs';
+import { canonicalJson } from './canonical.mjs';
 import { ROLES } from './roles.mjs';
 import { CloseContent, REVISE_ROUNDS_MAX, UNIT_MAX_BYTES, WORKER_CALL_MAX_MS, WorkflowReturn, conforms } from './schemas.mjs';
 import { textOfTargetFile } from './checks/common.mjs';
@@ -420,39 +422,63 @@ function sharedInputs(ctx, hs) {
   return [...by].filter(([, ts]) => ts.length >= 2).map(([ref, ts]) => ({ ref, path: pathOf(ref), tasks: ts }));
 }
 
-// 担当の下書きを補う（agents.mjs の completeWorklog・completeQuoteHashes）。照合の前に attempt の領域のファイルを書き直すので、
-// 提出の指紋（evalSig）と受理の指紋（snapshot）は補った後の領域で取る。戻り値は補いで見つけた欠陥の文（無ければ []）。
-// 返り値を読めないか、参照が attempt の領域の外なら何もしない（collectReturn が形の違いにする）
+// 担当の下書きを補う。照合の前に attempt の領域のファイルを書き直すので、提出の指紋（evalSig）と受理の指紋（snapshot）は補った後の領域で取る。
+// 順は (1) 実行体 complete-return で返り値と作業記録の文脈の欄を task の値で入れ（#264 SP-264-029）、(2) agents.mjs の completeWorklog
+// （指紋と document_rules）、(3) 抽出役の completeQuoteHashes（DD-9）。戻り値は補いで見つけた欠陥の文で、context は下書きの文脈の欄が
+// task の値と違ったもの、worklog は作業記録の指紋・document_rules の食い違い（無ければどちらも []）。
+// 返り値を読めないか object でなければ何もしない（collectReturn が形の違いにする）。作業記録は attempt の領域の中の object だけを補う
 function completeDrafts(ctx, s) {
   const { run } = ctx;
+  const out = { context: [], worklog: [] };
   let ret;
-  try { ret = JSON.parse(readFileSync(s.task.result_path, 'utf8')); } catch { return []; }
+  try { ret = JSON.parse(readFileSync(s.task.result_path, 'utf8')); } catch { return out; }
+  if (!isPlainObject(ret)) return out;
   const prefix = `${relative(run.runDir, s.task.attempt_dir)}/`;
   const mine = (ref) => typeof ref === 'string' && ref.startsWith(prefix) && normRef(ref) === ref;
-  const problems = [];
   const rewrite = (ref, value) => {
     try { guardedWrite(run.runDir, ref, `${JSON.stringify(value, null, 2)}\n`); return true; } catch (e) {
       if (e instanceof SalvagedError) throw e;
-      problems.push(`${ref} に CLI が補った値を書けない（${e.code ?? e.message}）`);
+      out.worklog.push(`${ref} に CLI が補った値を書けない（${e.code ?? e.message}）`);
       return false;
     }
   };
   const readJson = (ref) => { try { return JSON.parse(readFileSync(join(run.runDir, ref), 'utf8')); } catch { return null; } };
-  if (ret && mine(ret.worklog_ref)) {
-    const wl = readJson(ret.worklog_ref);
-    const r = completeWorklog(wl, { materials: s.materials ?? [], docRules: run.appliedDocRules() });
-    problems.push(...r.problems);
-    if (r.changed) rewrite(ret.worklog_ref, r.worklog);
+  const differs = (a, b) => canonicalJson(a) !== canonicalJson(b);
+  const wlRef = mine(ret.worklog_ref) ? ret.worklog_ref : null;
+  const wl = wlRef ? readJson(wlRef) : null;
+  const draft = isPlainObject(wl) ? wl : null;
+  const done = callCore('complete-return', { task: returnTaskOf(run, s.task), worklog: draft ?? {}, ret });
+  out.context.push(...done.problems.map((name) => `返り値か作業記録の ${name} が task の値と違う（文脈の欄は CLI が入れるので書かない）`));
+  if (differs(done.ret, ret)) rewrite(relative(run.runDir, s.task.result_path), done.ret);
+  if (draft) {
+    const r = completeWorklog(done.worklog, { materials: s.materials ?? [], docRules: run.appliedDocRules() });
+    out.worklog.push(...r.problems);
+    if (differs(r.worklog, draft)) rewrite(wlRef, r.worklog);
   }
-  if (s.task.role === 'extractor' && ret && Array.isArray(ret.outputs)) {
+  if (s.task.role === 'extractor' && Array.isArray(done.ret.outputs)) {
     const textOf = (tid, file) => textOfTargetFile((run.targets ?? []).find((t) => t.id === tid)?.files?.find((x) => x.path === file));
-    for (const o of ret.outputs) {
+    for (const o of done.ret.outputs) {
       if (!o || o.kind !== 'inventory' || !mine(o.ref)) continue;
       const r = completeQuoteHashes(readJson(o.ref), textOf);
       if (r.changed) rewrite(o.ref, r.inventory);
     }
   }
-  return problems;
+  return out;
+}
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// complete-return の task（$defs/CompleteReturnInput の task）。target は今の作業記録の target の値: 作成役は context.target_id か model_id、
+// 確認役と原因の分類役は unit_id。どれも無い task（分割作成役など）は CLI の作業記録と同じく対象の id の並び（無ければ run の id）
+function returnTaskOf(run, task) {
+  const c = task.context;
+  const kind = returnKindOf(task);
+  const fallback = (run.targets ?? []).map((t) => t.id).join('・') || run.runId;
+  const target = kind === 'author' ? (c.target_id ?? c.model_id ?? fallback) : (c.unit_id ?? fallback);
+  return {
+    task_id: task.task_id, role: task.role, stage: c.stage, target,
+    unit_id: kind === 'author' ? null : c.unit_id, perspective: kind === 'review' ? c.perspective : null,
+  };
 }
 
 // 1 つの担当の提出の照合: 下書きの補い（completeDrafts）、返り値の形（collectReturn）と、確認役なら追加の照合（expect）、作成役なら段の照合（check）。
@@ -463,8 +489,11 @@ function submit(ctx, s) {
   const drafted = completeDrafts(ctx, s);
   s.evalSig = attemptHashes(run, s);
   const c0 = collectReturn(s.task);
-  // 補いの欠陥（作業記録の指紋・document_rules の食い違い）は、返り値の形の違いと同じく同じ担当に直させる
-  const c = c0.ok && drafted.length ? { ok: false, cause: `作業記録の欠陥（${drafted.join('; ')}）` } : c0;
+  // 補いの欠陥（下書きの文脈の欄が task と違う、作業記録の指紋・document_rules の食い違い）は、返り値の形の違いと同じく同じ担当に直させる
+  // （文脈の欄の食い違いは、今の「返り値の task_id が task と違う」と同じ扱い。SP-264-029）
+  const c = !c0.ok ? c0
+    : drafted.context.length ? { ok: false, cause: drafted.context.join('; ') }
+      : drafted.worklog.length ? { ok: false, cause: `作業記録の欠陥（${drafted.worklog.join('; ')}）` } : c0;
   const extra = c.ok && item.expect ? item.expect(c.ret) : null;
   if (!c.ok || extra) {
     const cause = c.ok ? `返り値の形が違う（${extra}）` : c.cause;

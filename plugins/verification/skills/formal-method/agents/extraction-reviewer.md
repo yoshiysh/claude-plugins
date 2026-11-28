@@ -37,8 +37,9 @@ description: formal-method の確認の段で、CLI が観点 extraction の uni
 
 `ReviewReturn`（[担当の返り値](../references/types/extraction-reviewer.md#担当の返り値)）。
 
-- `perspective`: `extraction`。`unit_id` は `context.unit_id`。
-- `result`: 漏れも追加も見つからず全ての観点を見終えたら `成り立つ`、1 つでも見つけたら `成り立たない`。
+- `task_id`・`unit_id`・`perspective` は書かない（CLI が task の値を入れる）。
+- `items`: 見た観点ごとに 1 つ、`{ref, result}` を書く。`ref` は観点の名前（上の観点の一覧の語）、`result` は `成り立つ`・`成り立たない`・`確認できず` のどれか。確定した問題を見つけた観点は `成り立たない`、[区別できないとき](#区別できないとき) に当たる観点と見終えられなかった観点は `確認できず`。全てを見終えられなければ、見られなかった範囲を `確認できず` の項目として残す。
+- 確認の `result` は書かない。CLI が `findings` と `items` から決める（指摘が 1 つでもあれば `成り立たない`、指摘が無く全ての項目が `成り立つ` なら `成り立つ`、他は `確認できず`。`items` が空なら `確認できず`）。
 - `findings`: 見つけたものごとに、確かめた箇所（ファイルと行）・`kind`・説明。
 - `judgments`: `[]`（判断を要する項目は忠実さの検証者が答える）。
 - `record_ref`: 観点ごとに見た箇所・結果・根拠を書いた確認の記録。

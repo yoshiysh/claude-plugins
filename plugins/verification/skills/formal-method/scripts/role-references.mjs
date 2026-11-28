@@ -25,14 +25,14 @@ const TYPES_SOURCE = 'references/artifact-formats.md';
 // 入口の型の名前が正本に無ければ生成を止める（正本の改名を見落とさない）。
 const COMMON_ENTRY = { writes: ['Worklog'], reads: ['Task', 'Request', 'fixed'] };
 export const ROLE_ENTRY_TYPES = Object.freeze({
-  extractor: { writes: ['AuthorReturn', 'Inventory'], reads: ['Manifest'] },
-  'model-author': { writes: ['AuthorReturn', 'ModelFile', 'MappingFile'], reads: ['Inventory', 'Manifest'] },
-  'partition-author': { writes: ['AuthorReturn', 'PartitionsFile', 'Decomposition'], reads: ['ModelFile', 'MappingFile'] },
-  'plan-author': { writes: ['AuthorReturn', 'PlanFile', 'MutationsFile'], reads: ['ModelFile', 'MappingFile', 'PartitionsFile', 'Inventory'] },
-  'extraction-reviewer': { writes: ['ReviewReturn'], reads: ['Inventory', 'Manifest'] },
-  'fidelity-reviewer': { writes: ['ReviewReturn'], reads: ['ModelFile', 'MappingFile', 'Judgment', 'End', 'Inventory'] },
-  'assurance-reviewer': { writes: ['ReviewReturn'], reads: ['Inventory'] },
-  'composition-reviewer': { writes: ['ReviewReturn'], reads: ['PartitionsFile', 'Decomposition', 'ModelFile', 'End'] },
+  extractor: { writes: ['AuthorReturn', 'InventoryDraft'], reads: ['Manifest'] },
+  'model-author': { writes: ['AuthorReturn', 'ModelFile', 'MappingDraft'], reads: ['Inventory', 'Manifest'] },
+  'partition-author': { writes: ['AuthorReturn', 'PartitionsDraft', 'Decomposition'], reads: ['ModelFile', 'MappingFile'] },
+  'plan-author': { writes: ['AuthorReturn', 'PlanDraft', 'MutationsDraft'], reads: ['ModelFile', 'MappingFile', 'PartitionsFile', 'Inventory'] },
+  'extraction-reviewer': { writes: ['ReviewReturn', 'ReviewItem'], reads: ['Inventory', 'Manifest'] },
+  'fidelity-reviewer': { writes: ['ReviewReturn', 'ReviewItem'], reads: ['ModelFile', 'MappingFile', 'Judgment', 'End', 'Inventory'] },
+  'assurance-reviewer': { writes: ['ReviewReturn', 'ReviewItem'], reads: ['Inventory'] },
+  'composition-reviewer': { writes: ['ReviewReturn', 'ReviewItem'], reads: ['PartitionsFile', 'Decomposition', 'ModelFile', 'End'] },
   'cause-analyst': { writes: ['CauseReturn'], reads: ['Cause', 'ModelFile', 'MappingFile', 'End', 'Inventory', 'PartitionsFile', 'PlanFile', 'MutationsFile'] },
 });
 export const entryTypesOf = (role) => {

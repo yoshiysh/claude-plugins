@@ -3,7 +3,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { sha256Bytes } from './canonical.mjs';
-import { ABLATION_PER_PROPERTY_MAX, LEDGER_SCHEMA, MODEL_CHECK_KINDS, UNIT_MAX_BYTES } from './schemas.mjs';
+import { ABLATION_PER_PROPERTY_MAX, LEDGER_SCHEMA, MODEL_CHECK_KINDS, UNIT_MAX_BYTES, InventoryDraft, MappingDraft, MutationsDraft, PartitionsDraft, PlanDraft, parseSpan, validate } from './schemas.mjs';
 import { scanSecrets, describeHits } from './secrets.mjs';
 import { writeEvidence } from './storage.mjs';
 import { guardedWrite, removeClosedCall, salvageMarked, SalvagedError } from './store.mjs';
@@ -16,7 +16,7 @@ import { mergeSpans, parseTargetRef, refPathOf, targetRef } from './target-refs.
 import { packByUnion, runWorkers } from './call.mjs';
 import { refFiles } from './agents.mjs';
 import { ledgerEntry, newStageLog, cliWorklog, DOC_RULES_PATH, docRulesRefOf } from './worklog.mjs';
-import { coverageCheck, definedIdsOf } from './checks/coverage.mjs';
+import { coverageCheck, definedIdsOf, externalReferences, mentions } from './checks/coverage.mjs';
 import { modelCheck, matrixGen } from './checks/model.mjs';
 import { buildGraph, deriveCandidates } from './checks/graph.mjs';
 import { partitionCheck } from './checks/compose.mjs';
@@ -26,12 +26,14 @@ import { noSuitableTool } from './adapters/index.mjs';
 import { parseForms } from './sexpr.mjs';
 import { ConfirmationIds, confirmationResult, verdictOf, reviewUnits, causeUnitId, judgmentAnswers, TRUNCATED } from './checks/det.mjs';
 import { classifyCheck } from './verdict.mjs';
-import { readRunText, defect } from './checks/common.mjs';
+import { readRunJson, readRunText, defect, cmpBytes, linesOf, textOfTargetFile } from './checks/common.mjs';
 import * as z3 from './adapters/z3.mjs';
 import { runExecutions, NOT_STARTED_END } from './scheduler.mjs';
 import { spawnTool } from './process.mjs';
 import { reason, PARTITION_REJECTED } from './result.mjs';
 import { locationFromEnv } from './performance.mjs';
+import { callCore } from './core.mjs';
+import { assembleInventory, assembleMapping, assemblePartitions, assemblePlan, candidatesWithEdges, concatPlans, selectionSingle } from './assemble.mjs';
 
 // 否定だけ・前提と否定だけ・規則と否定だけの 3 つ（ABLATION_PER_PROPERTY_MAX はこれと前提ごとの再検査の和の上限）
 const BASE_ABLATIONS = 3;
@@ -437,9 +439,11 @@ export class Run {
   // observe は、その提出の照合の前に呼ぶ（unit をまたぐ照合が、他の unit の最新の提出と比べるため）。onAccept は submit で受理した時点で呼ぶ
   // pack が真なら、unit の並びのまま packByUnion で 1 体に詰める（資料の和集合が UNIT_MAX_BYTES まで。抽出役）。1 体の task は unit ごとに 1 つのままで、
   // 前の task が閉じてから submit の next で次の task を返す（after。architecture.md「担当の起動」）。偽なら 1 体に 1 unit
-  async authorRounds(units, { pack = false } = {}) {
+  // single が真なら、全ての unit を資料の量に依らず 1 体に並べる（UNIT_MAX_BYTES の詰め分けを当てない。モデル化の段。#264 SP-264-012・DD-13）
+  async authorRounds(units, { pack = false, single = false } = {}) {
     const specs = units.map((u) => u.spec());
-    const packs = pack ? packByUnion(specs.map((_, i) => i), (i) => this.specFiles(specs[i])) : specs.map((_, i) => [i]);
+    const all = specs.map((_, i) => i);
+    const packs = single ? [all] : pack ? packByUnion(all, (i) => this.specFiles(specs[i])) : all.map((i) => [i]);
     const out = await runWorkers(this, packs.map((ids) => ({
       items: ids.map((i, k) => ({ spec: specs[i], check: units[i].check, observe: units[i].observe, onAccept: units[i].onAccept, ...(k ? { after: k - 1 } : {}) })),
     })));
@@ -522,26 +526,49 @@ export class Run {
     const blames = (tid, other) => other !== tid && (accepted.has(other) || order.get(other) < order.get(tid));
     const requestIds = new Set([...(this.request?.goals ?? []), ...(this.request?.known_requirements ?? [])].map((x) => x.id));
     const otherIds = (tid, key) => new Map([...latestIds].filter(([id]) => blames(tid, id)).flatMap(([id, ids]) => [...ids[key]].map((x) => [x, id])));
+    const otherDefinedIds = (tid) => new Set(this.targets.filter((x) => x.id !== tid).flatMap((x) => [...definedIdsOf(x)]));
+    // 本文の ID の形の外部の参照（今の externalReferences。SP-264-026）。exclude は外の ID の参照に数えない id
+    const textOf = (t) => (file) => textOfTargetFile(t.files.find((x) => x.path === file));
+    const referencesOf = (t, exclude) => externalReferences(t, textOf(t), this.requestScopeOf(t.id).get(t.id), this.requestExcludeOf(t.id), exclude);
+    // 走査の範囲と外部の ID の下書きは実行体 extract-skeleton が決め（担当は scanned を書かない）、下書きと合わせて
+    // assembled/<task_id>/inventory.json に組み立ててから今の coverageCheck を当てる（SP-264-026）。行数は coverageCheck と同じ linesOf で数える
+    const skeletonOf = (t, draft, others) => {
+      const own = new Set([...draft.elements.map((e) => e.id), ...draft.properties.map((p) => p.id), ...draft.external_dependencies.map((d) => d.id),
+        ...others.properties.keys(), ...others.elements.keys(), ...requestIds, ...otherDefinedIds(t.id)]);
+      const references = referencesOf(t, own).filter((r) => !draft.external_dependencies.some((d) => mentions(d.text, r.id)));
+      const files = t.files.map((f) => { const text = textOf(t)(f.path); return { path: f.path, text: text !== null, lines: text === null ? null : linesOf(text).length }; });
+      const scope = [...(this.requestScopeOf(t.id).get(t.id) ?? new Map())].map(([file, spans]) => ({ file, spans: spans === null ? null : [...spans] }));
+      return callCore('extract-skeleton', { target_id: t.id, files, scope, references });
+    };
     const units = this.targets.map((t) => ({
       role: 'extractor',
-      spec: () => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }, ...this.targetFileRefs(t.id)] }),
+      spec: () => ({ role: 'extractor', stage: '洗い出し', target_id: t.id, input_refs: [{ name: 'request', ref: 'request.json' }, { name: 'manifest', ref: join('targets', t.id, 'manifest.json') }, ...this.targetFileRefs(t.id)],
+        external_references: referencesOf(t, new Set([...requestIds, ...otherDefinedIds(t.id)])) }),
       observe: (ret) => {
         const inv = readInventory(ret);
         latestIds.set(t.id, { properties: idsOf(inv?.data, 'properties'), elements: idsOf(inv?.data, 'elements') });
       },
       onAccept: () => { accepted.add(t.id); },
-      check: (ret) => {
+      check: (ret, task) => {
         const outs = ret.outputs.filter((o) => o.kind === 'inventory');
         if (outs.length !== 1) return { defects: [defect('other', 'inventory-count', `inventory が ${outs.length} 個（ちょうど 1 つ）`)], value: null };
-        const inv = readInventory(ret);
-        if (!inv) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
-        const defects = coverageCheck(this.runDir, inv.data, t, { otherPropertyIds: otherIds(t.id, 'properties'), otherElementIds: otherIds(t.id, 'elements'), scope: this.requestScopeOf(t.id).get(t.id),
-          excluded: this.requestExcludeOf(t.id), requestIds, otherDefinedIds: new Set(this.targets.filter((x) => x.id !== t.id).flatMap((x) => [...definedIdsOf(x)])) });
-        return { defects, value: inv };
+        const draft = readInventory(ret);
+        if (!draft) return { defects: [defect('syntax', 'inventory-read', 'inventory を読めない')], value: null };
+        const errs = validate(InventoryDraft, draft.data);
+        if (errs.length) return { defects: [defect('syntax', 'inventory-shape', `inventory の形に合わない（inventory の下書き InventoryDraft。scanned は CLI が埋める）: ${errs.slice(0, 3).join('; ')}`)], value: null };
+        const others = { properties: otherIds(t.id, 'properties'), elements: otherIds(t.id, 'elements') };
+        const data = assembleInventory(draft.data, skeletonOf(t, draft.data, others));
+        const ref = `assembled/${task.task_id}/inventory.json`;
+        if (!this.writeRecordFile(ref, JSON.stringify(data, null, 2), { kind: 'inventory', register: false })) return { defects: [defect('other', `assembled:${ref}`, `組み立てた inventory ${ref} を書けない`)], value: null };
+        const defects = coverageCheck(this.runDir, data, t, { otherPropertyIds: others.properties, otherElementIds: others.elements, scope: this.requestScopeOf(t.id).get(t.id),
+          excluded: this.requestExcludeOf(t.id), requestIds, otherDefinedIds: otherDefinedIds(t.id) });
+        return { defects, value: { ref, data } };
       },
       accept: (last) => {
         if (!last.value) { this.notCreated.push({ kind: 'inventory', reason: '抽出役の成果物が形に合わない' }); return; }
-        if (!this.registerAuthor(last, ['inventory'])) return;
+        // 台帳に載せるのは組み立てた inventory（producer はこの task。spec §2.4 の冒頭）
+        if (!this.registerAuthor(last, [])) return;
+        if (!this.registerAgentFile('inventory', last.value.ref, last.task, last.materials)) return;
         if (last.defects.length) this.log('洗い出し').unconfirmed.push(...last.defects.map((d) => `抽出の欠陥が残った: ${d.text}`));
         this.noteQuestions(last.ret, 'extractor');
         for (const p of last.value.data.properties ?? []) for (const q of p.blocked_by_question ?? []) {
@@ -558,6 +585,9 @@ export class Run {
   }
 
   // ---- モデル化 ----
+  // モデルの数と分け方は実行体の partition-models が inventory の source_ids から決め（SP-264-010・011。この変更では previous: []）、
+  // モデルごとに model-author の task を 1 つ出して 1 体に順に claim させる（SP-264-012）。対応表の location の行は mapping-rows の骨組み
+  // （views/mapping-rows-<model_id>.json。DD-16）で渡し、担当の下書き（MappingDraft）と結んで assembled/<task_id>/mapping.json に組み立てる（SP-264-025）
   async modelling() {
     const eligible = this.inventoryProperties().filter((p) => !this.blockedBy.has(p.id));
     if (eligible.length === 0) {
@@ -565,28 +595,93 @@ export class Run {
       this.log().results.push('対象にする性質が無いので、モデル作成役を出さなかった。');
       return;
     }
-    const eligibleSet = new Set(eligible.map((p) => p.id));
+    const byId = new Map(eligible.map((p) => [p.id, p]));
+    const { models: parts } = callCore('partition-models', {
+      properties: eligible.map((p) => ({ id: p.id, source_ids: p.source_ids, formalizable: p.formalizable })),
+      previous: [],
+    });
+    const elementSources = new Map(this.inventories.flatMap((i) => i.data.elements.map((e) => [e.id, e.source])));
     const inputs = [{ name: 'request', ref: 'request.json' }, ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref })), ...this.targets.flatMap((t) => [{ name: `manifest-${t.id}`, ref: join('targets', t.id, 'manifest.json') }, ...this.targetFileRefs(t.id)])];
-    const unit = {
+    const refs = {
+      elementIds: new Set(this.inventories.flatMap((i) => i.data.elements.map((e) => e.id))),
+      propertyIds: new Set(this.inventoryProperties().map((p) => p.id)),
+      goalIds: new Set((this.request?.goals ?? []).map((g) => g.id)),
+      knownRequirementIds: new Set((this.request?.known_requirements ?? []).map((k) => k.id)),
+      targetIds: new Set(this.targets.map((t) => t.id)),
+      externalDependencyIds: new Set(this.inventories.flatMap((i) => i.data.external_dependencies.map((d) => d.id))),
+      inventoryPropertySources: new Map(this.inventoryProperties().map((p) => [p.id, p.source_ids])),
+      elementSources,
+    };
+    const units = parts.map(({ model_id: modelId, property_ids: propertyIds }) => {
+      const props = propertyIds.map((id) => byId.get(id));
+      const sourceIds = [...new Set(props.flatMap((p) => p.source_ids))];
+      const skeleton = callCore('mapping-rows', {
+        model_id: modelId,
+        properties: props.map((p) => ({ id: p.id, source_ids: p.source_ids, formalizable: p.formalizable, nonformal_reason: p.nonformal_reason ?? null })),
+        elements: sourceIds.filter((id) => elementSources.has(id)).map((id) => { const s = elementSources.get(id); return { id, source: { target_id: s.target_id, file: s.file, span: s.span } }; }),
+      });
+      const viewRef = `views/mapping-rows-${modelId}.json`;
+      const view = this.writeRecordFile(viewRef, JSON.stringify(skeleton, null, 2), { kind: 'material_view' }) ? [{ name: `mapping-rows-${modelId}`, ref: viewRef }] : [];
+      return this.modelUnit({ modelId, propertyIds, skeleton, inputs: [...inputs, ...view], refs });
+    });
+    this.log().actions.push(`実行体 formal-method-core の partition-models で性質を出所の連結成分ごとのモデル ${parts.length} 件に分け、モデルごとのモデル作成役の task を 1 体に順に出し、対応表の骨組み（mapping-rows）と下書きから組み立てた対応表とモデルの形、query の構文を照らした。`);
+    await this.authorRounds(units, { single: true });
+    // task の接頭辞と task の中の照合から一意になるはずの id を、全てのモデルをつないで照らす。重なれば CLI の欠陥（SP-264-012）
+    const modelIds = new Set();
+    const mpIds = new Set();
+    for (const m of this.models) {
+      if (modelIds.has(m.id)) throw new Error(`モデルをつないだ後に model_id ${m.id} が重なる（model-dup）`);
+      modelIds.add(m.id);
+      for (const p of m.data.properties) {
+        if (mpIds.has(p.id)) throw new Error(`モデルをつないだ後にモデルの性質の id ${p.id} が重なる（mp-dup）`);
+        mpIds.add(p.id);
+      }
+    }
+    this.combinations = this.models.map((m) => ({ model: m, combinations: matrixGen(m.data) }));
+    this.log().results.push(`モデル ${this.models.length} 件を回収した。`);
+  }
+
+  // モデル 1 つの model-author の unit（SP-264-012・025）。照合は、組み立てた対応表とその task のモデルに今の modelCheck を当てる
+  // （eligible はその task の性質、モデルはちょうど 1 つで model_id が context.model_id、モデルの性質の id は <model_id>. で始まる）。
+  // 受理は task ごとに状態へ足す（DD-14。smtBad は併合し、先に受理したモデルの違反を消さない）
+  modelUnit({ modelId, propertyIds, skeleton, inputs, refs }) {
+    const prefixOfId = `${modelId}.`;
+    const eligible = new Set(propertyIds);
+    const failed = (why) => this.notCreatedFor('model-author', `モデル ${modelId} の${why}`);
+    return {
       role: 'model-author',
-      spec: () => ({ role: 'model-author', stage: 'モデル化', property_ids: eligible.map((p) => p.id), input_refs: inputs }),
+      spec: () => ({ role: 'model-author', stage: 'モデル化', model_id: modelId, property_ids: propertyIds, model_property_id_prefix: prefixOfId, input_refs: inputs }),
       check: (ret, task) => {
         const prefix = `${relative(this.runDir, task.attempt_dir)}/`;
-        const refs = {
-          elementIds: new Set(this.inventories.flatMap((i) => i.data.elements.map((e) => e.id))),
-          propertyIds: new Set(this.inventoryProperties().map((p) => p.id)),
-          goalIds: new Set((this.request?.goals ?? []).map((g) => g.id)),
-          knownRequirementIds: new Set((this.request?.known_requirements ?? []).map((k) => k.id)),
-          targetIds: new Set(this.targets.map((t) => t.id)),
-          externalDependencyIds: new Set(this.inventories.flatMap((i) => i.data.external_dependencies.map((d) => d.id))),
-          inventoryPropertySources: new Map(this.inventoryProperties().map((p) => [p.id, p.source_ids])),
-          elementSources: new Map(this.inventories.flatMap((i) => i.data.elements.map((e) => [e.id, e.source]))),
-        };
-        const c = modelCheck(this.runDir, ret.outputs, { prefix, eligible: eligibleSet, refs });
-        return { defects: c.defects, value: c };
+        const defects = [];
+        const modelOuts = ret.outputs.filter((o) => o.kind === 'model');
+        const mapOuts = ret.outputs.filter((o) => o.kind === 'mapping');
+        if (modelOuts.length !== 1) defects.push(defect('other', `model-count:${modelId}`, `モデルが ${modelOuts.length} 個（モデル ${modelId} のちょうど 1 つ）`));
+        if (mapOuts.length !== 1) return { defects: [...defects, defect('other', `mapping-count:${modelId}`, `対応表の下書きが ${mapOuts.length} 個（ちょうど 1 つ）`)], value: null };
+        const draft = readRunJson(this.runDir, mapOuts[0].ref);
+        if (draft === null) return { defects: [...defects, defect('syntax', `read:${mapOuts[0].ref}`, `${mapOuts[0].ref} を JSON として読めない`)], value: null };
+        const errs = validate(MappingDraft, draft);
+        if (errs.length) return { defects: [...defects, defect('syntax', `shape:${mapOuts[0].ref}`, `${mapOuts[0].ref} の形が違う（対応表の下書き MappingDraft）: ${errs.slice(0, 3).join('; ')}`)], value: null };
+        const asm = assembleMapping(draft, skeleton, { model_id: modelId, property_ids: propertyIds });
+        defects.push(...asm.defects);
+        const mappingRef = `assembled/${task.task_id}/mapping.json`;
+        if (!this.writeRecordFile(mappingRef, JSON.stringify(asm.mapping, null, 2), { kind: 'mapping', register: false })) return { defects: [...defects, defect('other', `assembled:${mappingRef}`, `組み立てた対応表 ${mappingRef} を書けない`)], value: null };
+        for (const o of modelOuts) {
+          const data = readRunJson(this.runDir, o.ref);
+          if (!data || typeof data !== 'object') continue;
+          if (data.model_id !== modelId) defects.push(defect('reference', `model-id:${data.model_id}`, `モデルの model_id ${data.model_id} が task の context.model_id ${modelId} と違う`));
+          for (const p of Array.isArray(data.properties) ? data.properties : []) {
+            if (p && typeof p.id === 'string' && !p.id.startsWith(prefixOfId)) defects.push(defect('reference', `mp-prefix:${p.id}`, `モデルの性質の id ${p.id} が context.model_property_id_prefix ${prefixOfId} で始まらない`));
+          }
+        }
+        // 組み立てた対応表の model_id は context.model_id。モデルの model_id が違えば modelCheck の mapping-count・mapping-orphan にも当たる
+        const c = modelCheck(this.runDir, [...modelOuts, { kind: 'mapping', ref: mappingRef }], { prefix, eligible, refs });
+        defects.push(...c.defects);
+        return { defects, value: c };
       },
       accept: (last) => {
         const c = last.value;
+        if (!c) { failed('モデル作成役の成果物が形に合わない'); return; }
         if (!this.registerAuthor(last, [])) return;
         this.noteQuestions(last.ret, 'model-author');
         for (const m of c.models) {
@@ -598,16 +693,12 @@ export class Run {
           if (!c.texts.has(ref)) continue;
           if (this.registerAgentFile('query', ref, last.task, last.materials)) this.queryRefs.set(ref, info);
         }
-        this.smtBad = new Map(c.smtBad);
-        if (c.models.length === 0) this.notCreatedFor('model-author', 'モデル作成役の成果物が形に合わない');
+        for (const [ref, v] of c.smtBad) this.smtBad.set(ref, v);
+        if (c.models.length === 0) failed('モデル作成役の成果物が形に合わない');
         if (last.defects.length) this.log('モデル化').unconfirmed.push(...last.defects.map((d) => `モデル化の欠陥が残った: ${d.text}`));
       },
-      onFail: (why) => this.notCreatedFor('model-author', why),
+      onFail: (why) => failed(why),
     };
-    this.log().actions.push('モデル作成役を出し、モデルと対応表の形、query の構文を照らした。');
-    await this.authorRounds([unit]);
-    this.combinations = this.models.map((m) => ({ model: m, combinations: matrixGen(m.data) }));
-    this.log().results.push(`モデル ${this.models.length} 件を回収した。`);
   }
 
   // ---- 計画 ----
@@ -630,120 +721,221 @@ export class Run {
       return [...refs].map(([ref, name]) => ({ name, ref }));
     };
     const modelInputs = this.models.flatMap((m) => [{ name: `model-${m.id}`, ref: m.ref }, { name: `mapping-${m.id}`, ref: m.mapping.ref }, ...queryInputs(m)]);
-    // 分割（候補が 2 つ以上のとき）と計画は、1 体の worker が順に担う。計画の担当は分割の担当が閉じてから claim に出る（依存つきの担当）。
-    // 分割の結果は閉じた時点で受け取り（settle）、計画の担当の資料と照合に使う
+    // 分割（候補が 2 つ以上のとき）とモデルごとの計画は、1 体の worker が順に担う。計画の担当は前の担当が閉じてから claim に出る（依存つきの担当の鎖）。
+    // 分割の結果は閉じた時点で受け取り（settle）、計画の担当の資料と照合に使う（SP-264-012）
     const items = [];
     if (this.candidates.length >= 2 && this.models.length) {
-      const cands = this.candidates.map(({ id, nodes }) => ({ id, nodes }));
-      const known = new Set((this.request?.known_requirements ?? []).map((k) => k.id));
-      const unit = {
-        role: 'partition-author',
-        spec: () => ({ role: 'partition-author', stage: '計画', candidates: cands, input_refs: modelInputs }),
-        check: (ret, task) => {
-          const outs = ret.outputs.filter((o) => o.kind === 'partitions');
-          if (outs.length !== 1) return { defects: [defect('other', 'partitions-count', 'partitions がちょうど 1 つでない')], value: null };
-          let data;
-          try { data = JSON.parse(readFileSync(join(this.runDir, outs[0].ref), 'utf8')); } catch { return { defects: [defect('syntax', 'partitions-read', 'partitions を読めない')], value: null }; }
-          const prefix = `${relative(this.runDir, task.attempt_dir)}/`;
-          const c = partitionCheck(this.runDir, data, { candidates: cands, graph: this.graph, models: this.models, prefix, knownRequirementIds: known });
-          return { defects: c.defects, value: { ref: outs[0].ref, data, check: c } };
-        },
-        accept: (last) => {
-          // 欠陥の残った分割（形の違い・読めない・個数の違いを含む）は採らない（artifact-formats.md「欠陥の残った分割」）。
-          // 計画作成役には分割の無いモデルだけを渡す
-          this.partitionDefects = last.defects;
-          const reject = () => {
-            this.partitionRejected = true;
-            this.decisions = this.candidates.map((c) => ({ candidate_id: c.id, adopted: false, reason: PARTITION_REJECTED }));
-            this.log('計画').unconfirmed.push(...last.defects.map((d) => `分割の欠陥が残った: ${d.text}`));
-          };
-          if (!last.value || !last.value.check.valid) { this.notCreatedFor('partition-author', '分割作成役の成果物が形に合わない'); reject(); return; }
-          if (!this.registerAuthor(last, ['partitions'])) return;
-          const { data, check } = last.value;
-          if (last.defects.length) { reject(); return; }
-          this.decisions = data.decisions;
-          if (data.adopted) {
-            const queries = [...data.contracts, ...data.composition_conditions].map((x) => x.query_ref);
-            for (const q of queries) if (this.registerAgentFile('query', q, last.task, last.materials)) this.queryRefs.set(q, { kind: 'partition' });
-            for (const [ref, v] of check.smtBad) this.smtBad.set(ref, v);
-            this.partitions = { ref: last.value.ref, data };
-          }
-        },
-        onFail: (why) => this.notCreatedFor('partition-author', why),
-        revoke: (r) => {
-          this.revokeAuthor('partition-author', r);
-          this.partitions = null;
-          this.decisions = [];
-          this.partitionRevoked = true;
-          this.dropPartitionlessChecks();
-        },
-      };
-      this.log().actions.push('分割の候補が 2 つ以上あるので、分割と計画を順に担う 1 体の worker に分割の担当を出し、分割を照らした。');
+      const unit = this.partitionUnit(modelInputs);
+      this.log().actions.push('分割の候補が 2 つ以上あるので、分割と計画を順に担う 1 体の worker に分割の担当を出し、実行体 formal-method-core の partition-assemble で下書きから組み立てた分割を照らした。');
       items.push({ spec: unit.spec(), check: unit.check, settle: (r) => this.settleAuthor(unit, r), revoke: unit.revoke });
     }
+    // 計画はモデルごとに 1 つの task（DD-15）。そのモデルの性質に形式化できる必要な性質が無いモデルには出さない
     const modelProps = this.models.flatMap((m) => m.data.properties);
-    if (modelProps.length === 0) this.notCreatedFor('plan-author', '計画する形式化できる性質が無いので計画作成役を出さなかった');
+    const formal = this.inventoryProperties().filter((p) => p.formalizable && !this.blockedBy.has(p.id) && modelProps.some((mp) => mp.inventory_property_ids.includes(p.id)));
+    const planned = this.models.map((m) => {
+      const inv = new Set(m.data.properties.flatMap((p) => p.inventory_property_ids));
+      return { m, formal: formal.filter((p) => inv.has(p.id)) };
+    }).filter((x) => x.formal.length > 0);
+    this.planParts = new Map();
+    if (planned.length === 0) this.notCreatedFor('plan-author', '計画する形式化できる性質が無いので計画作成役を出さなかった');
     else {
-      const invProps = this.inventoryProperties();
-      const formal = invProps.filter((p) => p.formalizable && !this.blockedBy.has(p.id) && modelProps.some((mp) => mp.inventory_property_ids.includes(p.id)));
-      // 資料は分割の結果（採った分割）を見てから決める
-      const partInputs = () => (this.partitions ? [{ name: 'partitions', ref: this.partitions.ref },
-        ...[...this.partitions.data.contracts, ...this.partitions.data.composition_conditions].map((x) => ({ name: `query-${x.id}`, ref: x.query_ref }))] : []);
-      const inputs = () => [...modelInputs, ...partInputs(), ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref }))];
-      const unit = {
-        role: 'plan-author',
-        spec: () => ({ role: 'plan-author', stage: '計画', property_ids: formal.map((p) => p.id), input_refs: inputs() }),
-        check: (ret, task) => {
-          const read2 = (kind) => { const o = ret.outputs.find((x) => x.kind === kind); if (!o) return null; try { return { ref: o.ref, data: JSON.parse(readFileSync(join(this.runDir, o.ref), 'utf8')) }; } catch { return null; } };
-          const plan = read2('plan');
-          const mutations = read2('mutations');
-          if (!plan || !mutations) return { defects: [defect('syntax', 'plan-missing', 'plan か mutations が無いか、JSON として読めない')], value: null };
-          // この巡の返り値の blocked_by_question だけで照らす（問いと依存を控えるのは、受け入れた返り値の accept だけ）
-          const blocked = new Set([...this.blockedBy.keys(), ...ret.blocked_by_question]);
-          const eligible = new Set(formal.filter((p) => !blocked.has(p.id)).map((p) => p.id));
-          const c = planCheck(plan.data, mutations.data, {
-            runDir: this.runDir, prefix: `${relative(this.runDir, task.attempt_dir)}/`, models: this.models, partitions: this.partitions?.data ?? null,
-            eligible, blocked, prepare: this.prepare, authorQueries: new Set(this.queryRefs.keys()), smtBad: this.smtBad,
-            propertyIds: new Set(this.inventoryProperties().map((p) => p.id)),
-          });
-          return { defects: c.defects, value: { plan, mutations, check: c } };
-        },
-        accept: (last) => {
-          this.noteQuestions(last.ret, 'plan-author');
-          if (!last.value || !last.value.check.valid) { this.notCreatedFor('plan-author', '計画作成役の成果物が形に合わない'); return; }
-          if (!this.registerAuthor(last, ['plan', 'mutations'])) return;
-          const { plan, mutations, check } = last.value;
-          for (const m of mutations.data.mutations) if (m.mutation_ref.startsWith(`${relative(this.runDir, last.task.attempt_dir)}/`)) this.registerAgentFile('query', m.mutation_ref, last.task, last.materials);
-          this.plan = plan;
-          this.mutations = mutations;
-          this.planDefectList = last.defects;
-          this.planDefects = defectiveElements(plan.data, mutations.data, last.defects, this.models, this.partitions?.data ?? null);
-          // 分割作成役の query の違反が残った契約・合成の条件の検査は、欠陥の残った要素として実行しない
-          for (const c of plan.data.checks) {
-            if (c.kind === 'property') continue;
-            const x = [...(this.partitions?.data.contracts ?? []), ...(this.partitions?.data.composition_conditions ?? [])].find((y) => y.id === c.target_id);
-            if (x && this.smtBad.has(x.query_ref) && !this.planDefects.has(c.id)) this.planDefects.set(c.id, `${x.query_ref} が .smt2 の規則に反する（${this.smtBad.get(x.query_ref).join('・')}）`);
-          }
-          this.selectionOf = check.single;
-          this.dropPartitionlessChecks();
-          if (last.defects.length) this.log('計画').unconfirmed.push(...last.defects.map((d) => `計画の欠陥が残った: ${d.text}`));
-        },
-        onFail: (why) => this.notCreatedFor('plan-author', why),
-        revoke: (r) => {
-          this.revokeAuthor('plan-author', r);
-          this.plan = null;
-          this.mutations = null;
-          this.planDefects = new Map();
-          this.planDefectList = [];
-          this.selectionOf = () => null;
-        },
-      };
-      this.log().actions.push(items.length ? '分割の担当が閉じた後、同じ worker に計画の担当を出し、計画を照らした。' : '計画作成役を出し、計画を照らした。');
-      // 中断の理由があれば、計画の担当を出さない（spec が null）
-      items.push({ role: 'plan-author', stage: '計画', spec: items.length ? () => (this.halted() ? null : unit.spec()) : unit.spec(), check: unit.check, after: items.length ? 0 : undefined, settle: (r) => this.settleAuthor(unit, r), revoke: unit.revoke });
+      this.log().actions.push(`${items.length ? '分割の担当が閉じた後、同じ worker に' : '1 体の worker に'}モデルごとの計画の担当 ${planned.length} 件を順に出し、実行体 formal-method-core の plan-skeleton の骨組みと下書きから組み立てた計画を、そのモデルに限った文脈で照らした。`);
+      for (const { m, formal: formalOfModel } of planned) {
+        const unit = this.planUnit(m, formalOfModel, queryInputs);
+        // 中断の理由があれば、後の計画の担当を出さない（spec が null）。spec は前の担当が閉じた後に評価する（分割の結果を見るため）
+        const first = items.length === 0;
+        items.push({ role: 'plan-author', stage: '計画', spec: first ? unit.spec() : () => (this.halted() ? null : unit.spec()), check: unit.check, ...(first ? {} : { after: items.length - 1 }), settle: (r) => this.settleAuthor(unit, r), revoke: unit.revoke });
+      }
     }
     if (items.length) await runWorkers(this, [{ items }]);
-    this.log().results.push(this.plan ? `計画を採った（検査 ${this.plan.data.checks.length} 件、欠陥の残った要素 ${this.planDefects.size} 件）。` : '計画が無い。');
+    this.log().results.push(this.plan ? `計画を採った（モデル ${this.planParts.size} 件の計画をつないだ。検査 ${this.plan.data.checks.length} 件、欠陥の残った要素 ${this.planDefects.size} 件）。` : '計画が無い。');
+  }
+
+  // 分割作成役の unit（SP-264-023）。task の候補は他の候補への辺を持ち、担当は採否・前提・保証・出どころ・責任・契約・合成の条件の下書きを書く。
+  // 照合は、partition-assemble の出力と下書きから組み立てた PartitionsFile に今の partitionCheck を当てる
+  partitionUnit(modelInputs) {
+    const cands = this.candidates.map(({ id, nodes }) => ({ id, nodes }));
+    const taskCands = candidatesWithEdges(cands, this.graph.edges);
+    const graphEdges = this.graph.edges.map(({ id, from, to, kind }) => ({ id, from, to, kind }));
+    const known = new Set((this.request?.known_requirements ?? []).map((k) => k.id));
+    return {
+      role: 'partition-author',
+      spec: () => ({ role: 'partition-author', stage: '計画', candidates: taskCands, input_refs: modelInputs }),
+      check: (ret, task) => {
+        const outs = ret.outputs.filter((o) => o.kind === 'partitions');
+        if (outs.length !== 1) return { defects: [defect('other', 'partitions-count', 'partitions がちょうど 1 つでない')], value: null };
+        const draft = readRunJson(this.runDir, outs[0].ref);
+        if (draft === null) return { defects: [defect('syntax', 'partitions-read', 'partitions を読めない')], value: null };
+        const errs = validate(PartitionsDraft, draft);
+        if (errs.length) return { defects: [defect('syntax', 'partitions-shape', `partitions の形が違う（分割の下書き PartitionsDraft）: ${errs.slice(0, 3).join('; ')}`)], value: null };
+        const out = callCore('partition-assemble', {
+          candidates: cands, graph_edges: graphEdges,
+          decisions: draft.decisions.map(({ candidate_id, adopted, reason: why }) => ({ candidate_id, adopted, reason: why })),
+          boundaries: draft.boundaries.map(({ edge_id, assumption, guarantee, assumption_basis, responsible }) => ({ edge_id, assumption, guarantee, assumption_basis, responsible })),
+        });
+        const asm = assemblePartitions(draft, out);
+        const ref = `assembled/${task.task_id}/partitions.json`;
+        if (!this.writeRecordFile(ref, JSON.stringify(asm.partitions, null, 2), { kind: 'partitions', register: false })) return { defects: [...asm.defects, defect('other', `assembled:${ref}`, `組み立てた分割 ${ref} を書けない`)], value: null };
+        const prefix = `${relative(this.runDir, task.attempt_dir)}/`;
+        const c = partitionCheck(this.runDir, asm.partitions, { candidates: cands, graph: this.graph, models: this.models, prefix, knownRequirementIds: known });
+        // 下書きの欠けは組み立てた分割にも境界の欠けとして残るので、同じ key の欠陥を 2 度数えない
+        const keys = new Set(asm.defects.map((d) => d.key));
+        return { defects: [...asm.defects, ...c.defects.filter((d) => !keys.has(d.key))], value: { ref, data: asm.partitions, check: c } };
+      },
+      accept: (last) => {
+        // 欠陥の残った分割（形の違い・読めない・個数の違いを含む）は採らない（artifact-formats.md「欠陥の残った分割」）。
+        // 計画作成役には分割の無いモデルだけを渡す
+        this.partitionDefects = last.defects;
+        const reject = () => {
+          this.partitionRejected = true;
+          this.decisions = this.candidates.map((c) => ({ candidate_id: c.id, adopted: false, reason: PARTITION_REJECTED }));
+          this.log('計画').unconfirmed.push(...last.defects.map((d) => `分割の欠陥が残った: ${d.text}`));
+        };
+        if (!last.value || !last.value.check.valid) { this.notCreatedFor('partition-author', '分割作成役の成果物が形に合わない'); reject(); return; }
+        // 台帳に載せるのは組み立てた分割（producer はこの task。spec §2.4 の冒頭）
+        if (!this.registerAuthor(last, [])) return;
+        if (!this.registerAgentFile('partitions', last.value.ref, last.task, last.materials)) return;
+        const { data, check } = last.value;
+        if (last.defects.length) { reject(); return; }
+        this.decisions = data.decisions;
+        if (data.adopted) {
+          const queries = [...data.contracts, ...data.composition_conditions].map((x) => x.query_ref);
+          for (const q of queries) if (this.registerAgentFile('query', q, last.task, last.materials)) this.queryRefs.set(q, { kind: 'partition' });
+          for (const [ref, v] of check.smtBad) this.smtBad.set(ref, v);
+          this.partitions = { ref: last.value.ref, data };
+        }
+      },
+      onFail: (why) => this.notCreatedFor('partition-author', why),
+      revoke: (r) => {
+        this.revokeAuthor('partition-author', r);
+        this.partitions = null;
+        this.decisions = [];
+        this.partitionRevoked = true;
+        this.dropPartitionlessChecks();
+      },
+    };
+  }
+
+  // モデル m の plan-author の unit（SP-264-012・020・021、DD-15）。担当は下書き（PlanDraft・MutationsDraft）を書き、CLI が plan-skeleton の骨組みと
+  // 合わせて PlanFile・MutationsFile を組み立て、そのモデルに限った文脈で今の planCheck を当てる。受理と取り消しはモデルごとに planParts へ控え、
+  // rebuildPlan がモデルの順につなぐ。formalOfModel は m の性質の inventory_property_ids に入る形式化できる必要な性質（inventory の順）
+  planUnit(m, formalOfModel, queryInputs) {
+    const invIds = [...new Set(m.data.properties.flatMap((p) => p.inventory_property_ids))].sort(cmpBytes);
+    const propertyIds = new Set(this.inventoryProperties().map((p) => p.id));
+    const failed = (why) => this.notCreatedFor('plan-author', `モデル ${m.id} の${why}`);
+    // 採った分割のうち、このモデルの部分・契約・合成の条件（境界は切らない。モデルをまたぐ契約は分割の照合が欠陥にする）
+    const partsOf = () => {
+      if (!this.partitions) return null;
+      const d = this.partitions.data;
+      const mine = (x) => x.model_id === m.id;
+      return { parts: d.parts.filter(mine), boundaries: d.boundaries, contracts: d.contracts.filter(mine), composition_conditions: d.composition_conditions.filter(mine) };
+    };
+    const spec = () => {
+      const p = partsOf();
+      const targets = p ? [...p.contracts, ...p.composition_conditions] : [];
+      return {
+        role: 'plan-author', stage: '計画', model_id: m.id, property_ids: formalOfModel.map((x) => x.id),
+        // そのモデルで出しうる target_id の一覧（モデルの性質、契約、合成の条件の各々宣言の順。SP-264-021、DD-18）
+        target_ids: [...m.data.properties.map((x) => x.id), ...targets.map((x) => x.id)],
+        // 他のモデルのモデル・対応表・query は渡さない。性質の出所は複数の対象に跨りうるので、inventory は切らない
+        input_refs: [{ name: `model-${m.id}`, ref: m.ref }, { name: `mapping-${m.id}`, ref: m.mapping.ref }, ...queryInputs(m),
+          ...(p ? [{ name: 'partitions', ref: this.partitions.ref }, ...targets.map((x) => ({ name: `query-${x.id}`, ref: x.query_ref }))] : []),
+          ...this.inventories.map((i) => ({ name: `inventory-${i.target_id}`, ref: i.ref }))],
+      };
+    };
+    return {
+      role: 'plan-author',
+      spec,
+      check: (ret, task) => {
+        const read2 = (kind) => { const o = ret.outputs.find((x) => x.kind === kind); if (!o) return null; const data = readRunJson(this.runDir, o.ref); return data === null ? null : { ref: o.ref, data }; };
+        const planDraft = read2('plan');
+        const mutDraft = read2('mutations');
+        if (!planDraft || !mutDraft) return { defects: [defect('syntax', 'plan-missing', 'plan か mutations が無いか、JSON として読めない')], value: null };
+        const errs = [...validate(PlanDraft, planDraft.data), ...validate(MutationsDraft, mutDraft.data)];
+        if (errs.length) return { defects: [defect('syntax', 'plan-shape', `計画の下書きの形が違う（PlanDraft・MutationsDraft）: ${errs.slice(0, 3).join('; ')}`)], value: null };
+        // この巡の返り値の blocked_by_question だけで照らす（問いと依存を控えるのは、受け入れた返り値の accept だけ）
+        const blocked = new Set([...this.blockedBy.keys(), ...ret.blocked_by_question]);
+        const eligible = new Set(formalOfModel.filter((p) => !blocked.has(p.id)).map((p) => p.id));
+        // 骨組みが除く性質: このモデルの inventory の性質のうち、問いに依存するか、選んだ道具が無いもの（id の順）
+        const single = selectionSingle(planDraft.data.selection);
+        const excluded = invIds.filter((pid) => blocked.has(pid) || noSuitableTool(this.prepare, single(pid)));
+        const partitions = partsOf();
+        const skeleton = callCore('plan-skeleton', {
+          models: [{ model_id: m.id, properties: m.data.properties.map((p) => ({ id: p.id, inventory_property_ids: p.inventory_property_ids, query_ref: p.query_ref, sanity: (p.sanity ?? []).map((x) => ({ query_ref: x.query_ref })) })) }],
+          partitions, excluded_property_ids: excluded, targets: planDraft.data.targets,
+        });
+        const asm = assemblePlan(planDraft.data, mutDraft.data, skeleton, { target_ids: task.context.target_ids });
+        // 変異の id は担当が書くので、モデルの間で重なりうる（鎖なので、前のモデルの受理はこの時点で planParts にある）
+        const others = new Set([...this.planParts].filter(([id]) => id !== m.id).flatMap(([, x]) => [...x.plan.checks, ...x.plan.sanity, ...x.mutations.mutations].map((y) => y.id)));
+        for (const x of asm.mutations.mutations) if (others.has(x.id)) asm.defects.push(defect('reference', `mutation-dup:${x.id}`, `変異の id ${x.id} が他のモデルの計画の id と重なる`));
+        const dir = `assembled/${task.task_id}`;
+        for (const [kind, data] of [['plan', asm.plan], ['mutations', asm.mutations]]) {
+          const ref = `${dir}/${kind}.json`;
+          if (!this.writeRecordFile(ref, JSON.stringify(data, null, 2), { kind, register: false })) return { defects: [...asm.defects, defect('other', `assembled:${ref}`, `組み立てた計画 ${ref} を書けない`)], value: null };
+        }
+        const c = planCheck(asm.plan, asm.mutations, {
+          runDir: this.runDir, prefix: `${relative(this.runDir, task.attempt_dir)}/`, models: [m], partitions,
+          eligible, blocked, prepare: this.prepare, authorQueries: new Set(this.queryRefs.keys()), smtBad: this.smtBad, propertyIds,
+        });
+        return { defects: [...asm.defects, ...c.defects], value: { plan: { ref: `${dir}/plan.json`, data: asm.plan }, mutations: { ref: `${dir}/mutations.json`, data: asm.mutations }, check: c, partitions } };
+      },
+      accept: (last) => {
+        this.noteQuestions(last.ret, 'plan-author');
+        if (!last.value || !last.value.check.valid) { failed('計画作成役の成果物が形に合わない'); return; }
+        // 台帳に載せるのは組み立てた計画と変異（producer はこの task。spec §2.4 の冒頭）
+        if (!this.registerAuthor(last, [])) return;
+        const { plan, mutations, check, partitions } = last.value;
+        if (!this.registerAgentFile('plan', plan.ref, last.task, last.materials) || !this.registerAgentFile('mutations', mutations.ref, last.task, last.materials)) return;
+        const prefix = `${relative(this.runDir, last.task.attempt_dir)}/`;
+        for (const x of mutations.data.mutations) if (x.mutation_ref.startsWith(prefix)) this.registerAgentFile('query', x.mutation_ref, last.task, last.materials);
+        this.planParts.set(m.id, { plan: plan.data, mutations: mutations.data, check, defects: last.defects, partitions });
+        this.rebuildPlan();
+        if (last.defects.length) this.log('計画').unconfirmed.push(...last.defects.map((d) => `計画の欠陥が残った: ${d.text}`));
+      },
+      onFail: (why) => failed(why),
+      revoke: (r) => {
+        this.revokeAuthor('plan-author', r);
+        this.planParts.delete(m.id);
+        this.rebuildPlan();
+      },
+    };
+  }
+
+  // 受理したモデルごとの計画を、モデルの順につないで 1 つの計画にする（SP-264-012、DD-15）。閉じた順に依らず同じ結果になる。
+  // つないだ計画はメモリだけに持つ（ref: null。モデルごとの計画は assembled/ にあり、写しを作らない）
+  rebuildPlan() {
+    const parts = this.models.filter((m) => this.planParts.has(m.id)).map((m) => [m, this.planParts.get(m.id)]);
+    if (parts.length === 0) {
+      this.plan = null;
+      this.mutations = null;
+      this.planDefects = new Map();
+      this.planDefectList = [];
+      this.selectionOf = () => null;
+      return;
+    }
+    // 修正の巡の後も残った変異の id の重なり（mutation-dup）は、先のモデルの変異を残す（つないだ計画の id を一意に保つ）
+    const seen = new Set();
+    const kept = parts.map(([, x]) => ({ plan: x.plan, mutations: { ...x.mutations, mutations: x.mutations.mutations.filter((y) => { if (seen.has(y.id)) return false; seen.add(y.id); return true; }) } }));
+    const { plan, mutations } = concatPlans(kept);
+    this.plan = { ref: null, data: plan };
+    this.mutations = { ref: null, data: mutations };
+    this.planDefectList = parts.flatMap(([, x]) => x.defects);
+    this.planDefects = new Map();
+    for (const [m, x] of parts) {
+      for (const [id, text] of defectiveElements(x.plan, x.mutations, x.defects, [m], x.partitions)) this.planDefects.set(id, this.planDefects.has(id) ? `${this.planDefects.get(id)}。${text}` : text);
+    }
+    // 分割作成役の query の違反が残った契約・合成の条件の検査は、欠陥の残った要素として実行しない
+    const targets = [...(this.partitions?.data.contracts ?? []), ...(this.partitions?.data.composition_conditions ?? [])];
+    for (const c of plan.checks) {
+      if (c.kind === 'property') continue;
+      const x = targets.find((y) => y.id === c.target_id);
+      if (x && this.smtBad.has(x.query_ref) && !this.planDefects.has(c.id)) this.planDefects.set(c.id, `${x.query_ref} が .smt2 の規則に反する（${this.smtBad.get(x.query_ref).join('・')}）`);
+    }
+    // inventory の性質はちょうど 1 つのモデルに属する（SP-264-010）ので、その性質の selection はそのモデルの計画から引く
+    const ownerOf = new Map();
+    for (const [m, x] of parts) for (const p of m.data.properties) for (const pid of p.inventory_property_ids) if (!ownerOf.has(pid)) ownerOf.set(pid, x.check);
+    this.selectionOf = (pid) => ownerOf.get(pid)?.single(pid) ?? null;
+    this.dropPartitionlessChecks();
   }
 
   planChecks() { return this.plan ? this.plan.data.checks.filter((c) => !this.planDefects.has(c.id)) : []; }
@@ -1287,6 +1479,7 @@ export class Run {
           // モデルの性質ごとの節（rule・premise・goal）と保証の抜粋と、その性質の query のファイルの絶対パス（担当にモデルの全体を切り出させない）
           model_properties: m.data.properties.map((p) => ({ id: p.id, inventory_property_ids: p.inventory_property_ids, expected: p.expected, assurance: p.assurance,
             clauses: p.clauses, query_path: this.pathOf(p.query_ref) })) };
+        view.omission_candidates = this.omissionCandidates(m, [...view.bound_elements, ...view.unbound_elements]);
       } else if (u.perspective === 'nonformal') {
         const p = props.find((x) => x.id === u.property_ids[0]);
         if (!p) continue;
@@ -1297,6 +1490,24 @@ export class Run {
       const ref = join('views', `${u.unit_id}.json`);
       if (this.writeRecordFile(ref, JSON.stringify(view, null, 2), { kind: 'material_view' })) this.viewRefs.set(u.unit_id, ref);
     }
+  }
+
+  // 漏れの候補（SP-264-027）: view の要素のうち、そのモデルのどの節・遷移・禁止・入出力の契約の source_ids にも無く、対応表のどの行も
+  // 触れないもの（実行体 omission-candidates。id の順）。要素は id と範囲だけを渡し、重なる id と読めない範囲の要素は渡さない
+  // （欠陥の残った inventory を受理した run でも、CLI の入力の不備にしない）
+  omissionCandidates(m, elements) {
+    const sm = m.data.state_machine;
+    const cited = [...new Set([...m.data.properties.flatMap((p) => p.clauses.flatMap((c) => c.source_ids)),
+      ...(sm ? [...sm.transitions, ...sm.forbidden].flatMap((x) => x.source_ids) : []), ...m.data.io_contracts.flatMap((c) => c.source_ids)])];
+    const seen = new Set();
+    const els = [];
+    for (const e of elements) {
+      if (seen.has(e.id) || !parseSpan(e.source.span)) continue;
+      seen.add(e.id);
+      els.push({ id: e.id, source: { target_id: e.source.target_id, file: e.source.file, span: e.source.span } });
+    }
+    const rows = m.mapping.data.rows.map((r) => ({ source: pointerOf(r.source) }));
+    return callCore('omission-candidates', { elements: els, cited_ids: cited, rows }).candidates;
   }
 
   causeSubjects() {
@@ -1322,8 +1533,10 @@ export class Run {
     if (r.ok) {
       this.registerAgentFile('worklog', r.ret.worklog_ref, r.task, r.materials);
       this.registerAgentFile('review_record', r.ret.record_ref, r.task, r.materials);
-      conf.result = r.ret.result;
-      conf.reason = r.ret.findings.length ? r.ret.findings.map((f) => `${f.kind}: ${f.note}`).join('。') : `独立した確認の結果は ${r.ret.result}`;
+      // 確認の結果は実行体 review-tally が指摘と項目ごとの記録から決める（担当は result を書かない。SP-264-028）
+      const { result } = callCore('review-tally', { findings: r.ret.findings, items: r.ret.items });
+      conf.result = result;
+      conf.reason = r.ret.findings.length ? r.ret.findings.map((f) => `${f.kind}: ${f.note}`).join('。') : `独立した確認の結果は ${result}`;
     } else {
       conf.reason = r.cause ?? '時間の上限か保存の失敗で担当を出さなかった';
       this.notCreated.push({ kind: 'review_record', reason: conf.reason });
@@ -1388,6 +1601,12 @@ export class Run {
 }
 
 // 静的な確認の実行の答え（sat・unsat）。判定できなければ null。
+// 対応表の行の出所（$defs/Pointer の欄だけ）
+function pointerOf(s) {
+  if (s.kind !== 'location') return { kind: s.kind, id: s.id };
+  return { kind: s.kind, target_id: s.target_id, file: s.file, ...(s.span === undefined ? {} : { span: s.span }) };
+}
+
 function answerOf(e) {
   const v = e && e.outcome ? verdictOf(e.outcome.end) : null;
   if (v === '成功') return e.expected;
